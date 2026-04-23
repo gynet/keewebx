@@ -357,12 +357,6 @@ class AppModel {
         }
         this._addTags(file);
         this._tagsChanged();
-        this.menu.filesSection.addItem({
-            icon: 'lock',
-            title: Locale.menuSetFile,
-            page: 'file',
-            file
-        });
         this.updateFileSettingsSection();
 
         this.refresh();
@@ -491,7 +485,6 @@ class AppModel {
         this.files.remove(file);
         this.updateTags();
         this.menu.groupsSection.removeByFile(file);
-        this.menu.filesSection.removeByFile(file);
         this.updateFileSettingsSection();
         this.menu.select({ item: this.menu.allItemsSection.items[0] });
         Events.emit('one-file-closed');
