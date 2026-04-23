@@ -349,13 +349,12 @@ class AppView extends View {
         }
     }
 
-    showFileSettings(e: any): void {
-        const menuItem = this.model.menu.filesSection.items.find(
-            (item: any) => item.file.id === e.fileId
-        );
+    showFileSettings(_e: any): void {
+        const menuItem = this.model.menu.fileSettingsSection.items[0];
+        if (!menuItem) return;
         const views = (this as any).views;
         if (views.settings) {
-            if (views.settings.file === menuItem.file) {
+            if ((views.settings as any).file === (menuItem as any).file) {
                 this.showEntries();
             } else {
                 this.model.menu.select({ item: menuItem });
