@@ -1,0 +1,290 @@
+:focus {
+    outline: none;
+}
+
+fieldset {
+    background-color: var(--secondary-background-color);
+    border: base-border();
+    margin: 0 0 $small-spacing;
+    padding: $base-spacing;
+}
+
+input {
+    line-height: normal;
+    color: inherit;
+}
+
+input,
+select {
+    display: block;
+    font-family: $base-font-family;
+    font-size: 1rem;
+    -webkit-app-region: no-drag;
+}
+
+label {
+    display: inline-block;
+    font-family: $base-font-family;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: $small-spacing / 2;
+
+    &.required::after {
+        content: '*';
+    }
+
+    abbr {
+        display: none;
+    }
+}
+
+input[type='text'],
+input[type='password'],
+textarea,
+input:not([type]) {
+    box-sizing: border-box;
+    font-family: $base-font-family;
+    font-size: 1rem;
+    margin-bottom: $small-spacing;
+    padding: $base-spacing / 3;
+    transition: border-color $base-duration $base-timing;
+
+    &::-ms-clear {
+        display: none;
+    }
+
+    &::-webkit-credentials-auto-fill-button {
+        visibility: hidden;
+        display: none !important;
+        pointer-events: none;
+        position: absolute;
+        right: 0;
+    }
+
+    color: var(--text-color);
+    background-color: var(--background-color);
+    border: base-border();
+    box-shadow: form-box-shadow();
+    border-radius: var(--input-border-radius);
+
+    &:hover {
+        border-color: var(--accent-border-color);
+    }
+
+    &:focus {
+        border-color: var(--form-box-border-color-focus);
+        box-shadow: form-box-shadow-focus();
+        outline: none;
+    }
+
+    &:disabled {
+        background-color: var(--disabled-background-color);
+        cursor: not-allowed;
+
+        &:hover {
+            border: base-border();
+        }
+    }
+
+    &.input--error,
+    &.input--error:hover,
+    &.input--error:focus,
+    &:invalid {
+        border-color: var(--error-color);
+        box-shadow: form-box-shadow-focus-error();
+        &::selection {
+            background-color: var(--text-selection-bg-color-error);
+        }
+    }
+
+    &.input-search {
+        padding-left: 2.9em;
+        padding-right: 1.8em;
+    }
+
+    &::placeholder {
+        color: var(--muted-color);
+    }
+}
+
+textarea {
+    resize: vertical;
+}
+
+input[type='search'] {
+    appearance: none;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+    display: inline;
+    margin-right: $small-spacing / 2;
+
+    + label {
+        display: inline-block;
+    }
+}
+
+input[type='file'] {
+    margin-bottom: $small-spacing;
+    width: 100%;
+}
+
+select {
+    margin-bottom: $small-spacing;
+    max-width: 100%;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    transition: border-color $base-duration $base-timing;
+    border-radius: var(--input-border-radius);
+    padding-left: $base-spacing / 3;
+
+    background-image: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iaXNvLTg4NTktMSI/Pg0KPHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiDQogICAgd2lkdGg9IjMwNnB4IiBoZWlnaHQ9IjMwNnB4IiB2aWV3Qm94PSIwIDAgMzA2IDMwNiIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSI+DQogICAgPHBvbHlnb24gcG9pbnRzPSIyNzAuMyw1OC42NSAxNTMsMTc1Ljk1IDM1LjcsNTguNjUgMCw5NC4zNSAxNTMsMjQ3LjM1IDMwNiw5NC4zNSIgZmlsbD0iIzk5ODQ4MyIvPg0KPC9zdmc+DQo=);
+    background-position: calc(100% - 5px) center;
+    background-size: 10px;
+    background-repeat: no-repeat;
+
+    background-color: var(--background-color);
+    border: base-border();
+    color: var(--text-color);
+    box-shadow: form-box-shadow();
+    &:hover {
+        border-color: var(--accent-border-color);
+    }
+    &:focus {
+        border-color: var(--form-box-border-color-focus);
+        box-shadow: form-box-shadow-focus();
+        outline: none;
+    }
+    &:disabled {
+        background-color: var(--disabled-background-color);
+        cursor: not-allowed;
+        &:hover {
+            border: base-border();
+        }
+    }
+    &::-ms-expand {
+        display: none;
+    }
+}
+
+option {
+    background-color: var(--background-color);
+    color: var(--text-color);
+}
+
+input[type='checkbox'] {
+    display: none;
+
+    &:not([disabled]) + label:hover:before {
+        color: var(--action-color);
+    }
+    & + label:before {
+        @include fa-icon;
+        content: $fa-var-square-o;
+        display: inline-block;
+        width: 1.3em;
+        color: var(--text-color);
+        font-size: 1.2em;
+        vertical-align: bottom;
+        position: relative;
+        top: 0.08em;
+    }
+    &:checked + label:before {
+        content: $fa-var-check-square-o;
+    }
+}
+
+$thumb-size: 14px;
+
+input[type='range'] {
+    -webkit-appearance: none;
+    width: 100%;
+    margin: 12px 0;
+    padding: 0;
+    background: transparent;
+    &:focus {
+        outline: none;
+    }
+    &::-webkit-slider-runnable-track {
+        background: var(--text-color);
+        width: 100%;
+        height: 1px;
+        cursor: pointer;
+        border-radius: 1px;
+        border: none;
+    }
+    &::-webkit-slider-thumb {
+        background: var(--text-color);
+        border: none;
+        height: $thumb-size;
+        width: $thumb-size;
+        border-radius: $thumb-size;
+        cursor: pointer;
+        -webkit-appearance: none;
+        margin-top: -6.5px;
+    }
+    &::-moz-range-track {
+        background: var(--text-color);
+        width: 100%;
+        height: 1px;
+        cursor: pointer;
+        border-radius: 1px;
+        border: none;
+    }
+    &::-moz-range-thumb {
+        background: var(--text-color);
+        border: none;
+        height: $thumb-size;
+        width: $thumb-size;
+        border-radius: $thumb-size;
+        cursor: pointer;
+    }
+    &::-moz-focus-outer {
+        border: 0;
+    }
+    &::-ms-track {
+        width: 100%;
+        height: 1px;
+        cursor: pointer;
+        background: transparent;
+        border-color: transparent;
+        border-width: $thumb-size 0;
+        color: transparent;
+    }
+    &::-ms-tooltip {
+        display: none;
+    }
+    &::-ms-fill-lower,
+    &::-ms-fill-upper,
+    &:focus::-ms-fill-lower,
+    &:focus::-ms-fill-upper {
+        background: lightgray; // https://developer.microsoft.com/en-us/microsoft-edge/platform/issues/12132854/
+        //background: var(--text-color);
+    }
+    &::-ms-thumb {
+        border: none;
+        height: $thumb-size;
+        width: $thumb-size;
+        border-radius: $thumb-size;
+        cursor: pointer;
+        background: lightgray; // https://developer.microsoft.com/en-us/microsoft-edge/platform/issues/12132854/
+        //background: var(--text-color);
+    }
+}
+
+.input-size-base {
+    width: 60%;
+    @include tablet {
+        width: calc(100% - 20px);
+    }
+}
+
+.input-base {
+    @extend .input-size-base;
+}
+
+select.input-base {
+    height: 2em;
+}

@@ -1,0 +1,39 @@
+@mixin area-selectable() {
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    &:hover,
+    &.sel--active {
+        background-color: var(--intermediate-background-color);
+        color: var(--medium-color);
+    }
+    &:active {
+        background-color: var(--intermediate-pressed-background-color);
+    }
+}
+
+@mixin area-selectable-on-secondary() {
+    @include area-selectable();
+    &:hover,
+    &.sel--active {
+        background-color: var(--selectable-on-secondary-item-color);
+    }
+}
+
+@mixin area-selected() {
+    cursor: default;
+    -webkit-app-region: no-drag;
+    background-color: var(--selected-item-color);
+    color: var(--selected-item-text-color);
+    &:hover {
+        color: var(--selected-item-text-color);
+    }
+}
+
+@mixin area-selected-on-secondary() {
+    @include area-selected();
+    color: var(--text-color);
+    background-color: var(--selected-on-secondary-item-color);
+    &:hover {
+        color: var(--text-color);
+    }
+}

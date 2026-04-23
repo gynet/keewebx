@@ -1,0 +1,189 @@
+<div class="settings__content">
+    <h1><i class="fa fa-lock settings__head-icon"></i> {{name}}</h1>
+    {{#if storage}}
+        {{#ifeq storage 'file'}}<p>{{res 'setFilePath'}}: {{path}}</p>{{/ifeq}}
+        {{#ifneq storage 'file'}}<p>{{#res 'setFileStorage'}}{{res storage}}{{/res}}</p>{{/ifneq}}
+    {{else}}
+        <p>{{res 'setFileIntl'}}.</p>
+        {{#unless supportFiles}}
+            <p>{{res 'setFileLocalHint'}} <a href="{{desktopLink}}" target="_blank">{{res 'setFileDownloadApp'}}</a></p>
+        {{/unless}}
+    {{/if}}
+
+    <div class="settings__file-buttons">
+        <button class="settings__file-button-save-default" {{#if syncing}}disabled{{/if}}>
+            {{#ifeq storage 'file'}}{{res 'setFileSave'}}{{/ifeq}}
+            {{#ifneq storage 'file'}}{{res 'setFileSyncVerb'}}{{/ifneq}}
+        </button>
+        {{#if canSaveTo}}
+            <button class="settings__file-button-save-choose btn-silent"
+                {{#if syncing}}disabled{{/if}}>{{res 'setFileSaveTo'}}</button>
+        {{/if}}
+        <button class="settings__file-button-close btn-silent">{{res 'setFileClose'}}</button>
+    </div>
+
+    <div class="settings__file-save-choose hide">
+        <h2>{{res 'setFileSaveTo'}}</h2>
+        {{#ifneq storage 'file'}}
+        <div class="settings__file-save-to settings__file-save-to-file">
+            <i class="fa fa-file-alt"></i>{{Res 'file'}}
+        </div>
+        {{/ifneq}}
+        {{#each storageProviders as |prv|}}
+            {{#unless prv.own}}
+            <div class="settings__file-save-to settings__file-save-to-storage" data-storage="{{prv.name}}">
+                {{#if prv.icon}}<i class="fa fa-{{prv.icon}}"></i>{{/if}}
+                <span>{{res prv.name}}</span>
+            </div>
+            {{/unless}}
+        {{/each}}
+        {{#if canExportXml}}
+        <div class="settings__file-save-to settings__file-save-to-xml">
+            <i class="fa fa-code"></i>{{res 'setFileSaveToXml'}}
+        </div>
+        {{/if}}
+        {{#if canExportHtml}}
+            <div class="settings__file-save-to settings__file-save-to-html">
+                <i class="fa fa-html5"></i>{{res 'setFileSaveToHtml'}}
+            </div>
+        {{/if}}
+    </div>
+
+    {{#if storage}}
+    <h2>{{res 'setFileSync'}}</h2>
+    <div>{{res 'setFileLastSync'}}: {{#if syncDate}}{{syncDate}}{{else}}{{res 'setFileLastSyncUnknown'}}{{/if}} {{#if syncing}}({{res 'setFileSyncInProgress'}}...){{/if}}</div>
+    {{#if syncError}}<div>{{res 'setFileSyncError'}}: {{syncError}}</div>{{/if}}
+    {{/if}}
+
+    {{{extensionsHtml}}}
+
+    <h2>{{res 'settings'}}</h2>
+    <label for="settings__file-master-pass" class="settings__file-master-pass-label input-base">{{res 'setFilePass'}}:
+        <span class="settings__file-master-pass-warning">
+            <i class="fa fa-exclamation-triangle"></i> <span id="settings__file-master-pass-warning-text">{{res 'setFilePassChange'}}</span>
+        </span>
+    </label>
+    <div class="hide">
+        {{!-- we need these inputs to screw browsers passwords autocompletion --}}
+        <input type="text" name="username">
+        <input type="password" name="password">
+    </div>
+    <input type="password" class="settings__input input-base" id="settings__file-master-pass" value="{{password}}" autocomplete="new-password" />
+    <div id="settings__file-confirm-master-pass-group">
+        <label for="settings__file-confirm-master-pass" class="settings__file-master-pass-label input-base">{{res 'setFileConfirmPass'}}:
+            <span class="settings__file-confirm-master-pass-warning">
+                <i class="fa fa-exclamation-triangle"></i> {{res 'setFilePassNotMatch'}}
+            </span>
+        </label>
+        <input type="password" class="settings__input input-base" id="settings__file-confirm-master-pass" autocomplete="confirm-password" />
+    </div>
+    <p>
+        <label for="settings__file-key-file">{{res 'setFileKeyFile'}}:</label>
+        <select class="settings__select settings__select-no-margin input-base" id="settings__file-key-file"></select>
+        <a id="settings__file-file-select-link">{{res 'setFileSelKeyFile'}}</a>
+        <input type="file" id="settings__file-file-select" class="hide-by-pos" />
+    </p>
+    {{#if showYubiKeyBlock}}
+        <p>
+            <label for="settings__file-yubikey">{{res 'setFileYubiKey'}}:</label>
+            <select class="settings__select settings__select-no-margin input-base" id="settings__file-yubikey">
+                <option value="" {{#unless selectedYubiKey}}selected{{/unless}}>{{res 'setFileDontUseYubiKey'}}</option>
+                {{#each yubiKeys as |yk|}}
+                    <option value="{{yk.value}}"
+                            {{#ifeq ../selectedYubiKey yk.value}}selected{{/ifeq}}
+                            data-vid="{{yk.vid}}"
+                            data-pid="{{yk.pid}}"
+                            data-serial="{{yk.serial}}"
+                            data-slot="{{yk.slot}}"
+                    >
+                        {{yk.fullName}}, {{res 'yubiKeySlot'}} {{yk.slot}}
+                    </option>
+                {{/each}}
+                <option value="refresh">{{res 'setFileRefreshYubiKeyList'}}</option>
+            </select>
+        </p>
+    {{/if}}
+
+    <h2>{{res 'setFileNames'}}</h2>
+    <label for="settings__file-name">{{Res 'name'}}:</label>
+    <input type="text" class="settings__input input-base" id="settings__file-name" value="{{name}}" required />
+    <label for="settings__file-def-user">{{res 'setFileDefUser'}}:</label>
+    <input type="text" class="settings__input input-base" id="settings__file-def-user" value="{{defaultUser}}" />
+
+    {{#if canBackup}}
+    <h2>{{res 'setFileBackups'}}</h2>
+    <div>
+        <input type="checkbox" class="settings__input input-base" id="settings__file-backup-enabled" {{#if backupEnabled}}checked{{/if}} />
+        <label for="settings__file-backup-enabled">{{res 'setFileBackupEnable'}}</label>
+    </div>
+    <div class="settings__file-backups {{#unless backupEnabled}}hide{{/unless}}">
+        <select class="settings__select input-base" id="settings__file-backup-storage">
+            {{#if supportFiles}}<option value="file" {{#ifeq backupStorage 'file'}}selected{{/ifeq}}>{{Res 'file'}}</option>{{/if}}
+            {{#each storageProviders as |prv|}}
+                {{#if prv.backup}}
+                <option value="{{prv.name}}" {{#ifeq ../backupStorage prv.name}}selected{{/ifeq}}>{{res prv.name}}</option>
+                {{/if}}
+            {{/each}}
+        </select>
+        <label for="settings__file-backup-path">{{res 'setFileBackupPath'}}:</label>
+        <input type="text" class="settings__input input-base" id="settings__file-backup-path" value="{{backupPath}}"
+            placeholder="{{backupPath}}" />
+        <label for="settings__file-backup-schedule">{{res 'setFileBackupTime'}}:</label>
+        <select class="settings__select input-base" id="settings__file-backup-schedule">
+            <option value="0" {{#ifeq backupSchedule '0'}}selected{{/ifeq}}>{{res 'setFileBackupOnSave'}}</option>
+            <option value="1d" {{#ifeq backupSchedule '1d'}}selected{{/ifeq}}>{{res 'setFileBackupDaily'}}</option>
+            <option value="1w" {{#ifeq backupSchedule '1w'}}selected{{/ifeq}}>{{res 'setFileBackupWeekly'}}</option>
+            <option value="1m" {{#ifeq backupSchedule '1m'}}selected{{/ifeq}}>{{res 'setFileBackupMonthly'}}</option>
+            <option value="" {{#unless backupSchedule}}selected{{/unless}}>{{res 'setFileBackupManually'}}</option>
+        </select>
+        <button class="btn-silent settings__file-button-backup">{{res 'setFileBackupNow'}}</button>
+    </div>
+    {{/if}}
+
+    <h2>{{Res 'history'}}</h2>
+    <div>
+        <input type="checkbox" class="settings__input input-base" id="settings__file-trash" {{#if recycleBinEnabled}}checked{{/if}} />
+        <label for="settings__file-trash">{{res 'setFileEnableTrash'}}</label>
+    </div>
+    <label for="settings__file-hist-type">{{res 'setFileHistMode'}}</label>
+    <select class="settings__select input-base" id="settings__file-hist-type">
+        <option value="1" {{#cmp historyMaxItems 0 '>'}}selected{{/cmp}}>{{res 'setFileHistLimited'}}</option>
+        <option value="0" {{#ifeq historyMaxItems 0}}selected{{/ifeq}}>{{res 'setFileHistDisabled'}}</option>
+        <option value="-1" {{#ifeq historyMaxItems -1}}selected{{/ifeq}}>{{res 'setFileHistUnlimited'}}</option>
+    </select>
+    {{#cmp historyMaxItems 0 '>'}}
+        <label for="settings__file-hist-len">{{res 'setFileHistLen'}}:</label>
+        <input type="text" pattern="\d+" required class="settings__input input-base" id="settings__file-hist-len" value="{{historyMaxItems}}" maxlength="6" />
+    {{/cmp}}
+    <label for="settings__file-hist-size">{{res 'setFileHistSize'}}:</label>
+    <input type="text" pattern="\d+" required class="settings__input input-base" id="settings__file-hist-size" value="{{historyMaxSize}}" maxlength="3" />
+
+    <h2>{{res 'advanced'}}</h2>
+    <label for="settings__file-kdf">{{res 'setFileKdfParams'}}</label>
+    <select class="settings__select input-base" id="settings__file-kdf">
+        <option value="Argon2d" {{#ifeq kdfName 'Argon2d'}}selected{{/ifeq}}>Argon2d</option>
+        <option value="Argon2id" {{#ifeq kdfName 'Argon2id'}}selected{{/ifeq}}>Argon2id</option>
+    </select>
+    {{#if kdfParameters}}
+        <div class="settings__row">
+            <div class="settings__col-small">
+                <label class="settings__col-small-label" for="settings__file-kdf-iter">{{res 'setFileKdfParamsIter'}}:</label>
+                <input type="text" pattern="\d+" required class="settings__input input-base settings__input-kdf"
+                       data-field="iterations" id="settings__file-kdf-iter" value="{{kdfParameters.iterations}}" maxlength="10" />
+            </div>
+            <div class="settings__col-small">
+                <label class="settings__col-small-label" for="settings__file-kdf-mem">{{res 'setFileKdfParamsMem'}}:</label>
+                <input type="text" pattern="\d+" required class="settings__input input-base settings__input-kdf"
+                       data-field="memory" data-mul="1024" id="settings__file-kdf-mem" value="{{kdfParameters.memory}}" maxlength="10" />
+            </div>
+            <div class="settings__col-small">
+                <label class="settings__col-small-label" for="settings__file-kdf-par">{{res 'setFileKdfParamsPar'}}:</label>
+                <input type="text" pattern="\d+" required class="settings__input input-base settings__input-kdf"
+                       data-field="parallelism" id="settings__file-kdf-par" value="{{kdfParameters.parallelism}}" maxlength="2" />
+            </div>
+        </div>
+    {{/if}}
+
+    <label for="settings__file-key-change-force">{{res 'setFileKeyChangeForce'}}:</label>
+    <input type="text" pattern="\d*" class="settings__input input-base" id="settings__file-key-change-force" value="{{keyChangeForce}}" maxlength="6" />
+</div>

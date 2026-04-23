@@ -1,0 +1,43 @@
+.icon-select {
+    &__items {
+        display: flex;
+        align-items: flex-start;
+        flex-direction: row;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        user-select: none;
+        padding-bottom: $base-padding-h;
+        &--custom,
+        &--actions {
+            padding-top: $base-padding-h;
+            border-top: 1px solid var(--light-border-color);
+        }
+    }
+    &__icon {
+        @include icon-btn();
+        font-size: 1.6em;
+        width: 26px;
+        padding: $base-padding-v;
+        &.icon-select__icon--active {
+            @include area-selected();
+        }
+        &-btn {
+            padding: 5px 10px;
+            > img {
+                width: 16px;
+                height: 16px;
+            }
+        }
+        &--custom-selected {
+            > i {
+                display: none;
+            }
+        }
+        &--progress > i:before {
+            content: $fa-var-spinner;
+        }
+        &--download-error > i:before {
+            content: $fa-var-ban;
+        }
+    }
+}

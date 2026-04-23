@@ -1,0 +1,160 @@
+name: Release self-host bundle
+
+# Produces a static-site tarball + zip users can drop onto any HTTP server
+# (nginx, Caddy, S3+CF, GitHub Pages, `python3 -m http.server`, ...). This is
+# the "I don't want to use keewebx.app, I want to host it myself"
+# artifact. Same bytes the CF Worker deploy publishes — just repackaged.
+#
+# Triggers:
+#   - push of a tag `v*`   -> attach archives to the matching GitHub Release
+#   - workflow_dispatch    -> upload as workflow artifact (testable without a tag)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # required to create/upload GitHub Releases
+
+jobs:
+  build-and-package:
+    # Skip extension-specific tags (`v*-extension`). Those are handled by
+    # release-extension.yml which builds Chrome/Firefox/Edge packages from
+    # packages/extension/. GitHub Actions tag filters don't support
+    # negation (e.g., `tags-ignore: 'v*-extension'` combined with
+    # `tags: 'v*'` is ignored), so we gate at the job level instead. On
+    # workflow_dispatch github.ref_name is the branch, which never matches.
+    if: ${{ !endsWith(github.ref_name, '-extension') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Build all packages (db first, then core — core's kdbxweb alias points at packages/db/dist)
+        run: bun run build
+        env:
+          # Pin the build's embedded commit SHA to the CI commit so the
+          # live-demo drift check in deploy-pages.yml stays consistent.
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Verify static assets present in dist
+        run: |
+          set -e
+          cd packages/core/dist
+          test -f index.html
+          test -f js/app.js
+          test -f css/app.css
+          test -f manifest.json
+          test -f browserconfig.xml
+          test -f icons/favicon-32x32.png
+          test -f icons/apple-touch-icon.png
+          test -f icons/safari-pinned-tab.svg
+          echo "All required static assets present."
+
+      - name: Verify build SHA injected into bundle
+        run: |
+          set -e
+          cd packages/core/dist
+          grep -q "${GITHUB_SHA}" js/app.js \
+            || { echo "::error::build SHA ${GITHUB_SHA} not found in js/app.js — DefinePlugin/webpack injection broken"; exit 1; }
+          echo "Build SHA ${GITHUB_SHA} confirmed in bundle."
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Compute version label
+        id: version
+        run: |
+          set -e
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Release version label: ${VERSION}"
+
+      - name: Stage release folder (dist + DEPLOY.md)
+        run: |
+          set -e
+          VERSION="${{ steps.version.outputs.version }}"
+          STAGE="staging/keewebx-web-${VERSION}"
+          rm -rf staging
+          mkdir -p "${STAGE}"
+          cp -r packages/core/dist/. "${STAGE}/"
+          cat > "${STAGE}/DEPLOY.md" <<'DEPLOYEOF'
+          # KeeWebX — Self-Host Deploy
+
+          ## Option A: Zero dependency — just open the HTML file
+
+          Extract this archive anywhere, then **double-click `index.html`** (or
+          drag it into your browser). The app loads from `file://` and opens
+          KDBX databases directly via browser WebCrypto — no Python, Node,
+          Docker, or web server needed.
+
+          Caveats on `file://`:
+          - PWA offline cache (service worker) does not register — refreshes
+            go through the local file every time (which is fine for self-host).
+          - Passkey quick unlock works on Firefox but is blocked by Chrome/Edge/Safari
+            (WebAuthn requires HTTPS or localhost). Use Option B if you need passkey.
+          - Browser extension autofill currently has limited `file://` support;
+            see https://github.com/gynet/keewebx/issues/55 for status.
+
+          ## Option B: Any static HTTP server
+
+          Serve the extracted folder from any static host — nginx, Caddy,
+          Apache, GitHub Pages, S3+CloudFront, Netlify, Vercel static, etc.
+          For a one-liner local test:
+
+              python3 -m http.server 8080
+              # or: bunx serve .
+              # or: npx serve .
+
+          Then open the printed URL. Under HTTP(S) the PWA service worker
+          registers and extension autofill works fully.
+
+          Source and documentation: https://github.com/gynet/keewebx
+          DEPLOYEOF
+          ls -la "${STAGE}"
+
+      - name: Create zip + tar.gz + sha256
+        id: pack
+        run: |
+          set -e
+          VERSION="${{ steps.version.outputs.version }}"
+          BASE="keewebx-web-${VERSION}"
+          mkdir -p artifacts
+          cd staging
+          # Archives contain the top-level `${BASE}/` folder so extracting doesn't
+          # spray files into the user's CWD.
+          zip -rq "../artifacts/${BASE}.zip" "${BASE}"
+          tar -czf "../artifacts/${BASE}.tar.gz" "${BASE}"
+          cd ../artifacts
+          sha256sum "${BASE}.zip" > "${BASE}.zip.sha256"
+          sha256sum "${BASE}.tar.gz" > "${BASE}.tar.gz.sha256"
+          ls -la
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload as workflow artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: keewebx-web-${{ steps.version.outputs.version }}
+          path: artifacts/*
+          retention-days: 30
+
+      - name: Attach to GitHub Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/${{ steps.pack.outputs.base }}.zip
+            artifacts/${{ steps.pack.outputs.base }}.zip.sha256
+            artifacts/${{ steps.pack.outputs.base }}.tar.gz
+            artifacts/${{ steps.pack.outputs.base }}.tar.gz.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true

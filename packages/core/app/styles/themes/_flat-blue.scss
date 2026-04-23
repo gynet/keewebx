@@ -1,0 +1,22 @@
+$themes: map-merge(
+    $themes,
+    (
+        fb:
+            map-merge(
+                $theme-defaults,
+                (
+                    background-color: #282c34,
+                    medium-color: #abb2bf,
+                    text-color: #d7dae0,
+                    action-color: #528bff,
+                    error-color: #c34034
+                )
+            )
+    )
+);
+
+body.th-fb {
+    .list__item--active .blue-color {
+        color: #98bfff;
+    }
+}

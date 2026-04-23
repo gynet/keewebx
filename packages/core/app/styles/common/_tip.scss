@@ -1,0 +1,149 @@
+.tip {
+    position: absolute;
+    padding: $base-padding;
+    white-space: nowrap;
+    z-index: $z-index-no-modal;
+    pointer-events: none;
+    opacity: 1;
+    @include nomobile {
+        animation: tip $tip-transition-in;
+    }
+    @include common-dropdown;
+    &.tip--fast,
+    &.tip--fast:before,
+    &.tip--fast:after {
+        animation-duration: $base-duration;
+    }
+    &--hide.tip,
+    &--hide.tip:before,
+    &--hide.tip:after {
+        transition: all $tip-transition-out;
+        transition-property: color, border-color, background-color, box-shadow;
+        color: transparent;
+        background-color: transparent;
+        border-color: transparent !important;
+        box-shadow: none;
+    }
+    &:before,
+    &:after {
+        @include nomobile {
+            animation: tip $tip-transition-in;
+        }
+        content: ' ';
+        width: 0;
+        height: 0;
+    }
+
+    $arrow-size-small: 10px 8px;
+    $arrow-size-large: 12px 9px;
+    $arrow-offset-small: 10px;
+    $arrow-offset-large: 11px;
+
+    &.tip--bottom:after {
+        @include position(absolute, -(nth($arrow-size-small, 2)) null null 50%);
+        transform: translate(-50%, 0);
+        @include triangle(
+            'up',
+            nth($arrow-size-small, 1),
+            nth($arrow-size-small, 2),
+            var(--background-color)
+        );
+    }
+    &.tip--top:after {
+        @include position(absolute, 100% null null 50%);
+        transform: translate(-50%, 0);
+        @include triangle(
+            'down',
+            nth($arrow-size-small, 1),
+            nth($arrow-size-small, 2),
+            var(--background-color)
+        );
+    }
+    &.tip--top-left:after {
+        @include position(absolute, 100% null null calc(100% - #{$arrow-offset-small}));
+        transform: translate(-50%, 0);
+        @include triangle(
+            'down',
+            nth($arrow-size-small, 1),
+            nth($arrow-size-small, 2),
+            var(--background-color)
+        );
+    }
+    &.tip--left:after {
+        @include position(absolute, 50% null null 100%);
+        transform: translate(0, -50%);
+        @include triangle(
+            'right',
+            nth($arrow-size-small, 2),
+            nth($arrow-size-small, 1),
+            var(--background-color)
+        );
+    }
+    &.tip--right:after {
+        @include position(absolute, 50% null null (-(nth($arrow-size-small, 2))));
+        transform: translate(0, -50%);
+        @include triangle(
+            'left',
+            nth($arrow-size-small, 2),
+            nth($arrow-size-small, 1),
+            var(--background-color)
+        );
+    }
+
+    &.tip--bottom:before {
+        @include position(absolute, (-(nth($arrow-size-large, 2))) null null 50%);
+        transform: translate(-50%, 0);
+        @include triangle(
+            'up',
+            nth($arrow-size-large, 1),
+            nth($arrow-size-large, 2),
+            var(--light-border-color)
+        );
+    }
+    &.tip--top:before {
+        @include position(absolute, 100% null null 50%);
+        transform: translate(-50%, 0);
+        @include triangle(
+            'down',
+            nth($arrow-size-large, 1),
+            nth($arrow-size-large, 2),
+            var(--light-border-color)
+        );
+    }
+    &.tip--top-left:before {
+        @include position(absolute, 100% null null calc(100% - #{$arrow-offset-small}));
+        transform: translate(-50%, 0);
+        @include triangle(
+            'down',
+            nth($arrow-size-large, 1),
+            nth($arrow-size-large, 2),
+            var(--light-border-color)
+        );
+    }
+    &.tip--left:before {
+        @include position(absolute, 50% null null 100%);
+        transform: translate(0, -50%);
+        @include triangle(
+            'right',
+            nth($arrow-size-large, 2),
+            nth($arrow-size-large, 1),
+            var(--light-border-color)
+        );
+    }
+    &.tip--right:before {
+        @include position(absolute, 50% null null (-(nth($arrow-size-large, 2))));
+        transform: translate(0, -50%);
+        @include triangle(
+            'left',
+            nth($arrow-size-large, 2),
+            nth($arrow-size-large, 1),
+            var(--light-border-color)
+        );
+    }
+}
+
+@keyframes tip {
+    from {
+        opacity: 0;
+    }
+}

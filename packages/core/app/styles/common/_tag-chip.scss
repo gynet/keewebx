@@ -1,0 +1,149 @@
+// Tag chip — modern pill/chip style for tags in details view.
+// Replaces the legacy comma-separated plain text with individual
+// colored pills. Each chip gets a deterministic hue via the
+// CSS custom property --tag-hue (set inline by field-view-tags.ts).
+//
+// References: 1Password tag pills, Bitwarden tag chips,
+// GitHub issue labels, Notion tag properties.
+
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 18px;
+    margin: 2px 3px 2px 0;
+    white-space: nowrap;
+    cursor: default;
+    transition: opacity 0.15s;
+
+    // Deterministic color from --tag-hue (0-359).
+    // Apple glassmorphism — extra transparent per user feedback.
+    background: hsla(var(--tag-hue, 200), 30%, 55%, 0.08);
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    // Text color matches the SVG dot fill: hsl(hue, 65%, 55%)
+    color: hsla(var(--tag-hue, 200), 65%, 65%, 1);
+    border: 1px solid hsla(var(--tag-hue, 200), 25%, 70%, 0.12);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    letter-spacing: 0.3px;
+
+    &:hover {
+        background: hsla(var(--tag-hue, 200), 35%, 58%, 0.15);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+}
+
+// Left sidebar tags — flow-wrap cloud layout with colored dot + count.
+// Tags wrap horizontally instead of stacking vertically, each tag is
+// a compact inline pill with a small SVG circle + "tag (N)" text.
+//
+// The :has() selector targets ONLY the tags section's scroller,
+// leaving groups/files sections in their normal vertical layout.
+//
+// Reference: tag clouds, 1Password tag dots, tradesviz.com tag UI.
+
+// ── Cloud mode (default): flow-wrap pills ────────────────────────
+.menu__section:has(.menu__item--tag-cloud) {
+    .scroller {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 4px 8px;
+        align-content: flex-start;
+    }
+}
+
+.menu__item--tag-cloud {
+    display: inline-flex;
+    width: auto;
+    flex-shrink: 0;
+
+    .menu__item-body {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px 3px 6px;
+        border-radius: 14px;
+        // Apple glassmorphism — extra transparent
+        background: hsla(var(--tag-hue, 200), 30%, 55%, 0.08);
+        backdrop-filter: blur(12px) saturate(1.4);
+        -webkit-backdrop-filter: blur(12px) saturate(1.4);
+        border: 1px solid hsla(var(--tag-hue, 200), 25%, 70%, 0.12);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        transition: background 0.15s, box-shadow 0.15s;
+        cursor: pointer;
+
+        &:hover {
+            background: hsla(var(--tag-hue, 200), 35%, 60%, 0.15);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+        }
+    }
+
+    .menu__item-icon--image {
+        width: 8px;
+        height: 8px;
+        min-width: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+        flex-shrink: 0;
+    }
+
+    .menu__item-title {
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+        line-height: 16px;
+    }
+
+    .menu__item-drag-top,
+    .menu__item-edit,
+    .menu__item-collapse {
+        display: none;
+    }
+
+    &.menu__item--active .menu__item-body {
+        background: hsla(var(--tag-hue, 200), 35%, 58%, 0.25);
+        border-color: hsla(var(--tag-hue, 200), 40%, 65%, 0.3);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+    }
+}
+
+// ── Dot mode (minimal): vertical list with colored circle ────────
+.menu__item--tag-dot {
+    .menu__item-icon--image {
+        width: 10px;
+        height: 10px;
+        min-width: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+        flex-shrink: 0;
+    }
+
+    .menu__item-body {
+        padding: 3px 10px;
+    }
+
+    .menu__item-title {
+        font-size: 13px;
+        font-weight: 400;
+    }
+}
+
+// Autocomplete dropdown items (shown when editing tags)
+.details__field-autocomplete-item {
+    display: inline-block;
+    padding: 3px 10px;
+    margin: 2px;
+    border-radius: 10px;
+    font-size: 12px;
+    cursor: pointer;
+    background: hsla(0, 0%, 50%, 0.15);
+    transition: background 0.12s;
+
+    &:hover {
+        background: hsla(0, 0%, 50%, 0.3);
+    }
+}

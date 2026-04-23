@@ -1,0 +1,19 @@
+<div class="app">
+    {{#if beta}}<div class="app__beta"><i class="fa fa-exclamation-triangle"></i> {{res 'appBeta'}}</div>{{/if}}
+    {{#if customTitlebar}}
+        <div class="app__titlebar"></div>
+    {{else}}
+        {{#ifeq titlebarStyle 'hidden'}}<div class="app__titlebar-drag"></div>{{/ifeq}}
+    {{/if}}
+    <div class="app__body">
+        <div class="app__menu"></div>
+        <div class="app__menu-drag"></div>
+        <div class="app__list-wrap">
+            <div class="app__list"></div>
+            <div class="app__list-drag"></div>
+            <div class="app__details"></div>
+        </div>
+        <div class="app__panel hide"></div>
+    </div>
+    <div class="app__footer"></div>
+</div>

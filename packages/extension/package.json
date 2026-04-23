@@ -1,0 +1,49 @@
+{
+  "name": "@keewebx/extension",
+  "version": "1.0.3",
+  "description": "KeeWebX browser extension for autofill",
+  "main": "index.js",
+  "scripts": {
+    "start": "bun run build-chrome && bun run build-firefox && bun run build-edge",
+    "build-chrome": "cross-env KW_BROWSER=chrome webpack --mode=production",
+    "build-firefox": "cross-env KW_BROWSER=firefox webpack --mode=production && npx web-ext build -o -s dist/firefox",
+    "build-edge": "cross-env KW_BROWSER=edge webpack --mode=production",
+    "watch-chrome": "cross-env KW_BROWSER=chrome webpack --mode=development --watch",
+    "watch-firefox": "cross-env KW_BROWSER=firefox webpack --mode=development --watch",
+    "watch-edge": "cross-env KW_BROWSER=edge webpack --mode=development --watch",
+    "lint-firefox": "web-ext lint --source-dir dist/firefox/",
+    "prettier": "prettier --write src/**/*.ts src/**/*.tsx pages/*.html styles/*.css",
+    "download-translations": "bun scripts/download-translations.ts",
+    "bump-version": "bun scripts/bump-version.ts",
+    "test": "bun test tests/",
+    "test:e2e": "bunx playwright test --config playwright.config.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gynet/keewebx.git"
+  },
+  "author": "gynet",
+  "license": "MIT",
+  "homepage": "https://github.com/gynet/keewebx#readme",
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/copy-webpack-plugin": "^8.0.0",
+    "@types/node": "^20.12.10",
+    "@types/webpack": "^5.28.5",
+    "copy-webpack-plugin": "^8.1.0",
+    "cross-env": "^7.0.3",
+    "merge": "^2.1.1",
+    "prettier": "^2.8.8",
+    "ts-loader": "^9.5.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^4.2.4",
+    "web-ext": "^7.11.0",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "preact": "^10.5.13",
+    "tiny-typed-emitter": "^2.1.0",
+    "tweetnacl": "^1.0.3"
+  }
+}

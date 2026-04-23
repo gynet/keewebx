@@ -1,0 +1,118 @@
+.cors-diag {
+    &__body {
+        text-align: left;
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    &__explanation {
+        margin-bottom: $base-spacing;
+        line-height: 1.5;
+
+        code {
+            background: var(--secondary-background-color);
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+    }
+
+    &__tabs {
+        display: flex;
+        gap: $tiny-spacing;
+        margin-bottom: 0;
+        border-bottom: 1px solid var(--muted-color);
+    }
+
+    &__tab {
+        padding: $tiny-spacing $small-spacing;
+        border: none;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--muted-color);
+        cursor: pointer;
+        font-size: 0.85em;
+        white-space: nowrap;
+
+        &:hover {
+            color: var(--text-color);
+        }
+
+        &--active {
+            color: var(--text-color);
+            border-bottom-color: var(--action-color);
+        }
+    }
+
+    &__panels {
+        margin-top: $small-spacing;
+    }
+
+    &__panel {
+        display: none;
+
+        &--active {
+            display: block;
+        }
+
+        p {
+            margin-bottom: $tiny-spacing;
+            line-height: 1.4;
+        }
+
+        ol {
+            margin: $tiny-spacing 0;
+            padding-left: 1.5em;
+            line-height: 1.5;
+
+            li {
+                margin-bottom: $tiny-spacing;
+            }
+
+            code {
+                background: var(--secondary-background-color);
+                padding: 1px 4px;
+                border-radius: 3px;
+                font-size: 0.85em;
+                word-break: break-all;
+            }
+        }
+    }
+
+    &__code {
+        background: var(--secondary-background-color);
+        border: 1px solid var(--muted-color);
+        border-radius: 4px;
+        padding: $small-spacing;
+        font-size: 0.8em;
+        line-height: 1.4;
+        overflow-x: auto;
+        white-space: pre;
+        margin: $tiny-spacing 0;
+        user-select: all;
+    }
+
+    &__copy-btn {
+        margin-top: $tiny-spacing;
+        margin-bottom: $small-spacing;
+        font-size: 0.85em;
+        padding: $tiny-spacing $small-spacing;
+        cursor: pointer;
+
+        i {
+            margin-right: 4px;
+        }
+    }
+
+    &__buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: $small-spacing;
+    }
+
+    &__test-btn {
+        i {
+            margin-right: 4px;
+        }
+    }
+}

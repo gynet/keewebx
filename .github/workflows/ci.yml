@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run test
+      - run: bun run build
+
+  typecheck:
+    # Hard type-check gate. As of commit 599485d9 (2026-04-09) the
+    # TS strict-mode baseline for packages/core is 0 AND
+    # `transpileOnly: true` has been dropped from webpack.config.js,
+    # so webpack's ts-loader now does real type-checking at bundle
+    # time. This job is the explicit standalone gate: `tsc --noEmit`
+    # must exit 0. Any error — even one — fails CI.
+    #
+    # The .typescript-baseline file is retained at 0 as a visible
+    # assertion / documentation anchor; the job verifies the file
+    # says 0 and that tsc agrees.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - name: Build packages/db (for kdbxweb type resolution)
+        # packages/core imports 'kdbxweb' (symlinked to packages/db).
+        # Without dist/types/, tsc can't find the module. Locally the
+        # types are present from prior builds but CI starts clean.
+        run: cd packages/db && bun run build
+      - name: Run tsc --noEmit on packages/core (hard fail on any error)
+        run: cd packages/core && bunx tsc --noEmit
+      - name: Enforce baseline sentinel is still 0
+        run: |
+          cd packages/core
+          BASELINE=$(cat .typescript-baseline | tr -d '[:space:]')
+          if [ "$BASELINE" != "0" ]; then
+            echo "::error title=TS baseline sentinel drifted::packages/core/.typescript-baseline must remain at 0. Got: $BASELINE. See Phase 1 TS migration closeout in 599485d9."
+            exit 1
+          fi
+
+  e2e-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: cd packages/extension && bun run build-chrome
+      - run: cd packages/extension && bunx playwright install chromium --with-deps
+      - run: sudo apt-get install -y xvfb
+      - name: Extension E2E (Playwright headed + xvfb)
+        run: cd packages/extension && xvfb-run bunx playwright test --config playwright.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-extension-report
+          path: |
+            packages/extension/test-results/
+            packages/extension/playwright-report/
+          retention-days: 7
+
+  e2e-full-chain-chromium:
+    # Full-chain autofill regression guard for Chromium. Drives the
+    # COMPLETE runCommand chain via chrome.action.onClicked.dispatch
+    # (a public chrome.events.Event API), including the encrypted
+    # backend.getLogins round-trip that was broken by the 2026-04-09
+    # nonce-aliasing bug. Runs against real github.com/login.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - name: Build packages/db (webpack dev server needs kdbxweb dist)
+        # packages/core webpack aliases `kdbxweb` → packages/db/dist.
+        # Without this build step the dev server fails to compile with
+        # "Can't resolve 'kdbxweb'" across ~20 files. Same root cause as
+        # the typecheck job's missing-types issue, different layer.
+        run: cd packages/db && bun run build
+      - run: cd packages/extension && bun run build-chrome
+      - run: bunx playwright install chromium --with-deps
+      - run: sudo apt-get install -y xvfb
+      - name: Full-chain chromium E2E
+        run: xvfb-run bunx playwright test --config playwright.config.ts --project=extension e2e/extension/autofill-full-chain.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-full-chain-chromium-report
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  e2e-full-chain-firefox:
+    # Full-chain autofill regression guard for Firefox. Uses Selenium
+    # + geckodriver because Playwright's bundled Firefox enforces xpi
+    # signature verification (our dev xpi is unsigned). Drives
+    # runCommand via the `invoke-action-click` runtime message RPC
+    # from the extension options page (Firefox does not expose
+    # chrome.action.onClicked.dispatch like Chromium does).
+    #
+    # Runner: ubuntu-latest (24.04 noble) REMOVED firefox from apt
+    # — only the snap is available, which doesn't work inside
+    # containerized CI. We install Firefox + geckodriver via binary
+    # downloads instead, which gives us a pinned Firefox version for
+    # reproducibility (ci drift in browser-version would otherwise
+    # surface as test flakiness).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - name: Build packages/db (webpack dev server needs kdbxweb dist)
+        # packages/core webpack aliases `kdbxweb` → packages/db/dist.
+        # Without this the dev server fails with "Can't resolve 'kdbxweb'".
+        run: cd packages/db && bun run build
+      - run: cd packages/extension && bun run build-firefox
+      - name: Install Firefox + geckodriver (pinned binary download)
+        run: |
+          set -euxo pipefail
+          # Firefox — pin a specific version for CI reproducibility.
+          # Update periodically in coordination with the local dev
+          # environment (local runs Firefox 149).
+          FIREFOX_VERSION=149.0.2
+          wget -q "https://download.mozilla.org/?product=firefox-${FIREFOX_VERSION}&os=linux64&lang=en-US" -O firefox.tar.xz
+          tar -xf firefox.tar.xz
+          sudo mv firefox /opt/firefox
+          sudo ln -sf /opt/firefox/firefox /usr/local/bin/firefox
+          firefox --version
+          # geckodriver — pinned release.
+          GECKO_VERSION=v0.36.0
+          wget -q "https://github.com/mozilla/geckodriver/releases/download/${GECKO_VERSION}/geckodriver-${GECKO_VERSION}-linux64.tar.gz" -O geckodriver.tar.gz
+          tar -xzf geckodriver.tar.gz
+          sudo mv geckodriver /usr/local/bin/
+          geckodriver --version
+          # Firefox deps (libdbus-glib, etc) — install what's actually
+          # needed for headless Firefox on ubuntu-noble.
+          sudo apt-get update
+          sudo apt-get install -y libdbus-glib-1-2 libgtk-3-0 libasound2t64
+      - name: Start KeeWebX dev server
+        run: |
+          bun run --filter @keewebx/core dev > /tmp/dev-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8085 > /dev/null; then
+              echo "dev server ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+      - name: Full-chain firefox E2E
+        env:
+          HEADLESS: '1'
+          KEEWEBX_URL: http://localhost:8085/
+        run: bun run e2e/extension/autofill-firefox-full-chain.mjs
+      - name: Dump dev server log on failure
+        if: failure()
+        run: cat /tmp/dev-server.log || true

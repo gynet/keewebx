@@ -1,0 +1,51 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "allowJs": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "paths": {
+      "const/*": ["./app/scripts/const/*"],
+      "util/*": ["./app/scripts/util/*"],
+      "models/*": ["./app/scripts/models/*"],
+      "framework/*": ["./app/scripts/framework/*"],
+      "comp/*": ["./app/scripts/comp/*"],
+      "views/*": ["./app/scripts/views/*"],
+      "collections/*": ["./app/scripts/collections/*"],
+      "storage": ["./app/scripts/storage/index.ts"],
+      "storage/*": ["./app/scripts/storage/*"],
+      "hbs-helpers/*": ["./app/scripts/hbs-helpers/*"],
+      "hooks/*": ["./app/scripts/hooks/*"],
+      "presenters/*": ["./app/scripts/presenters/*"],
+      "hbs": ["./app/scripts/types.d.ts"],
+      "locales/*": ["./app/scripts/locales/*"]
+    }
+  },
+  "include": [
+    "app/scripts/types.d.ts",
+    "app/scripts/kdbxweb.d.ts",
+    "app/scripts/app.ts",
+    "app/scripts/const/**/*.ts",
+    "app/scripts/util/**/*.ts",
+    "app/scripts/models/**/*.ts",
+    "app/scripts/framework/**/*.ts",
+    "app/scripts/collections/**/*.ts",
+    "app/scripts/storage/**/*.ts",
+    "app/scripts/hbs-helpers/**/*.ts",
+    "app/scripts/hooks/**/*.ts",
+    "app/scripts/presenters/**/*.ts",
+    "app/scripts/comp/**/*.ts",
+    "app/scripts/views/**/*.ts",
+    "app/scripts/auto-type/**/*.ts",
+    "app/scripts/plugins/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

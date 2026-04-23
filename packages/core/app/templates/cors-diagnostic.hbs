@@ -1,0 +1,72 @@
+<div class="cors-diag modal modal--wide">
+    <div class="modal__content">
+        <i class="modal__icon fa fa-shield-alt"></i>
+        <div class="modal__header">WebDAV CORS Error</div>
+        <div class="modal__body cors-diag__body">
+            <p class="cors-diag__explanation">
+                Your browser blocked the connection to <strong>{{serverUrl}}</strong> because the server
+                does not send the required <code>Access-Control-Allow-Origin</code> header.
+                This is a server-side configuration issue &mdash; add CORS headers for
+                <code>{{origin}}</code> on your WebDAV server.
+            </p>
+            <div class="cors-diag__tabs">
+                <button class="cors-diag__tab cors-diag__tab--active" data-tab="nextcloud">Nextcloud</button>
+                <button class="cors-diag__tab" data-tab="apache">Apache mod_dav</button>
+                <button class="cors-diag__tab" data-tab="nginx">nginx-dav-ext</button>
+                <button class="cors-diag__tab" data-tab="synology">Synology DSM</button>
+            </div>
+            <div class="cors-diag__panels">
+                <div class="cors-diag__panel cors-diag__panel--active" data-panel="nextcloud">
+                    <p>Add this to your <strong>nginx</strong> config (or reverse-proxy) for Nextcloud:</p>
+                    <pre class="cors-diag__code" data-panel-code="nextcloud">location /remote.php/dav {
+    add_header Access-Control-Allow-Origin "{{origin}}" always;
+    add_header Access-Control-Allow-Methods "GET, PUT, POST, DELETE, PROPFIND, MKCOL, LOCK, UNLOCK, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type, Depth, If-Match, If-None-Match, Lock-Token, Timeout, Destination, Overwrite, X-Requested-With" always;
+    add_header Access-Control-Allow-Credentials "true" always;
+    if ($request_method = OPTIONS) {
+        return 204;
+    }
+}</pre>
+                    <button class="cors-diag__copy-btn" data-copy-panel="nextcloud"><i class="fa fa-copy"></i> Copy</button>
+                </div>
+                <div class="cors-diag__panel" data-panel="apache">
+                    <p>Add this to your Apache <strong>VirtualHost</strong> or <strong>.htaccess</strong>:</p>
+                    <pre class="cors-diag__code" data-panel-code="apache">&lt;Location /webdav&gt;
+    Header always set Access-Control-Allow-Origin "{{origin}}"
+    Header always set Access-Control-Allow-Methods "GET, PUT, POST, DELETE, PROPFIND, MKCOL, LOCK, UNLOCK, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Authorization, Content-Type, Depth, If-Match, If-None-Match, Lock-Token, Timeout, Destination, Overwrite, X-Requested-With"
+    Header always set Access-Control-Allow-Credentials "true"
+&lt;/Location&gt;</pre>
+                    <button class="cors-diag__copy-btn" data-copy-panel="apache"><i class="fa fa-copy"></i> Copy</button>
+                </div>
+                <div class="cors-diag__panel" data-panel="nginx">
+                    <p>Add this to your <strong>nginx</strong> server block:</p>
+                    <pre class="cors-diag__code" data-panel-code="nginx">location /webdav {
+    add_header Access-Control-Allow-Origin "{{origin}}" always;
+    add_header Access-Control-Allow-Methods "GET, PUT, POST, DELETE, PROPFIND, MKCOL, LOCK, UNLOCK, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type, Depth, If-Match, If-None-Match, Lock-Token, Timeout, Destination, Overwrite, X-Requested-With" always;
+    if ($request_method = OPTIONS) {
+        return 204;
+    }
+}</pre>
+                    <button class="cors-diag__copy-btn" data-copy-panel="nginx"><i class="fa fa-copy"></i> Copy</button>
+                </div>
+                <div class="cors-diag__panel" data-panel="synology">
+                    <p>Synology DSM does not natively support CORS headers on WebDAV Server. Two options:</p>
+                    <ol>
+                        <li><strong>Reverse proxy</strong> &mdash; put nginx or Caddy in front of DSM and add CORS headers there (use the nginx config above).</li>
+                        <li><strong>DSM reverse proxy rule</strong> &mdash; In <em>Control Panel &gt; Application Portal &gt; Reverse Proxy</em>, create a rule pointing to <code>localhost:5005</code> (HTTP) or <code>localhost:5006</code> (HTTPS). Then add custom headers:<br/>
+                        <code>Access-Control-Allow-Origin: {{origin}}</code><br/>
+                        <code>Access-Control-Allow-Methods: GET, PUT, POST, DELETE, PROPFIND, MKCOL, LOCK, UNLOCK, OPTIONS</code><br/>
+                        <code>Access-Control-Allow-Headers: Authorization, Content-Type, Depth, If-Match, If-None-Match, Lock-Token, Timeout, Destination, Overwrite, X-Requested-With</code><br/>
+                        <code>Access-Control-Allow-Credentials: true</code></li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+        <div class="modal__buttons cors-diag__buttons">
+            <button class="cors-diag__test-btn" data-result="test"><i class="fa fa-sync"></i> Test again</button>
+            <button data-result="close">Close</button>
+        </div>
+    </div>
+</div>

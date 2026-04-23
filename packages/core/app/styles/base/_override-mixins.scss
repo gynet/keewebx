@@ -1,0 +1,202 @@
+@charset "UTF-8";
+
+// Local replacements for the small subset of bourbon mixins we actually used
+// (position, size, triangle). Bourbon was removed in favor of inline mixins
+// to drop the dependency.
+
+/// Shorthand for setting `position` + a 1-to-4-value offset list
+/// (top right bottom left). `null` skips that side. Mirrors
+/// bourbon's `position` mixin for our existing call sites.
+///
+/// @example scss
+///   .a { @include position(absolute, 0 null null 0); }
+///
+@mixin position($position, $coordinates: null null null null) {
+    @if type-of($coordinates) == list {
+        $len: length($coordinates);
+        $top: nth($coordinates, 1);
+        $right: null;
+        $bottom: null;
+        $left: null;
+        @if $len >= 2 {
+            $right: nth($coordinates, 2);
+        }
+        @if $len >= 3 {
+            $bottom: nth($coordinates, 3);
+        }
+        @if $len >= 4 {
+            $left: nth($coordinates, 4);
+        }
+
+        position: $position;
+        @if $top != null {
+            top: $top;
+        }
+        @if $right != null {
+            right: $right;
+        }
+        @if $bottom != null {
+            bottom: $bottom;
+        }
+        @if $left != null {
+            left: $left;
+        }
+    } @else {
+        position: $position;
+        @if $coordinates != null {
+            top: $coordinates;
+        }
+    }
+}
+
+/// Sets `width` and `height` from a single value or a `(w h)` list.
+/// Mirrors bourbon's `size` mixin for our existing call sites.
+@mixin size($size) {
+    @if type-of($size) == list {
+        width: nth($size, 1);
+        @if length($size) >= 2 {
+            height: nth($size, 2);
+        } @else {
+            height: nth($size, 1);
+        }
+    } @else {
+        width: $size;
+        height: $size;
+    }
+}
+
+/// Selector list for all HTML button elements. Must be interpolated
+/// (`#{$all-buttons}`) when used as a selector. Copied from bourbon.
+$all-buttons: 'button, [type="button"], [type="reset"], [type="submit"]';
+
+/// Mixes a color with black. Identical to bourbon's `shade()`.
+@function shade($color, $percent) {
+    @return mix(#000, $color, $percent);
+}
+
+/// Mixes a color with white. Identical to bourbon's `tint()`.
+@function tint($color, $percent) {
+    @return mix(#fff, $color, $percent);
+}
+
+/// Returns an adjusted value stepped up or down a geometric scale by the
+/// given ratio. Port of bourbon's `modular-scale()` with matching defaults
+/// (base `1em`, ratio `1.25`) — used for harmonic font sizes.
+@function modular-scale($increment, $value: 1em, $ratio: 1.25) {
+    $v1: nth($value, 1);
+    $v2: nth($value, length($value));
+    $value: $v1;
+
+    @while $v2 > $v1 {
+        $v2: ($v2 / $ratio);
+    }
+    @while $v2 < $v1 {
+        $v2: ($v2 * $ratio);
+    }
+
+    $double-stranded: $v2 > $v1;
+
+    @if $increment > 0 {
+        @for $i from 1 through $increment {
+            @if $double-stranded and ($v1 * $ratio) > $v2 {
+                $value: $v2;
+                $v2: ($v2 * $ratio);
+            } @else {
+                $v1: ($v1 * $ratio);
+                $value: $v1;
+            }
+        }
+    }
+
+    @if $increment < 0 {
+        @if $double-stranded {
+            $v2: ($v2 / $ratio);
+        }
+        @for $i from $increment through -1 {
+            @if $double-stranded and ($v1 / $ratio) < $v2 {
+                $value: $v2;
+                $v2: ($v2 / $ratio);
+            } @else {
+                $v1: ($v1 / $ratio);
+                $value: $v1;
+            }
+        }
+    }
+
+    @return $value;
+}
+
+// Copied from bourbon/core/bourbon/library/_triangle.scss
+// Disabled is-color because it doesn't work with CSS variables
+
+/// Generates a triangle pointing in a specified direction.
+///
+/// @argument {string} $direction
+///   The direction the triangle should point. Accepts `up`, `up-right`,
+///   `right`, `down-right`, `down`, `down-left`, `left` or `up-left`.
+///
+/// @argument {number (with unit)} $width
+///   Width of the triangle.
+///
+/// @argument {number (with unit)} $height
+///   Height of the triangle.
+///
+/// @argument {color} $color
+///   Color of the triangle.
+///
+/// @example scss
+///   .element {
+///     &::before {
+///       @include triangle("up", 2rem, 1rem, #b25c9c);
+///       content: "";
+///     }
+///   }
+///
+///   // CSS Output
+///   .element::before {
+///     border-style: solid;
+///     height: 0;
+///     width: 0;
+///     border-color: transparent transparent #b25c9c;
+///     border-width: 0 1rem 1rem;
+///     content: "";
+///   }
+
+@mixin triangle($direction, $width, $height, $color) {
+    @if not
+        index('up' 'up-right' 'right' 'down-right' 'down' 'down-left' 'left' 'up-left', $direction)
+    {
+        @error "Direction must be `up`, `up-right`, `right`, `down-right`, " +
+           "`down`, `down-left`, `left` or `up-left`.";
+    } @else {
+        border-style: solid;
+        height: 0;
+        width: 0;
+
+        @if $direction == 'up' {
+            border-color: transparent transparent $color;
+            border-width: 0 ($width / 2) $height;
+        } @else if $direction == 'up-right' {
+            border-color: transparent $color transparent transparent;
+            border-width: 0 $width $width 0;
+        } @else if $direction == 'right' {
+            border-color: transparent transparent transparent $color;
+            border-width: ($height / 2) 0 ($height / 2) $width;
+        } @else if $direction == 'down-right' {
+            border-color: transparent transparent $color;
+            border-width: 0 0 $width $width;
+        } @else if $direction == 'down' {
+            border-color: $color transparent transparent;
+            border-width: $height ($width / 2) 0;
+        } @else if $direction == 'down-left' {
+            border-color: transparent transparent transparent $color;
+            border-width: $width 0 0 $width;
+        } @else if $direction == 'left' {
+            border-color: transparent $color transparent transparent;
+            border-width: ($height / 2) $width ($height / 2) 0;
+        } @else if $direction == 'up-left' {
+            border-color: $color transparent transparent;
+            border-width: $width $width 0 0;
+        }
+    }
+}

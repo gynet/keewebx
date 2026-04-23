@@ -1,0 +1,42 @@
+<div class="gen">
+    <div>{{res 'genLen'}}: <span class="gen__length-range-val">{{opt.length}}</span>
+        <i class="fa fa-sync-alt gen__btn-refresh gen__top-btn" title="{{res 'genNewPass'}}"></i>
+        {{#unless showToggleButton}}
+            <input type="checkbox" id="gen__check-hide" class="gen__check-hide" {{#if hide}}checked{{/if}}>
+            <label for="gen__check-hide" class="fa gen__top-btn gen__check-hide-label"
+                {{#if hide}}
+                    title="{{res 'genShowPass'}}"
+                {{else}}
+                    title="{{res 'genHidePass'}}"
+                {{/if}}
+            > </label>
+        {{/unless}}
+    </div>
+    <select class="gen__sel-tpl input-base">
+        {{#each presets as |ps|}}
+            <option value="{{ps.name}}" {{#ifeq ps.name ../preset}}selected{{/ifeq}}>{{ps.title}}</option>
+        {{/each}}
+        {{#if showTemplateEditor}}
+            <option value="...">...</option>
+        {{/if}}
+    </select>
+    <input type="range" class="gen__length-range" value="{{opt.pseudoLength}}" min="0" max="25" />
+    <div>
+        <div class="gen__check"><input type="checkbox" id="gen__check-upper"
+            data-id="upper" {{#if opt.upper}}checked{{/if}}><label for="gen__check-upper">ABC</label></div>
+        <div class="gen__check"><input type="checkbox" id="gen__check-lower"
+            data-id="lower" {{#if opt.lower}}checked{{/if}}><label for="gen__check-lower">abc</label></div>
+        <div class="gen__check"><input type="checkbox" id="gen__check-digits"
+            data-id="digits" {{#if opt.digits}}checked{{/if}}><label for="gen__check-digits">123</label></div>
+        <div class="gen__check"><input type="checkbox" id="gen__check-special"
+            data-id="special" {{#if opt.special}}checked{{/if}}><label for="gen__check-special">!@#</label></div>
+        <div class="gen__check"><input type="checkbox" id="gen__check-brackets"
+            data-id="brackets" {{#if opt.brackets}}checked{{/if}}><label for="gen__check-brackets">({&lt;</label></div>
+        <div class="gen__check"><input type="checkbox" id="gen__check-high"
+            data-id="high" {{#if opt.high}}checked{{/if}}><label for="gen__check-high">äæ±</label></div>
+        <div class="gen__check"><input type="checkbox" id="gen__check-ambiguous"
+            data-id="ambiguous" {{#if opt.ambiguous}}checked{{/if}}><label for="gen__check-ambiguous">0Oo</label></div>
+    </div>
+    <div class="gen__result"></div>
+    <div class="gen__btn-wrap"><button class="gen__btn-ok">{{btnTitle}}</button></div>
+</div>
