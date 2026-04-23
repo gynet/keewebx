@@ -1,0 +1,8 @@
+@mixin common-dropdown {
+    -webkit-app-region: no-drag;
+    color: var(--text-color);
+    background: var(--background-color);
+    border: 1px solid var(--light-border-color);
+    box-shadow: dropdown-box-shadow();
+    border-radius: var(--block-border-radius);
+}

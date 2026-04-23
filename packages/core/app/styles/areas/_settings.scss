@@ -1,0 +1,374 @@
+.settings {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    flex-direction: column;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    @include scrollbar-on-hover;
+    overflow: hidden;
+    position: relative;
+    @include padding-if-titlebar;
+
+    &__content {
+        margin: $medium-padding;
+    }
+
+    > .scroller {
+        flex: 1 0 0;
+    }
+
+    h2,
+    h3 {
+        margin-top: 20px;
+    }
+
+    .shortcut {
+        border: 1px solid var(--muted-color);
+        display: inline-block;
+        border-radius: $base-border-radius;
+        width: 8em;
+        text-align: center;
+        padding: $base-padding;
+        margin: 0 $base-padding-h $base-padding-v $base-padding-h;
+        line-height: 1.5em;
+        min-width: unset;
+        box-sizing: border-box;
+        vertical-align: baseline;
+        &-large {
+            width: 12em;
+        }
+        &:first-of-type {
+            margin-left: 0;
+        }
+        &__editor {
+            margin-bottom: $base-padding-v;
+            &-input {
+                text-align: center;
+                margin: $base-padding-v 0 $medium-padding-v;
+                width: 15em;
+                &--large {
+                    width: 30em;
+                }
+            }
+        }
+    }
+
+    &__back-button {
+        &-pre,
+        &-post {
+            display: none;
+        }
+        &-post {
+            margin-left: $tiny-spacing;
+            margin-right: $small-spacing;
+            position: relative;
+            top: 0.2em;
+        }
+        cursor: pointer;
+        @include mobile {
+            line-height: $mobile-back-button-height;
+            height: $mobile-back-button-height;
+            padding: $base-padding;
+            font-size: 1.2em;
+            > i {
+                margin-right: 0.7em;
+                font-size: 1.2em;
+                vertical-align: middle;
+                position: relative;
+                top: -0.15em;
+            }
+            &-pre {
+                display: inline;
+            }
+        }
+        @include nomobile {
+            position: absolute;
+            top: 0;
+            right: $base-padding-h;
+            padding: $base-padding-v * 2 0 1px 0;
+            z-index: 1;
+            background: var(--background-color);
+            box-shadow: 0 0 5px 5px var(--background-color);
+            &-post {
+                display: inline;
+            }
+        }
+    }
+
+    &__select,
+    &__input {
+        height: 2em;
+    }
+
+    &__row {
+        display: flex;
+        justify-content: space-between;
+        @extend .input-size-base;
+    }
+
+    &__col-small {
+        width: 30%;
+        position: relative;
+        > .settings__input {
+            width: 100%;
+        }
+    }
+
+    &__col-small-label {
+        text-overflow: ellipsis;
+        overflow: hidden;
+        width: 100%;
+    }
+
+    &__pre {
+        user-select: text;
+        white-space: pre-wrap;
+    }
+
+    &__select-no-margin {
+        margin-bottom: $base-padding-v;
+    }
+
+    #settings__file-master-pass,
+    #settings__file-confirm-master-pass {
+        font-family: $monospace-font-family;
+    }
+
+    #settings__file-confirm-master-pass-group {
+        display: none;
+    }
+
+    &__file {
+        &-master-pass-warning,
+        &-confirm-master-pass-warning {
+            font-weight: normal;
+            float: right;
+            display: none;
+        }
+
+        &-save-to {
+            cursor: pointer;
+            display: inline-block;
+            margin-right: $base-padding-h;
+            text-align: center;
+
+            > i {
+                display: block;
+                font-size: 3em;
+                padding: $base-padding-px;
+                margin: auto;
+            }
+
+            &:hover {
+                transition: color $base-duration $base-timing;
+                color: var(--medium-color);
+            }
+        }
+    }
+
+    &__general-update-buttons {
+        margin-top: $base-spacing;
+    }
+    &__general-update-btn {
+        width: 15em;
+    }
+    &__general-storage-header {
+        margin-bottom: 0;
+        line-height: 1.3em;
+    }
+    &__general-prv {
+        margin-bottom: $base-padding-v;
+    }
+    &__general-prv-logout {
+        margin-bottom: $base-padding-v;
+    }
+    &__general-themes {
+        width: calc(100% - 10em);
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(10em, 1fr));
+        grid-gap: $base-spacing;
+        margin-bottom: $base-spacing;
+        @include mobile {
+            width: 100%;
+        }
+    }
+    &__general-theme {
+        padding: $base-padding;
+        border: light-border();
+        border-radius: var(--input-border-radius);
+        text-align: center;
+        background: var(--background-color);
+        color: var(--text-color);
+        cursor: pointer;
+        body & {
+            --focus-shadow-spread: unset;
+            --form-box-shadow-color-focus: unset;
+            --form-box-shadow-color-hover: unset;
+        }
+        &-name {
+            border-bottom: light-border();
+            padding-bottom: $tiny-spacing;
+            margin-bottom: $small-spacing;
+        }
+        &-button {
+            margin-bottom: $base-padding-v;
+        }
+        &-plugins-icon {
+            font-size: 3em;
+        }
+        &:hover {
+            box-shadow: form-box-shadow-hover();
+        }
+        &--selected,
+        &--selected:hover {
+            border: 1px solid var(--action-color);
+            box-shadow: form-box-shadow-focus();
+        }
+    }
+    &__logs {
+        user-select: text;
+        margin-top: $base-padding-v;
+        word-break: break-all;
+        &-log {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+    }
+    &__plugins {
+        &-install-error {
+            margin-top: $base-padding-v;
+        }
+        &-plugin-files {
+            margin-top: $base-padding-v;
+            margin-bottom: $base-padding-v;
+        }
+        &-plugin-file {
+            padding-left: $base-padding-h;
+        }
+        &-plugin-desc {
+            margin-bottom: $base-padding-v;
+        }
+        &-plugin-updates {
+            > label {
+                font-weight: normal;
+            }
+        }
+        &-gallery {
+            margin-top: $base-spacing;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        &-gallery-load-btn {
+            margin-top: $base-padding-h;
+        }
+        &-gallery-plugin {
+            position: relative;
+            width: calc(50% - 40px);
+            border-radius: $base-border-radius;
+            border: light-border();
+            padding: $medium-padding;
+            box-sizing: border-box;
+            margin: 0 $base-padding-v $base-padding-h 0;
+            vertical-align: top;
+            @include mobile {
+                width: 100%;
+                margin-right: 0;
+            }
+            &-install-btn {
+                position: absolute;
+                right: 0;
+                bottom: 0;
+            }
+            &-country-flag {
+                position: absolute;
+                right: 10px;
+                top: 6px;
+                font-size: 1.5em;
+            }
+            &-title-link {
+                border-bottom: 0;
+                &:hover,
+                &:visited,
+                &:hover,
+                &:active,
+                &:focus {
+                    border-bottom: 0;
+                }
+            }
+        }
+        &-gallery-search {
+            margin-top: $medium-padding-v;
+            @include nomobile {
+                width: calc(100% - 74px);
+            }
+            @include mobile {
+                width: 100%;
+            }
+        }
+    }
+    &__browser {
+        &-table {
+            th,
+            td {
+                padding: $base-padding;
+            }
+        }
+        &-extension-status {
+            display: inline-block;
+            width: 0;
+            height: 0;
+            border-radius: 100%;
+            border: 5px solid;
+            margin-right: 0.2em;
+        }
+        &-session-buttons {
+            margin-top: $base-padding-h;
+        }
+        &-session-files {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        &-session-file {
+            margin: $base-padding;
+        }
+    }
+    &__donate-btn {
+        $donate-border-color: #89abed;
+
+        background: #fff;
+        border: 2px solid $donate-border-color;
+        border-bottom: 2px solid $donate-border-color;
+        border-radius: 2.8rem;
+        text-align: center;
+        display: inline-block;
+        text-decoration: none;
+        padding: 0.2rem 2.4rem 0.1rem;
+        line-height: 1.4;
+        height: 2.8rem;
+        margin-bottom: $base-padding-v * 2;
+
+        &:hover {
+            border-bottom: 2px solid $donate-border-color;
+        }
+
+        &-top,
+        &-bottom {
+            pointer-events: none;
+            display: block;
+        }
+        &-top {
+            color: #606a79;
+        }
+        &-bottom {
+            color: #89abed;
+            font-weight: bold;
+        }
+    }
+
+    &__head-icon {
+        position: relative;
+        top: 0.1em;
+        margin-right: 0.2em;
+    }
+}

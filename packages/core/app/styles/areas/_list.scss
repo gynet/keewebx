@@ -1,0 +1,255 @@
+.list {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    flex-direction: column;
+    justify-content: flex-start;
+    overflow: hidden;
+
+    &__header {
+    }
+
+    &__items {
+        flex: 1;
+        display: flex;
+        align-items: stretch;
+        flex-direction: column;
+        @include scrollbar-on-hover;
+        overflow: hidden;
+        position: relative;
+        > .scroller {
+            flex: 1;
+            align-self: stretch;
+            position: relative;
+            overflow-x: hidden;
+            @include mobile {
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+        }
+    }
+
+    &__search {
+        padding: $small-spacing;
+
+        &-header {
+            display: flex;
+            align-items: stretch;
+            flex-direction: row;
+            justify-content: flex-start;
+            flex-wrap: wrap;
+            @include mobile {
+                font-size: 1.2em;
+            }
+        }
+        &-field-wrap {
+            flex: 1;
+            position: relative;
+            margin-right: $small-spacing;
+        }
+        &-field {
+            width: 100%;
+            height: 2.5em;
+            @include mobile {
+                font-size: 1.05em !important;
+                box-shadow: none !important;
+                border-radius: 0.6em !important;
+                border: none !important;
+                background-color: var(--secondary-background-color) !important;
+            }
+        }
+        &-icon-search,
+        &-icon-clear {
+            color: var(--muted-color);
+            position: absolute;
+            top: 0.53em;
+            cursor: pointer;
+            &:hover {
+                color: var(--medium-color);
+            }
+            @include mobile {
+                top: 0.6em;
+            }
+        }
+        &-icon-search {
+            left: 0.6em;
+        }
+        &-icon-clear {
+            right: 0.6em;
+            display: none;
+            .list__search-field-wrap--text & {
+                display: block;
+            }
+        }
+        &-btn-new,
+        &-btn-sort {
+            @include icon-btn;
+            height: 2.5em;
+            line-height: 2.3em;
+            padding: 0 $base-padding-h;
+        }
+        &-btn-menu {
+            display: none;
+            @include mobile {
+                display: block;
+                @include area-selectable;
+                padding: 0.7em 0.6em 0;
+                height: 1.6em;
+                margin-right: $base-padding-h;
+                > i {
+                    display: block;
+                }
+            }
+        }
+        &-adv {
+            flex: 100%;
+            display: flex;
+            align-items: stretch;
+            flex-direction: row;
+            flex-wrap: wrap;
+            padding: 0 $small-spacing;
+            &-text {
+                flex: 100%;
+                padding: $base-padding-v 0;
+            }
+        }
+        &-check {
+            flex: 50%;
+        }
+    }
+
+    &__table {
+        &-body {
+            position: relative;
+        }
+        &-row {
+            display: flex;
+            align-items: center;
+            width: 100%;
+        }
+        &-cell {
+            padding: $base-padding;
+            text-align: left;
+            flex-grow: 1;
+            flex-shrink: 0;
+            flex-basis: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            &:first-child {
+                text-align: center;
+                padding: 0;
+                width: 3em;
+                flex-basis: 3em;
+                flex-grow: 0;
+                flex-shrink: 0;
+            }
+        }
+        &-options {
+            @include icon-btn();
+            cursor: pointer;
+        }
+    }
+
+    &__items-container {
+        position: relative;
+    }
+
+    &__item {
+        left: 0;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        position: absolute;
+        top: 0;
+        box-sizing: border-box;
+        @include nomobile {
+            @include area-selectable();
+            &--active,
+            &--active:hover {
+                @include area-selected();
+            }
+        }
+        @include mobile {
+            margin: 0 $base-padding-h;
+            border-bottom: light-border();
+            &:last-of-type {
+                border-bottom: none;
+            }
+        }
+
+        &:not(.list__item--table) {
+            @include nomobile {
+                border-radius: var(--block-border-radius);
+            }
+            padding: $base-padding;
+            margin: 0 $small-spacing;
+            width: calc(100% - #{$small-spacing * 2});
+        }
+
+        &--expired {
+            .list__item-title,
+            .list__item-descr {
+                text-decoration: line-through;
+            }
+        }
+
+        &-icon {
+            margin-right: 0.2em;
+            width: 14px;
+            height: 14px;
+            vertical-align: top;
+            position: relative;
+            top: -1px;
+            @include mobile {
+                margin-right: 4px;
+            }
+            body.large-icons & {
+                width: 24px;
+                height: 24px;
+                font-size: 1.3em;
+            }
+            &--favicon {
+                vertical-align: text-bottom;
+                object-fit: contain;
+                border-radius: 2px;
+            }
+            &--custom {
+                vertical-align: text-bottom;
+                &.yellow {
+                    filter: grayscale(1) sepia(1) hue-rotate(20deg) brightness(1.17) saturate(5.7);
+                }
+                &.green {
+                    filter: grayscale(1) sepia(1) hue-rotate(55deg) brightness(1.01) saturate(4.9);
+                }
+                &.red {
+                    filter: grayscale(1) sepia(1) hue-rotate(316deg) brightness(1.1) saturate(6);
+                }
+                &.orange {
+                    filter: grayscale(1) sepia(1) hue-rotate(355deg) brightness(0.92) saturate(5);
+                }
+                &.blue {
+                    filter: grayscale(1) sepia(1) hue-rotate(180deg) brightness(0.9) saturate(5);
+                }
+                &.violet {
+                    filter: grayscale(1) sepia(1) hue-rotate(238deg) brightness(1) saturate(6.2);
+                }
+            }
+        }
+
+        &-title {
+            margin-left: 2px;
+        }
+
+        &-descr {
+            font-size: 0.8em;
+            color: var(--muted-color);
+            display: block;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            margin-bottom: $tiny-spacing;
+            .list__item--active & {
+                color: var(--selected-item-text-color);
+            }
+        }
+    }
+}

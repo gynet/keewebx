@@ -1,0 +1,14 @@
+[install]
+peer = true
+
+[test]
+# Playwright specs live under e2e/ and packages/*/e2e/ and import from
+# @playwright/test, which is incompatible with Bun's test runner. Exclude them
+# so `bun test` at the repo root only discovers unit tests inside
+# packages/*/tests/. Run Playwright via `bun run test:e2e`. See issue #27.
+pathIgnorePatterns = [
+    "**/e2e/**",
+    "**/node_modules/**",
+    "**/.claude/**",
+    "**/dist/**"
+]

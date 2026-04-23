@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.nyc_output/
+coverage/
+*.tgz
+.DS_Store
+.env
+.env.local
+*.log
+tmp/
+.worktrees/
+.claude/worktrees/
+.claude/CLAUDE.md
+
+# Playwright
+playwright-report/
+test-results/
+e2e/screenshots/
+packages/core/app/styles/base/_whitesur-icons.scss
+
+# Cloudflare Wrangler local state
+.wrangler/
+.dev.vars
+.dryrun/

@@ -1,0 +1,36 @@
+{
+  "name": "keewebx",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Modern KeePass web client - TypeScript monorepo",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter @keewebx/core dev",
+    "build": "bun run --filter @keewebx/db build && bun run --filter @keewebx/core build",
+    "test": "bun run --filter @keewebx/db build && bun run --filter '*' test",
+    "lint": "bun run --filter '*' lint",
+    "test:db": "bun run --filter @keewebx/db test",
+    "test:core": "bun run --filter @keewebx/core test",
+    "test:extension": "bun run --filter @keewebx/extension test",
+    "test:e2e": "bunx playwright test",
+    "test:e2e:live": "bunx playwright test --project=live",
+    "test:e2e:ext": "cd packages/extension && bunx playwright test",
+    "report": "bunx playwright show-report"
+  },
+  "author": "gynet",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gynet/keewebx.git"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/selenium-webdriver": "^4.35.5",
+    "selenium-webdriver": "^4.41.0"
+  }
+}

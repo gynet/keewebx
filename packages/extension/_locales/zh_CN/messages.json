@@ -1,0 +1,173 @@
+{
+  "description": {
+    "message": "自动填充 KeeWeb 密码"
+  },
+  "cmdSubmitAuto": {
+    "message": "填充并提交表单"
+  },
+  "cmdInsertUsername": {
+    "message": "填充用户名"
+  },
+  "cmdSubmitUsername": {
+    "message": "填充并提交用户名"
+  },
+  "cmdInsertPassword": {
+    "message": "填充密码"
+  },
+  "cmdSubmitPassword": {
+    "message": "填充并提交密码"
+  },
+  "cmdInsertUsernamePassword": {
+    "message": "填充用户名+密码"
+  },
+  "cmdSubmitUsernamePassword": {
+    "message": "填充并提交用户名+密码"
+  },
+  "cmdInsertOtp": {
+    "message": "填充一次性密码（OTP）"
+  },
+  "cmdInsertOther": {
+    "message": "在 KeeWeb 中选择另一个字段"
+  },
+  "menuOtherOptions": {
+    "message": "查看其他条目"
+  },
+  "menuSettings": {
+    "message": "设置"
+  },
+  "errorConnectionErrorApp": {
+    "message": "无法连接到 KeeWeb，请确保 KeeWeb 已启动，并在“设置”中启用浏览器集成功能。"
+  },
+  "errorConnectionErrorWeb": {
+    "message": "无法连接到 KeeWeb，请尝试刷新选项卡。查看扩展背景页以获取更多信息。"
+  },
+  "errorKeeWebDisconnected": {
+    "message": "KeeWeb 已断开与扩展的连接。"
+  },
+  "errorBrowserTabNoPermissions": {
+    "message": "无权访问 $1。"
+  },
+  "errorBrowserCannotCreateTab": {
+    "message": "无法创建新标签页。"
+  },
+  "errorAppReturnedError": {
+    "message": "KeeWeb 返回错误。"
+  },
+  "errorRequestTimeout": {
+    "message": "KeeWeb 未响应。"
+  },
+  "optionsTitle": {
+    "message": "设置"
+  },
+  "optionsIntro": {
+    "message": "KeeWeb Connect 是 KeeWeb（一个与 KeePass 兼容的免费跨平台密码管理器）的浏览器扩展。"
+  },
+  "optionsConnection": {
+    "message": "连接"
+  },
+  "optionsConnectionModeApp": {
+    "message": "使用桌面版 KeeWeb。这是最方便的集成模式：扩展通过连接到后台运行的 KeeWeb 应用来获取密码。如果您还未安装 KeeWeb："
+  },
+  "optionsConnectionModeAppOnly": {
+    "message": "为了启用扩展功能，请先安装 KeeWeb 应用。扩展通过连接到后台运行的 KeeWeb 应用来获取密码。如果您还未安装 KeeWeb："
+  },
+  "optionsConnectionModeAppDownloadLink": {
+    "message": "下载 KeeWeb 桌面版"
+  },
+  "optionsConnectionModeWeb": {
+    "message": "使用网页版 KeeWeb：您需要确保 KeeWeb 网页版标签页处于打开状态，扩展通过连接到该标签页来获取密码。这种方式虽然不太方便，但无需安装桌面版 KeeWeb："
+  },
+  "optionsConnectionModeWebLink": {
+    "message": "打开KeeWeb"
+  },
+  "optionsConnectionMode": {
+    "message": "选择连接模式："
+  },
+  "optionsWebConnectionTabPermission": {
+    "message": "为了连接到 KeeWeb 网页版标签页，我们需要一个特殊的权限，否则就无法与该标签页进行通信。点击该按钮进行授权："
+  },
+  "optionsWebConnectionTabPermissionButton": {
+    "message": "授权"
+  },
+  "optionsWebConnectionKeeWebUrl": {
+    "message": "KeeWeb URL（如果您使用的是自行托管的版本，请修改这里）："
+  },
+  "optionsWebConnectionChangeKeeWebUrl": {
+    "message": "修改 KeeWeb URL"
+  },
+  "optionsCancel": {
+    "message": "取消"
+  },
+  "optionsWebConnectionResetKeeWebUrl": {
+    "message": "重置为默认 KeeWeb URL（$1）"
+  },
+  "optionsWebConnectionKeeWebUrlInvalid": {
+    "message": "URL 无效"
+  },
+  "optionsWebConnectionKeeWebUrlDisallowedScheme": {
+    "message": "URL 必须使用 https://、file:// 或 http://localhost"
+  },
+  "optionsConnectionState": {
+    "message": "连接状态："
+  },
+  "optionsConnectionStateError": {
+    "message": "错误"
+  },
+  "optionsConnectionStateConnecting": {
+    "message": "正在连接"
+  },
+  "optionsConnectionStateReadyToConnect": {
+    "message": "准备连接"
+  },
+  "optionsConnectionStateConnected": {
+    "message": "已连接"
+  },
+  "optionsConnectButton": {
+    "message": "连接到 KeeWeb"
+  },
+  "optionsUsage": {
+    "message": "使用方法"
+  },
+  "optionsUsageIntro": {
+    "message": "现在您已成功连接到 KeeWeb，是时候使用扩展了！"
+  },
+  "optionsUsageButton": {
+    "message": "请将光标放在页面的某个字段中，然后点击扩展按钮来自动填充表单："
+  },
+  "optionsUsageShortcut": {
+    "message": "除了点击按钮之外，您还可以使用键盘快捷键（配置方法见下方）。"
+  },
+  "optionsUsageShortcutNoChange": {
+    "message": "除了点击按钮之外，您还可以使用键盘快捷键 $1。"
+  },
+  "optionsUsagePermissionsPerSite": {
+    "message": "扩展有时需要额外的权限来自动填充密码。如果您看到该警告标志，请点击扩展按钮以授予必要的权限："
+  },
+  "optionsUsageMenu": {
+    "message": "当然您也可以从 KeeWeb 右键菜单中选择一个您想要的操作："
+  },
+  "optionsShortcuts": {
+    "message": "键盘快捷键"
+  },
+  "optionsShortcutsDescription": {
+    "message": "您可以在扩展快捷键设置中修改快捷键。"
+  },
+  "optionsShortcutsDescriptionNoChange": {
+    "message": "您可以使用这些快捷键更快地提交表单。"
+  },
+  "optionsShortcutsLink": {
+    "message": "修改键盘快捷键"
+  },
+  "optionsShortcutsManual": {
+    "message": "要修改快捷键，请在浏览器中打开“扩展”页，然后点击“设置”按钮并选择“管理扩展快捷键”："
+  },
+  "optionsAbout": {
+    "message": "关于"
+  },
+  "optionsAboutContact": {
+    "message": "您可以在此提出问题、建议或想法，也可以提交问题报告："
+  },
+  "optionsAboutLicense": {
+    "message": "该扩展遵循 MIT 协议。它使用了下面这些超棒的库："
+  }
+}

@@ -1,0 +1,74 @@
+{
+    "name": "@keewebx/db",
+    "version": "2.2.0",
+    "description": "KDBX4 KeePass database reader/writer for KeeWebX. Forked from kdbxweb by Antelle.",
+    "main": "dist/kdbxweb.js",
+    "private": true,
+    "types": "dist/types/index.d.ts",
+    "homepage": "https://github.com/gynet/keewebx",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/gynet/keewebx.git",
+        "directory": "packages/db"
+    },
+    "author": {
+        "name": "gynet",
+        "url": "https://github.com/gynet"
+    },
+    "contributors": [
+        {
+            "name": "Antelle",
+            "email": "keeweb@keeweb.info",
+            "url": "https://antelle.net",
+            "comment": "Original author of kdbxweb, from which this package is forked"
+        }
+    ],
+    "engines": {
+        "node": "^18.18.0"
+    },
+    "license": "MIT",
+    "readme": "README.md",
+    "scripts": {
+        "test": "bun test",
+        "start": "bun run lint && bun run build",
+        "tsc": "tsc",
+        "lint": "eslint lib test conf scripts",
+        "build": "bun run clean && bun run pack:dist-debug && bun run pack:dist-prod",
+        "clean": "rimraf dist",
+        "pack:dist-prod": "webpack --progress --mode=production --config conf/webpack.config.ts --mode production",
+        "pack:dist-debug": "webpack --progress --mode=development --devtool source-map --config conf/webpack.config.ts --mode development",
+        "script:dump-header": "bun run scripts/dump-header",
+        "script:kdbx-size-profiler": "bun run scripts/kdbx-size-profiler",
+        "script:kdbx-to-xml": "bun run scripts/kdbx-to-xml",
+        "script:make-big-files": "bun run scripts/make-big-files",
+        "script:save-perf-test": "bun run scripts/save-perf-test"
+    },
+    "keywords": [
+        "kdbx",
+        "keepass"
+    ],
+    "devDependencies": {
+        "@types/node": "18",
+        "@typescript-eslint/eslint-plugin": "^8.18.1",
+        "@typescript-eslint/parser": "^8.18.1",
+        "eslint": "^9.17.0",
+        "eslint-config-prettier": "^9.1.0",
+        "eslint-plugin-import": "^2.31.0",
+        "eslint-plugin-n": "17.15.0",
+        "eslint-plugin-prettier": "^5.2.1",
+        "eslint-plugin-promise": "^7.2.1",
+        "prettier": "^3.4.2",
+        "prettier-eslint": "^16.3.0",
+        "rimraf": "^3.0.2",
+        "terser-webpack-plugin": "^5.2.3",
+        "ts-loader": "^9.2.5",
+        "ts-node": "^10.2.1",
+        "typescript": "~5.6.0",
+        "webpack": "^5.97.1",
+        "webpack-cli": "^6.0.1"
+    },
+    "dependencies": {
+        "@xmldom/xmldom": "^0.8.10",
+        "fflate": "^0.7.1"
+    }
+}

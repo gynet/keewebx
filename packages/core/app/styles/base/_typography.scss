@@ -1,0 +1,78 @@
+html {
+    font-size: $base-font-size;
+}
+
+body {
+    @include size(100%);
+    user-select: none;
+    color: var(--text-color);
+    background-color: var(--background-color);
+    font-family: $base-font-family;
+    font-feature-settings: 'kern', 'liga 0';
+    font-size: 1rem;
+    line-height: $base-line-height;
+}
+
+@-moz-document url-prefix() {
+    body {
+        text-shadow: 0 0;
+    }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: $heading-font-family;
+    line-height: $heading-line-height;
+    margin: 0 0 $small-spacing;
+}
+
+$small-header-font-size: modular-scale(2, 1rem);
+$large-header-font-size: modular-scale(4, 1rem);
+
+h6 {
+    font-size: 1rem;
+}
+h5 {
+    font-size: modular-scale(1, 1rem, 1.1);
+}
+h4 {
+    font-size: modular-scale(2, 1rem, 1.1);
+}
+h3 {
+    font-size: modular-scale(3, 1rem, 1.1);
+}
+h2 {
+    font-size: $small-header-font-size;
+}
+h1 {
+    font-size: $large-header-font-size;
+}
+
+p {
+    margin: 0 0 $small-spacing;
+}
+
+hr {
+    border-bottom: base-border();
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+    margin: $base-spacing 0;
+}
+
+img {
+    margin: 0;
+    max-width: 100%;
+}
+
+::selection {
+    background-color: var(--text-selection-bg-color);
+}
+
+code {
+    font-family: $monospace-font-family;
+}

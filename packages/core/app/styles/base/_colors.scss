@@ -1,0 +1,42 @@
+$dark-colors: (
+    white-color: #d8e5f1,
+    black-color: #111,
+    red-color: #ed5f5e,
+    orange-color: #e8873a,
+    yellow-color: #f7c644,
+    green-color: #78b756,
+    blue-color: #2f7cf7,
+    violet-color: #e55d9c
+);
+
+$light-colors: (
+    white-color: #d8e5f1,
+    black-color: #111,
+    red-color: #d04745,
+    orange-color: #e9873a,
+    yellow-color: #f7c84e,
+    green-color: #79b656,
+    blue-color: #2f7cf7,
+    violet-color: #e55d9c
+);
+
+body {
+    @each $name, $value in $dark-colors {
+        --#{$name}: #{$value};
+    }
+}
+
+@each $name in map-keys($dark-colors) {
+    .#{$name} {
+        color: var(--#{$name});
+    }
+}
+.muted-color {
+    color: var(--muted-color);
+}
+.action-color {
+    color: var(--action-color);
+}
+.error-color {
+    color: var(--error-color);
+}

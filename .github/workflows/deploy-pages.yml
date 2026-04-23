@@ -1,0 +1,98 @@
+name: Deploy to GitHub Pages (LEGACY — manual only)
+
+# Canonical origin moved to keewebx.app (CF) on 2026-04-21 via
+# deploy-cf.yml. This workflow no longer runs on push. Kept behind
+# workflow_dispatch so we can still manually rebuild gh-pages as a
+# fallback until the Firefox extension is migrated off the
+# gynet.github.io default URL (see CLAUDE.md / plan file). Once the
+# extension is on keewebx.app, this file flips to serving a redirect
+# stub (or gets deleted outright).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - name: Build all packages (db first, then core — core's kdbxweb alias points at packages/db/dist)
+        run: bun run build
+        env:
+          # Pin the build's embedded commit SHA to the CI commit so the
+          # live-demo drift check can verify code = build = deploy.
+          GITHUB_SHA: ${{ github.sha }}
+      - name: Verify static assets present in dist
+        run: |
+          set -e
+          cd packages/core/dist
+          test -f manifest.json
+          test -f browserconfig.xml
+          test -f icons/favicon-32x32.png
+          test -f icons/apple-touch-icon.png
+          test -f icons/safari-pinned-tab.svg
+          echo "All required static assets present."
+      - name: Verify build SHA injected into bundle
+        run: |
+          set -e
+          cd packages/core/dist
+          grep -q "${GITHUB_SHA}" js/app.js \
+            || { echo "::error::build SHA ${GITHUB_SHA} not found in js/app.js — DefinePlugin/webpack injection broken"; exit 1; }
+          echo "Build SHA ${GITHUB_SHA} confirmed in bundle."
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/core/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify-live:
+    # Runs AFTER deploy so we verify what a real browser sees on the
+    # published gh-pages URL — not just what the build produced. If the
+    # deploy silently froze on a stale artifact, the SHA drift check in
+    # e2e/live/smoke-live.spec.ts will fail and master goes red. No
+    # `|| true`, no `continue-on-error`. That's the point.
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Wait for gh-pages CDN propagation
+        run: sleep 45
+      - name: E2E against live URL
+        run: bun run test:e2e:live
+        env:
+          KEEWEBX_LIVE_URL: https://gynet.github.io/keewebx/
+          GITHUB_SHA: ${{ github.sha }}
+      - name: Upload verify-live report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-live-report
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7

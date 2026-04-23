@@ -1,0 +1,69 @@
+{
+  "name": "@keewebx/core",
+  "version": "0.1.0",
+  "description": "KeeWebX - Modern KeePass web client",
+  "private": true,
+  "scripts": {
+    "dev": "webpack serve --mode=development --open",
+    "build": "webpack --mode=production",
+    "test": "bun test tests/",
+    "lint": "eslint app/scripts/"
+  },
+  "author": "gynet",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gynet/keewebx"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^5.15.4",
+    "argon2-browser": "1.15.4",
+    "baron": "^3.0.3",
+    "dompurify": "^2.2.8",
+    "handlebars": "^4.7.7",
+    "jquery": "3.6.0",
+    "jsqrcode": "antelle/jsqrcode",
+    "kdbxweb": "workspace:@keewebx/db@*",
+    "marked": "^2.1.3",
+    "morphdom": "^2.6.1",
+    "normalize.css": "^8.0.1",
+    "pikaday": "^1.8.2",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "ajv": "^8.12.0",
+    "ansi-html-community": "^0.0.8",
+    "autoprefixer": "^10.2.5",
+    "base64-loader": "^1.0.0",
+    "copy-webpack-plugin": "^14.0.0",
+    "css-loader": "^5.2.4",
+    "events": "^3.3.0",
+    "exports-loader": "^5.0.0",
+    "handlebars-loader": "1.7.1",
+    "html-entities": "^2.6.0",
+    "html-webpack-plugin": "^5.6.6",
+    "mini-css-extract-plugin": "^1.6.0",
+    "postcss": "^8.2.14",
+    "postcss-loader": "^5.2.0",
+    "raw-loader": "^4.0.2",
+    "sass": "^1.32.12",
+    "sass-loader": "^11.0.1",
+    "string-replace-loader": "^3.3.0",
+    "strip-sourcemap-loader": "^0.0.1",
+    "svg2ttf": "^5.2.0",
+    "svgicons2svgfont": "^9.2.0",
+    "terser-webpack-plugin": "^5.1.1",
+    "ts-loader": "^9.2.5",
+    "typescript": "^5.7.2",
+    "wawoff2": "^2.0.1",
+    "webpack": "^5.36.2",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.0.0"
+  },
+  "browserslist": [
+    "last 2 Firefox versions",
+    "last 2 Chrome versions",
+    "last 2 Safari versions",
+    "last 2 Edge versions"
+  ]
+}

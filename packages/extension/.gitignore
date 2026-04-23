@@ -1,0 +1,26 @@
+.idea/
+.vscode/
+.DS_Store
+node_modules/
+dist/
+*.log
+*.user
+*.pem
+*.iml
+.cache/
+
+xcuserdata/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+
+native-messaging-host/build/
+
+# Artifacts from signing the addon for Firefox
+web-ext-artifacts
+
+# Playwright
+test-results/
+playwright-report/

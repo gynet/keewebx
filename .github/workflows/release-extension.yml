@@ -1,0 +1,124 @@
+name: Release extension (chrome/firefox/edge)
+
+# Produces unpacked-extension zips (Chrome + Edge) plus a signed-layout
+# xpi (Firefox, via `web-ext build`) and a SHA256SUMS.txt for each
+# release. Until this workflow existed, these packages were cut by hand
+# — which is exactly how `v0.1.1-extension` shipped on 2026-04-17 and
+# why we're automating it now (forgetting to release the extension is a
+# real failure mode, and the user-visible autofill feature only
+# advances when the extension side ships in lockstep).
+#
+# Triggers:
+#   - push of a tag `v*-extension` -> attach artifacts to the matching GitHub Release
+#   - workflow_dispatch             -> upload as workflow artifact (testable without a tag)
+#
+# NOTE: `release.yml` (web self-host bundle) fires on any `v*` tag.
+# That job has a top-level `if:` guard skipping tags ending in
+# `-extension`, so there is no overlap when an extension tag is pushed.
+
+on:
+  push:
+    tags:
+      - 'v*-extension'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # required for softprops/action-gh-release to upload assets
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Build Chrome variant
+        run: bun run --filter @keewebx/extension build-chrome
+
+      - name: Build Firefox variant (includes `web-ext build` -> xpi)
+        run: bun run --filter @keewebx/extension build-firefox
+
+      - name: Build Edge variant
+        run: bun run --filter @keewebx/extension build-edge
+
+      - name: Sanity-check manifests
+        id: manifest
+        # Read the source manifest version once, then cross-check that
+        # every per-browser dist/<browser>/manifest.json agrees. If the
+        # webpack copy step ever drifts (or a browser build silently
+        # doesn't run), this catches it before we publish.
+        run: |
+          set -euo pipefail
+          MANIFEST_VER=$(jq -r '.version' packages/extension/manifest.json)
+          echo "Source manifest version: ${MANIFEST_VER}"
+          for browser in chrome firefox edge; do
+            MANIFEST="packages/extension/dist/${browser}/manifest.json"
+            test -f "${MANIFEST}" || { echo "::error::Missing ${MANIFEST}"; exit 1; }
+            VER=$(jq -r '.version' "${MANIFEST}")
+            if [ "${VER}" != "${MANIFEST_VER}" ]; then
+              echo "::error::dist/${browser}/manifest.json version ${VER} != source ${MANIFEST_VER}"
+              exit 1
+            fi
+            echo "  ${browser}: ${VER} OK"
+          done
+          echo "version=${MANIFEST_VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Package artifacts
+        id: pack
+        # SHORT_SHA is 8 chars to match the convention used in the
+        # manual `v0.1.0-extension` + `v0.1.1-extension` releases
+        # (e.g., `keewebx-connect-chrome-11400530.zip`). `git
+        # rev-parse --short` defaults to 7 chars, which would break
+        # the naming continuity — so we slice $GITHUB_SHA directly.
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA:0:8}"
+          MANIFEST_VER="${{ steps.manifest.outputs.version }}"
+          echo "Short SHA: ${SHORT_SHA}"
+          echo "Manifest version: ${MANIFEST_VER}"
+
+          mkdir -p artifacts
+
+          # Chrome + Edge: zip the dist/<browser>/ contents (no wrapping
+          # folder — web stores expect manifest.json at the zip root).
+          (cd packages/extension/dist/chrome && zip -rq "${GITHUB_WORKSPACE}/artifacts/keewebx-connect-chrome-${SHORT_SHA}.zip" .)
+          (cd packages/extension/dist/edge   && zip -rq "${GITHUB_WORKSPACE}/artifacts/keewebx-connect-edge-${SHORT_SHA}.zip"   .)
+
+          # Firefox: `build-firefox` already produced a signed-layout
+          # zip via `web-ext build` under web-ext-artifacts/. Rename
+          # to .xpi so Firefox's install dialog treats it as an add-on.
+          XPI_SRC="packages/extension/web-ext-artifacts/keewebx_connect-${MANIFEST_VER}.zip"
+          test -f "${XPI_SRC}" || { echo "::error::Expected ${XPI_SRC} from web-ext build"; ls -la packages/extension/web-ext-artifacts/; exit 1; }
+          cp "${XPI_SRC}" "artifacts/keewebx-connect-firefox-${SHORT_SHA}.xpi"
+
+          # Checksums — ubuntu-latest has sha256sum, not shasum.
+          (cd artifacts && sha256sum *.zip *.xpi > SHA256SUMS.txt)
+
+          echo "Artifacts:"
+          ls -la artifacts/
+          cat artifacts/SHA256SUMS.txt
+
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload as workflow artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: keewebx-connect-${{ steps.pack.outputs.short_sha }}
+          path: artifacts/*
+          retention-days: 30
+
+      - name: Attach to GitHub Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref_name, '-extension')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/keewebx-connect-chrome-${{ steps.pack.outputs.short_sha }}.zip
+            artifacts/keewebx-connect-edge-${{ steps.pack.outputs.short_sha }}.zip
+            artifacts/keewebx-connect-firefox-${{ steps.pack.outputs.short_sha }}.xpi
+            artifacts/SHA256SUMS.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true

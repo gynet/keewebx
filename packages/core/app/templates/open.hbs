@@ -1,0 +1,138 @@
+<div class="open">
+    <input type="file" class="open__file-ctrl hide-by-pos" />
+    <div class="open__message {{#unless unlockMessageRes}}hide{{/unless}}">
+        <div class="open__message-content">{{#if unlockMessageRes}}{{res unlockMessageRes}}{{/if}}</div>
+        <div class="open__message-cancel-btn" title="{{res 'alertCancel'}}" tip-placement="left">
+            <i class="fa fa-times-circle open__message-cancel-btn-icon"></i>
+        </div>
+    </div>
+    <div class="open__icons">
+        {{#if canOpen}}
+            <div class="open__icon open__icon-open" tabindex="1" id="open__icon-open">
+                <span class="open__icon-i open__icon-i--ws-lock"></span>
+                <div class="open__icon-text">{{res 'openOpen'}}</div>
+            </div>
+        {{/if}}
+        {{#if canCreate}}
+            <div class="open__icon open__icon-new" tabindex="2" id="open__icon-new">
+                <span class="open__icon-i open__icon-i--ws-new"></span>
+                <div class="open__icon-text">{{res 'openNew'}}</div>
+            </div>
+        {{/if}}
+        <div class="open__icon open__icon-yubikey {{#unless canOpenYubiKey}}hide{{/unless}}"
+             tabindex="3" id="open__icon-yubikey">
+            <i class="fa fa-usb-token open__icon-i"></i>
+            <div class="open__icon-text">YubiKey</div>
+        </div>
+        {{#if canOpenDemo}}
+            {{#ifeq demoOpened false}}
+                <div class="open__icon open__icon-demo" tabindex="4" id="open__icon-demo">
+                    <span class="open__icon-i open__icon-i--ws-demo"></span>
+                    <div class="open__icon-text">{{res 'openDemo'}}</div>
+                </div>
+            {{/ifeq}}
+        {{/if}}
+        {{#if showMore}}
+            <div class="open__icon open__icon-more" tabindex="5" id="open__icon-more">
+                <span class="open__icon-i open__icon-i--ws-more"></span>
+                <div class="open__icon-text">{{res 'openMore'}}</div>
+            </div>
+        {{/if}}
+        {{#if showLogo}}
+            <div class="open__icon open__icon-more id=open__icon-more">
+                <i class="fa fa-keeweb open__icon-i"></i>
+                <div class="open__icon-text">KeeWeb</div>
+            </div>
+        {{/if}}
+    </div>
+    <div class="open__icons open__icons--lower hide">
+        {{#each storageProviders as |prv|}}
+            <div class="open__icon open__icon-storage" data-storage="{{prv.name}}" tabindex="{{add @index 6}}"
+                 id="open__icon-storage--{{prv.name}}">
+                {{#if prv.icon}}<i class="fa fa-{{prv.icon}} open__icon-i"></i>{{/if}}
+                <div class="open__icon-text">{{res prv.name}}</div>
+            </div>
+        {{/each}}
+        {{#if canOpenDemo}}
+            {{#if demoOpened}}
+                <div class="open__icon open__icon-demo" tabindex="20" id="open__icon-demo">
+                    <span class="open__icon-i open__icon-i--ws-demo"></span>
+                    <div class="open__icon-text">{{res 'openDemo'}}</div>
+                </div>
+            {{/if}}
+        {{/if}}
+        {{#if canOpenGenerator}}
+            <div class="open__icon open__icon-generate" tabindex="21" id="open__icon-generate">
+                <i class="fa fa-bolt open__icon-i"></i>
+                <div class="open__icon-text">{{res 'openGenerate'}}</div>
+            </div>
+        {{/if}}
+        {{#if canOpenSettings}}
+            <div class="open__icon open__icon-settings" tabindex="22" id="open__icon-settings">
+                <i class="fa fa-cog open__icon-i"></i>
+                <div class="open__icon-text">{{res 'settings'}}</div>
+            </div>
+        {{/if}}
+    </div>
+    <div class="open__pass-area">
+        <div class="hide">
+            {{!-- we need these inputs to screw browsers passwords autocompletion --}}
+            <input type="text" name="username">
+            <input type="password" name="password">
+        </div>
+        <div class="open__pass-warn-wrap">
+            <div class="open__pass-warning muted-color invisible"><i class="fa fa-exclamation-triangle"></i> {{res 'openCaps'}}</div>
+        </div>
+        <div class="open__pass-field-wrap">
+            <input class="open__pass-input" name="password" type="password" size="30" autocomplete="new-password" maxlength="1024"
+                   placeholder="{{#if canOpen}}{{res 'openClickToOpen'}}{{/if}}" readonly tabindex="23" />
+            <div class="open__pass-enter-btn" tabindex="24">
+                <i class="fa fa-level-down-alt rotate-90 open__pass-enter-btn-icon-enter"></i>
+                <i class="fa fa-fingerprint open__pass-enter-btn-icon-touch-id"></i>
+                <i class="fa fa-key open__pass-enter-btn-icon-passkey"></i>
+            </div>
+            <div class="open__pass-opening-icon"><i class="fa fa-spinner spin"></i></div>
+        </div>
+        <div class="open__settings">
+            <div class="open__settings-key-file hide" tabindex="25">
+                <i class="fa fa-key open__settings-key-file-icon">
+                </i><span class="open__settings-key-file-name">{{res 'openKeyFile'}}</span>
+                {{#if canOpenKeyFromDropbox}}<span class="open__settings-key-file-dropbox"> {{res 'openKeyFileDropbox'}}</span>{{/if}}
+            </div>
+            <div class="open__settings-yubikey {{#if canUseChalRespYubiKey}}open__settings-yubikey--present{{/if}} hide"
+                 tabindex="26" title="YubiKey">
+                <div class="open__settings-yubikey__text">YK</div> <i class="fa fa-usb-token open__settings-yubikey-img"></i>
+            </div>
+            {{#if passkeyAvailable}}
+                <div class="open__passkey-enable hide">
+                    <input type="checkbox" class="open__passkey-enable-check" id="open__passkey-enable-check" tabindex="27" />
+                    <label for="open__passkey-enable-check" class="open__passkey-enable-label">
+                        <i class="fa fa-key open__passkey-enable-icon"></i>
+                        <span class="open__passkey-enable-text">{{res 'openEnablePasskey'}}</span>
+                    </label>
+                </div>
+                <div class="open__passkey-clear hide" tabindex="28">
+                    <i class="fa fa-key open__passkey-clear-icon"></i>
+                    <i class="fa fa-times open__passkey-clear-x"></i>
+                    <span class="open__passkey-clear-text">{{res 'openClearPasskey'}}</span>
+                </div>
+            {{/if}}
+        </div>
+        <div class="open__last">
+            {{#each lastOpenFiles as |file|}}
+                <div class="open__last-item" data-id="{{file.id}}" title="{{file.path}}" tabindex="{{add @index 30}}"
+                     id="open__last-item--{{file.id}}">
+                    {{#if file.icon}}<i class="fa fa-{{file.icon}} open__last-item-icon"></i>{{/if}}
+                    <span class="open__last-item-text">{{file.name}}</span>
+                    {{#if ../canRemoveLatest}}<i class="fa fa-times open__last-item-icon-del"></i>{{/if}}
+                </div>
+            {{/each}}
+        </div>
+    </div>
+    <div class="open__config-wrap">
+    </div>
+    <div class="open__dropzone">
+        <i class="fa fa-lock muted-color open__dropzone-icon"></i>
+        <h1 class="muted-color open__dropzone-header">{{res 'openDropHere'}}</h1>
+    </div>
+</div>

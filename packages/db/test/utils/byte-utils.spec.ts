@@ -1,0 +1,154 @@
+import { describe, test, expect } from 'bun:test';
+import { ByteUtils } from '../../lib';
+
+describe('ByteUtils', () => {
+    describe('arrayBufferEquals', () => {
+        test('returns true for equal ArrayBuffers', () => {
+            const ab1 = new Int8Array([1, 2, 3]).buffer;
+            const ab2 = new Int8Array([1, 2, 3]).buffer;
+            expect(ByteUtils.arrayBufferEquals(ab1, ab2)).toBe(true);
+        });
+
+        test('returns false for ArrayBuffers of different length', () => {
+            const ab1 = new Int8Array([1, 2, 3]).buffer;
+            const ab2 = new Int8Array([1, 2, 3, 4]).buffer;
+            expect(ByteUtils.arrayBufferEquals(ab1, ab2)).toBe(false);
+        });
+
+        test('returns false for different ArrayBuffers', () => {
+            const ab1 = new Int8Array([1, 2, 3]).buffer;
+            const ab2 = new Int8Array([3, 2, 1]).buffer;
+            expect(ByteUtils.arrayBufferEquals(ab1, ab2)).toBe(false);
+        });
+    });
+
+    const str = 'utf8стрƒΩ≈ç√∫˜µ≤æ∆©ƒ∂ß';
+    const strBytes = new Uint8Array([
+        117, 116, 102, 56, 209, 129, 209, 130, 209, 128, 198, 146, 206, 169, 226, 137, 136, 195,
+        167, 226, 136, 154, 226, 136, 171, 203, 156, 194, 181, 226, 137, 164, 195, 166, 226, 136,
+        134, 194, 169, 198, 146, 226, 136, 130, 195, 159
+    ]);
+
+    describe('bytesToString', () => {
+        test('converts Array to string', () => {
+            expect(ByteUtils.bytesToString(strBytes)).toBe(str);
+        });
+
+        test('converts ArrayBuffer to string', () => {
+            expect(ByteUtils.bytesToString(strBytes.buffer)).toBe(str);
+        });
+    });
+
+    describe('stringToBytes', () => {
+        test('converts string to Array', () => {
+            expect(ByteUtils.stringToBytes(str)).toEqual(strBytes);
+        });
+    });
+
+    const base64 = 'c3Ry0L/RgNC40LLQtdGC';
+    const bytes = new Uint8Array([
+        115, 116, 114, 208, 191, 209, 128, 208, 184, 208, 178, 208, 181, 209, 130
+    ]);
+
+    describe('base64ToBytes', () => {
+        test('converts base64-string to byte array', () => {
+            expect(ByteUtils.base64ToBytes(base64)).toEqual(bytes);
+        });
+
+        test('converts base64-string to byte array using Buffer', () => {
+            const atob = global.atob;
+            // @ts-ignore
+            global.atob = undefined;
+            try {
+                expect(ByteUtils.base64ToBytes(base64)).toEqual(bytes);
+            } finally {
+                global.atob = atob;
+            }
+        });
+    });
+
+    describe('bytesToBase64', () => {
+        test('converts byte array to base64-string', () => {
+            expect(ByteUtils.bytesToBase64(bytes)).toBe(base64);
+        });
+
+        test('converts ArrayBuffer base64-string', () => {
+            expect(ByteUtils.bytesToBase64(bytes.buffer)).toBe(base64);
+        });
+
+        test('converts byte array to base64-string using Buffer', () => {
+            const btoa = global.btoa;
+            // @ts-ignore
+            global.btoa = undefined;
+            try {
+                expect(ByteUtils.bytesToBase64(bytes)).toBe(base64);
+            } finally {
+                global.btoa = btoa;
+            }
+        });
+    });
+
+    const hexString = '737472d0bfd180d0b8d0b2d0b5d101';
+    const hexBytes = new Uint8Array([
+        115, 116, 114, 208, 191, 209, 128, 208, 184, 208, 178, 208, 181, 209, 1
+    ]);
+
+    describe('hexToBytes', () => {
+        test('converts hex string to byte array', () => {
+            expect(ByteUtils.hexToBytes(hexString)).toEqual(hexBytes);
+        });
+
+        test('converts hex string in uppercase to byte array', () => {
+            expect(ByteUtils.hexToBytes(hexString.toUpperCase())).toEqual(hexBytes);
+        });
+    });
+
+    describe('bytesToHex', () => {
+        test('converts byte array to hex string', () => {
+            expect(ByteUtils.bytesToHex(hexBytes)).toBe(hexString);
+        });
+
+        test('converts ArrayBuffer to hex string', () => {
+            expect(ByteUtils.bytesToHex(hexBytes.buffer)).toBe(hexString);
+        });
+    });
+
+    describe('zeroBuffer', () => {
+        test('fills array with zeroes', () => {
+            const arr = new Uint8Array([1, 2, 3]);
+            ByteUtils.zeroBuffer(arr);
+            expect(arr).toEqual(new Uint8Array([0, 0, 0]));
+        });
+
+        test('fills array buffer with zeroes', () => {
+            const arr = new Uint8Array([1, 2, 3]);
+            ByteUtils.zeroBuffer(arr.buffer);
+            expect(arr).toEqual(new Uint8Array([0, 0, 0]));
+        });
+    });
+
+    describe('arrayToBuffer', () => {
+        test('converts array to buffer', () => {
+            const ab = ByteUtils.arrayToBuffer(new Uint8Array(4));
+            expect(ab).toBeInstanceOf(ArrayBuffer);
+            expect(ab.byteLength).toBe(4);
+        });
+
+        test('converts buffer to buffer', () => {
+            const ab = ByteUtils.arrayToBuffer(new Uint8Array(4).buffer);
+            expect(ab).toBeInstanceOf(ArrayBuffer);
+            expect(ab.byteLength).toBe(4);
+        });
+
+        test('makes sliced buffer from sliced array', () => {
+            const srcAb = new ArrayBuffer(10);
+            const arr = new Uint8Array(srcAb, 1, 4);
+            arr[0] = 1;
+            expect(arr.buffer.byteLength).toBe(10);
+            const ab = ByteUtils.arrayToBuffer(arr);
+            expect(ab).toBeInstanceOf(ArrayBuffer);
+            expect(ab.byteLength).toBe(4);
+            expect(new Uint8Array(ab)[0]).toBe(1);
+        });
+    });
+});
