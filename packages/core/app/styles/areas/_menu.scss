@@ -142,6 +142,19 @@
                     height: 20px;
                 }
             }
+            // Groups without a custom KDBX icon — render the default
+            // open-folder glyph, switch to closed-folder when the
+            // menu item is collapsed.
+            &--no-icon {
+                &:before {
+                    content: $fa-var-folder-open-o;
+                }
+                .menu__item--collapsed > .menu__item-body > & {
+                    &:before {
+                        content: $fa-var-folder-o;
+                    }
+                }
+            }
             .menu__item--with-options:hover & {
                 display: none;
             }
