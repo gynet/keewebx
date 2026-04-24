@@ -309,15 +309,11 @@ class SettingsGeneralView extends View {
 
     changeTheme(e: any): void {
         const theme = e.target.closest('.settings__general-theme').dataset.theme;
-        if (theme === '...') {
-            this.goToPlugins();
+        const changedInSettings = settings.theme !== theme;
+        if (changedInSettings) {
+            settings.theme = theme;
         } else {
-            const changedInSettings = settings.theme !== theme;
-            if (changedInSettings) {
-                settings.theme = theme;
-            } else {
-                settingsManager.setTheme(theme);
-            }
+            settingsManager.setTheme(theme);
         }
     }
 
@@ -329,19 +325,7 @@ class SettingsGeneralView extends View {
     }
 
     changeLocale(e: any): void {
-        const locale = e.target.value;
-        if (locale === '...') {
-            e.target.value = settings.locale || 'en-US';
-            this.goToPlugins();
-        } else {
-            settings.locale = locale;
-        }
-    }
-
-    goToPlugins(): void {
-        this.appModel.menu.select({
-            item: this.appModel.menu.pluginsSection.items[0]
-        });
+        settings.locale = e.target.value;
     }
 
     changeFontSize(e: any): void {
