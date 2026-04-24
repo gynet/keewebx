@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { IconMap } from 'const/icon-map';
+import { ENTRY_ICONS } from 'const/icon-registry';
 import { EntryModel } from 'models/entry-model';
 import { MenuItemModel } from 'models/menu/menu-item-model';
 import { IconUrlFormat } from 'util/formatting/icon-url-format';
@@ -118,7 +118,7 @@ class GroupModel extends MenuItemModel {
         if (id === KdbxIcons.Folder || id === KdbxIcons.FolderOpen) {
             return undefined;
         }
-        return (IconMap as Record<number, string>)[id];
+        return (ENTRY_ICONS as readonly string[] as Record<number, string>)[id];
     }
 
     _buildCustomIcon(): string | null {

@@ -43,42 +43,6 @@
         &-i {
             font-size: 4em;
             vertical-align: middle;
-            &--ws-lock {
-                display: inline-block;
-                width: 64px;
-                height: 64px;
-                background-image: $ws-icon-password-safe;
-                background-size: contain;
-                background-repeat: no-repeat;
-                background-position: center;
-            }
-            &--ws-new {
-                display: inline-block;
-                width: 64px;
-                height: 64px;
-                background-image: $ws-icon-desktop;
-                background-size: contain;
-                background-repeat: no-repeat;
-                background-position: center;
-            }
-            &--ws-more {
-                display: inline-block;
-                width: 64px;
-                height: 64px;
-                background-image: $ws-icon-org-gnome-Software-Generic;
-                background-size: contain;
-                background-repeat: no-repeat;
-                background-position: center;
-            }
-            &--ws-demo {
-                display: inline-block;
-                width: 64px;
-                height: 64px;
-                background-image: $ws-icon-Showtime;
-                background-size: contain;
-                background-repeat: no-repeat;
-                background-position: center;
-            }
         }
         &-text {
             color: var(--muted-color);

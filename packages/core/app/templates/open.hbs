@@ -9,13 +9,13 @@
     <div class="open__icons">
         {{#if canOpen}}
             <div class="open__icon open__icon-open" tabindex="1" id="open__icon-open">
-                <span class="open__icon-i open__icon-i--ws-lock"></span>
+                <i class="fa fa-lock open__icon-i"></i>
                 <div class="open__icon-text">{{res 'openOpen'}}</div>
             </div>
         {{/if}}
         {{#if canCreate}}
             <div class="open__icon open__icon-new" tabindex="2" id="open__icon-new">
-                <span class="open__icon-i open__icon-i--ws-new"></span>
+                <i class="fa fa-plus open__icon-i"></i>
                 <div class="open__icon-text">{{res 'openNew'}}</div>
             </div>
         {{/if}}
@@ -27,14 +27,14 @@
         {{#if canOpenDemo}}
             {{#ifeq demoOpened false}}
                 <div class="open__icon open__icon-demo" tabindex="4" id="open__icon-demo">
-                    <span class="open__icon-i open__icon-i--ws-demo"></span>
+                    <i class="fa fa-magic open__icon-i"></i>
                     <div class="open__icon-text">{{res 'openDemo'}}</div>
                 </div>
             {{/ifeq}}
         {{/if}}
         {{#if showMore}}
             <div class="open__icon open__icon-more" tabindex="5" id="open__icon-more">
-                <span class="open__icon-i open__icon-i--ws-more"></span>
+                <i class="fa fa-ellipsis-h open__icon-i"></i>
                 <div class="open__icon-text">{{res 'openMore'}}</div>
             </div>
         {{/if}}
@@ -56,7 +56,7 @@
         {{#if canOpenDemo}}
             {{#if demoOpened}}
                 <div class="open__icon open__icon-demo" tabindex="20" id="open__icon-demo">
-                    <span class="open__icon-i open__icon-i--ws-demo"></span>
+                    <i class="fa fa-magic open__icon-i"></i>
                     <div class="open__icon-text">{{res 'openDemo'}}</div>
                 </div>
             {{/if}}

@@ -9,27 +9,6 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const rootDir = __dirname;
 const pkg = require('./package.json');
 
-// Generate SCSS variables for WhiteSur icons (SVG → base64 data URI)
-function generateWhiteSurScssVars() {
-    const whitesurDir = path.join(rootDir, 'app/icons/whitesur');
-    let vars = '';
-    if (fs.existsSync(whitesurDir)) {
-        for (const file of fs.readdirSync(whitesurDir).filter((f) => f.endsWith('.svg'))) {
-            const b64 = fs.readFileSync(path.join(whitesurDir, file)).toString('base64');
-            const varName = file.replace(/\.svg$/, '').replace(/[^a-zA-Z0-9]/g, '-');
-            vars += `$ws-icon-${varName}: url('data:image/svg+xml;base64,${b64}');\n`;
-        }
-    }
-    return vars;
-}
-const whitesurScssVars = generateWhiteSurScssVars();
-if (whitesurScssVars) {
-    const varNames = whitesurScssVars.match(/\$ws-icon-[\w-]+/g) || [];
-    console.log(`[WhiteSur] Generated ${varNames.length} icon variables: ${varNames.join(', ')}`);
-} else {
-    console.error('[WhiteSur] WARNING: No icon variables generated!');
-}
-
 process.noDeprecation = true;
 
 // Resolve a verifiable build identity so code = build = demo = test cannot
@@ -264,7 +243,7 @@ module.exports = (env, argv) => {
                         MiniCssExtractPlugin.loader,
                         { loader: 'css-loader', options: { sourceMap: devMode } },
                         { loader: 'postcss-loader', options: { sourceMap: devMode } },
-                        { loader: 'sass-loader', options: { sourceMap: devMode, additionalData: whitesurScssVars } },
+                        { loader: 'sass-loader', options: { sourceMap: devMode } },
                         { loader: 'scss-add-icons-loader' }
                     ]
                 },
