@@ -32,6 +32,7 @@ Your encrypted KDBX file never leaves your disk. The app loads from disk. The ex
 | Dependencies | ~80 packages | **~20 packages** |
 | Desktop | Electron v13 | **Removed** |
 | Storage | Dropbox, GDrive, OneDrive, WebDAV | **WebDAV + IndexedDB** |
+| Unlock | Master password | Master password **+ WebAuthn passkey quick unlock** (Touch ID / Face ID / Windows Hello / YubiKey) |
 
 ## Self-hosting
 
