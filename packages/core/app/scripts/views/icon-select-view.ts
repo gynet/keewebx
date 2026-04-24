@@ -1,5 +1,5 @@
 import { View } from 'framework/views/view';
-import { IconMap } from 'const/icon-map';
+import { ENTRY_ICONS } from 'const/icon-registry';
 import { Logger } from 'util/logger';
 import template from 'templates/icon-select.hbs';
 
@@ -35,7 +35,7 @@ class IconSelectView extends View {
         const hasCustomIcons = Object.keys(customIcons).length > 0;
         super.render({
             sel: this.model.iconId,
-            icons: IconMap,
+            icons: ENTRY_ICONS,
             canDownloadFavicon: !!this.model.url,
             customIcons,
             hasCustomIcons

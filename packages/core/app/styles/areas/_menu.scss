@@ -142,25 +142,6 @@
                     height: 20px;
                 }
             }
-            &--no-icon {
-                // WhiteSur macOS-style folder icons replace FA font glyphs
-                background-image: $ws-icon-folder-open;
-                background-size: contain;
-                background-repeat: no-repeat;
-                background-position: center;
-                width: 18px;
-                height: 18px;
-                body.large-icons & {
-                    width: 24px;
-                    height: 24px;
-                }
-                &:before {
-                    content: none;
-                }
-                .menu__item--collapsed > .menu__item-body > & {
-                    background-image: $ws-icon-folder-blue;
-                }
-            }
             .menu__item--with-options:hover & {
                 display: none;
             }

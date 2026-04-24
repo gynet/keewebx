@@ -2,7 +2,7 @@ import * as kdbxweb from 'kdbxweb';
 import { Model } from 'framework/model';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { KdbxToHtml } from 'comp/format/kdbx-to-html';
-import { IconMap } from 'const/icon-map';
+import { ENTRY_ICONS } from 'const/icon-registry';
 import { BuiltInFields } from 'const/entry-fields';
 import { AttachmentModel } from 'models/attachment-model';
 import { Color } from 'util/data/color';
@@ -252,7 +252,7 @@ class EntryModel extends Model {
     }
 
     _iconFromId(id: number): string {
-        return (IconMap as Record<number, string>)[id];
+        return (ENTRY_ICONS as readonly string[] as Record<number, string>)[id];
     }
 
     _getDisplayUrl(url: string): string {
