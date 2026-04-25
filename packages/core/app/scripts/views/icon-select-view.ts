@@ -119,16 +119,14 @@ class IconSelectView extends View {
             // Favicon proxy. The browser cannot read cross-origin image
             // bytes without CORS; this endpoint fetches + re-emits with
             // Access-Control-Allow-Origin so we can embed the result as
-            // a custom KDBX icon. Pass `?hires=1` only when the user
-            // has opted in via Settings → General → Fetch high-res icons.
+            // a custom KDBX icon. `?min=N` doubles as a quality
+            // threshold — sites without a declared icon ≥N px return
+            // 404 and the client falls back to the KDBX default.
             const host = url.replace(/^.*:\/+/, '').replace(/\/.*/, '');
-            const settings = AppSettingsModel as unknown as { hiresFavicons?: boolean };
-            const hires = settings.hiresFavicons === true;
-            return (
-                'https://keewebx.app/api/favicon/' +
-                host +
-                (hires ? '?hires=1' : '')
-            );
+            const settings = AppSettingsModel as unknown as { faviconSize?: number };
+            const target = settings.faviconSize ?? 32;
+            const query = target > 32 ? `?min=${target}` : '';
+            return 'https://keewebx.app/api/favicon/' + host + query;
         }
         return url;
     }
@@ -169,13 +167,14 @@ class IconSelectView extends View {
     }
 
     setSpecialImage(img: HTMLImageElement, name: SpecialSlot): void {
-        // Cap stored size based on the hi-res setting:
-        //   - hires off: 32 px (matches legacy behaviour, tiny KDBX footprint)
-        //   - hires on:  128 px (crisp at 24-32 CSS px on retina/3x DPR
-        //                without bloating the KDBX file with 956×956 source)
-        const settings = AppSettingsModel as unknown as { hiresFavicons?: boolean };
-        const cap = settings.hiresFavicons === true ? 128 : 32;
-        const size = Math.min(img.width, cap);
+        // Cap stored canvas at the user-chosen target. Resize down when
+        // the source is larger (typical now that hi-res is supported);
+        // never upscale (would just blur).
+        const settings = AppSettingsModel as unknown as { faviconSize?: number };
+        const target = [32, 64, 128].includes(settings.faviconSize ?? 32)
+            ? (settings.faviconSize as number)
+            : 32;
+        const size = Math.min(img.width, target);
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         canvas.width = size;

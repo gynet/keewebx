@@ -73,7 +73,7 @@ class AppSettingsModel extends Model {
     declare webdavSaveMethod: AppSettings['webdavSaveMethod'];
     declare webdavStatReload: AppSettings['webdavStatReload'];
     declare saveVerify: AppSettings['saveVerify'];
-    declare hiresFavicons: AppSettings['hiresFavicons'];
+    declare faviconSize: AppSettings['faviconSize'];
 
     constructor() {
         super();

@@ -99,7 +99,7 @@ class SettingsGeneralView extends View {
         'change .settings__general-disable-offline-storage': 'changeDisableOfflineStorage',
         'change .settings__general-short-lived-storage-token': 'changeShortLivedStorageToken',
         'change .settings__general-save-verify': 'changeSaveVerify',
-        'change .settings__general-hires-favicons': 'changeHiresFavicons',
+        'change .settings__general-favicon-size': 'changeFaviconSize',
         'change .settings__general-prv-check': 'changeStorageEnabled',
         'click .settings__general-prv-logout': 'logoutFromStorage',
         'click .settings__general-show-advanced': 'showAdvancedSettings',
@@ -188,7 +188,7 @@ class SettingsGeneralView extends View {
             disableOfflineStorage: settings.disableOfflineStorage,
             shortLivedStorageToken: settings.shortLivedStorageToken,
             saveVerify: settings.saveVerify,
-            hiresFavicons: settings.hiresFavicons
+            faviconSize: settings.faviconSize
         });
         this.renderProviderViews(storageProviders);
         return this;
@@ -554,8 +554,9 @@ class SettingsGeneralView extends View {
         settings.saveVerify = !!e.target.checked;
     }
 
-    changeHiresFavicons(e: any): void {
-        settings.hiresFavicons = !!e.target.checked;
+    changeFaviconSize(e: any): void {
+        const v = parseInt(e.target.value, 10);
+        settings.faviconSize = [32, 64, 128].includes(v) ? v : 32;
     }
 
     changeStorageEnabled(e: any): void {
