@@ -1,5 +1,6 @@
 import { View } from 'framework/views/view';
 import { ENTRY_ICONS } from 'const/icon-registry';
+import { AppSettingsModel } from 'models/app-settings-model';
 import { Logger } from 'util/logger';
 import template from 'templates/icon-select.hbs';
 
@@ -115,8 +116,12 @@ class IconSelectView extends View {
             url = 'http://' + url;
         }
         if (useService) {
+            // Favicon proxy. The browser cannot read cross-origin image
+            // bytes without CORS; this endpoint fetches + re-emits with
+            // Access-Control-Allow-Origin so we can embed the result as
+            // a custom KDBX icon.
             return (
-                'https://services.keeweb.info/favicon/' +
+                (AppSettingsModel as unknown as { faviconServiceUrl: string }).faviconServiceUrl +
                 url.replace(/^.*:\/+/, '').replace(/\/.*/, '')
             );
         }
