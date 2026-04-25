@@ -71,7 +71,13 @@ interface AppSettings {
     webdavSaveMethod: string;
     webdavStatReload: boolean;
     saveVerify: boolean;
-    hiresFavicons: boolean;
+    /** Pixel cap for auto-fetched site icons stored in the KDBX file.
+     * 32 = legacy small (cheapest), 64 = retina @ 24 CSS px,
+     * 128 = retina @ large-list mode, 256 = max. The same value is
+     * sent to the favicon proxy as a quality threshold so sites
+     * without a sufficiently large declared icon return 404 and the
+     * client falls back to the KDBX default globe. */
+    faviconSize: number;
 
     /** Allow indexing by string for dynamic property access in Model base class */
     [key: string]: unknown;
@@ -149,7 +155,7 @@ const DefaultAppSettings: AppSettings = {
     webdavSaveMethod: 'move', // how to save files with WebDAV: "move" or "put"
     webdavStatReload: false, // WebDAV: reload the file instead of relying on Last-Modified
     saveVerify: true, // re-parse saved bytes through Kdbx.load before declaring save successful (guardrail #23)
-    hiresFavicons: false // when true, the icon-picker auto-fetch asks the favicon proxy for high-resolution icons (~120-256 px) instead of legacy /favicon.ico (16-32 px). Off by default to keep KDBX size + bandwidth minimal.
+    faviconSize: 32 // default cap kept at legacy size so existing users see no behaviour change
 };
 
 function applyRegisteredSettings(): void {

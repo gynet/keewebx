@@ -108,10 +108,13 @@
         <label for="settings__general-show-favicons">{{res 'setGenShowFavicons'}}</label>
     </div>
     <div>
-        <input type="checkbox" class="settings__input input-base settings__general-hires-favicons" id="settings__general-hires-favicons"
-               {{#if hiresFavicons}}checked{{/if}} />
-        <label for="settings__general-hires-favicons">{{res 'setGenHiresFavicons'}}</label>
-        <div class="muted-color">{{res 'setGenHiresFaviconsDesc'}}</div>
+        <label for="settings__general-favicon-size">{{res 'setGenFaviconSize'}}:</label>
+        <select class="settings__input input-base settings__general-favicon-size" id="settings__general-favicon-size">
+            <option value="32" {{#ifeq faviconSize 32}}selected{{/ifeq}}>{{res 'setGenFaviconSizeStandard'}}</option>
+            <option value="64" {{#ifeq faviconSize 64}}selected{{/ifeq}}>{{res 'setGenFaviconSizeMedium'}}</option>
+            <option value="128" {{#ifeq faviconSize 128}}selected{{/ifeq}}>{{res 'setGenFaviconSizeHigh'}}</option>
+        </select>
+        <div class="muted-color">{{res 'setGenFaviconSizeDesc'}}</div>
     </div>
     <div>
         <label for="settings__general-tag-style">Tag sidebar style: </label>
