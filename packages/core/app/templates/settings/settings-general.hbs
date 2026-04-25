@@ -351,6 +351,13 @@
         <div class="settings__general-save-verify-desc muted-color">{{res 'setGenSaveVerifyDesc'}}</div>
     </div>
 
+    <div>
+        <input type="checkbox" class="settings__input input-base settings__general-hires-favicons" id="settings__general-hires-favicons"
+               {{#if hiresFavicons}}checked{{/if}} />
+        <label for="settings__general-hires-favicons">{{res 'setGenHiresFavicons'}}</label>
+        <div class="muted-color">{{res 'setGenHiresFaviconsDesc'}}</div>
+    </div>
+
     <h2 id="advanced">{{res 'advanced'}}</h2>
     <a class="settings__general-show-advanced">{{res 'setGenShowAdvanced'}}</a>
     <div class="settings__general-advanced hide">

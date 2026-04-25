@@ -71,6 +71,7 @@ interface AppSettings {
     webdavSaveMethod: string;
     webdavStatReload: boolean;
     saveVerify: boolean;
+    hiresFavicons: boolean;
 
     /** Allow indexing by string for dynamic property access in Model base class */
     [key: string]: unknown;
@@ -147,7 +148,8 @@ const DefaultAppSettings: AppSettings = {
     webdav: true, // enable WebDAV integration
     webdavSaveMethod: 'move', // how to save files with WebDAV: "move" or "put"
     webdavStatReload: false, // WebDAV: reload the file instead of relying on Last-Modified
-    saveVerify: true // re-parse saved bytes through Kdbx.load before declaring save successful (guardrail #23)
+    saveVerify: true, // re-parse saved bytes through Kdbx.load before declaring save successful (guardrail #23)
+    hiresFavicons: false // when true, the icon-picker auto-fetch asks the favicon proxy for high-resolution icons (~120-256 px) instead of legacy /favicon.ico (16-32 px). Off by default to keep KDBX size + bandwidth minimal.
 };
 
 function applyRegisteredSettings(): void {

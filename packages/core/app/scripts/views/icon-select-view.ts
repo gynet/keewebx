@@ -119,10 +119,15 @@ class IconSelectView extends View {
             // Favicon proxy. The browser cannot read cross-origin image
             // bytes without CORS; this endpoint fetches + re-emits with
             // Access-Control-Allow-Origin so we can embed the result as
-            // a custom KDBX icon.
+            // a custom KDBX icon. Pass `?hires=1` only when the user
+            // has opted in via Settings → General → Fetch high-res icons.
+            const host = url.replace(/^.*:\/+/, '').replace(/\/.*/, '');
+            const settings = AppSettingsModel as unknown as { hiresFavicons?: boolean };
+            const hires = settings.hiresFavicons === true;
             return (
                 (AppSettingsModel as unknown as { faviconServiceUrl: string }).faviconServiceUrl +
-                url.replace(/^.*:\/+/, '').replace(/\/.*/, '')
+                host +
+                (hires ? '?hires=1' : '')
             );
         }
         return url;
