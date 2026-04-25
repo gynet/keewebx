@@ -169,7 +169,13 @@ class IconSelectView extends View {
     }
 
     setSpecialImage(img: HTMLImageElement, name: SpecialSlot): void {
-        const size = Math.min(img.width, 32);
+        // Cap stored size based on the hi-res setting:
+        //   - hires off: 32 px (matches legacy behaviour, tiny KDBX footprint)
+        //   - hires on:  128 px (crisp at 24-32 CSS px on retina/3x DPR
+        //                without bloating the KDBX file with 956×956 source)
+        const settings = AppSettingsModel as unknown as { hiresFavicons?: boolean };
+        const cap = settings.hiresFavicons === true ? 128 : 32;
+        const size = Math.min(img.width, cap);
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         canvas.width = size;
