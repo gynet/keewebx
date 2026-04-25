@@ -739,6 +739,8 @@
   "webdavStatReload": "Always reload the file instead of relying on Last-Modified HTTP header",
   "menuSetFile": "File",
   "setGenSaveVerify": "Verify file integrity after save (async)",
+  "setGenHiresFavicons": "Fetch high-resolution site icons",
+  "setGenHiresFaviconsDesc": "Auto-fetched entry icons use 120-256 px source images instead of the default 16-32 px favicon. Crisper on retina displays; slightly larger KDBX files and bandwidth.",
   "setGenSaveVerifyDesc": "Re-reads each saved file in the background to catch corruption. If verification fails you will be notified and can re-save.",
   "saveVerifyFailedHeader": "Save verification failed",
   "saveVerifyFailedBody": "Save verification failed — your changes may not have been written correctly. Please try saving again or check storage.",

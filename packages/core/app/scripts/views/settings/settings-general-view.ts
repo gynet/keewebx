@@ -99,6 +99,7 @@ class SettingsGeneralView extends View {
         'change .settings__general-disable-offline-storage': 'changeDisableOfflineStorage',
         'change .settings__general-short-lived-storage-token': 'changeShortLivedStorageToken',
         'change .settings__general-save-verify': 'changeSaveVerify',
+        'change .settings__general-hires-favicons': 'changeHiresFavicons',
         'change .settings__general-prv-check': 'changeStorageEnabled',
         'click .settings__general-prv-logout': 'logoutFromStorage',
         'click .settings__general-show-advanced': 'showAdvancedSettings',
@@ -186,7 +187,8 @@ class SettingsGeneralView extends View {
             deviceOwnerAuthTimeout: settings.deviceOwnerAuthTimeoutMinutes,
             disableOfflineStorage: settings.disableOfflineStorage,
             shortLivedStorageToken: settings.shortLivedStorageToken,
-            saveVerify: settings.saveVerify
+            saveVerify: settings.saveVerify,
+            hiresFavicons: settings.hiresFavicons
         });
         this.renderProviderViews(storageProviders);
         return this;
@@ -550,6 +552,10 @@ class SettingsGeneralView extends View {
 
     changeSaveVerify(e: any): void {
         settings.saveVerify = !!e.target.checked;
+    }
+
+    changeHiresFavicons(e: any): void {
+        settings.hiresFavicons = !!e.target.checked;
     }
 
     changeStorageEnabled(e: any): void {
