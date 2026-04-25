@@ -708,6 +708,8 @@
   "setHelpOpenIssue": "open an issue on GitHub",
   "setHelpContactLink": "contact the developer directly",
   "setHelpAppInfo": "App information",
+  "setHelpReleases": "Downloads",
+  "setHelpReleasesLink": "Self-host bundles & browser extension",
   "setHelpOtherPlatforms": "Other platforms",
   "setHelpDesktopApps": "Desktop apps",
   "setHelpWebApp": "Web app",
