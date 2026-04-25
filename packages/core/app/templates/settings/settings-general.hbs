@@ -108,6 +108,12 @@
         <label for="settings__general-show-favicons">{{res 'setGenShowFavicons'}}</label>
     </div>
     <div>
+        <input type="checkbox" class="settings__input input-base settings__general-hires-favicons" id="settings__general-hires-favicons"
+               {{#if hiresFavicons}}checked{{/if}} />
+        <label for="settings__general-hires-favicons">{{res 'setGenHiresFavicons'}}</label>
+        <div class="muted-color">{{res 'setGenHiresFaviconsDesc'}}</div>
+    </div>
+    <div>
         <label for="settings__general-tag-style">Tag sidebar style: </label>
         <select class="settings__input input-base settings__general-tag-style" id="settings__general-tag-style">
             <option value="cloud" {{#ifeq tagStyle "cloud"}}selected{{/ifeq}}>Cloud (pills)</option>
@@ -349,13 +355,6 @@
                {{#if saveVerify}}checked{{/if}} />
         <label for="settings__general-save-verify">{{res 'setGenSaveVerify'}}</label>
         <div class="settings__general-save-verify-desc muted-color">{{res 'setGenSaveVerifyDesc'}}</div>
-    </div>
-
-    <div>
-        <input type="checkbox" class="settings__input input-base settings__general-hires-favicons" id="settings__general-hires-favicons"
-               {{#if hiresFavicons}}checked{{/if}} />
-        <label for="settings__general-hires-favicons">{{res 'setGenHiresFavicons'}}</label>
-        <div class="muted-color">{{res 'setGenHiresFaviconsDesc'}}</div>
     </div>
 
     <h2 id="advanced">{{res 'advanced'}}</h2>
