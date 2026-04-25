@@ -1,11 +1,12 @@
 <div class="settings__content">
     <h1><i class="fa fa-info settings__head-icon"></i> {{res 'setAboutTitle'}} KeeWebX v{{version}}</h1>
-    <p>{{#res 'setAboutFirst'}}<a href="https://antelle.net" target="_blank">Antelle</a>{{/res~}}&nbsp;
-        {{~#res 'setAboutSecond'}}<a href="{{licenseLink}}" target="_blank">MIT</a>{{/res}}
-        {{#res 'setAboutSource'}}<a href="{{repoLink}}" target="_blank">GitHub <i class="fa fa-github-alt bottom"></i></a>{{/res}}</p>
-    <a href="{{donationLink}}" target="_blank" class="settings__donate-btn">
-        <span class="settings__donate-btn-top">Become a</span><span class="settings__donate-btn-bottom">Backer</span>
-    </a>
+    <p>
+        {{#res 'setAboutFirst'}}<a href="{{licenseLink}}" target="_blank">MIT</a>{{/res}}
+        {{#res 'setAboutSource'}}<a href="{{repoLink}}" target="_blank">GitHub <i class="fa fa-github-alt bottom"></i></a>{{/res}}
+    </p>
+    <p class="muted-color">
+        {{#res 'setAboutForkedFrom'}}<a href="https://github.com/keeweb/keeweb" target="_blank">KeeWeb</a>{{/res}}
+    </p>
     <p>{{res 'setAboutBuilt'}}:</p>
     <h3>Libraries</h3>
     <ul>
@@ -67,7 +68,8 @@
 
     <h2>{{res 'setAboutLic'}}</h2>
     <p>{{res 'setAboutLicComment'}}:</p>
-    <p>Copyright &copy; {{year}} Antelle https://antelle.net</p>
+    <p>Copyright &copy; {{year}} KeeWebX contributors &middot; <a href="{{repoLink}}" target="_blank">github.com/gynet/keewebx</a></p>
+    <p>Copyright &copy; 2016&ndash;2021 Antelle &middot; <a href="https://github.com/keeweb/keeweb" target="_blank">github.com/keeweb/keeweb</a> (upstream KeeWeb, MIT-licensed)</p>
     <p>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
         documentation files (the "Software"), to deal in the Software without restriction, including without limitation
         the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
