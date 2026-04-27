@@ -34,6 +34,19 @@ Your encrypted KDBX file never leaves your disk. The app loads from disk. The ex
 | Storage | Dropbox, GDrive, OneDrive, WebDAV | **WebDAV + IndexedDB** |
 | Unlock | Master password | Master password **+ WebAuthn passkey quick unlock** (Touch ID / Face ID / Windows Hello / YubiKey) |
 
+## What's New (beyond KeeWeb)
+
+User-facing features that ship in KeeWebX but aren't in upstream KeeWeb:
+
+- **Colorful tag chips** — entry tags render as deterministic-color pills (HSL-mapped from the tag string) instead of comma-separated text. Apple-style glassmorphism, no two tags collide on color.
+- **Tag cloud sidebar** — left-sidebar tag list flow-wraps as colored pills (or compact dots, your pick). Settings → Appearance → Tag style.
+- **High-resolution site icons** — favicon picker pulls Apple touch icons / web-manifest icons up to 128 px instead of the legacy 16-32 px `/favicon.ico`. Resolution is selectable (32 / 64 / 128 px) under Settings → Appearance → Site icon size.
+- **WebDAV credentials encrypted at rest** — AES-256-GCM with HKDF-derived key from your master password. Stored creds are unrecoverable without the master password (upstream used unauthenticated XOR).
+- **WebAuthn passkey quick unlock** — Touch ID / Face ID / Windows Hello / YubiKey after the first master-password unlock per device. PRF-derived AES-GCM, no server.
+- **Browser extension on `file://`** — autofill works for double-click-to-launch installs (Firefox + Chrome + Edge), no localhost tunnel needed.
+- **Single-registry icon architecture** — every Font Awesome glyph lives in one TS file (`packages/core/app/scripts/const/icon-registry.ts`). Webpack auto-generates the woff2 subset, SCSS variables, and CSS rules at build time. Adding/removing icons is one append-only edit.
+- **Modern brand** — new crossed-keys squircle logo, regenerated iOS PWA splash screens.
+
 ## Self-hosting
 
 Grab the static self-host bundle from the
