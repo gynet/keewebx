@@ -14,7 +14,7 @@ import { mkdir } from 'fs/promises';
 import { resolve } from 'path';
 
 const URL = process.env.SCREENSHOT_URL || 'http://localhost:8086/';
-const OUT_DIR = resolve(__dirname, '../packages/core/screenshots');
+const OUT_DIR = resolve(__dirname, '../screenshots');
 
 async function run() {
     await mkdir(OUT_DIR, { recursive: true });

@@ -36,7 +36,7 @@ Your encrypted KDBX file never leaves your disk. The app loads from disk. The ex
 
 ## What's new since the fork
 
-![colorful tag chips and tag sidebar](packages/core/screenshots/colorful-tags.png)
+![colorful tag chips and tag sidebar](screenshots/colorful-tags.png)
 
 - **Colorful tag chips.** Tags render as colored pills instead of comma-separated text. Color is derived from the tag string, so the same tag is the same color everywhere.
 - **Tag cloud in the sidebar.** Tags flow-wrap as pills, or as a dot list — toggle in Settings → Appearance.
