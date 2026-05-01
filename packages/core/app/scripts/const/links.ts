@@ -6,7 +6,7 @@ const Links: Readonly<Record<string, string>> = {
     License: 'https://github.com/gynet/keewebx/blob/master/LICENSE',
     LicenseApache: 'https://opensource.org/licenses/Apache-2.0',
     LicenseLinkCCBY40: 'https://creativecommons.org/licenses/by/4.0/',
-    ReleaseNotes: 'https://github.com/gynet/keewebx/blob/master/release-notes.md#release-notes',
+    ReleaseNotes: 'https://github.com/gynet/keewebx/releases',
     HaveIBeenPwned: 'https://haveibeenpwned.com',
     HaveIBeenPwnedPrivacy: 'https://haveibeenpwned.com/Passwords'
 };
