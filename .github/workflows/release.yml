@@ -29,14 +29,14 @@ jobs:
     if: ${{ !endsWith(github.ref_name, '-extension') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Need full history so we can resolve the previous tag and
           # diff commit messages between $PREV_TAG..$NEW_TAG for the
           # release notes "What's new" section.
           fetch-depth: 0
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2.2.0
 
       - name: Install (frozen lockfile)
         run: bun install --frozen-lockfile
@@ -146,7 +146,7 @@ jobs:
           echo "base=${BASE}" >> "$GITHUB_OUTPUT"
 
       - name: Upload as workflow artifact (always)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: keewebx-web-${{ steps.version.outputs.version }}
           path: artifacts/*
@@ -223,7 +223,7 @@ jobs:
 
       - name: Attach to GitHub Release (tag push only)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/${{ steps.pack.outputs.base }}.zip
