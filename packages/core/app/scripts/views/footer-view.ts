@@ -18,6 +18,7 @@ class FooterView extends View {
         'click .footer__db-item': 'showFile',
         'click .footer__db-open': 'openFile',
         'click .footer__btn-help': 'toggleHelp',
+        'click .footer__btn-about': 'toggleAbout',
         'click .footer__btn-settings': 'toggleSettings',
         'click .footer__btn-generate': 'genPass',
         'click .footer__btn-lock': 'lockWorkspace'
@@ -98,6 +99,10 @@ class FooterView extends View {
 
     toggleHelp(): void {
         Events.emit('toggle-settings', 'help');
+    }
+
+    toggleAbout(): void {
+        Events.emit('toggle-settings', 'about');
     }
 
     toggleSettings(): void {
