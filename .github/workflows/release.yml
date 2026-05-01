@@ -30,6 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need full history so we can resolve the previous tag and
+          # diff commit messages between $PREV_TAG..$NEW_TAG for the
+          # release notes "What's new" section.
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
 
@@ -147,6 +152,75 @@ jobs:
           path: artifacts/*
           retention-days: 30
 
+      - name: Compose release notes body (tag push only)
+        # Build a friendlier release body than softprops's default
+        # "**Full Changelog**: ...compare/..." one-liner. Sections:
+        #   - Live demo link at top
+        #   - "What's new" — commit subjects between PREV_TAG..NEW_TAG,
+        #     skipping merges, deduped
+        #   - Self-host pointer to the attached zip/tar.gz
+        #   - Full Changelog link (auto-resolved to previous tag)
+        # If there is no previous tag (first release ever), the diff
+        # falls back to "since beginning" and we omit the compare link.
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: notes
+        run: |
+          set -euo pipefail
+          NEW_TAG="${GITHUB_REF_NAME}"
+          BASE="${{ steps.pack.outputs.base }}"
+          # Previous non-extension v* tag, sorted by version. `git tag
+          # --sort=-v:refname` lists newest first; we exclude the current
+          # tag and any -extension variant.
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname \
+            | grep -v -- '-extension$' \
+            | grep -v -Fx "${NEW_TAG}" \
+            | head -n1 || true)
+          echo "Previous tag: ${PREV_TAG:-<none>}"
+          echo "Current tag:  ${NEW_TAG}"
+
+          if [ -n "${PREV_TAG}" ]; then
+            RANGE="${PREV_TAG}..${NEW_TAG}"
+          else
+            # First release — log everything reachable from NEW_TAG.
+            RANGE="${NEW_TAG}"
+          fi
+
+          # Commit subjects: skip merges, drop empty lines, dedupe
+          # while preserving order.
+          CHANGES=$(git log "${RANGE}" --no-merges --pretty=format:'%s' \
+            | grep -v '^[[:space:]]*$' \
+            | awk '!seen[$0]++' \
+            | sed 's/^/- /')
+
+          if [ -z "${CHANGES}" ]; then
+            CHANGES="- (no commit messages between ${PREV_TAG:-start} and ${NEW_TAG})"
+          fi
+
+          {
+            echo "## Live"
+            echo ""
+            echo "→ https://keewebx.app/app?demo=1"
+            echo ""
+            echo "## What's new"
+            echo ""
+            echo "${CHANGES}"
+            echo ""
+            echo "## Self-host"
+            echo ""
+            echo "Download \`${BASE}.zip\` or \`${BASE}.tar.gz\` below, extract,"
+            echo "and double-click \`index.html\` (or serve the folder from any static"
+            echo "HTTP server). \`.sha256\` checksums are attached for verification."
+            echo "See the bundled \`DEPLOY.md\` for the full self-host guide."
+            echo ""
+            if [ -n "${PREV_TAG}" ]; then
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${NEW_TAG}"
+            fi
+          } > release-body.md
+
+          echo "::group::Composed release body"
+          cat release-body.md
+          echo "::endgroup::"
+
       - name: Attach to GitHub Release (tag push only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -156,5 +230,8 @@ jobs:
             artifacts/${{ steps.pack.outputs.base }}.zip.sha256
             artifacts/${{ steps.pack.outputs.base }}.tar.gz
             artifacts/${{ steps.pack.outputs.base }}.tar.gz.sha256
-          generate_release_notes: true
+          body_path: release-body.md
+          # generate_release_notes intentionally omitted: we build the
+          # body ourselves above. Leaving it on would append softprops's
+          # auto-summary AFTER our body, doubling content.
           fail_on_unmatched_files: true
