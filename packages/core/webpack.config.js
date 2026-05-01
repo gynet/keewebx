@@ -200,7 +200,15 @@ module.exports = (env, argv) => {
                             { search: /@@DATE/g, replace: dt },
                             {
                                 search: /@@COMMIT/g,
-                                replace: 'dev'
+                                // The runtime-info comment used to literally
+                                // embed 'dev' as the commit field, so the
+                                // About / Help pages always lied about which
+                                // build a user was on. Wire the actual short
+                                // SHA we already resolved at the top of this
+                                // file — code = build = demo invariant
+                                // requires that About is the ground truth a
+                                // user can quote in a bug report.
+                                replace: gitShaShort
                             },
                             { search: /@@DEVMODE/g, replace: devMode ? '1' : '' },
                             { search: /@@APPLE_TEAM_ID/g, replace: '' }

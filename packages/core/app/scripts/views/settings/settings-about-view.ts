@@ -6,7 +6,11 @@ import { Features } from 'util/features';
 import template from 'templates/settings/settings-about.hbs';
 
 const links = Links as unknown as Record<string, string>;
-const runtimeInfo = RuntimeInfo as unknown as { version: string };
+const runtimeInfo = RuntimeInfo as unknown as {
+    version: string;
+    commit: string;
+    buildDate: string;
+};
 const features = Features as unknown as { isDesktop: boolean };
 
 class SettingsAboutView extends View {
@@ -15,10 +19,13 @@ class SettingsAboutView extends View {
     render(): this | undefined {
         super.render({
             version: runtimeInfo.version,
+            commit: runtimeInfo.commit,
+            buildDate: runtimeInfo.buildDate,
             licenseLink: links.License,
             licenseLinkApache: links.LicenseApache,
             licenseLinkCCBY40: links.LicenseLinkCCBY40,
             repoLink: links.Repo,
+            releasesLink: links.Releases,
             isDesktop: features.isDesktop,
             year: new Date().getFullYear()
         });

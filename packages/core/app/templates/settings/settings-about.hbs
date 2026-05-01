@@ -1,5 +1,9 @@
 <div class="settings__content">
     <h1><i class="fa fa-info settings__head-icon"></i> {{res 'setAboutTitle'}} KeeWebX v{{version}}</h1>
+    <p class="muted-color">
+        Build <code>{{commit}}</code> &middot; {{buildDate}} &middot;
+        <a href="{{releasesLink}}" target="_blank">all releases</a>
+    </p>
     <p>
         {{#res 'setAboutFirst'}}<a href="{{licenseLink}}" target="_blank">MIT</a>{{/res}}
         {{#res 'setAboutSource'}}<a href="{{repoLink}}" target="_blank">GitHub <i class="fa fa-github-alt bottom"></i></a>{{/res}}
