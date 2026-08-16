@@ -1,6 +1,6 @@
 # KeeWebX
 
-### → **Try it in 10 seconds: [keewebx.app/app?demo=1](https://keewebx.app/app?demo=1)** (master password: `demo`)
+### → **Try it in 10 seconds: [keewebx.app](https://keewebx.app/app?demo=1)** (master password: `demo`)
 
 No signup. No install. No Docker. Just a populated demo vault in your browser.
 
