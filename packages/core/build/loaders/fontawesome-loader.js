@@ -1,3 +1,4 @@
+// @ts-check
 const fs = require('fs');
 const path = require('path');
 
@@ -13,6 +14,7 @@ const svgDirs = ['brands', 'regular', 'solid']
     .map((dir) => path.join(svgBaseDir, dir))
     .concat('graphics/svg');
 
+/** @type {Record<string, string>} */
 const allIcons = {};
 
 for (const svgDir of svgDirs) {
@@ -26,6 +28,7 @@ for (const svgDir of svgDirs) {
         });
 }
 
+/** @this {import('webpack').LoaderContext<Record<string, never>>} */
 module.exports = function makeFontAwesomeWoff2() {
     const callback = this.async();
     if (this.cacheable) {
@@ -53,10 +56,15 @@ module.exports = function makeFontAwesomeWoff2() {
             }
         );
     } catch (ex) {
-        callback(ex);
+        callback(/** @type {Error} */ (ex));
     }
 };
 
+/**
+ * @param {import('webpack').LoaderContext<Record<string, never>>} loader
+ * @param {string[]} iconList
+ * @returns {Promise<{ fontData: Buffer, iconsCount: number }>}
+ */
 function buildFont(loader, iconList) {
     // Validate up front so missing icons produce a clear error, not
     // a cryptic stream failure half-way through font generation.
@@ -75,8 +83,9 @@ function buildFont(loader, iconList) {
         log() {}
     });
 
+    /** @type {Buffer[]} */
     const fontData = [];
-    fontStream.on('data', (chunk) => fontData.push(chunk));
+    fontStream.on('data', (/** @type {Buffer} */ chunk) => fontData.push(chunk));
 
     let charCode = 0xf000;
     for (const iconName of iconList) {
@@ -84,7 +93,9 @@ function buildFont(loader, iconList) {
         const svgIconPath = allIcons[iconName];
         loader.addDependency(svgIconPath);
 
-        const glyph = fs.createReadStream(svgIconPath);
+        const glyph = /** @type {fs.ReadStream & { metadata?: unknown }} */ (
+            fs.createReadStream(svgIconPath)
+        );
         glyph.metadata = { name: iconName, unicode: [String.fromCharCode(charCode)] };
 
         fontStream.write(glyph);

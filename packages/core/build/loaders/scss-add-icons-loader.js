@@ -1,3 +1,4 @@
+// @ts-check
 const { loadIconRegistry } = require('../icon-registry-parser');
 
 /**
@@ -35,6 +36,11 @@ function buildBlocks() {
     };
 }
 
+/**
+ * @this {import('webpack').LoaderContext<Record<string, never>>}
+ * @param {string} scssSource
+ * @returns {string}
+ */
 module.exports = function loadScss(scssSource) {
     this.addDependency(require.resolve('../icon-registry-parser'));
     const { prepend, append } = buildBlocks();

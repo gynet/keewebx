@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Reads app/scripts/const/icon-registry.ts as text and extracts the
  * three icon lists (ENTRY_ICONS, APP_ICONS, FA_ICONS) for consumption
@@ -19,6 +20,11 @@ const REGISTRY_PATH = path.resolve(
     'app/scripts/const/icon-registry.ts'
 );
 
+/**
+ * @param {string} source
+ * @param {string} listName
+ * @returns {string[]}
+ */
 function extractList(source, listName) {
     const re = new RegExp(
         `export const ${listName} = \\[([\\s\\S]*?)\\] as const;`,

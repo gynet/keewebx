@@ -38,6 +38,8 @@ jobs:
         run: cd packages/db && bun run build
       - name: Run tsc --noEmit on packages/core (hard fail on any error)
         run: cd packages/core && bunx tsc --noEmit
+      - name: Type-check webpack loaders (JSDoc, checkJs)
+        run: cd packages/core && bunx tsc -p tsconfig.build.json
       - name: Enforce baseline sentinel is still 0
         run: |
           cd packages/core
