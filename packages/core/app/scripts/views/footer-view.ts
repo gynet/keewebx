@@ -5,7 +5,12 @@ import { Keys } from 'const/keys';
 import { UpdateModel } from 'models/update-model';
 import { AppModel } from 'models/app-model';
 import { GeneratorView } from 'views/generator-view';
+import { DropdownView } from 'views/dropdown-view';
+import { Links } from 'const/links';
+import { Locale } from 'util/locale';
 import template from 'templates/footer.hbs';
+
+const loc = Locale as unknown as Record<string, string>;
 
 class FooterView extends View {
     parent = '.app__footer';
@@ -17,6 +22,7 @@ class FooterView extends View {
     events: Record<string, string> = {
         'click .footer__db-item': 'showFile',
         'click .footer__db-open': 'openFile',
+        'click .footer__btn-more': 'toggleMoreMenu',
         'click .footer__btn-help': 'toggleHelp',
         'click .footer__btn-about': 'toggleAbout',
         'click .footer__btn-settings': 'toggleSettings',
@@ -53,6 +59,49 @@ class FooterView extends View {
         if (this.views.gen) {
             (this.views.gen as View).remove();
             delete this.views.gen;
+        }
+        this.hideMoreMenu();
+    }
+
+    toggleMoreMenu(e: Event): void {
+        e.stopPropagation();
+        if (this.views.more) {
+            this.hideMoreMenu();
+            return;
+        }
+        const view = new DropdownView();
+        this.listenTo(view, 'cancel', this.hideMoreMenu);
+        this.listenTo(view, 'select', this.moreMenuSelect);
+        const rect = this.$el.find('.footer__btn-more')[0].getBoundingClientRect();
+        view.render({
+            position: { top: rect.top, right: rect.right },
+            options: [
+                { value: 'help', icon: 'question', text: loc.help },
+                { value: 'about', icon: 'info-circle', text: loc.menuSetAbout },
+                { value: 'github', icon: 'github-alt', text: 'GitHub' }
+            ]
+        });
+        // The menu opens upward: render clamps it to the viewport, which
+        // would otherwise leave it covering the footer.
+        view.$el.css('top', rect.top - view.$el[0].getBoundingClientRect().height);
+        this.views.more = view as unknown as View;
+    }
+
+    hideMoreMenu(): void {
+        if (this.views.more) {
+            (this.views.more as View).remove();
+            delete this.views.more;
+        }
+    }
+
+    moreMenuSelect(e: { item: string }): void {
+        this.hideMoreMenu();
+        if (e.item === 'help') {
+            this.toggleHelp();
+        } else if (e.item === 'about') {
+            this.toggleAbout();
+        } else if (e.item === 'github') {
+            window.open(Links.Repo, '_blank', 'noopener,noreferrer');
         }
     }
 

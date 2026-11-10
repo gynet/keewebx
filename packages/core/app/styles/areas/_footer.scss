@@ -88,16 +88,21 @@
             color: inherit;
             text-decoration: none;
         }
-        // Phones: six buttons leave no room for the file name. About and
-        // GitHub stay reachable through Settings, so drop them here and
-        // tighten the rest.
+        // Phones: six buttons leave no room for the file name, so Help,
+        // About and GitHub collapse into the "more" menu.
         @include mobile {
             padding-left: 0.65em;
             padding-right: 0.65em;
         }
+        &-help,
         &-about,
         &-github {
             @include mobile {
+                display: none;
+            }
+        }
+        &-more {
+            @include nomobile {
                 display: none;
             }
         }
