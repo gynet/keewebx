@@ -1,6 +1,6 @@
 # KeeWebX
 
-### → **Try it in 10 seconds: [keewebx.app](https://keewebx.app/app?demo=1)** (master password: `demo`)
+### → **Try it in 10 seconds: [keewebx.app/demo](https://keewebx.app/demo)** (master password: `demo`)
 
 No signup. No install. No Docker. Just a populated demo vault in your browser.
 
@@ -10,7 +10,7 @@ No signup. No install. No Docker. Just a populated demo vault in your browser.
 
 Modern, web-only KeePass client — KDBX4, TypeScript, zero runtime dependencies. Browser extension autofill included.
 
-**Demo:** [keewebx.app/app?demo=1](https://keewebx.app/app?demo=1) · **Self-host:** [Releases](https://github.com/gynet/keewebx/releases)
+**Demo:** [keewebx.app/demo](https://keewebx.app/demo) · **Self-host:** [Releases](https://github.com/gynet/keewebx/releases)
 
 Forked from [KeeWeb](https://github.com/keeweb/keeweb) (stalled since 2021), rebuilt for simplicity, security, and maintainability.
 

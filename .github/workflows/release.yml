@@ -199,7 +199,7 @@ jobs:
           {
             echo "## Live"
             echo ""
-            echo "→ https://keewebx.app/app?demo=1"
+            echo "→ https://keewebx.app/demo"
             echo ""
             echo "## What's new"
             echo ""
