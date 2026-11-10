@@ -4,11 +4,6 @@
  *
  * These tests verify that our KDBX4 implementation can read databases created
  * by keepass-rs, covering various KDF + cipher combinations.
- *
- * NOTE: Many keepass-rs test databases use Argon2 with >=256MB memory, which
- * exceeds the 128MB WASM heap of our test argon2-asm module. Those tests are
- * skipped here and marked accordingly. They would pass with a production
- * Argon2 implementation (e.g., argon2-browser with dynamic memory).
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -68,7 +63,7 @@ describe('keepass-rs interop', () => {
     });
 
     // ---------------------------------------------------------------
-    // KDBX4 fuzzing database (low round Argon2 - fits in 128MB)
+    // KDBX4 fuzzing database (low round Argon2)
     // ---------------------------------------------------------------
 
     describe('KDBX4 with few rounds (fuzzing db)', () => {
@@ -87,56 +82,65 @@ describe('keepass-rs interop', () => {
     });
 
     // ---------------------------------------------------------------
-    // KDBX4 with high-memory Argon2 (skipped: argon2-asm 128MB limit)
-    // These databases use default KeePass Argon2 settings (256MB+).
-    // They work with argon2-browser or native Argon2 in production.
+    // KDBX4 with default KeePass Argon2 settings (high memory)
     // ---------------------------------------------------------------
 
-    describe('KDBX4 with high-memory Argon2 (require >128MB WASM)', () => {
-        test.skip('Argon2d KDF + AES cipher', () => {
-            // File: test_db_kdbx4_with_password_argon2.kdbx, password: "demopass"
-        });
+    describe('KDBX4 with high-memory Argon2', () => {
+        const passwordCases: Array<[string, string, string]> = [
+            ['Argon2d KDF + AES cipher', 'test_db_kdbx4_with_password_argon2.kdbx', 'demopass'],
+            ['Argon2id KDF + AES cipher', 'test_db_kdbx4_with_password_argon2id.kdbx', 'demopass'],
+            ['Argon2d KDF + ChaCha20 cipher', 'test_db_kdbx4_with_password_argon2_chacha20.kdbx', 'demopass'],
+            ['Argon2id KDF + ChaCha20 cipher', 'test_db_kdbx4_with_password_argon2id_chacha20.kdbx', 'demopass'],
+            ['Argon2 + deleted entry with recycle bin', 'test_db_kdbx4_with_password_deleted_entry.kdbx', 'demopass'],
+            ['Argon2 + TOTP entry', 'test_db_kdbx4_with_totp_entry.kdbx', 'test']
+        ];
 
-        test.skip('Argon2id KDF + AES cipher', () => {
-            // File: test_db_kdbx4_with_password_argon2id.kdbx, password: "demopass"
-        });
+        for (const [name, file, password] of passwordCases) {
+            test(name, async () => {
+                const db = await kdbxweb.Kdbx.load(
+                    readExternal(file),
+                    new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password))
+                );
+                expect(db).toBeInstanceOf(kdbxweb.Kdbx);
+                expect(db.groups.length).toBe(1);
+            }, 120000);
+        }
 
-        test.skip('Argon2d KDF + ChaCha20 cipher', () => {
-            // File: test_db_kdbx4_with_password_argon2_chacha20.kdbx, password: "demopass"
-        });
+        const twofishCases: Array<[string, string]> = [
+            ['Argon2d KDF + Twofish cipher', 'test_db_kdbx4_with_password_argon2_twofish.kdbx'],
+            ['Argon2id KDF + Twofish cipher', 'test_db_kdbx4_with_password_argon2id_twofish.kdbx']
+        ];
 
-        test.skip('Argon2id KDF + ChaCha20 cipher', () => {
-            // File: test_db_kdbx4_with_password_argon2id_chacha20.kdbx, password: "demopass"
-        });
+        for (const [name, file] of twofishCases) {
+            test(`${name} is rejected as unsupported`, async () => {
+                const load = kdbxweb.Kdbx.load(
+                    readExternal(file),
+                    new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('demopass'))
+                );
+                await expect(load).rejects.toMatchObject({
+                    code: kdbxweb.Consts.ErrorCodes.Unsupported
+                });
+            }, 120000);
+        }
 
-        test.skip('Argon2d KDF + Twofish cipher (unsupported cipher)', () => {
-            // File: test_db_kdbx4_with_password_argon2_twofish.kdbx, password: "demopass"
-            // Even if Argon2 passed, Twofish is not supported and should throw Unsupported.
-        });
+        const keyfileCases: Array<[string, string, string, string | null]> = [
+            ['Argon2 + keyfile v1 (no password)', 'test_db_kdbx4_with_keyfile.kdbx', 'test_key.key', null],
+            ['Argon2 + keyfile v2 + password', 'test_db_kdbx4_with_keyfile_v2.kdbx', 'test_db_kdbx4_with_keyfile_v2.keyx', 'demopass'],
+            ['Argon2 + keyfile v2 alt (tabs in key data) + password', 'test_db_kdbx4_with_keyfile_v2_alt.kdbx', 'test_db_kdbx4_with_keyfile_v2_alt.keyx', '123123']
+        ];
 
-        test.skip('Argon2id KDF + Twofish cipher (unsupported cipher)', () => {
-            // File: test_db_kdbx4_with_password_argon2id_twofish.kdbx, password: "demopass"
-        });
-
-        test.skip('Argon2 + deleted entry with recycle bin', () => {
-            // File: test_db_kdbx4_with_password_deleted_entry.kdbx, password: "demopass"
-        });
-
-        test.skip('Argon2 + TOTP entry', () => {
-            // File: test_db_kdbx4_with_totp_entry.kdbx, password: "test"
-        });
-
-        test.skip('Argon2 + keyfile v1 (no password)', () => {
-            // File: test_db_kdbx4_with_keyfile.kdbx, keyfile: test_key.key
-        });
-
-        test.skip('Argon2 + keyfile v2 + password "demopass"', () => {
-            // File: test_db_kdbx4_with_keyfile_v2.kdbx, keyfile: .keyx, password: "demopass"
-        });
-
-        test.skip('Argon2 + keyfile v2 alt (tabs in key data) + password "123123"', () => {
-            // File: test_db_kdbx4_with_keyfile_v2_alt.kdbx, keyfile: .keyx, password: "123123"
-        });
+        for (const [name, file, keyfile, password] of keyfileCases) {
+            test(name, async () => {
+                const db = await kdbxweb.Kdbx.load(
+                    readExternal(file),
+                    new kdbxweb.Credentials(
+                        password === null ? null : kdbxweb.ProtectedValue.fromString(password),
+                        readExternal(keyfile)
+                    )
+                );
+                expect(db).toBeInstanceOf(kdbxweb.Kdbx);
+            }, 120000);
+        }
     });
 
     // ---------------------------------------------------------------

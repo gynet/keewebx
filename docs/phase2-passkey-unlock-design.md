@@ -158,7 +158,7 @@ PRF at `navigator.credentials.create()` time is a **capability probe**: the brow
 
 - WebCrypto `SubtleCrypto` — HKDF, SHA-256, AES-GCM.
 - tweetnacl — already in `packages/extension`; available if we decide on ChaCha20-Poly1305.
-- argon2-browser — not strictly needed here (PRF is the source of entropy), but noted for completeness.
+- hash-wasm (Argon2) — not strictly needed here (PRF is the source of entropy), but noted for completeness.
 
 We **do not introduce new crypto libraries**. No new dependencies.
 

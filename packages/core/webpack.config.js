@@ -90,12 +90,11 @@ module.exports = (env, argv) => {
                 // via the `main` field (packages/db/dist/kdbxweb.js).
                 baron: `baron/baron${devMode ? '' : '.min'}.js`,
                 qrcode: `jsqrcode/dist/qrcode${devMode ? '' : '.min'}.js`,
-                argon2: 'argon2-browser/dist/argon2.js',
+                argon2: 'hash-wasm/dist/argon2.umd.min.js',
                 marked: devMode ? 'marked/lib/marked.js' : 'marked/marked.min.js',
                 dompurify: `dompurify/dist/purify${devMode ? '' : '.min'}.js`,
                 tweetnacl: `tweetnacl/nacl${devMode ? '' : '.min'}.js`,
                 hbs: 'handlebars/runtime.js',
-                'argon2-wasm': 'argon2-browser/dist/argon2.wasm',
                 'fontawesome.woff2':
                     '@fortawesome/fontawesome-free/webfonts/fa-regular-400.woff2'
             },
@@ -237,13 +236,8 @@ module.exports = (env, argv) => {
                 },
                 // Handlebars source map stripping
                 { test: /handlebars/, loader: 'strip-sourcemap-loader' },
-                // Argon2 special handling
-                {
-                    test: /argon2\.wasm/,
-                    type: 'javascript/auto',
-                    loader: 'base64-loader'
-                },
-                { test: /argon2(\.min)?\.js/, loader: 'raw-loader' },
+                // Argon2 worker source: embedded as a string, see kdbxweb-init.ts
+                { test: /argon2\.umd\.min\.js$/, loader: 'raw-loader' },
                 // SCSS/CSS
                 {
                     test: /\.s?css$/,

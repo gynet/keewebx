@@ -1,6 +1,8 @@
-import { Argon2Type, Argon2Version } from '../../lib/crypto/crypto-engine';
+import { argon2d, argon2id } from 'hash-wasm';
+import { argon2dAsync, argon2idAsync } from '@noble/hashes/argon2.js';
+import { Argon2Type, Argon2TypeArgon2d, Argon2Version } from '../../lib/crypto/crypto-engine';
 
-export function argon2(
+export async function argon2(
     password: ArrayBuffer,
     salt: ArrayBuffer,
     memory: number,
@@ -10,46 +12,36 @@ export function argon2(
     type: Argon2Type,
     version: Argon2Version
 ): Promise<ArrayBuffer> {
-    let Module = require('./argon2-asm.min');
-    if (Module.default) {
-        Module = Module.default;
-    }
-    const passwordLen = password.byteLength;
-    password = Module.allocate(new Uint8Array(password), 'i8', Module.ALLOC_NORMAL);
-    const saltLen = salt.byteLength;
-    salt = Module.allocate(new Uint8Array(salt), 'i8', Module.ALLOC_NORMAL);
-    const hash = <number>Module.allocate(new Array(length), 'i8', Module.ALLOC_NORMAL);
-    const encodedLen = 512;
-    const encoded = Module.allocate(new Array(encodedLen), 'i8', Module.ALLOC_NORMAL);
-    try {
-        const res = Module._argon2_hash(
-            iterations,
-            memory,
-            parallelism,
-            password,
-            passwordLen,
-            salt,
-            saltLen,
-            hash,
-            length,
-            encoded,
-            encodedLen,
-            type,
+    const passwordBytes = new Uint8Array(password);
+    const saltBytes = new Uint8Array(salt);
+    const isArgon2d = type === Argon2TypeArgon2d;
+    // hash-wasm only implements v1.3 and rejects empty passwords.
+    if (version !== 0x13 || passwordBytes.length === 0) {
+        const hash = isArgon2d ? argon2dAsync : argon2idAsync;
+        const result = await hash(passwordBytes, saltBytes, {
+            t: iterations,
+            m: memory,
+            p: parallelism,
+            dkLen: length,
             version
-        );
-        if (res) {
-            return Promise.reject(`Argon2 error: ${res}`);
-        }
-        const hashArr = new Uint8Array(length);
-        for (let i = 0; i < length; i++) {
-            hashArr[i] = Module.HEAP8[hash + i];
-        }
-        Module._free(password);
-        Module._free(salt);
-        Module._free(hash);
-        Module._free(encoded);
-        return Promise.resolve(hashArr);
-    } catch (e) {
-        return Promise.reject(e);
+        });
+        return result.buffer.slice(
+            result.byteOffset,
+            result.byteOffset + result.byteLength
+        ) as ArrayBuffer;
     }
+    const hash = isArgon2d ? argon2d : argon2id;
+    const result = await hash({
+        password: passwordBytes,
+        salt: saltBytes,
+        memorySize: memory,
+        iterations,
+        parallelism,
+        hashLength: length,
+        outputType: 'binary'
+    });
+    return result.buffer.slice(
+        result.byteOffset,
+        result.byteOffset + result.byteLength
+    ) as ArrayBuffer;
 }

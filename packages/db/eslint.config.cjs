@@ -59,7 +59,6 @@ const compat = new FlatCompat({
 
 module.exports = [{
     ignores: [
-        '**/argon2-asm.min.js',
         '**/test-support',
         '**/eslint.config.cjs'
     ],
