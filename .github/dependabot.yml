@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: "/"
+    schedule:
+      interval: monthly
+    # Skip releases until they have been public for a while.
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+    open-pull-requests-limit: 10
+    groups:
+      # Everything except crypto, minor and patch only, in one PR.
+      # Crypto libraries and major versions each get their own PR.
+      minor-and-patch:
+        patterns: ["*"]
+        exclude-patterns:
+          - "hash-wasm"
+          - "@noble/*"
+          - "tweetnacl"
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns: ["*"]
