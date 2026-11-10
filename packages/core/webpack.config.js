@@ -39,11 +39,14 @@ module.exports = (env, argv) => {
     return {
         mode,
         entry: {
-            app: path.join(rootDir, 'app/scripts/app.ts')
+            app: path.join(rootDir, 'app/scripts/app.ts'),
+            'service-worker': path.join(rootDir, 'app/sw/service-worker.ts')
         },
         output: {
             path: path.resolve(rootDir, 'dist'),
-            filename: 'js/[name].js',
+            // The service worker must sit at the root so its scope covers the app.
+            filename: (pathData) =>
+                pathData.chunk.name === 'service-worker' ? '[name].js' : 'js/[name].js',
             clean: true
         },
         target: 'web',
@@ -131,10 +134,24 @@ module.exports = (env, argv) => {
                 // emit output to feed into the bundle.
                 {
                     test: /\.ts$/,
-                    exclude: /node_modules/,
+                    exclude: [/node_modules/, /app[\\/]sw[\\/]/],
                     use: {
                         loader: 'ts-loader',
                         options: {
+                            compilerOptions: {
+                                noEmit: false
+                            }
+                        }
+                    }
+                },
+                // Service worker: compiled against the WebWorker lib, not the DOM.
+                {
+                    test: /app[\\/]sw[\\/].*\.ts$/,
+                    use: {
+                        loader: 'ts-loader',
+                        options: {
+                            configFile: path.join(rootDir, 'app/sw/tsconfig.json'),
+                            instance: 'service-worker',
                             compilerOptions: {
                                 noEmit: false
                             }

@@ -18,6 +18,7 @@ import { RuntimeDataModel } from 'models/runtime-data-model';
 import { UpdateModel } from 'models/update-model';
 import { Features } from 'util/features';
 import { KdbxwebInit } from 'util/kdbxweb/kdbxweb-init';
+import { ServiceWorkerClient } from 'comp/browser/service-worker-client';
 import { Locale } from 'util/locale';
 import { AppView } from 'views/app-view';
 import 'hbs-helpers';
@@ -112,6 +113,7 @@ $(() => {
         KeyHandler.init();
         KdbxwebInit.init();
         FocusDetector.init();
+        ServiceWorkerClient.init();
         ThemeWatcher.init();
         SettingsManager.init();
         (window as Window & { kw?: typeof ExportApi }).kw = ExportApi;

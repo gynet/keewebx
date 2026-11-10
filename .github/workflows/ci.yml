@@ -40,6 +40,8 @@ jobs:
         run: cd packages/core && bunx tsc --noEmit
       - name: Type-check webpack loaders (JSDoc, checkJs)
         run: cd packages/core && bunx tsc -p tsconfig.build.json
+      - name: Type-check the service worker (WebWorker lib)
+        run: cd packages/core && bunx tsc -p app/sw/tsconfig.json
       - name: Enforce baseline sentinel is still 0
         run: |
           cd packages/core

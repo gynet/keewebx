@@ -8,6 +8,7 @@ import { Alerts } from 'comp/ui/alerts';
 import { Links } from 'const/links';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { UpdateModel } from 'models/update-model';
+import { ServiceWorkerClient } from 'comp/browser/service-worker-client';
 import { SemVer } from 'util/data/semver';
 import { Features } from 'util/features';
 import { DateFormat } from 'comp/i18n/date-format';
@@ -515,7 +516,7 @@ class SettingsGeneralView extends View {
     }
 
     installUpdateAndRestart(): void {
-        window.location.reload();
+        ServiceWorkerClient.applyUpdate();
     }
 
     downloadUpdate(): void {

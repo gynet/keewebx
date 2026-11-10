@@ -6,6 +6,7 @@ import { SettingsManager } from 'comp/settings/settings-manager';
 import { Alerts } from 'comp/ui/alerts';
 import { Keys } from 'const/keys';
 import { UpdateModel } from 'models/update-model';
+import { ServiceWorkerClient } from 'comp/browser/service-worker-client';
 import { Features } from 'util/features';
 import { Locale } from 'util/locale';
 import { Logger } from 'util/logger';
@@ -120,7 +121,7 @@ class AppView extends View {
         this.listenTo(Events, 'leave-full-screen', this.leaveFullScreen);
         this.listenTo(Events, 'import-csv-requested', this.showImportCsv);
 
-        this.listenTo(UpdateModel, 'change:updateReady', this.updateApp);
+        this.listenTo(UpdateModel, 'change:updateStatus', this.updateApp);
 
         window.onbeforeunload = this.beforeUnload.bind(this) as any;
         window.onresize = this.windowResize.bind(this);
@@ -209,8 +210,10 @@ class AppView extends View {
     }
 
     updateApp(): void {
+        // Apply right away only when nothing is open; otherwise the footer
+        // and Settings offer the reload.
         if (updateModel.updateStatus === 'ready' && !this.model.files.hasOpenFiles()) {
-            window.location.reload();
+            ServiceWorkerClient.applyUpdate();
         }
     }
 
