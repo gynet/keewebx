@@ -29,7 +29,7 @@ jobs:
     if: ${{ !endsWith(github.ref_name, '-extension') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Need full history so we can resolve the previous tag and
           # diff commit messages between $PREV_TAG..$NEW_TAG for the
