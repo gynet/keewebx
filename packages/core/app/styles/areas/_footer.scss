@@ -30,6 +30,8 @@
             flex: 1;
             @include mobile {
                 flex: 0 0 auto;
+                padding-left: 0.8em;
+                padding-right: 0.8em;
                 > .footer__db-text {
                     display: none;
                 }
@@ -85,6 +87,19 @@
         &-github {
             color: inherit;
             text-decoration: none;
+        }
+        // Phones: six buttons leave no room for the file name. About and
+        // GitHub stay reachable through Settings, so drop them here and
+        // tighten the rest.
+        @include mobile {
+            padding-left: 0.65em;
+            padding-right: 0.65em;
+        }
+        &-about,
+        &-github {
+            @include mobile {
+                display: none;
+            }
         }
     }
 
