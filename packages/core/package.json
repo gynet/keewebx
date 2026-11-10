@@ -1,6 +1,6 @@
 {
   "name": "@keewebx/core",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "KeeWebX - Modern KeePass web client",
   "private": true,
   "scripts": {

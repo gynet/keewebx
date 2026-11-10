@@ -1,16 +1,26 @@
 # KeeWebX
 
+**Open a KeePass vault in your browser. No install, no signup, nothing to host.**
+
+[![Try the demo](https://img.shields.io/badge/demo-keewebx.app%2Fdemo-f5b324?style=flat-square)](https://keewebx.app/demo)
+[![Latest release](https://img.shields.io/github/v/release/gynet/keewebx?style=flat-square)](https://github.com/gynet/keewebx/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/gynet/keewebx?style=flat-square)](LICENSE)
+
 ### → **Try it in 10 seconds: [keewebx.app/demo](https://keewebx.app/demo)** (master password: `demo`)
 
-No signup. No install. No Docker. Just a populated demo vault in your browser.
+<p align="center">
+  <img src="screenshots/colorful-tags.png" alt="KeeWebX on desktop with the demo vault open" width="72%">
+  &nbsp;
+  <img src="screenshots/phone-demo.png" alt="KeeWebX on a phone with the demo vault open" width="22%">
+</p>
 
 ---
 
 **The only KeePass client you can run by double-clicking a `.html` file.**
 
-Modern, web-only KeePass client — KDBX4, TypeScript, zero runtime dependencies. Browser extension autofill included.
+Modern, web-only KeePass client: KDBX4, strict TypeScript, no backend, about 20 production dependencies. Browser extension autofill included.
 
-**Demo:** [keewebx.app/demo](https://keewebx.app/demo) · **Self-host:** [Releases](https://github.com/gynet/keewebx/releases)
+**Self-host:** [Releases](https://github.com/gynet/keewebx/releases)
 
 Forked from [KeeWeb](https://github.com/keeweb/keeweb) (stalled since 2021), rebuilt for simplicity, security, and maintainability.
 
@@ -42,11 +52,9 @@ Your encrypted KDBX file never leaves your disk. The app loads from disk. The ex
 
 ## What's new since the fork
 
-![colorful tag chips and tag sidebar](screenshots/colorful-tags.png)
-
 - **Colorful tag chips.** Tags render as colored pills instead of comma-separated text. Color is derived from the tag string, so the same tag is the same color everywhere.
 - **Tag cloud in the sidebar.** Tags flow-wrap as pills, or as a dot list — toggle in Settings → Appearance.
-- **Bigger site icons.** Favicon picker reads Apple touch icons and web manifest icons (up to 128 px) instead of just `/favicon.ico`. Pick the size in Settings → Appearance.
+- **Bigger site icons.** Favicon picker reads Apple touch icons and web manifest icons (up to 128 px) instead of just `/favicon.ico`. Pick the size in Settings → Appearance. Needs a favicon service, which keewebx.app provides; self-hosted copies make no such requests.
 - **AES-GCM WebDAV credentials.** Stored credentials are AES-256-GCM with a key derived from the master password. Upstream used XOR.
 - **Passkey quick unlock.** Touch ID, Face ID, Windows Hello, YubiKey — after you've unlocked once on the device with your master password.
 - **Browser extension works on `file://`.** Open the app by double-clicking `index.html`, autofill still works (Firefox, Chrome, Edge).
