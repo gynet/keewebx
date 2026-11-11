@@ -367,7 +367,7 @@ function Row(props: { entry: EntrySummary; selected?: boolean; canFill: boolean;
     return (
         <div class={props.selected ? 'row row--selected' : 'row'} data-entry={entry.title}>
             <button class="row__main" onClick={props.onOpen}>
-                <Tile title={entry.title} />
+                <Tile title={entry.title} icon={entry.icon} customIcon={entry.customIcon} />
                 <span class="row__text">
                     <span class="row__title">{entry.title || '(no title)'}</span>
                     <span class="row__sub">{entry.user || entry.url}</span>
@@ -530,7 +530,7 @@ function Detail(props: { entry: EntrySummary; tab?: chrome.tabs.Tab; onBack: () 
                 <button class="icon-btn" aria-label="Back" id="detail-back" onClick={props.onBack}>
                     <Icon name="back" size={18} />
                 </button>
-                <Tile title={entry.title} />
+                <Tile title={entry.title} icon={entry.icon} customIcon={entry.customIcon} />
                 <h1 class="bar__title">{entry.title || '(no title)'}</h1>
             </header>
             <div class="fields">

@@ -413,6 +413,17 @@ button:disabled {
     align-items: center;
     justify-content: center;
 }
+.tile .fa {
+    font-size: 17px;
+}
+.tile--image {
+    background: var(--sub);
+}
+.tile--image img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
 .foot {
     flex: none;
     display: flex;

@@ -28,6 +28,10 @@ export interface EntrySummary {
     user: string;
     url: string;
     hasOtp: boolean;
+    /** Icon font name, when the entry has an icon other than the default. */
+    icon?: string | null;
+    /** Image data URL of the entry's own icon. */
+    customIcon?: string | null;
 }
 
 export interface EntryList {

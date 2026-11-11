@@ -23,16 +23,26 @@ export function Mark({ size }: { size: number }) {
 
 const TILE_COLORS = ['#24292f', '#c43a2b', '#a85a0c', '#2f6fde', '#1e7f4f', '#7c3aed', '#0e7490', '#b4235a'];
 
-/** A letter tile whose color stays the same for the same title. */
-export function Tile({ title, large }: { title: string; large?: boolean }) {
+/**
+ * The entry's own icon when it has one, otherwise a letter tile whose color
+ * stays the same for the same title.
+ */
+export function Tile({ title, icon, customIcon }: { title: string; icon?: string | null; customIcon?: string | null }) {
+    if (customIcon) {
+        return (
+            <span class="tile tile--image">
+                <img src={customIcon} alt="" />
+            </span>
+        );
+    }
     let hash = 0;
     for (const ch of title.toLowerCase()) {
         hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
     }
     const letter = (title.trim()[0] || '?').toUpperCase();
     return (
-        <span class={large ? 'tile tile--large' : 'tile'} style={{ background: TILE_COLORS[hash % TILE_COLORS.length] }}>
-            {letter}
+        <span class="tile" style={{ background: TILE_COLORS[hash % TILE_COLORS.length] }}>
+            {icon ? <i class={`fa fa-${icon}`} /> : letter}
         </span>
     );
 }

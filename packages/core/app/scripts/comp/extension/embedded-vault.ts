@@ -52,6 +52,9 @@ function entrySummary(entry: EntryModel) {
         title: entry.title || '',
         user: entry.user || '',
         url: entry.displayUrl || entry.url || '',
+        // The picture the app shows for the entry; none for the default key.
+        icon: entry.customIcon ? null : entry.iconId ? entry.icon : null,
+        customIcon: entry.customIcon || null,
         hasOtp: !!entry.otpGenerator || !!entry.fields?.otp || !!entry.fields?.['TOTP Seed']
     };
 }

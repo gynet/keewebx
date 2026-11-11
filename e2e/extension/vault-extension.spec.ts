@@ -935,3 +935,48 @@ test('acceptance video', async () => {
     fs.writeFileSync(path.join(framesDir, 'times.txt'), times.join('\n') + '\n');
     expect(raw.length).toBeGreaterThan(50);
 });
+
+test('popup shows the entry icon, and a letter only for the default key', async () => {
+    const db = await loadVault(davFiles.get('/vault.kdbx')!.data);
+    const iconId = kdbxweb.KdbxUuid.random();
+    db.meta.customIcons.set(iconId.id, {
+        data: new Uint8Array(fs.readFileSync(path.join(EXT_PATH, 'icons/icon48.png'))).buffer as ArrayBuffer
+    });
+    const pictured = db.createEntry(db.getDefaultGroup());
+    pictured.fields.set('Title', 'With picture');
+    pictured.customIcon = iconId;
+    const builtIn = db.createEntry(db.getDefaultGroup());
+    builtIn.fields.set('Title', 'With icon');
+    builtIn.icon = 1;
+    davPut('/vault.kdbx', Buffer.from(await db.save()));
+
+    const popup = await openPopup();
+    await popup.click('#start-webdav', { timeout: 20000 });
+    await popup.fill('#webdav-url', davUrl);
+    await popup.fill('#webdav-user', 'alice');
+    await popup.fill('#webdav-pass', 'secret');
+    await popup.click('#webdav-connect');
+    await popup.fill('#unlock-password', FIXTURE_PASSWORD);
+    await popup.click('#unlock-submit');
+    await expect(popup.locator('#search')).toBeVisible({ timeout: 60000 });
+
+    const tile = (title: string) => popup.locator(`.row[data-entry="${title}"] .tile`);
+    await expect(tile('With picture').locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
+    await expect(tile('With icon').locator('i.fa')).toHaveCount(1);
+    expect(
+        await tile('With icon')
+            .locator('i.fa')
+            .evaluate((el) => getComputedStyle(el, '::before').fontFamily)
+    ).toContain('Font Awesome');
+    await expect(tile('Test')).toHaveText('T');
+    await shot(popup, '31-popup-entry-icons');
+
+    // The demo vault: every entry there has its own icon.
+    const site = await openSite();
+    const demo = await openPopup(site);
+    await demo.click('#lock');
+    await demo.click('#unlock-other');
+    await demo.click('#start-demo');
+    await expect(demo.locator('.row--selected .tile i.fa')).toHaveCount(1, { timeout: 30000 });
+    await shot(demo, '32-popup-demo-icons');
+});
