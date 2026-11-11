@@ -22,7 +22,7 @@ export function Mark({ size }: { size: number }) {
 }
 
 // Muted so the list stays calm; the entry's own icon sits on top.
-const TILE_COLORS = ['#4d535c', '#a0625a', '#a07a52', '#5a7598', '#58876f', '#7a6c9c', '#4f8590', '#94657c'];
+const TILE_COLORS = ['#3f454e', '#b9574b', '#b9803f', '#3f74bf', '#3f8f68', '#7a62b0', '#36879a', '#ab5781'];
 
 /**
  * The entry's own icon when it has one, otherwise a letter tile whose color

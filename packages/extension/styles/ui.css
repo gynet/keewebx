@@ -6,8 +6,8 @@
     --muted: #6b7079;
     --line: #e9e9e6;
     --line-strong: #e4e4e0;
-    --sel: #ecf0f5;
-    --acc: #4a6a94;
+    --sel: #e9f0f9;
+    --acc: #3a74c4;
     --acc-text: #ffffff;
     --error: #d93025;
     --ok: #2fb872;
@@ -23,8 +23,8 @@
         --muted: #9a9ea6;
         --line: #2b2d32;
         --line-strong: #2b2d32;
-        --sel: #252a33;
-        --acc: #9db4d4;
+        --sel: #23304a;
+        --acc: #8ab4ec;
         --acc-text: #0b1220;
         --error: #ff7b72;
         color-scheme: dark;
@@ -721,8 +721,8 @@ input[type='radio'] {
    footer float over the list as it scrolls beneath them.
    ------------------------------------------------------------------ */
 :root {
-    --wash: radial-gradient(120% 70% at 0% 0%, #eceff3 0%, rgba(236, 239, 243, 0) 60%),
-        radial-gradient(110% 80% at 100% 100%, #f1eee9 0%, rgba(241, 238, 233, 0) 55%), #f6f6f4;
+    --wash: radial-gradient(120% 70% at 0% 0%, #e6eef9 0%, rgba(230, 238, 249, 0) 60%),
+        radial-gradient(110% 80% at 100% 100%, #f2f0ec 0%, rgba(242, 240, 236, 0) 55%), #f5f6f8;
     --glass: rgba(255, 255, 255, 0.58);
     --glass-strong: rgba(255, 255, 255, 0.78);
     --glass-edge: rgba(255, 255, 255, 0.85);
@@ -730,22 +730,22 @@ input[type='radio'] {
     --glass-blur: blur(22px) saturate(140%);
     --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 0 0 0.5px rgba(31, 35, 41, 0.08),
         0 6px 18px rgba(31, 35, 41, 0.06);
-    --glass-sel: rgba(74, 106, 148, 0.1);
-    --pill-acc: linear-gradient(180deg, #56769f 0%, #4a6a94 100%);
-    --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.3) inset, 0 2px 6px rgba(31, 35, 41, 0.12);
+    --glass-sel: rgba(58, 116, 196, 0.11);
+    --pill-acc: linear-gradient(180deg, #4a82cf 0%, #3a74c4 100%);
+    --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 3px 8px rgba(58, 116, 196, 0.2);
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --wash: radial-gradient(120% 70% at 0% 0%, #1d2026 0%, rgba(29, 32, 38, 0) 60%),
-            radial-gradient(110% 80% at 100% 100%, #201e1b 0%, rgba(32, 30, 27, 0) 55%), #141518;
+        --wash: radial-gradient(120% 70% at 0% 0%, #1a2232 0%, rgba(26, 34, 50, 0) 60%),
+            radial-gradient(110% 80% at 100% 100%, #1f1e1c 0%, rgba(31, 30, 28, 0) 55%), #141518;
         --glass: rgba(44, 48, 58, 0.5);
         --glass-strong: rgba(52, 57, 68, 0.72);
         --glass-edge: rgba(255, 255, 255, 0.14);
         --glass-line: rgba(255, 255, 255, 0.07);
         --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 0 0 0.5px rgba(255, 255, 255, 0.08),
             0 10px 28px rgba(0, 0, 0, 0.4);
-        --glass-sel: rgba(157, 180, 212, 0.14);
-        --pill-acc: linear-gradient(180deg, #5a7499 0%, #4d6789 100%);
+        --glass-sel: rgba(138, 180, 236, 0.16);
+        --pill-acc: linear-gradient(180deg, #4f86d2 0%, #3f76c2 100%);
         --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 }
