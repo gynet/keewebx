@@ -1,6 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { Events } from 'framework/events';
-import { box as tweetnaclBox } from 'tweetnacl';
+import { box as tweetnaclBox, sign as tweetnaclSign } from 'tweetnacl';
 import { PasswordGenerator } from 'util/generators/password-generator';
 import { GeneratorPresets } from 'comp/app/generator-presets';
 import { Alerts } from 'comp/ui/alerts';
@@ -17,6 +17,7 @@ import { SelectEntryView } from 'views/select/select-entry-view';
 import { SelectEntryFieldView } from 'views/select/select-entry-field-view';
 import { SelectEntryFilter } from 'comp/app/select-entry-filter';
 import type { Logger } from 'util/logger';
+import { entryFieldText, listEntries, summarizeEntry } from 'comp/extension/entry-list';
 
 // === Public types shared with browser-extension-connector ===
 
@@ -58,7 +59,22 @@ export interface ClientPermissions {
     askGet?: string;
     askSave?: string;
     saveTo?: SaveToConfig;
+    /** May list and search entries (paired clients only). */
+    canList?: boolean;
     [key: string]: unknown;
+}
+
+/** An extension that proved it holds a long-term identity key. */
+interface Pairing {
+    created: string;
+    permissions?: ClientPermissions;
+}
+
+/** A short-lived reference to an entry, handed out in entry lists. */
+interface EntryHandle {
+    fileId: string;
+    entryId: string;
+    expires: number;
 }
 
 interface ClientStats {
@@ -75,6 +91,9 @@ interface ClientState {
     stats: ClientStats;
     permissions?: ClientPermissions;
     permissionsDenied?: boolean;
+    /** Identity key (base64) once the client has paired. */
+    identity?: string;
+    handles: Map<string, EntryHandle>;
 }
 
 interface ErrorDef {
@@ -119,8 +138,29 @@ const Errors: Record<string, ErrorDef> = {
     noMatches: {
         message: loc['extensionErrorNoMatches'],
         code: '15'
+    },
+    notPaired: {
+        message: 'The extension is not paired',
+        code: 'kwx-not-paired'
+    },
+    expiredHandle: {
+        message: 'The entry reference expired, list the entries again',
+        code: 'kwx-expired-handle'
     }
 };
+
+const HANDLE_TTL_MS = 5 * 60 * 1000;
+const PAIRING_SIG_CONTEXT = 'kwx-pair-v1';
+
+function getPairings(): Record<string, Pairing> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ((RuntimeDataModel as any).extensionPairings as Record<string, Pairing> | undefined) ?? {};
+}
+
+function savePairing(identity: string, pairing: Pairing): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (RuntimeDataModel as any).extensionPairings = { ...getPairings(), [identity]: pairing };
+}
 
 const connectedClients = new Map<string, ClientState>();
 
@@ -138,6 +178,9 @@ function setupListeners(): void {
         }
     });
     Events.on('all-files-closed', () => {
+        for (const client of connectedClients.values()) {
+            client.handles.clear();
+        }
         sendEvent({ action: 'database-locked' });
     });
 }
@@ -274,7 +317,10 @@ function ensureAtLeastOneFileIsOpen(): void {
     }
 }
 
-async function checkContentRequestPermissions(request: ProtocolRequest): Promise<void> {
+async function checkContentRequestPermissions(
+    request: ProtocolRequest,
+    options: { list?: boolean } = {}
+): Promise<void> {
     if (!appModel.files.hasOpenFiles()) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((AppSettingsModel as any).extensionFocusIfLocked) {
@@ -293,19 +339,21 @@ async function checkContentRequestPermissions(request: ProtocolRequest): Promise
     }
 
     const client = getClient(request);
-    if (client.permissions) {
+    if (client.permissions && (!options.list || client.permissions.canList)) {
         return;
     }
 
+    // A paired extension keeps what the user approved for its identity key.
+    // Other clients share one approval, as before pairing existed: MV3
+    // service workers restart often and come back with a new clientId.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const config = (RuntimeDataModel as any).extensionConnectConfig as
-        | { allFiles?: boolean; files?: string[]; askGet?: string }
-        | undefined;
+    const shared = (RuntimeDataModel as any).extensionConnectConfig as ClientPermissions | undefined;
+    const stored = client.identity ? getPairings()[client.identity]?.permissions : shared;
+    // A paired client may fill with an approval given before pairing existed,
+    // but listing always needs its own.
+    const config = stored ?? (client.identity && !options.list ? shared : undefined);
 
-    // MV3 service workers restart frequently, generating a new clientId each
-    // time.  If the user already approved a prior session, reuse that config
-    // instead of prompting again on every reconnect.
-    if (config) {
+    if (config && (!options.list || config.canList)) {
         client.permissions = config;
         Events.emit('browser-extension-sessions-changed');
         return;
@@ -327,8 +375,10 @@ async function checkContentRequestPermissions(request: ProtocolRequest): Promise
         extensionName: getHumanReadableExtensionName(client),
         identityVerified: true,
         files,
-        allFiles: true,
-        askGet: 'multiple'
+        allFiles: (config ?? shared)?.allFiles ?? true,
+        askGet: (config ?? shared)?.askGet ?? 'multiple',
+        offerList: !!client.identity,
+        canList: !!options.list || !!config?.canList
     } as unknown as Record<string, unknown>) as AnyAppModel;
 
     try {
@@ -346,10 +396,52 @@ async function checkContentRequestPermissions(request: ProtocolRequest): Promise
         throw e;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (RuntimeDataModel as any).extensionConnectConfig = extensionConnectView.config;
-    client.permissions = extensionConnectView.config;
+    const approved = extensionConnectView.config as ClientPermissions;
+    if (client.identity) {
+        savePairing(client.identity, {
+            created: getPairings()[client.identity]?.created ?? new Date().toISOString(),
+            permissions: approved
+        });
+    } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (RuntimeDataModel as any).extensionConnectConfig = approved;
+    }
+    client.permissions = approved;
     Events.emit('browser-extension-sessions-changed');
+    if (options.list && !approved.canList) {
+        throw makeError(Errors.userRejected);
+    }
+}
+
+function requirePairing(request: ProtocolRequest): ClientState {
+    const client = getClient(request);
+    if (!client.identity) {
+        throw makeError(Errors.notPaired);
+    }
+    return client;
+}
+
+function issueHandle(client: ClientState, entry: AnyAppModel): string {
+    const handle = kdbxweb.ByteUtils.bytesToBase64(kdbxweb.CryptoEngine.random(12));
+    client.handles.set(handle, {
+        fileId: entry.file.id,
+        entryId: entry.id,
+        expires: Date.now() + HANDLE_TTL_MS
+    });
+    return handle;
+}
+
+function resolveHandle(client: ClientState, handle: unknown): AnyAppModel {
+    const ref = client.handles.get(String(handle));
+    if (!ref || ref.expires < Date.now()) {
+        throw makeError(Errors.expiredHandle);
+    }
+    const file = appModel.files.get(ref.fileId);
+    const entry = file?.getEntry(ref.entryId);
+    if (!entry) {
+        throw makeError(Errors.expiredHandle);
+    }
+    return entry;
 }
 
 interface AlertWithTimeoutConfig {
@@ -550,7 +642,14 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
             passwordsWritten: 0
         };
 
-        connectedClients.set(clientId, { connection, publicKey, version, keys, stats });
+        connectedClients.set(clientId, {
+            connection,
+            publicKey,
+            version,
+            keys,
+            stats,
+            handles: new Map()
+        });
 
         Events.emit('browser-extension-sessions-changed');
 
@@ -643,6 +742,86 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
             hash: KeeWebHash,
             id: payload.id as string
         });
+    },
+
+    // ---- KeeWebX extension: pairing and entry lists ----
+    // The extension proves it holds a long-term ed25519 identity key by
+    // signing this session's two box public keys. Approvals are then stored
+    // for that key rather than shared by every client.
+
+    'kwx-pair'(request: ProtocolRequest): ProtocolResponse {
+        const payload = decryptRequest(request);
+        const client = getClient(request);
+        const identity = String(payload.identityKey || '');
+        const identityKey = kdbxweb.ByteUtils.base64ToBytes(identity);
+        const signature = kdbxweb.ByteUtils.base64ToBytes(String(payload.signature || ''));
+        const signed = new Uint8Array([
+            ...new TextEncoder().encode(PAIRING_SIG_CONTEXT),
+            ...client.publicKey,
+            ...client.keys.publicKey
+        ]);
+        if (
+            identityKey.length !== tweetnaclSign.publicKeyLength ||
+            signature.length !== tweetnaclSign.signatureLength ||
+            !tweetnaclSign.detached.verify(signed, signature, identityKey)
+        ) {
+            throw new Error('Bad pairing signature');
+        }
+        client.identity = identity;
+        client.permissions = undefined;
+        return encryptResponse(request, { success: 'true', known: !!getPairings()[identity] });
+    },
+
+    'kwx-features'(request: ProtocolRequest): ProtocolResponse {
+        decryptRequest(request);
+        const client = getClient(request);
+        const permissions = client.identity ? getPairings()[client.identity]?.permissions : undefined;
+        return encryptResponse(request, {
+            features: ['entries-v1'],
+            locked: !appModel.files.hasOpenFiles(),
+            paired: !!client.identity,
+            canList: !!permissions?.canList
+        });
+    },
+
+    async 'kwx-get-entries'(request: ProtocolRequest): Promise<ProtocolResponse> {
+        const payload = decryptRequest(request);
+        const client = requirePairing(request);
+        if (!appModel.files.hasOpenFiles()) {
+            return encryptResponse(request, { locked: true, suggested: [], items: [] });
+        }
+        await checkContentRequestPermissions(request, { list: true });
+        const files = getAvailableFiles(request);
+        const { suggested, items } = listEntries(appModel, files, {
+            url: payload.url ? String(payload.url) : undefined,
+            query: payload.query ? String(payload.query) : undefined
+        });
+        const toWire = (entry: AnyAppModel) => ({ handle: issueHandle(client, entry), ...summarizeEntry(entry) });
+        return encryptResponse(request, {
+            locked: false,
+            suggested: suggested.map(toWire),
+            items: items.map(toWire)
+        });
+    },
+
+    async 'kwx-get-entry-fields'(request: ProtocolRequest): Promise<ProtocolResponse> {
+        const payload = decryptRequest(request);
+        const client = requirePairing(request);
+        ensureAtLeastOneFileIsOpen();
+        if (!client.permissions?.canList) {
+            throw makeError(Errors.userRejected);
+        }
+        const entry = resolveHandle(client, payload.handle);
+        const wanted = Array.isArray(payload.fields) ? payload.fields.map(String) : [];
+        const values: Record<string, string> = {};
+        for (const field of wanted) {
+            values[field] = await entryFieldText(entry, field);
+        }
+        if (wanted.includes('password')) {
+            client.stats.passwordsRead++;
+            Events.emit('browser-extension-sessions-changed');
+        }
+        return encryptResponse(request, { values });
     },
 
     async 'get-logins'(request: ProtocolRequest): Promise<ProtocolResponse> {

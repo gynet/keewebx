@@ -41,5 +41,15 @@
             </option>
         </select>
     </div>
-    <p>{{res 'extensionConnectSettingsAreForSession'}}</p>
+    {{#if offerList}}
+        <div class="extension-connect__file">
+            <input type="checkbox" class="input-base" id="extension-connect__can-list" {{#if canList}}checked{{/if}} />
+            <label for="extension-connect__can-list">{{res 'extensionConnectCanList'}}</label>
+        </div>
+    {{/if}}
+    {{#if offerList}}
+        <p>{{res 'extensionConnectRemembered'}}</p>
+    {{else}}
+        <p>{{res 'extensionConnectSettingsAreForSession'}}</p>
+    {{/if}}
 </div>

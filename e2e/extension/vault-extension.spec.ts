@@ -596,6 +596,15 @@ test('popup: fills the login picked for the site without submitting', async () =
     await shot(site, '22-popup-filled-site');
 });
 
+test('popup: fills the whole form even when the password field has focus', async () => {
+    const site = await openSite();
+    await site.focus('#password');
+    const popup = await openDemoInPopup(site);
+    await popup.locator('.row--selected .fill-btn').click();
+    await expect(site.locator('#login_field')).toHaveValue('demouser', { timeout: 15000 });
+    await expect(site.locator('#password')).not.toHaveValue('');
+});
+
 test('popup: search, details and copy', async () => {
     const site = await openSite();
     // Extension origins cannot be granted permissions; read it back on the site.
@@ -667,7 +676,7 @@ test('popup in dark mode', async () => {
     const site = await openSite();
     const popup = await openDemoInPopup(site);
     await popup.emulateMedia({ colorScheme: 'dark' });
-    await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
+    await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(16, 18, 23)');
     await shot(popup, '28-popup-dark');
 });
 
@@ -699,22 +708,97 @@ test('opening the full app moves the vault into a tab', async () => {
     await expect.poll(offscreenOpen, { timeout: 15000 }).toBe(false);
 });
 
-test('popup in web mode fills from KeeWebX open in a tab', async () => {
-    await sw.evaluate((url) => chrome.storage.local.set({ keeWebUrl: url }), serverUrl);
+// ---- Web mode: KeeWebX open in a tab, listed through the paired protocol ----
+
+async function openWebApp(): Promise<Page> {
     const app = await context.newPage();
     await app.goto(serverUrl);
+    // After the first time, the app moves the demo into the More menu.
+    if (!(await app.locator('#open__icon-demo').isVisible())) {
+        await app.click('#open__icon-more');
+    }
     await app.click('#open__icon-demo');
     await expect(app.locator('.list__item').first()).toBeVisible({ timeout: 30000 });
+    return app;
+}
 
+async function useWebMode(): Promise<void> {
+    await sw.evaluate((url) => chrome.storage.local.set({ keeWebUrl: url }), serverUrl);
+}
+
+test('web mode popup: asks to open KeeWebX when no tab has it', async () => {
+    await useWebMode();
     const site = await openSite();
-    await site.focus('#login_field');
     const popup = await openPopup(site);
-    await expect(popup.locator('#web-state')).toHaveText('Open in a tab', { timeout: 15000 });
-    await shot(popup, '30-popup-web-mode');
-    await popup.click('#web-fill');
+    await expect(popup.locator('#web-title')).toHaveText('KeeWebX is not open', { timeout: 15000 });
+    await shot(popup, '40-web-not-open');
+});
 
-    await app.locator("button[data-result='yes']").click({ timeout: 15000 });
+test('web mode popup: one approval, then list, details, copy and fill', async () => {
+    await useWebMode();
+    const app = await openWebApp();
+    const site = await openSite();
+
+    // First list request: the app asks once, with listing offered.
+    const popup = await openPopup(site);
+    const canList = app.locator('#extension-connect__can-list');
+    await expect(canList).toBeChecked({ timeout: 20000 });
+    await app.bringToFront();
+    await shot(app, '41-web-app-approval');
+    await app.locator("button[data-result='yes']").click();
+
+    await popup.bringToFront();
+    await expect(popup.locator('.section').first()).toHaveText('Suggested for github.com', { timeout: 20000 });
+    await expect(popup.locator('.row--selected .row__title')).toHaveText('GitHub');
+    await expect(popup.locator('.row--selected .tile i.fa')).toHaveCount(1);
+    await expect(popup.locator('#web-state')).toHaveText('Connected');
+    await shot(popup, '42-web-list');
+
+    await popup.fill('#search', 'gmail');
+    await expect(popup.locator('.row__title').first()).toContainText(/gmail/i, { timeout: 15000 });
+    await popup.fill('#search', '');
+
+    await popup.locator('.row--selected .row__main').click();
+    await expect(popup.locator('[data-field="user"] .fields__value')).toHaveText('demouser');
+    await popup.locator('[data-field="password"]').click();
+    await expect(popup.locator('[data-field="password"] .fields__copy')).toHaveText('Copied', { timeout: 15000 });
+    await shot(popup, '43-web-detail');
+    await popup.click('#detail-fill');
+
     await expect(site.locator('#login_field')).toHaveValue('demouser', { timeout: 15000 });
+    await expect(site.locator('#password')).not.toHaveValue('');
+    expect(await site.evaluate(() => (window as any).submitted)).toBe(false);
+});
+
+test('web mode popup: the approval is kept for this extension in a new app session', async () => {
+    await useWebMode();
+    const app = await openWebApp();
+    const site = await openSite();
+    const first = await openPopup(site);
+    await app.locator("button[data-result='yes']").click({ timeout: 20000 });
+    await expect(first.locator('.row--selected')).toBeVisible({ timeout: 20000 });
+
+    // A new app session and a new connection: no second question.
+    await app.close();
+    const reopened = await openWebApp();
+    const again = await openPopup(site);
+    await expect(again.locator('.row--selected .row__title')).toHaveText('GitHub', { timeout: 20000 });
+    await expect(reopened.locator('.modal')).toHaveCount(0);
+});
+
+test('web mode popup: locking shows how to unlock in the tab', async () => {
+    await useWebMode();
+    const app = await openWebApp();
+    const site = await openSite();
+    const popup = await openPopup(site);
+    await app.locator("button[data-result='yes']").click({ timeout: 20000 });
+    await expect(popup.locator('.row--selected')).toBeVisible({ timeout: 20000 });
+
+    await popup.click('#lock');
+    await expect(popup.locator('#web-title')).toHaveText('KeeWebX is locked', { timeout: 15000 });
+    await expect(popup.locator('#web-unlock')).toHaveText('Unlock in KeeWebX');
+    await expect(app.locator('#open__icon-open')).toBeVisible({ timeout: 15000 });
+    await shot(popup, '44-web-locked');
 });
 
 // ---- Acceptance video (opt-in) ----
@@ -892,8 +976,31 @@ test('acceptance video', async () => {
     await hold(1000);
     await settings.check('#vault-mode-connect');
     await say('     Web 模式：连接 keewebx.app 或自建地址', 2400);
-    await settings.check('#vault-mode-full');
-    await hold(1200);
+    await settings.locator('#server-url').pressSequentially(serverUrl, { delay: 30 });
+    await settings.locator('#server-url').press('Enter');
+    await hold(900);
+
+    // 12. Web mode: KeeWebX open in a tab
+    const app = await openWebApp();
+    scene.main = app;
+    scene.address = new URL(serverUrl).host;
+    await say('12  Web 模式：数据库在 KeeWebX 标签页里打开', 1800);
+    popup = await popupFor();
+    await expect(app.locator('#extension-connect__can-list')).toBeChecked({ timeout: 20000 });
+    await say('13  第一次列出登录项时，KeeWebX 只问这一次', 2600);
+    await app.locator("button[data-result='yes']").click();
+    scene.main = site;
+    scene.address = 'github.com/login';
+    scene.overlay = popup;
+    scene.overlayKind = 'popup';
+    await expect(popup.locator('.row--selected')).toBeVisible({ timeout: 20000 });
+    await say('14  之后和完整模式一样：推荐、搜索、填入', 2200);
+    await site.fill('#login_field', '');
+    await site.fill('#password', '');
+    await popup.locator('.row--selected .fill-btn').click();
+    scene.overlay = undefined;
+    await expect(site.locator('#login_field')).toHaveValue('demouser', { timeout: 15000 });
+    await hold(2000);
 
     recording = false;
     await recorder;
@@ -917,7 +1024,7 @@ test('acceptance video', async () => {
                 }
                 $('extbtn').className = overlay && kind === 'popup' ? 'ext on' : 'ext';
                 $('address').textContent = address;
-                $('title').textContent = address.startsWith('github') ? 'Sign in' : 'KeeWebX';
+                $('title').textContent = address.startsWith('github') ? 'Sign in' : address.startsWith('localhost') ? 'KeeWebX' : 'KeeWebX';
                 $('cap').textContent = caption;
                 return Promise.all([...document.images].map((im) => im.decode().catch(() => {})));
             },

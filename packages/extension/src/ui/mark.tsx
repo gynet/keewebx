@@ -41,7 +41,7 @@ export function Tile({ title, icon, customIcon }: { title: string; icon?: string
     }
     const letter = (title.trim()[0] || '?').toUpperCase();
     return (
-        <span class="tile" style={{ background: TILE_COLORS[hash % TILE_COLORS.length] }}>
+        <span class="tile" style={{ backgroundColor: TILE_COLORS[hash % TILE_COLORS.length] }}>
             {icon ? <i class={`fa fa-${icon}`} /> : letter}
         </span>
     );

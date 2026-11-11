@@ -1,4 +1,5 @@
 /** What the popup, side panel and settings page use to reach the vault. */
+import { t } from './i18n';
 
 export type SyncState = 'saved' | 'pending' | 'syncing' | 'offline' | 'error';
 
@@ -34,6 +35,15 @@ export interface EntrySummary {
     customIcon?: string | null;
 }
 
+/** Web mode: KeeWebX open in a tab, as the background sees it. */
+export interface WebStatus {
+    open: boolean;
+    paired?: boolean;
+    locked?: boolean;
+    canList?: boolean;
+    supportsList?: boolean;
+}
+
 export interface EntryList {
     suggested: EntrySummary[];
     items: EntrySummary[];
@@ -44,7 +54,7 @@ async function background<T>(message: Record<string, unknown>): Promise<T> {
         | { ok: boolean; result?: T; error?: string }
         | undefined;
     if (!resp) {
-        throw new Error('No answer from the extension');
+        throw new Error(t('uiErrorNoAnswer'));
     }
     if (!resp.ok) {
         throw new Error(resp.error || 'Error');
@@ -54,6 +64,10 @@ async function background<T>(message: Record<string, unknown>): Promise<T> {
 
 export function vault<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
     return background<T>({ action: 'vault', request: { ...args, vault: command } });
+}
+
+export function web<T>(op: string, args: Record<string, unknown> = {}): Promise<T> {
+    return background<T>({ action: 'web', request: { ...args, op } });
 }
 
 export function fillEntry(tabId: number, entryId: string): Promise<void> {
@@ -89,8 +103,8 @@ export function hostOf(url: string | undefined): string {
 
 export function onVaultChanged(cb: () => void): () => void {
     const listener = (msg: unknown) => {
-        const m = msg as { vaultEvent?: string; action?: string } | null;
-        if (m?.vaultEvent === 'changed' || m?.action === 'sync-state') {
+        const m = msg as { vaultEvent?: string; webEvent?: string; action?: string } | null;
+        if (m?.vaultEvent === 'changed' || m?.webEvent || m?.action === 'sync-state') {
             cb();
         }
         return false;
@@ -100,13 +114,13 @@ export function onVaultChanged(cb: () => void): () => void {
 }
 
 const SYNC_LABELS: Record<SyncState, string> = {
-    saved: 'Up to date',
-    pending: 'Saving…',
-    syncing: 'Saving…',
-    offline: 'Offline, saved on this device',
-    error: 'Sync failed'
+    saved: 'uiSyncSaved',
+    pending: 'uiSyncSaving',
+    syncing: 'uiSyncSaving',
+    offline: 'uiSyncOffline',
+    error: 'uiSyncError'
 };
 
 export function syncLabel(state: SyncState): string {
-    return SYNC_LABELS[state];
+    return t(SYNC_LABELS[state]);
 }

@@ -777,6 +777,8 @@
   "extensionErrorNoMatches": "No matching logins",
   "extensionErrorAlertDisplayed": "Cannot ask a question now because there's another dialog displayed, please try again",
   "extensionConnectHeader": "Extension data exchange",
+  "extensionConnectCanList": "Let it list and search entries, to show them in its popup",
+  "extensionConnectRemembered": "KeeWeb remembers this choice for this extension. You can view and manage sessions in KeeWeb settings.",
   "extensionConnectIntro": "A browser extension that identifies itself as {} tries to exchange data with KeeWeb.",
   "extensionConnectUnknownActivity": "KeeWeb doesn't verify that the connected application is what it pretends to be. Approve the request only if you recognize this activity.",
   "extensionConnectFiles": "In this session, allow access to:",

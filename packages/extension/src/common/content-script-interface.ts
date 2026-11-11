@@ -9,6 +9,8 @@ export interface ContentScriptMessageAutoFill {
 export interface ContentScriptMessageGetNextAutoFillCommand {
     action: 'get-next-auto-fill-command';
     url: string;
+    /** Fill the whole login form even when its password field has focus. */
+    wholeForm?: boolean;
 }
 
 export type ContentScriptMessage =

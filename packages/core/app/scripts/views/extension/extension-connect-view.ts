@@ -11,6 +11,7 @@ interface ConnectConfig {
     askGet: unknown;
     allFiles: boolean;
     files: string[];
+    canList?: boolean;
 }
 
 class ExtensionConnectView extends View {
@@ -18,7 +19,8 @@ class ExtensionConnectView extends View {
 
     events: Record<string, string> = {
         'change #extension-connect__ask-get': 'askGetChanged',
-        'change .extension-connect__file-check': 'fileChecked'
+        'change .extension-connect__file-check': 'fileChecked',
+        'change #extension-connect__can-list': 'canListChanged'
     };
 
     config: ConnectConfig;
@@ -31,7 +33,8 @@ class ExtensionConnectView extends View {
             allFiles: !!this.model.allFiles,
             files: (this.model.files as ConnectFile[])
                 .filter((f) => f.checked)
-                .map((f) => f.id)
+                .map((f) => f.id),
+            ...(this.model.offerList ? { canList: !!this.model.canList } : {})
         };
     }
 
@@ -74,6 +77,10 @@ class ExtensionConnectView extends View {
             '.modal button[data-result=yes]'
         ) as HTMLElement | null;
         allowButton?.classList.toggle('hide', !atLeastOneFileSelected);
+    }
+
+    canListChanged(e: Event): void {
+        this.config.canList = (e.target as HTMLInputElement).checked;
     }
 
     askGetChanged(e: Event): void {

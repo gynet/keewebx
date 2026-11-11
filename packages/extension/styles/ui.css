@@ -284,6 +284,32 @@ button:disabled {
     padding: 6px 10px;
 }
 
+.unlock__hint {
+    margin: -10px 0 18px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.unlock__host {
+    margin-top: 16px;
+    font-size: 12px;
+}
+.notice {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 4px 14px 6px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--sel);
+    font-size: 12.5px;
+    color: var(--muted);
+}
+.notice strong {
+    color: var(--text);
+    font-size: 13px;
+}
+
 /* List */
 .list {
     display: flex;
@@ -687,4 +713,214 @@ input[type='radio'] {
     width: 16px;
     height: 16px;
     margin: 0;
+}
+
+/* ------------------------------------------------------------------
+   Liquid Glass theme: a soft color wash behind translucent, blurred
+   surfaces with a bright edge; capsule controls; the search bar and
+   footer float over the list as it scrolls beneath them.
+   ------------------------------------------------------------------ */
+:root {
+    --wash: radial-gradient(120% 70% at 0% 0%, #d9e7ff 0%, rgba(217, 231, 255, 0) 60%),
+        radial-gradient(110% 80% at 100% 100%, #ede4ff 0%, rgba(237, 228, 255, 0) 55%),
+        radial-gradient(90% 60% at 100% 0%, #dff6f1 0%, rgba(223, 246, 241, 0) 55%), #f4f6fb;
+    --glass: rgba(255, 255, 255, 0.58);
+    --glass-strong: rgba(255, 255, 255, 0.78);
+    --glass-edge: rgba(255, 255, 255, 0.85);
+    --glass-line: rgba(17, 26, 43, 0.06);
+    --glass-blur: blur(22px) saturate(180%);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 0 0 0.5px rgba(17, 26, 43, 0.08),
+        0 8px 24px rgba(30, 50, 90, 0.1);
+    --glass-sel: rgba(10, 111, 232, 0.12);
+    --pill-acc: linear-gradient(180deg, #3b93ff 0%, #0a6fe8 100%);
+    --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset, 0 6px 16px rgba(10, 111, 232, 0.32);
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --wash: radial-gradient(120% 70% at 0% 0%, #1a2b4d 0%, rgba(26, 43, 77, 0) 60%),
+            radial-gradient(110% 80% at 100% 100%, #2b1f44 0%, rgba(43, 31, 68, 0) 55%),
+            radial-gradient(90% 60% at 100% 0%, #11332e 0%, rgba(17, 51, 46, 0) 55%), #101217;
+        --glass: rgba(44, 48, 58, 0.5);
+        --glass-strong: rgba(52, 57, 68, 0.72);
+        --glass-edge: rgba(255, 255, 255, 0.14);
+        --glass-line: rgba(255, 255, 255, 0.07);
+        --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+            0 10px 28px rgba(0, 0, 0, 0.4);
+        --glass-sel: rgba(76, 157, 255, 0.2);
+        --pill-acc: linear-gradient(180deg, #6db2ff 0%, #3a8dfa 100%);
+        --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 6px 18px rgba(30, 110, 230, 0.35);
+    }
+}
+
+html,
+body,
+.layout-tab,
+.layout-tab body,
+.layout-settings,
+.layout-settings body {
+    background: var(--wash);
+    background-attachment: fixed;
+}
+.app--tab {
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+    border-radius: 26px;
+}
+
+/* Shared glass surface */
+.search,
+.round-btn,
+.fields,
+.foot,
+.card,
+.segmented,
+.notice,
+.input,
+.field input,
+.select,
+.start__icon {
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+}
+
+/* Capsules */
+.primary,
+.fill-btn {
+    background: var(--pill-acc);
+    box-shadow: var(--pill-shadow);
+    border-radius: 999px;
+    color: #ffffff;
+}
+.primary {
+    padding: 12px 16px;
+}
+.primary:active,
+.fill-btn:active {
+    transform: scale(0.97);
+}
+.search {
+    border-radius: 999px;
+    padding: 9px 14px;
+}
+.round-btn {
+    border-radius: 50%;
+}
+.round-btn:hover,
+.icon-btn:hover {
+    background: var(--glass-strong);
+    color: var(--acc);
+}
+.input,
+.field input {
+    border-radius: 14px;
+    border: 1px solid transparent;
+}
+.input:focus,
+.field input:focus {
+    border-color: var(--acc);
+    background: var(--glass-strong);
+}
+.input--error {
+    border-color: var(--error);
+}
+.select {
+    border-radius: 999px;
+    padding: 6px 12px;
+}
+.start__icon {
+    border-radius: 12px;
+    color: var(--acc);
+}
+
+/* The list scrolls beneath a floating search bar and footer */
+.list {
+    position: relative;
+}
+.search-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    padding: 12px 12px 6px;
+}
+.scroll {
+    padding-top: 58px;
+    padding-bottom: 70px;
+}
+.foot {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 2;
+    border: 0;
+    border-radius: 999px;
+    padding: 10px 16px;
+}
+.row {
+    border-radius: 14px;
+    border: 1px solid transparent;
+}
+.row:hover {
+    background: var(--glass);
+    border-color: var(--glass-line);
+}
+.row--selected,
+.row--selected:hover {
+    background: var(--glass-sel);
+    border-color: var(--glass-edge);
+    box-shadow: 0 1px 0 var(--glass-edge) inset;
+}
+.tile {
+    border-radius: 11px;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 55%);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 2px 6px rgba(0, 0, 0, 0.14);
+}
+.tile--image {
+    background-color: var(--glass-strong);
+}
+.notice {
+    border-radius: 16px;
+}
+
+/* Detail */
+.fields {
+    border-radius: 18px;
+}
+.fields__row {
+    border-bottom-color: var(--glass-line);
+}
+
+/* Settings */
+.card {
+    border-radius: 18px;
+}
+.card__row {
+    border-bottom-color: var(--glass-line);
+}
+.segmented {
+    border-radius: 999px;
+    padding: 4px;
+}
+.segmented__item {
+    border-radius: 999px;
+}
+.segmented__item--on {
+    background: var(--glass-strong);
+    box-shadow: 0 1px 0 var(--glass-edge) inset, 0 2px 8px rgba(30, 50, 90, 0.14);
+}
+.switch {
+    background: rgba(120, 130, 150, 0.28);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.switch:checked {
+    background: var(--pill-acc);
+}
+.switch::after {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 2px 6px rgba(0, 0, 0, 0.25);
 }

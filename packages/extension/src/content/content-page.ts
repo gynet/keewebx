@@ -32,7 +32,7 @@ if (!window.kwExtensionInstalled) {
                     autoFill(message);
                     break;
                 case 'get-next-auto-fill-command':
-                    return getNextAutoFillCommand();
+                    return getNextAutoFillCommand(!!message.wholeForm);
             }
         }
 
@@ -56,8 +56,16 @@ if (!window.kwExtensionInstalled) {
             return pass;
         }
 
-        function getNextAutoFillCommand() {
+        function getNextAutoFillCommand(wholeForm: boolean) {
             let input = <HTMLInputElement>document.activeElement;
+            if (wholeForm && input?.tagName === 'INPUT' && input.type === 'password') {
+                // A login picked in the popup fills the form from its username.
+                const login = findLoginInput();
+                if (login && login !== input && login.form === input.form) {
+                    login.focus();
+                    input = login;
+                }
+            }
             if (input?.tagName !== 'INPUT') {
                 const found = findLoginInput();
                 if (!found) {

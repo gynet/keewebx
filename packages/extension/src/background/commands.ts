@@ -9,7 +9,10 @@ interface CommandArgs {
     tab: chrome.tabs.Tab;
     url?: string;
     frameId?: number;
-    /** A login picked in the popup; filled without submitting the form. */
+    /**
+     * A login picked in the popup, filled without submitting the form: the
+     * entry id in full mode, the entry list handle in web mode.
+     */
     entryId?: string;
 }
 
@@ -101,7 +104,12 @@ async function runCommand(args: CommandArgs): Promise<void> {
     }
 
     try {
-        if (options.username || options.password) {
+        if (args.entryId && (options.username || options.password)) {
+            // Web mode: a login picked in the popup, by its list handle.
+            const values = await backend.getEntryFields(args.entryId, ['user', 'password']);
+            text = options.username ? values.user : values.password;
+            password = options.username && options.password ? values.password : undefined;
+        } else if (options.username || options.password) {
             const [entry] = await backend.getLogins(args.url);
 
             if (!entry) {
@@ -208,7 +216,8 @@ async function getNextAutoFillCommand(args: CommandArgs): Promise<CommandArgs | 
         }
         const resp = await sendMessageToTab(args.tab, frame.id, {
             action: 'get-next-auto-fill-command',
-            url: frame.url
+            url: frame.url,
+            wholeForm: !!args.entryId
         });
         if (resp?.nextCommand) {
             args.command = resp.nextCommand;

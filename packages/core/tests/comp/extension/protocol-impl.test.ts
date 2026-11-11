@@ -696,3 +696,150 @@ describe('ProtocolImpl — KeePassXC-Browser NaCl box protocol', () => {
         expect(decrypted.hash).toBe(KEEWEB_HASH);
     });
 });
+
+// ---------- KeeWebX pairing and entry lists ----------
+
+const { sign: naclSign } = await import('tweetnacl');
+const { RuntimeDataModel } = (await import('models/runtime-data-model')) as unknown as {
+    RuntimeDataModel: Record<string, unknown>;
+};
+
+describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
+    const conn = { connectionId: 9, extensionName: 'KeeWeb Connect' };
+    const entry = {
+        id: 'e1',
+        title: 'GitHub',
+        user: 'demouser',
+        url: 'https://github.com/login',
+        displayUrl: 'github.com',
+        iconId: 1,
+        icon: 'globe',
+        customIcon: null,
+        fields: {},
+        otpGenerator: null,
+        updated: new Date(),
+        password: { getText: () => 's3cret' },
+        file: { id: 'f1' },
+        initOtpGenerator() {}
+    };
+
+    function initWithEntries() {
+        const file = { id: 'f1', active: true, getEntry: (id: string) => (id === 'e1' ? entry : undefined) };
+        ProtocolImpl.init({
+            appModel: {
+                files: {
+                    hasOpenFiles: () => true,
+                    map: (fn: (f: unknown) => unknown) => [file].map(fn),
+                    filter: (fn: (f: unknown) => boolean) => [file].filter(fn),
+                    get: (id: string) => (id === 'f1' ? file : undefined),
+                    forEach: () => {},
+                    length: 1
+                },
+                getEntriesByFilter: () => [entry]
+            },
+            logger: { debug() {}, info() {}, warn() {}, error() {} } as unknown as Parameters<
+                typeof ProtocolImpl.init
+            >[0]['logger'],
+            sendEvent: () => {}
+        });
+    }
+
+    async function call(client: ClientState, action: string, payload: Record<string, unknown> = {}) {
+        const request = buildEncryptedRequest(client, action, payload);
+        const response = (await ProtocolImpl.handleRequest(request, conn)) as ProtocolResponse;
+        return response.error ? { error: response } : { ok: decryptResponse(client, request, response) };
+    }
+
+    function pairingSignature(client: ClientState, secretKey: Uint8Array, appKey = client.appPublicKey) {
+        const signed = new Uint8Array([
+            ...new TextEncoder().encode('kwx-pair-v1'),
+            ...client.keys.publicKey,
+            ...appKey
+        ]);
+        return kdbxweb.ByteUtils.bytesToBase64(naclSign.detached(signed, secretKey));
+    }
+
+    beforeEach(() => {
+        ProtocolImpl.cleanup();
+        delete RuntimeDataModel.extensionPairings;
+        delete RuntimeDataModel.extensionConnectConfig;
+    });
+
+    test('pairing rejects a signature made for another session', async () => {
+        initWithEntries();
+        const client = await handshake('kwx-a');
+        const identity = naclSign.keyPair();
+        const otherSession = naclBox.keyPair().publicKey;
+        const res = await call(client, 'kwx-pair', {
+            identityKey: kdbxweb.ByteUtils.bytesToBase64(identity.publicKey),
+            signature: pairingSignature(client, identity.secretKey, otherSession)
+        });
+        expect(res.error).toBeDefined();
+        const features = await call(client, 'kwx-features');
+        expect(features.ok?.paired).toBe(false);
+    });
+
+    test('an unpaired client cannot list entries, even with a shared approval', async () => {
+        initWithEntries();
+        RuntimeDataModel.extensionConnectConfig = { allFiles: true, canList: true };
+        const client = await handshake('kwx-b');
+        const res = await call(client, 'kwx-get-entries', { url: 'https://github.com/login' });
+        expect(String(res.error?.errorCode)).toBe('kwx-not-paired');
+    });
+
+    test('a paired client lists entries without secrets and reads fields by handle', async () => {
+        initWithEntries();
+        const identity = naclSign.keyPair();
+        const identityKey = kdbxweb.ByteUtils.bytesToBase64(identity.publicKey);
+        RuntimeDataModel.extensionPairings = {
+            [identityKey]: { created: '2026-11-11', permissions: { allFiles: true, canList: true } }
+        };
+        const client = await handshake('kwx-c');
+        const paired = await call(client, 'kwx-pair', {
+            identityKey,
+            signature: pairingSignature(client, identity.secretKey)
+        });
+        expect(paired.ok?.known).toBe(true);
+        expect((await call(client, 'kwx-features')).ok).toMatchObject({
+            features: ['entries-v1'],
+            paired: true,
+            canList: true,
+            locked: false
+        });
+
+        const list = await call(client, 'kwx-get-entries', { query: 'git' });
+        const items = list.ok?.items as Array<Record<string, unknown>>;
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({ title: 'GitHub', user: 'demouser', url: 'github.com', icon: 'globe' });
+        expect(JSON.stringify(list.ok)).not.toContain('s3cret');
+        expect(items[0].id).toBeUndefined();
+
+        const fields = await call(client, 'kwx-get-entry-fields', {
+            handle: items[0].handle,
+            fields: ['user', 'password']
+        });
+        expect(fields.ok?.values).toEqual({ user: 'demouser', password: 's3cret' });
+        expect(ProtocolImpl.sessions[0].passwordsRead).toBe(1);
+
+        const forged = await call(client, 'kwx-get-entry-fields', { handle: 'e1', fields: ['password'] });
+        expect(String(forged.error?.errorCode)).toBe('kwx-expired-handle');
+    });
+
+    test('handles are bound to the client that received them', async () => {
+        initWithEntries();
+        const identity = naclSign.keyPair();
+        const identityKey = kdbxweb.ByteUtils.bytesToBase64(identity.publicKey);
+        RuntimeDataModel.extensionPairings = {
+            [identityKey]: { created: '2026-11-11', permissions: { allFiles: true, canList: true } }
+        };
+        const first = await handshake('kwx-d1');
+        await call(first, 'kwx-pair', { identityKey, signature: pairingSignature(first, identity.secretKey) });
+        const handle = ((await call(first, 'kwx-get-entries', {})).ok?.items as Array<{ handle: string }>)[0].handle;
+
+        const second = await handshake('kwx-d2');
+        await call(second, 'kwx-pair', { identityKey, signature: pairingSignature(second, identity.secretKey) });
+        await call(second, 'kwx-get-entries', {});
+        const res = await call(second, 'kwx-get-entry-fields', { handle, fields: ['password'] });
+        expect(String(res.error?.errorCode)).toBe('kwx-expired-handle');
+    });
+});

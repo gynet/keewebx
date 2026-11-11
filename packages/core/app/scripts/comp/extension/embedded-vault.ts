@@ -11,7 +11,7 @@ import { AppModel } from 'models/app-model';
 import { AppSettingsModel } from 'models/app-settings-model';
 import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
-import { SelectEntryFilter } from 'comp/app/select-entry-filter';
+import { entryFieldText, listEntries, summarizeEntry } from 'comp/extension/entry-list';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { UrlFormat } from 'util/formatting/url-format';
 import { Logger } from 'util/logger';
@@ -33,7 +33,6 @@ declare const chrome: { runtime?: ExtensionRuntime } | undefined;
 type Request = Record<string, unknown> & { vault: string };
 
 const logger = new Logger('embedded-vault');
-const RECENT_LIMIT = 30;
 const SETTINGS = ['idleMinutes', 'clipboardSeconds', 'lockOnOsLock'] as const;
 
 let clipboardTimer: ReturnType<typeof setTimeout> | undefined;
@@ -47,16 +46,7 @@ function runtime(): ExtensionRuntime | undefined {
 }
 
 function entrySummary(entry: EntryModel) {
-    return {
-        id: entry.id,
-        title: entry.title || '',
-        user: entry.user || '',
-        url: entry.displayUrl || entry.url || '',
-        // The picture the app shows for the entry; none for the default key.
-        icon: entry.customIcon ? null : entry.iconId ? entry.icon : null,
-        customIcon: entry.customIcon || null,
-        hasOtp: !!entry.otpGenerator || !!entry.fields?.otp || !!entry.fields?.['TOTP Seed']
-    };
+    return { id: entry.id, ...summarizeEntry(entry) };
 }
 
 function findEntry(id: unknown): EntryModel {
@@ -67,32 +57,6 @@ function findEntry(id: unknown): EntryModel {
         }
     }
     throw new Error('Entry not found');
-}
-
-function otpCode(entry: EntryModel): Promise<string> {
-    entry.initOtpGenerator();
-    const generator = entry.otpGenerator;
-    if (!generator) {
-        return Promise.resolve('');
-    }
-    return new Promise((resolve, reject) =>
-        generator.next((err, pass) => (err ? reject(err) : resolve(pass || '')))
-    );
-}
-
-function fieldText(entry: EntryModel, field: unknown): Promise<string> {
-    switch (field) {
-        case 'user':
-            return Promise.resolve(entry.user || '');
-        case 'password':
-            return Promise.resolve(entry.password?.getText?.() ?? String(entry.password ?? ''));
-        case 'url':
-            return Promise.resolve(entry.url || '');
-        case 'otp':
-            return otpCode(entry);
-        default:
-            throw new Error('Unknown field');
-    }
 }
 
 function openFile(params: Record<string, unknown>): Promise<void> {
@@ -120,30 +84,11 @@ function status() {
 
 function list(req: Request) {
     const model = app();
-    const query = String(req.query || '').trim();
-    let suggested: ReturnType<typeof entrySummary>[] = [];
-    if (req.url && !query) {
-        const filter = new SelectEntryFilter(
-            { url: String(req.url), title: '' },
-            model as unknown as ConstructorParameters<typeof SelectEntryFilter>[1],
-            model.files,
-            {}
-        );
-        suggested = (filter.getEntries() as unknown as EntryModel[]).map(entrySummary);
-    }
-    const all = (model.getEntriesByFilter({ text: query }, model.files) as unknown as EntryModel[])
-        .slice()
-        .sort((a, b) =>
-            query
-                ? (a.title || '').localeCompare(b.title || '')
-                : (b.updated?.getTime() ?? 0) - (a.updated?.getTime() ?? 0)
-        );
-    const shown = new Set(suggested.map((e) => e.id));
-    const items = all
-        .filter((e) => !shown.has(e.id))
-        .slice(0, query ? 200 : RECENT_LIMIT)
-        .map(entrySummary);
-    return { suggested, items };
+    const { suggested, items } = listEntries(model, model.files, {
+        url: req.url ? String(req.url) : undefined,
+        query: String(req.query || '')
+    });
+    return { suggested: suggested.map(entrySummary), items: items.map(entrySummary) };
 }
 
 /** Clears the clipboard later if it still holds what was copied. */
@@ -230,12 +175,12 @@ const handlers: Record<string, (req: Request) => unknown> = {
 
     async field(req) {
         IdleTracker.regUserAction();
-        return { text: await fieldText(findEntry(req.id), req.field) };
+        return { text: await entryFieldText(findEntry(req.id), req.field) };
     },
 
     async credentials(req) {
         const entry = findEntry(req.id);
-        return { user: await fieldText(entry, 'user'), password: await fieldText(entry, 'password') };
+        return { user: await entryFieldText(entry, 'user'), password: await entryFieldText(entry, 'password') };
     },
 
     copied() {

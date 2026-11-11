@@ -23,8 +23,31 @@ import {
     KeeWebConnectGetAnyFieldResponsePayload
 } from './types';
 import { fromBase64, randomBase64, randomBytes, toBase64 } from 'background/utils';
-import { box as tweetnaclBox, BoxKeyPair } from 'tweetnacl';
+import { box as tweetnaclBox, sign as tweetnaclSign, BoxKeyPair } from 'tweetnacl';
 import { ProtocolError, ProtocolErrorCode } from './protocol-error';
+
+export interface KeeWebXFeatures {
+    features: string[];
+    locked: boolean;
+    paired: boolean;
+    canList: boolean;
+}
+
+export interface KeeWebXEntry {
+    handle: string;
+    title: string;
+    user: string;
+    url: string;
+    icon: string | null;
+    customIcon: string | null;
+    hasOtp: boolean;
+}
+
+export interface KeeWebXEntryList {
+    locked: boolean;
+    suggested: KeeWebXEntry[];
+    items: KeeWebXEntry[];
+}
 
 declare interface ProtocolTransportAdapter {
     request(request: KeeWebConnectRequest): Promise<KeeWebConnectResponse>;
@@ -307,6 +330,51 @@ class ProtocolImpl {
         );
 
         return payload.totp;
+    }
+
+    // ---- KeeWebX additions (the app answers "Handler not found" if older) ----
+
+    private async encryptedCall<T>(action: string, fields: Record<string, unknown> = {}): Promise<T> {
+        const request = this.makeEncryptedRequest(<KeeWebConnectRequest>{ action, ...fields });
+        const response = <KeeWebConnectEncryptedResponse>await this.request(request);
+        return <T>(<unknown>this.decryptResponsePayload(request, response));
+    }
+
+    /**
+     * Proves this extension holds its identity key by signing both public
+     * keys of this session. Returns whether the app already knows the key.
+     */
+    async pair(identity: { publicKey: Uint8Array; secretKey: Uint8Array }): Promise<boolean> {
+        if (!this._keewebPublicKey) {
+            throw new Error('KeeWeb public key is not set');
+        }
+        const signed = new Uint8Array([
+            ...new TextEncoder().encode('kwx-pair-v1'),
+            ...this._keys.publicKey,
+            ...this._keewebPublicKey
+        ]);
+        const signature = tweetnaclSign.detached(signed, identity.secretKey);
+        const payload = await this.encryptedCall<{ known?: boolean }>('kwx-pair', {
+            identityKey: toBase64(identity.publicKey),
+            signature: toBase64(signature)
+        });
+        return !!payload.known;
+    }
+
+    features(): Promise<KeeWebXFeatures> {
+        return this.encryptedCall<KeeWebXFeatures>('kwx-features');
+    }
+
+    getEntries(url: string | undefined, query: string | undefined): Promise<KeeWebXEntryList> {
+        return this.encryptedCall<KeeWebXEntryList>('kwx-get-entries', { url, query });
+    }
+
+    async getEntryFields(handle: string, fields: string[]): Promise<Record<string, string>> {
+        const payload = await this.encryptedCall<{ values: Record<string, string> }>('kwx-get-entry-fields', {
+            handle,
+            fields
+        });
+        return payload.values;
     }
 
     async getAnyField(url: string, title: string): Promise<string> {

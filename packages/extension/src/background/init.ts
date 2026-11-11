@@ -125,6 +125,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     runCommand({ command: 'submit-auto', tab, entryId: m.entryId })
                 )
             );
+        case 'web':
+            return reply(webRequest(m.request ?? {}));
         case 'open-app':
             return reply(
                 isFullMode().then((full) =>
@@ -135,3 +137,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return false;
     }
 });
+
+/** Web mode: the popup's requests to KeeWebX open in a browser tab. */
+async function webRequest(request: Record<string, unknown>): Promise<unknown> {
+    const isOpen = async () =>
+        (await chrome.tabs.query({})).some((t) => t.url?.startsWith(backend.keeWebUrl));
+    switch (request.op) {
+        case 'status': {
+            // Never opens a tab just to show the popup.
+            if (!(await isOpen())) {
+                return { open: false };
+            }
+            await backend.connect();
+            const features = await backend.features().catch(() => undefined);
+            return { open: true, paired: backend.paired, ...(features ?? {}), supportsList: !!features?.features.includes('entries-v1') };
+        }
+        case 'entries': {
+            await backend.connect();
+            const list = await backend.getEntries(
+                request.url ? String(request.url) : undefined,
+                request.query ? String(request.query) : undefined
+            );
+            const withId = (e: { handle: string }) => ({ ...e, id: e.handle });
+            return { locked: list.locked, suggested: list.suggested.map(withId), items: list.items.map(withId) };
+        }
+        case 'field': {
+            await backend.connect();
+            const values = await backend.getEntryFields(String(request.id), [String(request.field)]);
+            return { text: values[String(request.field)] ?? '' };
+        }
+        case 'focus':
+            return backend.focusKeeWeb();
+        case 'lock':
+            await backend.connect();
+            return backend.lock();
+        default:
+            throw new Error('Unknown request');
+    }
+}

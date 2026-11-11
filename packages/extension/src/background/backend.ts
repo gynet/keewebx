@@ -7,7 +7,8 @@ import {
     KeeWebConnectRequest,
     KeeWebConnectResponse
 } from './protocol/types';
-import { ProtocolImpl } from './protocol/protocol-impl';
+import { KeeWebXEntryList, KeeWebXFeatures, ProtocolImpl } from './protocol/protocol-impl';
+import { getIdentity } from './identity';
 import { noop } from 'common/utils';
 
 interface RequestQueueItem {
@@ -43,6 +44,7 @@ class Backend extends TypedEmitter<BackendEvents> {
     private _requestQueue: RequestQueueItem[] = [];
     private _currentRequest: RequestQueueItem | undefined;
     private _protocol: ProtocolImpl | undefined;
+    private _paired = false;
 
     get state(): BackendConnectionState {
         return this._state;
@@ -121,6 +123,15 @@ class Backend extends TypedEmitter<BackendEvents> {
             await this._protocol.changePublicKeys();
 
             this.setState(BackendConnectionState.Connected);
+
+            // Older apps do not know pairing; everything else still works.
+            const protocol = this._protocol;
+            this._paired = await getIdentity()
+                .then((identity) => protocol.pair(identity))
+                .then(
+                    () => true,
+                    () => false
+                );
 
             this.emit('connect-finished');
         } catch (e) {
@@ -212,8 +223,9 @@ class Backend extends TypedEmitter<BackendEvents> {
 
         switch (msg.action) {
             case 'database-locked':
-                return;
             case 'database-unlocked':
+                // Lets an open popup or side panel refresh.
+                chrome.runtime.sendMessage({ webEvent: msg.action }).catch(noop);
                 return;
             case 'attention-required':
                 this.focusKeeWebTab();
@@ -292,6 +304,48 @@ class Backend extends TypedEmitter<BackendEvents> {
             throw new Error('Not connected');
         }
         return this.withAutoReconnect(() => this._protocol!.getLogins(url));
+    }
+
+    get paired(): boolean {
+        return this._paired;
+    }
+
+    async features(): Promise<KeeWebXFeatures | undefined> {
+        if (!this._protocol || !this._paired) {
+            return undefined;
+        }
+        return this.withAutoReconnect(() => this._protocol!.features());
+    }
+
+    async getEntries(url: string | undefined, query: string | undefined): Promise<KeeWebXEntryList> {
+        if (!this._protocol) {
+            throw new Error('Not connected');
+        }
+        return this.withAutoReconnect(() => this._protocol!.getEntries(url, query));
+    }
+
+    async getEntryFields(handle: string, fields: string[]): Promise<Record<string, string>> {
+        if (!this._protocol) {
+            throw new Error('Not connected');
+        }
+        return this.withAutoReconnect(() => this._protocol!.getEntryFields(handle, fields));
+    }
+
+    async lock(): Promise<void> {
+        if (this._protocol) {
+            await this.withAutoReconnect(() => this._protocol!.lockDatabase());
+        }
+    }
+
+    async focusKeeWeb(): Promise<void> {
+        const tabs = await chrome.tabs.query({});
+        const tab = tabs.find((t) => t.url?.startsWith(this.keeWebUrl));
+        if (tab?.id) {
+            await chrome.tabs.update(tab.id, { active: true });
+            if (tab.windowId !== undefined) {
+                await chrome.windows.update(tab.windowId, { focused: true });
+            }
+        }
     }
 
     async getTotp(url: string, title: string): Promise<string> {

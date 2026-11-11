@@ -1,22 +1,23 @@
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { VaultStatus, getMode, hostOf, onVaultChanged, vault } from 'ui/vault-client';
+import { t } from 'ui/i18n';
 
 const DEFAULT_WEB_URL = 'https://keewebx.app/';
-const STORAGE_LABELS: Record<string, string> = { webdav: 'WebDAV' };
-const AUTO_LOCK = [
-    [5, '5 minutes'],
-    [15, '15 minutes'],
-    [30, '30 minutes'],
-    [60, '1 hour'],
-    [0, 'Never']
-] as const;
-const CLEAR_CLIPBOARD = [
-    [0, 'Never'],
-    [10, '10 seconds'],
-    [30, '30 seconds'],
-    [60, '1 minute']
-] as const;
+const STORAGE_LABELS: Record<string, string> = { webdav: 'uiWebDav' };
+const AUTO_LOCK: [number, () => string][] = [
+    [5, () => t('uiMinutes', '5')],
+    [15, () => t('uiMinutes', '15')],
+    [30, () => t('uiMinutes', '30')],
+    [60, () => t('uiOneHour')],
+    [0, () => t('uiNever')]
+];
+const CLEAR_CLIPBOARD: [number, () => string][] = [
+    [0, () => t('uiNever')],
+    [10, () => t('uiSeconds', '10')],
+    [30, () => t('uiSeconds', '30')],
+    [60, () => t('uiOneMinute')]
+];
 
 function Settings() {
     const [mode, setMode] = useState<{ full: boolean; keeWebUrl?: string }>();
@@ -38,7 +39,7 @@ function Settings() {
     useEffect(() => {
         void load();
         void chrome.commands.getAll().then((cmds) => {
-            setShortcut(cmds.find((c) => c.name === 'submit-auto')?.shortcut || 'Not set');
+            setShortcut(cmds.find((c) => c.name === 'submit-auto')?.shortcut || t('uiNotSet'));
         });
         return onVaultChanged(() => void load());
     }, []);
@@ -68,28 +69,28 @@ function Settings() {
 
     return (
         <main class="settings">
-            <h1 class="settings__title">Settings</h1>
-            <div class="segmented" role="radiogroup" aria-label="Mode">
+            <h1 class="settings__title">{t('uiSettings')}</h1>
+            <div class="segmented" role="radiogroup" aria-label={t('uiMode')}>
                 <label class={mode.full ? 'segmented__item segmented__item--on' : 'segmented__item'}>
                     <input type="radio" name="vault-mode" id="vault-mode-full" checked={mode.full} onChange={() => void switchMode(true)} />
-                    Full mode
+                    {t('uiFullMode')}
                 </label>
                 <label class={!mode.full ? 'segmented__item segmented__item--on' : 'segmented__item'}>
                     <input type="radio" name="vault-mode" id="vault-mode-connect" checked={!mode.full} onChange={() => void switchMode(false)} />
-                    Web mode
+                    {t('uiWebMode')}
                 </label>
             </div>
 
             {mode.full ? (
                 <>
-                    <h2 class="group-title">Databases</h2>
+                    <h2 class="group-title">{t('uiDatabases')}</h2>
                     <section class="card" id="databases">
                         {databases.map((f) => (
                             <div class="card__row">
                                 <span>{/\.kdbx$/i.test(f.name) ? f.name : `${f.name}.kdbx`}</span>
                                 <span class="muted">
-                                    {openTabs.has(f.id) ? 'Open · ' : ''}
-                                    {STORAGE_LABELS[f.storage ?? ''] ?? 'Local'}
+                                    {openTabs.has(f.id) ? `${t('uiDatabaseOpen')} · ` : ''}
+                                    {t(STORAGE_LABELS[f.storage ?? ''] ?? 'uiStorageLocal')}
                                 </span>
                             </div>
                         ))}
@@ -99,15 +100,15 @@ function Settings() {
                                 id="add-database"
                                 onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL('pages/popup.html?view=tab&screen=start') })}
                             >
-                                Add database
+                                {t('uiAddDatabase')}
                             </button>
                         </div>
                     </section>
 
-                    <h2 class="group-title">Security</h2>
+                    <h2 class="group-title">{t('uiSecurity')}</h2>
                     <section class="card">
                         <label class="card__row">
-                            <span title="Locks the vault after this long without use">Auto-lock</span>
+                            <span title={t('uiAutoLockHint')}>{t('uiAutoLock')}</span>
                             <select
                                 class="plain-select"
                                 id="setting-auto-lock"
@@ -115,12 +116,12 @@ function Settings() {
                                 onChange={(e) => void setSetting({ idleMinutes: Number(e.currentTarget.value) })}
                             >
                                 {AUTO_LOCK.map(([v, l]) => (
-                                    <option value={v}>{l}</option>
+                                    <option value={v}>{l()}</option>
                                 ))}
                             </select>
                         </label>
                         <label class="card__row">
-                            <span title="Empties the clipboard this long after you copy a field">Clear clipboard</span>
+                            <span title={t('uiClearClipboardHint')}>{t('uiClearClipboard')}</span>
                             <select
                                 class="plain-select"
                                 id="setting-clipboard"
@@ -128,12 +129,12 @@ function Settings() {
                                 onChange={(e) => void setSetting({ clipboardSeconds: Number(e.currentTarget.value) })}
                             >
                                 {CLEAR_CLIPBOARD.map(([v, l]) => (
-                                    <option value={v}>{l}</option>
+                                    <option value={v}>{l()}</option>
                                 ))}
                             </select>
                         </label>
                         <label class="card__row">
-                            <span title="Locks the vault when your computer locks">Lock with screen</span>
+                            <span title={t('uiLockWithScreenHint')}>{t('uiLockWithScreen')}</span>
                             <input
                                 type="checkbox"
                                 class="switch"
@@ -148,14 +149,14 @@ function Settings() {
                 <WebServer keeWebUrl={mode.keeWebUrl!} open={webOpen} onChange={load} />
             )}
 
-            <h2 class="group-title">Shortcut</h2>
+            <h2 class="group-title">{t('uiShortcut')}</h2>
             <section class="card">
                 <button
                     class="card__row card__row--button"
-                    title="Change it on the browser's extension shortcuts page"
+                    title={t('uiShortcutHint')}
                     onClick={() => void chrome.tabs.create({ url: 'chrome://extensions/shortcuts' })}
                 >
-                    <span>Fill login</span>
+                    <span>{t('uiFillLogin')}</span>
                     <kbd class="muted" id="shortcut">{shortcut}</kbd>
                 </button>
             </section>
@@ -173,11 +174,11 @@ function WebServer(props: { keeWebUrl: string; open?: boolean; onChange: () => P
         try {
             parsed = new URL(url);
         } catch {
-            setError('Enter a full address, like https://vault.example.com');
+            setError(t('uiErrorFullUrl'));
             return;
         }
         if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost') {
-            setError('Use an https address');
+            setError(t('uiErrorHttps'));
             return;
         }
         setError('');
@@ -187,7 +188,7 @@ function WebServer(props: { keeWebUrl: string; open?: boolean; onChange: () => P
 
     return (
         <>
-            <h2 class="group-title">Server</h2>
+            <h2 class="group-title">{t('uiServer')}</h2>
             <section class="card">
                 <label class="card__row">
                     <span>keewebx.app</span>
@@ -200,7 +201,7 @@ function WebServer(props: { keeWebUrl: string; open?: boolean; onChange: () => P
                     />
                 </label>
                 <label class="card__row">
-                    <span>Custom URL</span>
+                    <span>{t('uiCustomUrl')}</span>
                     <input type="radio" name="server" id="server-custom" checked={custom} onChange={() => draft && void save(draft)} />
                 </label>
                 <form
@@ -221,12 +222,12 @@ function WebServer(props: { keeWebUrl: string; open?: boolean; onChange: () => P
                 </form>
                 {error && <p class="error card__error">{error}</p>}
             </section>
-            <h2 class="group-title">Connection</h2>
+            <h2 class="group-title">{t('uiConnection')}</h2>
             <section class="card">
                 <div class="card__row">
-                    <span>Status</span>
+                    <span>{t('uiStatus')}</span>
                     <span class="muted" id="web-status">
-                        {props.open === undefined ? '' : props.open ? `Open in a tab (${hostOf(props.keeWebUrl)})` : 'Ready'}
+                        {props.open === undefined ? '' : props.open ? t('uiOpenInTab', hostOf(props.keeWebUrl)) : t('uiReady')}
                     </span>
                 </div>
             </section>
