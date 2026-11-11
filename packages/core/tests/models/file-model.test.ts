@@ -409,3 +409,55 @@ describe('FileModel.open — chalResp forwarding (#9 groundwork)', () => {
         expect(capturedCredentials[0].challengeResponse).toBeUndefined();
     });
 });
+
+describe('FileModel sync completion', () => {
+    type SyncFile = {
+        db: unknown;
+        modified: boolean;
+        dirty: boolean;
+        setModified(): void;
+        setSyncProgress(): void;
+        setSyncComplete(path: string | null, storage: string | null, error: string | null): void;
+    };
+    function openFile(): { file: SyncFile; editStateRemoved: () => number } {
+        let removed = 0;
+        const file = new FileModel() as unknown as SyncFile & Record<string, unknown>;
+        file.db = { removeLocalEditState: () => removed++ };
+        // Re-reading the open database is not what these tests cover.
+        file.setOpenFile = () => {};
+        file.forEachEntry = () => {};
+        return { file, editStateRemoved: () => removed };
+    }
+
+    test('a sync without new edits clears the unsaved flags', () => {
+        const { file, editStateRemoved } = openFile();
+        file.setModified();
+        file.setSyncProgress();
+        file.setSyncComplete(null, null, null);
+        expect(file.modified).toBe(false);
+        expect(file.dirty).toBe(false);
+        expect(editStateRemoved()).toBe(1);
+    });
+
+    test('an edit made during the sync stays unsaved', () => {
+        const { file, editStateRemoved } = openFile();
+        file.setModified();
+        file.setSyncProgress();
+        file.setModified();
+        file.dirty = false; // the sync wrote its earlier snapshot to the cache
+        file.setSyncComplete(null, null, null);
+        expect(file.modified).toBe(true);
+        expect(file.dirty).toBe(true);
+        // Kept for merging the next sync.
+        expect(editStateRemoved()).toBe(0);
+    });
+
+    test('a failed sync keeps the unsaved flags', () => {
+        const { file } = openFile();
+        file.setModified();
+        file.setSyncProgress();
+        file.setSyncComplete(null, null, 'network error');
+        expect(file.modified).toBe(true);
+        expect(file.dirty).toBe(true);
+    });
+});

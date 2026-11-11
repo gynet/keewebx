@@ -3,6 +3,7 @@ import { createUIMenus, bindExtensionButtonClick } from './ui';
 import { startInternalIpc } from './internal-ipc';
 import { startCommandListener, runCommand } from './commands';
 import { noop } from 'common/utils';
+import { startSyncBadge } from './sync-badge';
 
 // Cross-context RPC: let any extension context (popup, options page,
 // content script via runtime.sendMessage, or an automated E2E test)
@@ -89,6 +90,7 @@ async function start() {
     createUIMenus();
     bindExtensionButtonClick();
     startInternalIpc();
+    startSyncBadge();
 
     await backend.init();
 }

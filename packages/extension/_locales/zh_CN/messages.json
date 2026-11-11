@@ -171,5 +171,7 @@
   },
   "optionsAboutLicense": {
     "message": "该扩展遵循 MIT 协议。它使用了下面这些超棒的库："
-  }
+  },
+  "syncStateOffline": { "message": "离线。改动已保存在本浏览器，连上存储后会自动同步。" },
+  "syncStateError": { "message": "同步失败，请打开 KeeWebX 处理。" }
 }

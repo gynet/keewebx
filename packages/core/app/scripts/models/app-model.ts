@@ -21,6 +21,7 @@ import { Logger } from 'util/logger';
 import { debounce, noop } from 'util/fn';
 import { Alerts } from 'comp/ui/alerts';
 import { runBeforeOpen, runBeforeSync } from 'hooks/storage-guards';
+import { SyncScheduler } from 'comp/app/sync-scheduler';
 import 'util/kdbxweb/protected-value-ex';
 
 interface StorageStat {
@@ -231,6 +232,10 @@ class AppModel {
     hardwareDecryptInProgress: boolean = false;
     mainWindowBlurTimer: ReturnType<typeof setTimeout> | null = null;
     appLogger!: Logger;
+    syncScheduler: SyncScheduler = new SyncScheduler(
+        (file, callback) => this.syncFile(file, undefined, callback),
+        () => this.settings.autoSaveInterval === -1
+    );
 
     constructor() {
         Events.on('refresh', this.refresh.bind(this));
@@ -366,11 +371,7 @@ class AppModel {
             Events.emit('file-changed', file);
         });
         file.on('ejected', () => this.closeFile(file));
-        file.on('change:dirty', (file, dirty) => {
-            if (dirty && this.settings.autoSaveInterval === -1) {
-                this.syncFile(file);
-            }
-        });
+        this.syncScheduler.watch(file);
 
         Events.emit('file-opened');
 

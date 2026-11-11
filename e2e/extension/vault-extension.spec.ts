@@ -61,6 +61,8 @@ let davRequests: Array<{ method: string; path: string; auth?: string; destinatio
 // Writable in-memory file store, keyed by URL path.
 let davFiles = new Map<string, { data: Buffer; modified: number }>();
 let davClock = 0;
+// Delays each PUT, to edit while a save is in flight.
+let davPutDelayMs = 0;
 
 function davPut(pathname: string, data: Buffer): void {
     // Whole seconds, like a real server's Last-Modified; each write must differ.
@@ -115,8 +117,10 @@ test.beforeAll(async () => {
             req.on('end', () => {
                 const file = davFiles.get(pathname);
                 if (req.method === 'PUT') {
-                    davPut(pathname, Buffer.concat(chunks));
-                    res.writeHead(201).end();
+                    setTimeout(() => {
+                        davPut(pathname, Buffer.concat(chunks));
+                        res.writeHead(201).end();
+                    }, davPutDelayMs);
                 } else if (!file) {
                     res.writeHead(404).end();
                 } else if (req.method === 'MOVE') {
@@ -164,6 +168,7 @@ test.beforeEach(async ({}, testInfo) => {
         args: [`--disable-extensions-except=${EXT_PATH}`, `--load-extension=${EXT_PATH}`]
     });
     davRequests = [];
+    davPutDelayMs = 0;
     davFiles = new Map();
     davPut('/vault.kdbx', fs.readFileSync(FIXTURE));
     sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
@@ -404,24 +409,43 @@ test('the options page switches between the two modes', async () => {
     await expect.poll(stored).toBeUndefined();
 });
 
-test('full mode saves changes back to WebDAV', async () => {
-    const page = await openFromWebDav();
-    const original = davFiles.get('/vault.kdbx')!.data;
-    const title = `Saved over WebDAV ${Date.now()}`;
-
+async function addEntry(page: Page, title: string): Promise<void> {
     await page.locator('.list__search-btn-new').click();
     await page.locator('.dropdown__item[data-value="entry"]').click();
     const titleInput = page.locator('.details__header-title-input');
     await titleInput.fill(title);
     await titleInput.press('Enter');
+}
+
+/** Decrypts a stored file independently of the app. */
+async function loadVault(data: Buffer): Promise<kdbxweb.Kdbx> {
+    kdbxweb.CryptoEngine.setArgon2Impl(argon2);
+    return kdbxweb.Kdbx.load(
+        new Uint8Array(data).buffer as ArrayBuffer,
+        new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(FIXTURE_PASSWORD))
+    );
+}
+
+async function storedTitles(): Promise<string[]> {
+    const db = await loadVault(davFiles.get('/vault.kdbx')!.data);
+    return db.groups.flatMap((g) => [...g.allEntries()].map((e) => String(e.fields.get('Title'))));
+}
+
+const moves = () => davRequests.filter((r) => r.method === 'MOVE').length;
+const badge = () => sw.evaluate(() => chrome.action.getBadgeText({}));
+const unsavedSign = (page: Page) => page.locator('.footer__db-sign');
+
+test('full mode saves each change to WebDAV on its own', async () => {
+    const page = await openFromWebDav();
+    const original = davFiles.get('/vault.kdbx')!.data;
+    const title = `Saved over WebDAV ${Date.now()}`;
+
+    await addEntry(page, title);
     await shot(page, '05-webdav-new-entry');
 
-    await page.locator('.footer__db-item').first().click();
-    await page.locator('.settings__file-button-save-default').click();
-    await expect
-        .poll(() => davRequests.some((r) => r.method === 'MOVE'), { timeout: 30000 })
-        .toBe(true);
-    await expect(page.locator('.footer__db-sign')).toHaveCount(0, { timeout: 30000 });
+    // No save button: the change is saved shortly after it is made.
+    await expect.poll(moves, { timeout: 30000 }).toBe(1);
+    await expect(unsavedSign(page)).toHaveCount(0, { timeout: 30000 });
     await shot(page, '06-webdav-saved');
 
     // Written to a temporary file, then moved over the original.
@@ -434,16 +458,72 @@ test('full mode saves changes back to WebDAV', async () => {
     expect(move.auth).toBe(put.auth);
     expect([...davFiles.keys()]).toEqual(['/vault.kdbx']);
 
-    // Decrypt the stored file independently of the app.
-    const saved = davFiles.get('/vault.kdbx')!.data;
-    expect(saved.equals(original)).toBe(false);
-    kdbxweb.CryptoEngine.setArgon2Impl(argon2);
-    const db = await kdbxweb.Kdbx.load(
-        new Uint8Array(saved).buffer as ArrayBuffer,
-        new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(FIXTURE_PASSWORD))
-    );
-    const titles = db.groups.flatMap((g) =>
-        [...g.allEntries()].map((e) => e.fields.get('Title'))
-    );
+    expect(davFiles.get('/vault.kdbx')!.data.equals(original)).toBe(false);
+    expect(await storedTitles()).toContain(title);
+
+    // Creating the entry and naming it was one burst of edits: one save.
+    await page.waitForTimeout(3000);
+    expect(moves()).toBe(1);
+});
+
+test('full mode keeps changes while offline and saves them when back online', async () => {
+    const page = await openFromWebDav();
+    const title = `Made offline ${Date.now()}`;
+
+    await context.setOffline(true);
+    await addEntry(page, title);
+    await expect.poll(badge, { timeout: 30000 }).toBe('!');
+    await expect(unsavedSign(page)).toHaveCount(1);
+    expect(await sw.evaluate(() => chrome.action.getTitle({}))).toMatch(/Offline/);
+    expect(
+        await sw.evaluate(() => chrome.storage.session.get('syncState').then((r) => r.syncState.state))
+    ).toBe('offline');
+    expect(moves()).toBe(0);
+    await shot(page, '10-offline-unsaved');
+
+    await context.setOffline(false);
+    await expect.poll(moves, { timeout: 30000 }).toBe(1);
+    await expect.poll(badge, { timeout: 15000 }).toBe('');
+    await expect(unsavedSign(page)).toHaveCount(0, { timeout: 15000 });
+    expect(await storedTitles()).toContain(title);
+    await shot(page, '11-back-online-saved');
+});
+
+test('full mode merges a change saved from another device', async () => {
+    const page = await openFromWebDav();
+
+    // Another device adds an entry to the same file on the server.
+    const remote = await loadVault(davFiles.get('/vault.kdbx')!.data);
+    const other = remote.createEntry(remote.getDefaultGroup());
+    other.fields.set('Title', 'Added on another device');
+    davPut('/vault.kdbx', Buffer.from(await remote.save()));
+
+    const title = `Added here ${Date.now()}`;
+    await addEntry(page, title);
+    await expect.poll(moves, { timeout: 30000 }).toBe(1);
+    await expect(unsavedSign(page)).toHaveCount(0, { timeout: 15000 });
+
+    const titles = await storedTitles();
     expect(titles).toContain(title);
+    expect(titles).toContain('Added on another device');
+    // The merged entry shows up in the app too.
+    await expect(page.locator('.list__item', { hasText: 'Added on another device' })).toBeVisible();
+    await shot(page, '12-merged-remote-change');
+});
+
+test('full mode saves an edit made while a save is in flight', async () => {
+    const page = await openFromWebDav();
+    davPutDelayMs = 3000;
+
+    await addEntry(page, 'First');
+    await expect
+        .poll(() => davRequests.some((r) => r.method === 'PUT'), { timeout: 30000 })
+        .toBe(true);
+    await addEntry(page, 'Second');
+
+    await expect.poll(moves, { timeout: 60000 }).toBe(2);
+    await expect(unsavedSign(page)).toHaveCount(0, { timeout: 15000 });
+    const titles = await storedTitles();
+    expect(titles).toContain('First');
+    expect(titles).toContain('Second');
 });

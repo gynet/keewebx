@@ -73,6 +73,8 @@ interface FileModelProperties {
     syncing: boolean;
     syncError: string | null;
     syncDate: Date | null;
+    editSeq: number;
+    syncStartEditSeq: number;
     backup: Record<string, unknown> | null;
     formatVersion: number | null;
     defaultUser: string | null;
@@ -127,6 +129,8 @@ class FileModel extends Model {
     declare syncing: boolean;
     declare syncError: string | null;
     declare syncDate: Date | null;
+    declare editSeq: number;
+    declare syncStartEditSeq: number;
     declare backup: Record<string, unknown> | null;
     declare formatVersion: number | null;
     declare defaultUser: string | null;
@@ -601,7 +605,7 @@ class FileModel extends Model {
 
     setModified(): void {
         if (!this.demo) {
-            this.set({ modified: true, dirty: true });
+            this.set({ modified: true, dirty: true, editSeq: this.editSeq + 1 });
         }
     }
 
@@ -662,7 +666,7 @@ class FileModel extends Model {
     }
 
     setSyncProgress(): void {
-        this.set({ syncing: true });
+        this.set({ syncing: true, syncStartEditSeq: this.editSeq });
     }
 
     setSyncComplete(
@@ -670,16 +674,18 @@ class FileModel extends Model {
         storage: string | null,
         error: string | null
     ): void {
-        if (!error) {
+        // Changes made while the sync ran are not in the saved data.
+        const editedDuringSync = this.editSeq !== this.syncStartEditSeq;
+        if (!error && !editedDuringSync) {
             this.db.removeLocalEditState();
         }
-        const modified = this.modified && !!error;
+        const modified = this.modified && (!!error || editedDuringSync);
         this.set({
             created: false,
             path: path || this.path,
             storage: storage || this.storage,
             modified,
-            dirty: error ? this.dirty : false,
+            dirty: editedDuringSync || (error ? this.dirty : false),
             syncing: false,
             syncError: error
         });
@@ -984,6 +990,9 @@ FileModel.defineModelProperties({
     syncing: false,
     syncError: null,
     syncDate: null,
+    // Counts edits, so a sync can tell whether the file changed while it ran.
+    editSeq: 0,
+    syncStartEditSeq: 0,
     backup: null,
     formatVersion: null,
     defaultUser: null,

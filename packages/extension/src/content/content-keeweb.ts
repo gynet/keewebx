@@ -11,6 +11,14 @@ interface KeeWebConnectTabMessage {
 if (!window.kwExtensionInstalled) {
     window.kwExtensionInstalled = true;
 
+    // The app posts a summary of its sync state; the toolbar badge shows it.
+    window.addEventListener('message', (e: MessageEvent) => {
+        const state = (e.data as { kwSyncState?: unknown } | null)?.kwSyncState;
+        if (e.source === window && state && typeof state === 'object') {
+            chrome.runtime.sendMessage({ action: 'sync-state', state }).catch(() => {});
+        }
+    });
+
     chrome.runtime.onConnect.addListener((port) => {
         if (port.sender?.id !== chrome.runtime.id) {
             return;
