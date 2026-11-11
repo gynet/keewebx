@@ -36,10 +36,35 @@ if (!window.kwExtensionInstalled) {
             }
         }
 
+        function isVisible(el: HTMLElement): boolean {
+            return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+        }
+
+        /** With no field focused: the username field of the visible login form. */
+        function findLoginInput(): HTMLInputElement | undefined {
+            const pass = [...document.querySelectorAll<HTMLInputElement>('input[type=password]')].find(isVisible);
+            if (!pass) {
+                return undefined;
+            }
+            const inputs = [...(pass.form ? pass.form.querySelectorAll('input') : document.querySelectorAll('input'))];
+            for (let ix = inputs.indexOf(pass) - 1; ix >= 0; ix--) {
+                const candidate = inputs[ix];
+                if (['text', 'email', 'tel', ''].includes(candidate.type) && isVisible(candidate)) {
+                    return candidate;
+                }
+            }
+            return pass;
+        }
+
         function getNextAutoFillCommand() {
-            const input = <HTMLInputElement>document.activeElement;
+            let input = <HTMLInputElement>document.activeElement;
             if (input?.tagName !== 'INPUT') {
-                return;
+                const found = findLoginInput();
+                if (!found) {
+                    return;
+                }
+                found.focus();
+                input = found;
             }
 
             let nextCommand;

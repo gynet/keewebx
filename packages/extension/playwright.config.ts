@@ -4,9 +4,9 @@ export default defineConfig({
     testDir: './e2e',
     timeout: 30000,
     retries: 1,
-    reporter: [['html', { open: 'on-failure' }]],
+    reporter: [['html', { open: 'never' }]],
     use: {
-        headless: false,
+        headless: true,
         video: 'on',
         screenshot: 'on',
     },

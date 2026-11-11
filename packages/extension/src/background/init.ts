@@ -4,6 +4,7 @@ import { startInternalIpc } from './internal-ipc';
 import { startCommandListener, runCommand } from './commands';
 import { noop } from 'common/utils';
 import { startSyncBadge } from './sync-badge';
+import { hasEmbeddedVault, isFullMode, openFullApp, startVaultHost, vaultRequest } from './vault-host';
 
 // Cross-context RPC: let any extension context (popup, options page,
 // content script via runtime.sendMessage, or an automated E2E test)
@@ -66,7 +67,11 @@ chrome.runtime.onInstalled.addListener((e) => {
     startAndReportError()
         .then(() => {
             if (e.reason === ('install' as chrome.runtime.OnInstalledReason)) {
-                void chrome.runtime.openOptionsPage();
+                if (hasEmbeddedVault) {
+                    void chrome.tabs.create({ url: chrome.runtime.getURL('pages/popup.html?view=tab') });
+                } else {
+                    void chrome.runtime.openOptionsPage();
+                }
             }
         })
         .catch(noop);
@@ -91,6 +96,42 @@ async function start() {
     bindExtensionButtonClick();
     startInternalIpc();
     startSyncBadge();
+    startVaultHost();
 
     await backend.init();
 }
+
+// Requests from the popup, side panel and settings page (full mode).
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    const m = msg as { action?: string; request?: Record<string, unknown>; tabId?: number; entryId?: string };
+    if (sender.id !== chrome.runtime.id || sender.tab?.url?.startsWith('http')) {
+        return false;
+    }
+    const reply = (p: Promise<unknown>) => {
+        p.then(
+            (result) => sendResponse({ ok: true, result }),
+            (e: unknown) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
+        );
+        return true;
+    };
+    switch (m?.action) {
+        case 'vault': {
+            const { vault: command, ...args } = m.request ?? {};
+            return reply(vaultRequest(String(command), args));
+        }
+        case 'fill-entry':
+            return reply(
+                chrome.tabs.get(m.tabId ?? -1).then((tab) =>
+                    runCommand({ command: 'submit-auto', tab, entryId: m.entryId })
+                )
+            );
+        case 'open-app':
+            return reply(
+                isFullMode().then((full) =>
+                    full ? openFullApp() : chrome.tabs.create({ url: backend.keeWebUrl }).then(() => {})
+                )
+            );
+        default:
+            return false;
+    }
+});

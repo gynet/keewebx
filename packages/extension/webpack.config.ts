@@ -22,7 +22,8 @@ export default {
         'background': './src/background/init.ts',
         'content-keeweb': './src/content/content-keeweb.ts',
         'content-page': './src/content/content-page.ts',
-        'options': './src/options/index.tsx'
+        'options': './src/options/index.tsx',
+        ...(vault ? { popup: './src/popup/index.tsx', settings: './src/settings/index.tsx' } : {})
     },
     output: {
         filename: 'js/[name].js',
@@ -45,7 +46,8 @@ export default {
             background: path.resolve('src/background'),
             common: path.resolve('src/common'),
             content: path.resolve('src/content'),
-            options: path.resolve('src/options')
+            options: path.resolve('src/options'),
+            ui: path.resolve('src/ui')
         },
         extensions: ['.tsx', '.ts', '.js']
     },
@@ -80,6 +82,15 @@ export default {
                                 JSON.parse(fs.readFileSync(patchFile, 'utf8'))
                             );
                             merge.recursive(manifest, patchData);
+                        }
+                        if (vault) {
+                            // Arrays are replaced by the merge, so extend this one here.
+                            manifest.permissions = [
+                                ...(manifest.permissions ?? []),
+                                'offscreen',
+                                'sidePanel',
+                                'idle'
+                            ];
                         }
                         // Firefox MV3 does not accept background.service_worker
                         // (that's a Chrome-specific key). It uses background

@@ -7,6 +7,7 @@ import { BrowserExtensionConnector } from 'comp/extension/browser-extension-conn
 import { FeatureTester } from 'comp/browser/feature-tester';
 import { FocusDetector } from 'comp/browser/focus-detector';
 import { IdleTracker } from 'comp/browser/idle-tracker';
+import { EmbeddedVault } from 'comp/extension/embedded-vault';
 import { ThemeWatcher } from 'comp/browser/theme-watcher';
 import { KeyHandler } from 'comp/browser/key-handler';
 import { SettingsManager } from 'comp/settings/settings-manager';
@@ -114,6 +115,7 @@ $(() => {
         KdbxwebInit.init();
         FocusDetector.init();
         ServiceWorkerClient.init();
+        EmbeddedVault.init();
         ThemeWatcher.init();
         SettingsManager.init();
         (window as Window & { kw?: typeof ExportApi }).kw = ExportApi;

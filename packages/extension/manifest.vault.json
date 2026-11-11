@@ -1,5 +1,16 @@
 {
   "name": "KeeWebX",
+  "action": {
+    "default_title": "KeeWebX",
+    "default_popup": "pages/popup.html"
+  },
+  "side_panel": {
+    "default_path": "pages/sidepanel.html"
+  },
+  "options_ui": {
+    "page": "pages/settings.html",
+    "open_in_tab": true
+  },
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob:; font-src data:; connect-src 'self' ws: https:; form-action 'none'"
   }

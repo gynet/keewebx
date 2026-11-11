@@ -2,12 +2,20 @@ import { backend } from './backend';
 import { ContentScriptMessage, ContentScriptReturn } from 'common/content-script-interface';
 import { BackendConnectionState } from 'common/backend-connection-state';
 import { activateTab } from './utils';
+import { isFullMode, vaultRequest } from './vault-host';
 
 interface CommandArgs {
     command: string;
     tab: chrome.tabs.Tab;
     url?: string;
     frameId?: number;
+    /** A login picked in the popup; filled without submitting the form. */
+    entryId?: string;
+}
+
+interface FillValues {
+    text?: string;
+    password?: string;
 }
 
 interface Frame {
@@ -43,6 +51,10 @@ async function runCommand(args: CommandArgs): Promise<void> {
     if (args.command.includes('auto')) {
         const nextCommand = await getNextAutoFillCommand(args);
         if (nextCommand) {
+            if (args.entryId) {
+                nextCommand.command = nextCommand.command.replace('submit', 'insert');
+                nextCommand.entryId = args.entryId;
+            }
             await runCommand(nextCommand);
         }
         return;
@@ -63,14 +75,30 @@ async function runCommand(args: CommandArgs): Promise<void> {
         other: args.command.includes('other')
     };
 
+    let text: string | undefined;
+    let password: string | undefined;
+
+    if (await isFullMode()) {
+        let values: FillValues | undefined;
+        try {
+            values = await getValuesFromVault(args, options);
+        } finally {
+            if (args.tab.id) {
+                await activateTab(args.tab.id);
+            }
+        }
+        if (!values) {
+            return;
+        }
+        await autoFill(args.url, args.tab, args.frameId, { ...values, submit: options.submit });
+        return;
+    }
+
     await backend.connect();
     if (backend.state !== BackendConnectionState.Connected) {
         void chrome.runtime.openOptionsPage();
         return;
     }
-
-    let text: string | undefined;
-    let password: string | undefined;
 
     try {
         if (options.username || options.password) {
@@ -101,6 +129,39 @@ async function runCommand(args: CommandArgs): Promise<void> {
         password,
         submit: options.submit
     });
+}
+
+/**
+ * Full mode: fills the one login that matches the page. With none, several,
+ * or a locked vault, the popup opens so the user can unlock or choose.
+ */
+async function getValuesFromVault(
+    args: CommandArgs,
+    options: { username: boolean; password: boolean; otp: boolean; other: boolean }
+): Promise<FillValues | undefined> {
+    let entryId = args.entryId;
+    if (!entryId) {
+        const status = await vaultRequest<{ open: boolean }>('status');
+        const suggested = status.open
+            ? (await vaultRequest<{ suggested: { id: string }[] }>('list', { url: args.url })).suggested
+            : [];
+        if (suggested.length !== 1 || options.other) {
+            await chrome.action.openPopup().catch(() => {});
+            return undefined;
+        }
+        entryId = suggested[0].id;
+    }
+    if (options.username || options.password) {
+        const login = await vaultRequest<{ user: string; password: string }>('credentials', { id: entryId });
+        return {
+            text: options.username ? login.user : login.password,
+            password: options.username && options.password ? login.password : undefined
+        };
+    }
+    if (options.otp) {
+        return { text: (await vaultRequest<{ text: string }>('field', { id: entryId, field: 'otp' })).text };
+    }
+    return undefined;
 }
 
 function isValidUrl(url: string): boolean {
