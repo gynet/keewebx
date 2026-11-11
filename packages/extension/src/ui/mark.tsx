@@ -21,7 +21,8 @@ export function Mark({ size }: { size: number }) {
     );
 }
 
-const TILE_COLORS = ['#24292f', '#c43a2b', '#a85a0c', '#2f6fde', '#1e7f4f', '#7c3aed', '#0e7490', '#b4235a'];
+// Muted so the list stays calm; the entry's own icon sits on top.
+const TILE_COLORS = ['#4d535c', '#a0625a', '#a07a52', '#5a7598', '#58876f', '#7a6c9c', '#4f8590', '#94657c'];
 
 /**
  * The entry's own icon when it has one, otherwise a letter tile whose color

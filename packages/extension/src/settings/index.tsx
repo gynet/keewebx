@@ -71,11 +71,17 @@ function Settings() {
         <main class="settings">
             <h1 class="settings__title">{t('uiSettings')}</h1>
             <div class="segmented" role="radiogroup" aria-label={t('uiMode')}>
-                <label class={mode.full ? 'segmented__item segmented__item--on' : 'segmented__item'}>
+                <label
+                    class={mode.full ? 'segmented__item segmented__item--on' : 'segmented__item'}
+                    title={t('uiFullModeHint')}
+                >
                     <input type="radio" name="vault-mode" id="vault-mode-full" checked={mode.full} onChange={() => void switchMode(true)} />
                     {t('uiFullMode')}
                 </label>
-                <label class={!mode.full ? 'segmented__item segmented__item--on' : 'segmented__item'}>
+                <label
+                    class={!mode.full ? 'segmented__item segmented__item--on' : 'segmented__item'}
+                    title={t('uiWebModeHint')}
+                >
                     <input type="radio" name="vault-mode" id="vault-mode-connect" checked={!mode.full} onChange={() => void switchMode(false)} />
                     {t('uiWebMode')}
                 </label>
