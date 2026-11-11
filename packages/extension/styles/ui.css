@@ -2,11 +2,11 @@
     --bg: #ffffff;
     --sub: #f4f6f9;
     --page: #f4f6f9;
-    --text: #1f2329;
-    --muted: #6b7079;
-    --line: #e9e9e6;
-    --line-strong: #e4e4e0;
-    --sel: #e9f0f9;
+    --text: #111a2b;
+    --muted: #5d6a7e;
+    --line: #e8ecf1;
+    --line-strong: #e3e8ef;
+    --sel: #eaf2fd;
     --acc: #3373cb;
     --acc-text: #ffffff;
     --error: #d93025;
@@ -19,10 +19,10 @@
         --bg: #17191f;
         --sub: #23262e;
         --page: #111318;
-        --text: #ecedef;
-        --muted: #9a9ea6;
-        --line: #2b2d32;
-        --line-strong: #2b2d32;
+        --text: #f1f3f7;
+        --muted: #a0a8b6;
+        --line: #2c3039;
+        --line-strong: #2c3039;
         --sel: #23304a;
         --acc: #85b3f1;
         --acc-text: #0b1220;
@@ -722,14 +722,13 @@ input[type='radio'] {
    ------------------------------------------------------------------ */
 :root {
     --wash: #ffffff;
-    --glass: rgba(240, 242, 246, 0.82);
+    --glass: #f4f6f9;
     --glass-strong: rgba(255, 255, 255, 0.78);
     --glass-edge: rgba(255, 255, 255, 0.85);
     --glass-line: rgba(31, 35, 41, 0.06);
     --glass-blur: blur(22px) saturate(140%);
-    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 0 0 0.5px rgba(31, 35, 41, 0.08),
-        0 6px 18px rgba(31, 35, 41, 0.06);
-    --glass-sel: rgba(52, 114, 202, 0.12);
+    --glass-shadow: none;
+    --glass-sel: #eaf2fd;
     --pill-acc: linear-gradient(180deg, #4381d6 0%, #3373cb 100%);
     --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 3px 8px rgba(52, 114, 202, 0.22);
 }
@@ -874,8 +873,7 @@ body,
 }
 .tile {
     border-radius: 11px;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 55%);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 2px 6px rgba(0, 0, 0, 0.14);
+    box-shadow: none;
 }
 .tile--image {
     background-color: var(--glass-strong);
@@ -929,4 +927,16 @@ body,
 .layout-settings .card,
 .layout-settings .segmented__item--on {
     background: var(--bg);
+}
+
+/* Floating footer: white with a hairline, so it reads as a bar, not a grey haze */
+.foot {
+    background: var(--bg);
+    box-shadow: 0 0 0 1px var(--line), 0 4px 14px rgba(17, 26, 43, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+    .foot {
+        background: #23262e;
+        box-shadow: 0 0 0 1px var(--line), 0 6px 18px rgba(0, 0, 0, 0.35);
+    }
 }
