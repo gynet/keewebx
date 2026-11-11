@@ -167,7 +167,7 @@ $(() => {
         return Promise.resolve().then(() => {
             const skipHttpsWarning =
                 localStorage.getItem('skipHttpsWarning') || appModel.settings.skipHttpsWarning;
-            const protocolIsInsecure = ['https:', 'file:', 'app:'].indexOf(location.protocol) < 0;
+            const protocolIsInsecure = ['https:', 'file:', 'app:', 'chrome-extension:'].indexOf(location.protocol) < 0;
             const hostIsInsecure = location.hostname !== 'localhost';
             if (protocolIsInsecure && hostIsInsecure && !skipHttpsWarning) {
                 return new Promise<void>((resolve) => {

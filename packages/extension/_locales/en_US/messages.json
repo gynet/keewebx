@@ -33,6 +33,8 @@
   "optionsConnectionMode": { "message": "Preferred connection mode:" },
   "optionsWebConnectionTabPermission": { "message": "To connect to the KeeWebX tab, we need a special permission, otherwise it won't be possible to communicate with this tab. Click this button to grant the necessary permission to the extension:" },
   "optionsWebConnectionTabPermissionButton": { "message": "Grant the permission" },
+  "optionsVaultModeFull": { "message": "Full mode: keep the vault inside this extension (local files and WebDAV)" },
+  "optionsVaultModeConnect": { "message": "Connect mode: use KeeWebX open in a browser tab" },
   "optionsWebConnectionKeeWebUrl": { "message": "KeeWebX URL (change it if you're using your own self-hosted version):" },
   "optionsWebConnectionChangeKeeWebUrl": { "message": "Change KeeWebX URL" },
   "optionsCancel": { "message": "Cancel" },

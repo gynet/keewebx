@@ -5,6 +5,11 @@ import { useState } from 'preact/hooks';
 import { noop } from 'common/utils';
 import { validateKeeWebUrl } from './validate-keeweb-url';
 
+declare const __KW_EMBEDDED_VAULT__: boolean | undefined;
+
+const isVaultBuild = typeof __KW_EMBEDDED_VAULT__ !== 'undefined' && !!__KW_EMBEDDED_VAULT__;
+const CONNECT_DEFAULT_URL = 'https://keewebx.app/';
+
 const ConnectionWeb: FunctionComponent = () => {
     const askKeeWebTabPermission = () => {
         model.askKeeWebTabPermission().catch(noop);
@@ -46,8 +51,40 @@ const ConnectionWeb: FunctionComponent = () => {
         model.setKeeWebUrl(undefined);
     };
 
+    const fullMode = isVaultBuild && !model.keeWebUrlIsSet;
+
     return (
         <>
+            {isVaultBuild ? (
+                <div class="vault-mode">
+                    <p>
+                        <label>
+                            <input
+                                type="radio"
+                                name="vault-mode"
+                                id="vault-mode-full"
+                                checked={fullMode}
+                                onChange={() => model.setKeeWebUrl(undefined)}
+                            />{' '}
+                            {res('optionsVaultModeFull')}
+                        </label>
+                    </p>
+                    <p>
+                        <label>
+                            <input
+                                type="radio"
+                                name="vault-mode"
+                                id="vault-mode-connect"
+                                checked={!fullMode}
+                                onChange={() => model.setKeeWebUrl(CONNECT_DEFAULT_URL)}
+                            />{' '}
+                            {res('optionsVaultModeConnect')}
+                        </label>
+                    </p>
+                </div>
+            ) : null}
+            {fullMode ? null : (
+                <>
             <p>{res('optionsWebConnectionKeeWebUrl')}</p>
             <div>
                 <form onSubmit={changeKeeWebUrl}>
@@ -66,7 +103,7 @@ const ConnectionWeb: FunctionComponent = () => {
                                 {res('optionsCancel')}
                             </button>
                         </>
-                    ) : model.keeWebUrlIsSet ? (
+                    ) : model.keeWebUrlIsSet && !isVaultBuild ? (
                         <button onClick={resetKeeWebUrl} class="secondary">
                             {res('optionsWebConnectionResetKeeWebUrl', 'keewebx.app')}
                         </button>
@@ -74,6 +111,8 @@ const ConnectionWeb: FunctionComponent = () => {
                 </form>
             </div>
             <div class="error top-padding-small">{inputKeeWebUrlError}</div>
+                </>
+            )}
             {model.canAccessKeeWebTab === false ? (
                 <>
                     <p>{res('optionsWebConnectionTabPermission')}</p>

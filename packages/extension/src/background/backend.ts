@@ -22,8 +22,13 @@ interface BackendEvents {
     'connect-finished': (error?: Error) => void;
 }
 
+declare const __KW_EMBEDDED_VAULT__: boolean | undefined;
+
 class Backend extends TypedEmitter<BackendEvents> {
-    private readonly _defaultKeeWebUrl = 'https://keewebx.app/';
+    private readonly _defaultKeeWebUrl =
+        typeof __KW_EMBEDDED_VAULT__ !== 'undefined' && __KW_EMBEDDED_VAULT__
+            ? chrome.runtime.getURL('app/index.html')
+            : 'https://keewebx.app/';
     private readonly _requestTimeoutMillis = 60000;
     private readonly _consoleLogStyle =
         'background: {}; color: #000; padding: 2px 4px 0; border-radius: 2px;';

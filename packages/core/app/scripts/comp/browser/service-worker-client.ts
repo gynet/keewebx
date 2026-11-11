@@ -10,7 +10,7 @@ function supported(): boolean {
     return (
         'serviceWorker' in navigator &&
         window.isSecureContext &&
-        location.protocol !== 'file:' &&
+        /^https?:$/.test(location.protocol) &&
         !RuntimeInfo.devMode
     );
 }

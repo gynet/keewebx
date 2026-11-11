@@ -23,7 +23,7 @@ class TransportBrowserTab extends TransportBase {
     }
 
     async connect(): Promise<void> {
-        const hasPermissions = await this.checkPermissions();
+        const hasPermissions = this.isEmbeddedApp || (await this.checkPermissions());
         if (!hasPermissions) {
             const msg = chrome.i18n.getMessage('errorBrowserTabNoPermissions', this._keeWebUrl);
             throw new Error(msg);
@@ -31,7 +31,11 @@ class TransportBrowserTab extends TransportBase {
 
         this._tab = await this.findOrCreateTab();
 
-        await this.injectContentScript();
+        // The packaged app page includes the bridge script itself; extension
+        // pages cannot be targeted by chrome.scripting.
+        if (!this.isEmbeddedApp) {
+            await this.injectContentScript();
+        }
 
         this._port = await this.connectToTab(this._maxTabConnectionRetries);
         if (!this._port) {
@@ -63,6 +67,10 @@ class TransportBrowserTab extends TransportBase {
         if (this._tab?.id) {
             activateTab(this._tab.id).catch(noop);
         }
+    }
+
+    private get isEmbeddedApp(): boolean {
+        return this._keeWebUrl.startsWith(chrome.runtime.getURL(''));
     }
 
     private checkPermissions(): Promise<boolean> {

@@ -3,12 +3,15 @@ import * as path from 'path';
 import * as fs from 'fs';
 import merge from 'merge';
 import * as CopyPlugin from 'copy-webpack-plugin';
+import { DefinePlugin } from 'webpack';
 
 const dev = process.argv.includes('--mode=development');
 
 const knownBrowsers = new Set(['chrome', 'firefox', 'edge']);
 
 const browser = process.env.KW_BROWSER || 'chrome';
+// Builds the variant that ships the full app inside the extension.
+const vault = process.env.KW_VAULT === '1';
 if (!knownBrowsers.has(browser)) {
     throw new Error(`Unknown browser: ${browser}`);
 }
@@ -23,7 +26,7 @@ export default {
     },
     output: {
         filename: 'js/[name].js',
-        path: path.resolve('dist', browser)
+        path: path.resolve('dist', vault ? `${browser}-vault` : browser)
     },
     module: {
         rules: [
@@ -50,6 +53,7 @@ export default {
         minimize: false
     },
     plugins: [
+        new DefinePlugin({ __KW_EMBEDDED_VAULT__: JSON.stringify(vault) }),
         new CopyPlugin({
             patterns: [
                 { from: '_locales', to: '_locales' },
@@ -62,6 +66,9 @@ export default {
                     transform: (content) => {
                         const manifest = <chrome.runtime.Manifest>JSON.parse(content.toString());
                         const patchFiles = [`manifest.${browser}.json`];
+                        if (vault) {
+                            patchFiles.push('manifest.vault.json');
+                        }
                         if (dev) {
                             patchFiles.push('manifest.dev.json');
                         }

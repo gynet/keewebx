@@ -6,6 +6,7 @@
   "scripts": {
     "start": "bun run build-chrome && bun run build-firefox && bun run build-edge",
     "build-chrome": "cross-env KW_BROWSER=chrome webpack --mode=production",
+    "build-chrome-vault": "bun scripts/build-vault.ts",
     "build-firefox": "cross-env KW_BROWSER=firefox webpack --mode=production && npx web-ext build -o -s dist/firefox",
     "build-edge": "cross-env KW_BROWSER=edge webpack --mode=production",
     "watch-chrome": "cross-env KW_BROWSER=chrome webpack --mode=development --watch",

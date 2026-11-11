@@ -12,8 +12,13 @@ interface SettingsModelEvents {
     change: () => void;
 }
 
+declare const __KW_EMBEDDED_VAULT__: boolean | undefined;
+
 class SettingsModel extends TypedEmitter<SettingsModelEvents> {
-    readonly defaultKeeWebUrl = 'https://keewebx.app/';
+    readonly defaultKeeWebUrl =
+        typeof __KW_EMBEDDED_VAULT__ !== 'undefined' && __KW_EMBEDDED_VAULT__
+            ? chrome.runtime.getURL('app/index.html')
+            : 'https://keewebx.app/';
 
     private _loaded = false;
     private _canAccessKeeWebTab: boolean | undefined;
@@ -42,6 +47,11 @@ class SettingsModel extends TypedEmitter<SettingsModelEvents> {
 
     private checkPermissions(): Promise<void> {
         return new Promise((resolve) => {
+            // The built-in app is part of the extension; no host permission applies.
+            if (this.keeWebUrl.startsWith(chrome.runtime.getURL(''))) {
+                this._canAccessKeeWebTab = true;
+                return resolve();
+            }
             // `chrome.permissions.contains` `origins` expects match
             // patterns (e.g. `https://example.com/*`), not concrete
             // URLs. Firefox strict-rejects bad patterns.

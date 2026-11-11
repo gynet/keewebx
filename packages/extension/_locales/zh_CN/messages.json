@@ -89,6 +89,8 @@
   "optionsWebConnectionTabPermissionButton": {
     "message": "授权"
   },
+  "optionsVaultModeFull": { "message": "完整模式：在扩展内打开数据库（本地文件和 WebDAV）" },
+  "optionsVaultModeConnect": { "message": "连接模式：连接浏览器标签页中打开的 KeeWebX" },
   "optionsWebConnectionKeeWebUrl": {
     "message": "KeeWeb URL（如果您使用的是自行托管的版本，请修改这里）："
   },
