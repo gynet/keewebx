@@ -1,4 +1,4 @@
-# KeeWebX
+# <img src="packages/core/graphics/keewebx-logo.svg" width="36" height="36" alt="" align="top"> KeeWebX
 
 **Open a KeePass vault in your browser. No install, no signup, nothing to host.**
 
