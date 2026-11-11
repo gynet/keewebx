@@ -1,5 +1,7 @@
 import { test, expect, chromium } from '@playwright/test';
 import type { BrowserContext, Page, Worker as PlaywrightWorker } from '@playwright/test';
+import * as kdbxweb from '../../packages/db/lib';
+import { argon2 } from '../../packages/db/test/test-support/argon2';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import * as http from 'http';
@@ -39,12 +41,32 @@ const CONTENT_TYPES: Record<string, string> = {
     '.png': 'image/png'
 };
 
+// Set KW_E2E_ARTIFACTS=<dir> to keep screenshots and videos for review.
+const ARTIFACTS = process.env.KW_E2E_ARTIFACTS;
+const VIEWPORT = { width: 1280, height: 800 };
+
+async function shot(page: Page, name: string): Promise<void> {
+    if (ARTIFACTS) {
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: path.join(ARTIFACTS, `${name}.png`) });
+    }
+}
+
 let server: http.Server;
 let serverUrl = '';
 // A real server, because Playwright's route.fulfill adds CORS headers itself.
 let davServer: https.Server;
 let davUrl = '';
-let davRequests: Array<{ method: string; auth?: string }> = [];
+let davRequests: Array<{ method: string; path: string; auth?: string; destination?: string }> = [];
+// Writable in-memory file store, keyed by URL path.
+let davFiles = new Map<string, { data: Buffer; modified: number }>();
+let davClock = 0;
+
+function davPut(pathname: string, data: Buffer): void {
+    // Whole seconds, like a real server's Last-Modified; each write must differ.
+    davClock += 1;
+    davFiles.set(pathname, { data, modified: Date.UTC(2026, 10, 10, 10, 0, davClock) });
+}
 let context: BrowserContext;
 let sw: PlaywrightWorker;
 let extensionId: string;
@@ -80,14 +102,40 @@ test.beforeAll(async () => {
     davServer = https.createServer(
         { key: fs.readFileSync(key), cert: fs.readFileSync(cert) },
         (req, res) => {
-            davRequests.push({ method: req.method!, auth: req.headers.authorization });
-            // Deliberately no Access-Control-Allow-Origin.
-            res.writeHead(200, {
-                'content-type': 'application/octet-stream',
-                'last-modified': 'Tue, 10 Nov 2026 10:00:00 GMT',
-                etag: '"v1"'
+            const pathname = decodeURIComponent(new URL(req.url!, 'https://x').pathname);
+            const destination = req.headers.destination as string | undefined;
+            davRequests.push({
+                method: req.method!,
+                path: pathname,
+                auth: req.headers.authorization,
+                destination
             });
-            res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(FIXTURE));
+            const chunks: Buffer[] = [];
+            req.on('data', (chunk) => chunks.push(chunk));
+            req.on('end', () => {
+                const file = davFiles.get(pathname);
+                if (req.method === 'PUT') {
+                    davPut(pathname, Buffer.concat(chunks));
+                    res.writeHead(201).end();
+                } else if (!file) {
+                    res.writeHead(404).end();
+                } else if (req.method === 'MOVE') {
+                    davFiles.delete(pathname);
+                    davPut(new URL(destination!).pathname, file.data);
+                    res.writeHead(201).end();
+                } else if (req.method === 'DELETE') {
+                    davFiles.delete(pathname);
+                    res.writeHead(204).end();
+                } else {
+                    // Deliberately no Access-Control-Allow-Origin.
+                    res.writeHead(200, {
+                        'content-type': 'application/octet-stream',
+                        'last-modified': new Date(file.modified).toUTCString(),
+                        etag: `"${file.modified}"`
+                    });
+                    res.end(req.method === 'HEAD' ? undefined : file.data);
+                }
+            });
         }
     );
     await new Promise<void>((resolve) => davServer.listen(0, '127.0.0.1', resolve));
@@ -99,13 +147,25 @@ test.afterAll(async () => {
     await new Promise((resolve) => davServer.close(resolve));
 });
 
-test.beforeEach(async () => {
+test.beforeEach(async ({}, testInfo) => {
     context = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'kw-vault-')), {
         channel: 'chromium',
         headless: true,
         ignoreHTTPSErrors: true,
+        viewport: VIEWPORT,
+        ...(ARTIFACTS
+            ? {
+                  recordVideo: {
+                      dir: path.join(ARTIFACTS, 'video', testInfo.title.replace(/\W+/g, '-')),
+                      size: VIEWPORT
+                  }
+              }
+            : {}),
         args: [`--disable-extensions-except=${EXT_PATH}`, `--load-extension=${EXT_PATH}`]
     });
+    davRequests = [];
+    davFiles = new Map();
+    davPut('/vault.kdbx', fs.readFileSync(FIXTURE));
     sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
     extensionId = new URL(sw.url()).host;
     // First install opens the options page and settles the config; requests
@@ -161,6 +221,7 @@ test('the app runs inside the extension and opens a vault', async () => {
     const { page, problems } = await openDemoVault();
     expect(await page.locator('.list__item').count()).toBeGreaterThan(5);
     expect(await page.textContent('.footer__db-item')).toContain('Demo');
+    await shot(page, '01-full-mode-vault-in-extension');
     expect(problems).toEqual([]);
 });
 
@@ -211,6 +272,7 @@ test('fills a login form from the vault inside the extension', async () => {
     await vault.locator("button[data-result='yes']").click({ timeout: 15000 });
     await expect(site.locator('#login_field')).toHaveValue('demouser', { timeout: 15000 });
     await expect(site.locator('#password')).not.toHaveValue('');
+    await shot(site, '02-full-mode-autofill');
 });
 
 test('the toolbar button opens the built-in vault when none is open', async () => {
@@ -259,10 +321,10 @@ test('full mode opens a local file with default KeePass Argon2 settings', async 
     const ok = page.locator('.modal__buttons button[data-result="ok"]');
     await ok.click({ timeout: 10000 });
     await unlockWithPassword(page);
+    await shot(page, '03-full-mode-local-file');
 });
 
-test('full mode opens a vault over WebDAV without CORS headers', async () => {
-    davRequests = [];
+async function openFromWebDav(): Promise<Page> {
     const page = await context.newPage();
     await page.goto(appUrl());
     await page.click('#open__icon-more');
@@ -270,8 +332,14 @@ test('full mode opens a vault over WebDAV without CORS headers', async () => {
     await page.fill('#open__config-field-path', davUrl);
     await page.fill('#open__config-field-user', 'alice');
     await page.fill('#open__config-field-password', 'secret');
+    await shot(page, '04-webdav-connect-form');
     await page.click('.open__config-btn-ok');
     await unlockWithPassword(page);
+    return page;
+}
+
+test('full mode opens a vault over WebDAV without CORS headers', async () => {
+    await openFromWebDav();
 
     expect(davRequests.find((r) => r.method === 'GET')?.auth).toBe(`Basic ${btoa('alice:secret')}`);
 
@@ -315,6 +383,7 @@ test('connect mode fills from an app already open in a tab', async () => {
     await expect(site.locator('#login_field')).toHaveValue('demouser', { timeout: 15000 });
     await expect(site.locator('#password')).not.toHaveValue('');
     expect(context.pages().some((p) => p.url().startsWith(appUrl()))).toBe(false);
+    await shot(site, '07-connect-mode-autofill');
 });
 
 test('the options page switches between the two modes', async () => {
@@ -326,9 +395,55 @@ test('the options page switches between the two modes', async () => {
     await expect(page.locator('#vault-mode-full')).toBeChecked({ timeout: 15000 });
     expect(await stored()).toBeUndefined();
 
+    await shot(page, '08-options-full-mode');
     await page.check('#vault-mode-connect');
     await expect.poll(stored).toBe('https://keewebx.app/');
+    await shot(page, '09-options-connect-mode');
 
     await page.check('#vault-mode-full');
     await expect.poll(stored).toBeUndefined();
+});
+
+test('full mode saves changes back to WebDAV', async () => {
+    const page = await openFromWebDav();
+    const original = davFiles.get('/vault.kdbx')!.data;
+    const title = `Saved over WebDAV ${Date.now()}`;
+
+    await page.locator('.list__search-btn-new').click();
+    await page.locator('.dropdown__item[data-value="entry"]').click();
+    const titleInput = page.locator('.details__header-title-input');
+    await titleInput.fill(title);
+    await titleInput.press('Enter');
+    await shot(page, '05-webdav-new-entry');
+
+    await page.locator('.footer__db-item').first().click();
+    await page.locator('.settings__file-button-save-default').click();
+    await expect
+        .poll(() => davRequests.some((r) => r.method === 'MOVE'), { timeout: 30000 })
+        .toBe(true);
+    await expect(page.locator('.footer__db-sign')).toHaveCount(0, { timeout: 30000 });
+    await shot(page, '06-webdav-saved');
+
+    // Written to a temporary file, then moved over the original.
+    const put = davRequests.find((r) => r.method === 'PUT')!;
+    const move = davRequests.find((r) => r.method === 'MOVE')!;
+    expect(put.path).toMatch(/^\/\.vault\.kdbx\.\d+$/);
+    expect(move.path).toBe(put.path);
+    expect(new URL(move.destination!).pathname).toBe('/vault.kdbx');
+    expect(put.auth).toBe(`Basic ${btoa('alice:secret')}`);
+    expect(move.auth).toBe(put.auth);
+    expect([...davFiles.keys()]).toEqual(['/vault.kdbx']);
+
+    // Decrypt the stored file independently of the app.
+    const saved = davFiles.get('/vault.kdbx')!.data;
+    expect(saved.equals(original)).toBe(false);
+    kdbxweb.CryptoEngine.setArgon2Impl(argon2);
+    const db = await kdbxweb.Kdbx.load(
+        new Uint8Array(saved).buffer as ArrayBuffer,
+        new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(FIXTURE_PASSWORD))
+    );
+    const titles = db.groups.flatMap((g) =>
+        [...g.allEntries()].map((e) => e.fields.get('Title'))
+    );
+    expect(titles).toContain(title);
 });
