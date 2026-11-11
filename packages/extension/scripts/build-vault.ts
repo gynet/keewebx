@@ -57,21 +57,9 @@ const appScript = /<script src="js\/app\.js[^"]*"><\/script>/;
 if (!appScript.test(html)) {
     throw new Error('app.js script tag not found in index.html');
 }
-// Save after every change: the app's sync scheduler then saves shortly after
-// each edit and retries while the storage is unreachable.
-fs.writeFileSync(
-    path.join(appDir, 'config.json'),
-    JSON.stringify({ settings: { autoSaveInterval: -1 } }) + '\n'
-);
-const configMeta = /<meta name="kw-config" content="\(no-config\)"\s*\/?>/;
-if (!configMeta.test(html)) {
-    throw new Error('kw-config meta tag not found in index.html');
-}
 fs.writeFileSync(
     indexPath,
-    html
-        .replace(configMeta, '<meta name="kw-config" content="config.json">')
-        .replace(appScript, (tag) => `<script src="../js/content-keeweb.js"></script>${tag}`)
+    html.replace(appScript, (tag) => `<script src="../js/content-keeweb.js"></script>${tag}`)
 );
 
 console.log(`Built ${path.relative(process.cwd(), out)}`);

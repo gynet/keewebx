@@ -57,8 +57,8 @@ const KDBX4_BASENAME = 'KDBX4.1';
 //   click .footer__db-item → opens Settings/File panel
 //   click .settings__file-button-save-default → settings-file-view.save
 //     → appModel.syncFile → Storage.cache.save (IndexedDB)
-// This matches the same UI path a user takes when autoSaveInterval=0
-// (the default), which is what we want to regression-guard.
+// This is the manual save path. Saving on every change is the default
+// and is covered by its own test below.
 
 async function uploadAndUnlock(page: Page): Promise<void> {
     const fileChooserPromise = page.waitForEvent('filechooser');
@@ -124,8 +124,7 @@ async function createNewEntryWithTitle(page: Page, title: string): Promise<void>
 
 async function triggerSaveAndWait(page: Page): Promise<void> {
     // Navigate to file settings via the footer DB item, then click
-    // the default save button. This is the same path a user takes
-    // when autoSaveInterval=0 (the default). See settings-file-view.ts
+    // the default save button: the manual save path. See settings-file-view.ts
     // save() → appModel.syncFile → Storage.cache.save.
     const dbItem = page.locator('.footer__db-item').first();
     await expect(dbItem).toBeVisible({ timeout: 5_000 });
@@ -237,6 +236,26 @@ test.describe('CRUD persistence across reload (IndexedDB cache path)', () => {
         await page.screenshot({
             path: `${SCREENSHOT_DIR}/crud-persist-02-after-reopen.png`,
             fullPage: true
+        });
+    });
+
+    test('CREATE entry → saved on its own → reload → reopen → marker persists', async ({ page }) => {
+        test.setTimeout(90_000);
+
+        const marker = `E2E-AUTOSAVE-${Date.now()}`;
+
+        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
+        await uploadAndUnlock(page);
+        await createNewEntryWithTitle(page, marker);
+
+        // No save button: the change is saved shortly after it is made.
+        await expect(page.locator('.footer__db-sign')).toHaveCount(0, { timeout: 15_000 });
+
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+        await reopenFromRecent(page);
+        await expect(page.locator('.list__item').filter({ hasText: marker })).toBeVisible({
+            timeout: 10_000
         });
     });
 
