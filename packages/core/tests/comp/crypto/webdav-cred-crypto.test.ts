@@ -13,7 +13,7 @@ import {
     decryptWebDavPassword,
     AESGCM_PREFIX,
     __testing__
-} from '../../../app/scripts/comp/crypto/webdav-cred-crypto';
+} from '../../../../vault/src/comp/crypto/webdav-cred-crypto';
 
 // Helper: create a deterministic 32-byte password hash for testing
 function makePasswordHash(seed: number): Uint8Array {

@@ -6,7 +6,7 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildArgon2WorkerSource } from '../../core/app/scripts/util/kdbxweb/argon2-worker-source';
+import { buildArgon2WorkerSource } from '../../vault/src/util/kdbxweb/argon2-worker-source';
 
 const root = path.resolve(__dirname, '..');
 const coreDist = path.join(root, '../core/dist');

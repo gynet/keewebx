@@ -105,7 +105,7 @@ function installLocalStorageShim(): Record<string, string> {
 const backing = installLocalStorageShim();
 
 // Import AFTER the shim is installed.
-const { SettingsStore } = await import('../../../app/scripts/comp/settings/settings-store');
+const { SettingsStore } = await import('../../../../vault/src/comp/settings/settings-store');
 
 describe('SettingsStore', () => {
     beforeEach(() => {
@@ -219,8 +219,8 @@ describe('SettingsStore + FileInfoCollection round-trip (critical path)', () => 
         for (const k of Object.keys(backing)) {
             delete backing[k];
         }
-        const { FileInfoCollection } = await import('../../../app/scripts/collections/file-info-collection');
-        const { FileInfoModel } = await import('../../../app/scripts/models/file-info-model');
+        const { FileInfoCollection } = await import('../../../../vault/src/collections/file-info-collection');
+        const { FileInfoModel } = await import('../../../../vault/src/models/file-info-model');
 
         // The singleton may already have items from other tests. Reset.
         FileInfoCollection.length = 0;

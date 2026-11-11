@@ -7,6 +7,7 @@ import { Alerts } from 'comp/ui/alerts';
 import { Links } from 'const/links';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { DateFormat } from 'comp/i18n/date-format';
+import { KdbxToHtml } from 'comp/format/kdbx-to-html';
 import { UrlFormat } from 'util/formatting/url-format';
 import { PasswordPresenter } from 'util/formatting/password-presenter';
 import { Locale } from 'util/locale';
@@ -323,10 +324,9 @@ class SettingsFileView extends View {
             header: loc.setFileExportRaw,
             body: loc.setFileExportRawBody,
             success: () => {
-                this.model.getHtml((html: string) => {
-                    const blob = new Blob([html], { type: 'text/html' });
-                    FileSaver.saveAs(blob, this.model.name + '.html');
-                });
+                const html = KdbxToHtml.convert(this.model.db, { name: this.model.name });
+                const blob = new Blob([html], { type: 'text/html' });
+                FileSaver.saveAs(blob, this.model.name + '.html');
             }
         });
     }

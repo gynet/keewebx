@@ -17,7 +17,7 @@ const path = require('path');
 const REGISTRY_PATH = path.resolve(
     __dirname,
     '..',
-    'app/scripts/const/icon-registry.ts'
+    '../vault/src/const/icon-registry.ts'
 );
 
 /**

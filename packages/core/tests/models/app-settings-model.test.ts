@@ -10,7 +10,7 @@ import {
 // Without this, `tests/comp/settings/settings-store.test.ts` loads the
 // mocked version below instead of the real module it's trying to test.
 const mockStore: Record<string, unknown> = {};
-await installMockedModule('../../app/scripts/comp/settings/settings-store', () => ({
+await installMockedModule('../../../vault/src/comp/settings/settings-store', () => ({
     SettingsStore: {
         load: (key: string) => Promise.resolve(mockStore[key] ?? null),
         save: (key: string, data: unknown) => {
@@ -21,7 +21,7 @@ await installMockedModule('../../app/scripts/comp/settings/settings-store', () =
 }));
 afterAll(restoreAllMockedModules);
 
-const { AppSettingsModel } = await import('../../app/scripts/models/app-settings-model');
+const { AppSettingsModel } = await import('../../../vault/src/models/app-settings-model');
 
 describe('AppSettingsModel', () => {
     beforeEach(() => {

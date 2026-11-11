@@ -9,7 +9,7 @@ import {
 // other test files (e.g. tests/comp/settings/settings-store.test.ts
 // needs the real module). See tests/helpers/mock-isolation.ts.
 const mockStore: Record<string, unknown> = {};
-await installMockedModule('../../app/scripts/comp/settings/settings-store', () => ({
+await installMockedModule('../../../vault/src/comp/settings/settings-store', () => ({
     SettingsStore: {
         load: (key: string) => Promise.resolve(mockStore[key] ?? null),
         save: (key: string, data: unknown) => {
@@ -21,7 +21,7 @@ await installMockedModule('../../app/scripts/comp/settings/settings-store', () =
 afterAll(restoreAllMockedModules);
 
 // Import after mocking
-const { UpdateModel } = await import('../../app/scripts/models/update-model');
+const { UpdateModel } = await import('../../../vault/src/models/update-model');
 
 describe('UpdateModel', () => {
     beforeEach(() => {

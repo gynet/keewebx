@@ -2,7 +2,7 @@ import { describe, test, expect, mock } from 'bun:test';
 
 // Mock framework dependencies
 const modelDefaults = new Map<Function, Record<string, unknown>>();
-mock.module('../../app/scripts/framework/model', () => {
+mock.module('../../../vault/src/framework/model', () => {
     class Model {
         constructor(data?: Record<string, unknown>) {
             const defaults = modelDefaults.get(new.target);
@@ -23,7 +23,7 @@ mock.module('../../app/scripts/framework/model', () => {
     return { Model };
 });
 
-mock.module('../../app/scripts/collections/menu/menu-option-collection', () => {
+mock.module('../../../vault/src/collections/menu/menu-option-collection', () => {
     class MenuOptionCollection extends Array {
         remove(item: unknown) {
             const ix = this.indexOf(item);
@@ -33,7 +33,7 @@ mock.module('../../app/scripts/collections/menu/menu-option-collection', () => {
     return { MenuOptionCollection };
 });
 
-mock.module('../../app/scripts/collections/menu/menu-item-collection', () => {
+mock.module('../../../vault/src/collections/menu/menu-item-collection', () => {
     class MenuItemCollection extends Array {
         constructor(items?: unknown[]) {
             super();
@@ -47,9 +47,9 @@ mock.module('../../app/scripts/collections/menu/menu-item-collection', () => {
     return { MenuItemCollection };
 });
 
-const { MenuOptionModel } = await import('../../app/scripts/models/menu/menu-option-model');
-const { MenuItemModel } = await import('../../app/scripts/models/menu/menu-item-model');
-const { MenuSectionModel } = await import('../../app/scripts/models/menu/menu-section-model');
+const { MenuOptionModel } = await import('../../../vault/src/models/menu/menu-option-model');
+const { MenuItemModel } = await import('../../../vault/src/models/menu/menu-item-model');
+const { MenuSectionModel } = await import('../../../vault/src/models/menu/menu-section-model');
 
 describe('MenuOptionModel', () => {
     test('creates with default properties', () => {

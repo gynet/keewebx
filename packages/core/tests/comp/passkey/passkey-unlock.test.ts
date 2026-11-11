@@ -24,7 +24,7 @@ mock.module('kdbxweb', () => ({
 }));
 
 const { __testing__ } = await import(
-    '../../../app/scripts/comp/passkey/passkey-unlock'
+    '../../../../vault/src/comp/passkey/passkey-unlock'
 );
 const { deriveWrapKey, HKDF_INFO_V1, bytesToBase64, base64ToBytes } = __testing__;
 

@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { EventEmitter } from 'events';
-import { SyncScheduler, type SyncStateSummary } from '../../../app/scripts/comp/app/sync-scheduler';
-import type { FileModel } from '../../../app/scripts/models/file-model';
+import { SyncScheduler, type SyncStateSummary } from '../../../../vault/src/comp/app/sync-scheduler';
+import type { FileModel } from '../../../../vault/src/models/file-model';
 
 /** Just enough of FileModel: attributes that emit change events like the real one. */
 class FakeFile extends EventEmitter {

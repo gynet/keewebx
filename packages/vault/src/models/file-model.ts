@@ -3,7 +3,6 @@ import demoFileData from 'demo.kdbx';
 import { Model } from 'framework/model';
 import { Events } from 'framework/events';
 import { GroupCollection } from 'collections/group-collection';
-import { KdbxToHtml } from 'comp/format/kdbx-to-html';
 import { GroupModel, type GroupFilter } from 'models/group-model';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { EntryModel, type EntryFilter } from 'models/entry-model';
@@ -631,14 +630,6 @@ class FileModel extends Model {
         this.db.saveXml(true).then((xml) => {
             cb(xml);
         });
-    }
-
-    getHtml(cb: (html: string) => void): void {
-        cb(
-            KdbxToHtml.convert(this.db, {
-                name: this.name
-            })
-        );
     }
 
     getKeyFileHash(): string | null {

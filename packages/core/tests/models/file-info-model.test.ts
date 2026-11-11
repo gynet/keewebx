@@ -5,7 +5,7 @@ mock.module('hbs', () => ({
     default: { escapeExpression: (s: string) => s }
 }));
 
-const { FileInfoModel } = await import('../../app/scripts/models/file-info-model');
+const { FileInfoModel } = await import('../../../vault/src/models/file-info-model');
 
 describe('FileInfoModel', () => {
     test('creates with default properties', () => {

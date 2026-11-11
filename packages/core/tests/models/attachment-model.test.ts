@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 
-const { AttachmentModel } = await import('../../app/scripts/models/attachment-model');
+const { AttachmentModel } = await import('../../../vault/src/models/attachment-model');
 
 describe('AttachmentModel', () => {
     test('creates from attachment with file extension mapping', () => {

@@ -21,7 +21,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
  */
 
 const { probePasskeyCapability, __testing__ } = await import(
-    '../../../app/scripts/comp/passkey/passkey-capability'
+    '../../../../vault/src/comp/passkey/passkey-capability'
 );
 const {
     OVERRIDE_GLOBAL,

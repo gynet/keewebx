@@ -98,6 +98,7 @@ class AppView extends View {
         this.listenTo(Events, 'select-all', this.selectAll);
         this.listenTo(Events, 'menu-select', this.menuSelect);
         this.listenTo(Events, 'lock-workspace', this.lockWorkspace);
+        this.listenTo(Events, 'save-verify-failed', this.saveVerifyFailed);
         this.listenTo(Events, 'show-file', this.showFileSettings);
         this.listenTo(Events, 'open-file', this.toggleOpenFile);
         this.listenTo(Events, 'save-all', this.saveAll);
@@ -436,6 +437,13 @@ class AppView extends View {
         if (views.panel && !views.panel.isHidden()) {
             this.showEntries();
         }
+    }
+
+    saveVerifyFailed(e: { error: string }): void {
+        alerts.error({
+            header: loc.saveVerifyFailedHeader,
+            body: loc.saveVerifyFailedBody + ' (' + e.error + ')'
+        });
     }
 
     userIdle(): void {

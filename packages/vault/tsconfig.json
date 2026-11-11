@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"],
+    "paths": {
+      "collections/*": ["./src/collections/*"],
+      "comp/*": ["./src/comp/*"],
+      "const/*": ["./src/const/*"],
+      "framework/*": ["./src/framework/*"],
+      "hooks/*": ["./src/hooks/*"],
+      "locales/*": ["./src/locales/*"],
+      "models/*": ["./src/models/*"],
+      "storage": ["./src/storage/index.ts"],
+      "storage/*": ["./src/storage/*"],
+      "util/*": ["./src/util/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.json"]
+}

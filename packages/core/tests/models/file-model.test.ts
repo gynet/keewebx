@@ -144,7 +144,7 @@ const kdbxToHtmlStub = () => ({
 mock.module('comp/format/kdbx-to-html', kdbxToHtmlStub);
 mock.module('../../app/scripts/comp/format/kdbx-to-html', kdbxToHtmlStub);
 
-await safeInstallMockedModule('../../app/scripts/framework/model', () => {
+await safeInstallMockedModule('../../../vault/src/framework/model', () => {
     const modelDefaults = new Map<Function, Record<string, unknown>>();
     class Model {
         constructor(data?: Record<string, unknown>) {
@@ -166,11 +166,11 @@ await safeInstallMockedModule('../../app/scripts/framework/model', () => {
     return { Model };
 });
 
-await safeInstallMockedModule('../../app/scripts/framework/events', () => ({
+await safeInstallMockedModule('../../../vault/src/framework/events', () => ({
     Events: { emit: () => {}, on: () => {}, off: () => {} }
 }));
 
-await safeInstallMockedModule('../../app/scripts/collections/group-collection', () => {
+await safeInstallMockedModule('../../../vault/src/collections/group-collection', () => {
     class GroupCollection extends Array {}
     return { GroupCollection };
 });
@@ -182,7 +182,7 @@ await safeInstallMockedModule('../../app/scripts/collections/group-collection', 
 mock.module('templates/export/db.hbs', () => ({ default: () => '' }));
 mock.module('templates/export/entry.hbs', () => ({ default: () => '' }));
 
-await safeInstallMockedModule('../../app/scripts/models/group-model', () => {
+await safeInstallMockedModule('../../../vault/src/models/group-model', () => {
     class GroupModel {
         static fromGroup(): GroupModel {
             return new GroupModel();
@@ -192,20 +192,20 @@ await safeInstallMockedModule('../../app/scripts/models/group-model', () => {
     return { GroupModel };
 });
 
-await safeInstallMockedModule('../../app/scripts/models/app-settings-model', () => ({
+await safeInstallMockedModule('../../../vault/src/models/app-settings-model', () => ({
     AppSettingsModel: {}
 }));
 
-await safeInstallMockedModule('../../app/scripts/models/entry-model', () => {
+await safeInstallMockedModule('../../../vault/src/models/entry-model', () => {
     class EntryModel {}
     return { EntryModel };
 });
 
-await safeInstallMockedModule('../../app/scripts/util/formatting/icon-url-format', () => ({
+await safeInstallMockedModule('../../../vault/src/util/formatting/icon-url-format', () => ({
     IconUrlFormat: { toDataUrl: () => '' }
 }));
 
-await safeInstallMockedModule('../../app/scripts/util/logger', () => {
+await safeInstallMockedModule('../../../vault/src/util/logger', () => {
     class Logger {
         constructor(_name?: string) {}
         info(): void {}
@@ -218,9 +218,9 @@ await safeInstallMockedModule('../../app/scripts/util/logger', () => {
     return { Logger };
 });
 
-await safeInstallMockedModule('../../app/scripts/util/locale', () => ({ Locale: {} }));
+await safeInstallMockedModule('../../../vault/src/util/locale', () => ({ Locale: {} }));
 
-await safeInstallMockedModule('../../app/scripts/util/formatting/string-format', () => ({
+await safeInstallMockedModule('../../../vault/src/util/formatting/string-format', () => ({
     StringFormat: { capFirst: (s: string) => s }
 }));
 
@@ -302,7 +302,7 @@ await safeInstallMockedModule('kdbxweb', () => {
 // ---------------------------------------------------------------------
 // Import FileModel AFTER all mocks are installed.
 // ---------------------------------------------------------------------
-const { FileModel } = (await import('../../app/scripts/models/file-model')) as {
+const { FileModel } = (await import('../../../vault/src/models/file-model')) as {
     FileModel: new (data?: Record<string, unknown>) => {
         chalResp: unknown;
         entryMap: Record<string, unknown>;

@@ -1,6 +1,5 @@
 // 'hbs' is a webpack alias for 'handlebars/runtime'; the matching
 // ambient module declaration lives in app/scripts/types.d.ts.
-import Handlebars from 'hbs';
 
 /**
  * Replacements for methods that are bloated in lodash, as well as other useful helpers.
@@ -8,7 +7,17 @@ import Handlebars from 'hbs';
  * However we don't want to load extra 20kb of code for simple pick, shuffle, or escape.
  */
 
-const escape: (str: string) => string = Handlebars.escapeExpression;
+// Same characters and entities as Handlebars.escapeExpression.
+const HTML_ESCAPES: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#x27;',
+    '`': '&#x60;',
+    '=': '&#x3D;'
+};
+const escape = (str: string): string => String(str ?? '').replace(/[&<>"'`=]/g, (ch) => HTML_ESCAPES[ch]);
 
 export { escape };
 

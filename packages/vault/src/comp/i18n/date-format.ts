@@ -1,9 +1,11 @@
-import { SettingsManager } from 'comp/settings/settings-manager';
 import { StringFormat } from 'util/formatting/string-format';
 
 const DateFormat = {
+    /** Set by the interface when the user picks a language. */
+    locale: 'en-US' as string,
+
     months(): string[] {
-        const format = new Intl.DateTimeFormat(SettingsManager.activeLocale, { month: 'long' });
+        const format = new Intl.DateTimeFormat(DateFormat.locale, { month: 'long' });
         const months: string[] = [];
         for (let month = 0; month < 12; month++) {
             months.push(format.format(new Date(2008, month)));
@@ -12,7 +14,7 @@ const DateFormat = {
     },
 
     weekDays(): string[] {
-        const format = new Intl.DateTimeFormat(SettingsManager.activeLocale, { weekday: 'long' });
+        const format = new Intl.DateTimeFormat(DateFormat.locale, { weekday: 'long' });
         const weekdays: string[] = [];
         for (let day = 1; day < 8; day++) {
             weekdays.push(format.format(new Date(2007, 9, 6 + day)));
@@ -21,7 +23,7 @@ const DateFormat = {
     },
 
     shortWeekDays(): string[] {
-        const format = new Intl.DateTimeFormat(SettingsManager.activeLocale, { weekday: 'short' });
+        const format = new Intl.DateTimeFormat(DateFormat.locale, { weekday: 'short' });
         const weekdays: string[] = [];
         for (let day = 1; day < 8; day++) {
             weekdays.push(format.format(new Date(2007, 9, 6 + day)));
@@ -34,7 +36,7 @@ const DateFormat = {
             dt = new Date(dt);
         }
         return dt
-            ? new Intl.DateTimeFormat(SettingsManager.activeLocale, {
+            ? new Intl.DateTimeFormat(DateFormat.locale, {
                   dateStyle: 'medium',
                   timeStyle: 'medium'
               }).format(dt)
@@ -46,7 +48,7 @@ const DateFormat = {
             dt = new Date(dt);
         }
         return dt
-            ? new Intl.DateTimeFormat(SettingsManager.activeLocale, {
+            ? new Intl.DateTimeFormat(DateFormat.locale, {
                   year: 'numeric',
                   month: 'short',
                   day: 'numeric'

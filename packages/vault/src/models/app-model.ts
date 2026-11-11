@@ -19,7 +19,6 @@ import { IdGenerator } from 'util/generators/id-generator';
 import { Locale } from 'util/locale';
 import { Logger } from 'util/logger';
 import { debounce, noop } from 'util/fn';
-import { Alerts } from 'comp/ui/alerts';
 import { runBeforeOpen, runBeforeSync } from 'hooks/storage-guards';
 import { SyncScheduler } from 'comp/app/sync-scheduler';
 import 'util/kdbxweb/protected-value-ex';
@@ -1319,14 +1318,8 @@ class AppModel {
                             verifyErr instanceof Error
                                 ? verifyErr.message
                                 : String(verifyErr);
-                        Alerts.error({
-                            header: Locale.saveVerifyFailedHeader,
-                            body:
-                                Locale.saveVerifyFailedBody +
-                                ' (' +
-                                errStr +
-                                ')'
-                        });
+                        // The interface tells the user.
+                        Events.emit('save-verify-failed', { file, error: errStr });
                         file.dirty = true;
                     });
             };

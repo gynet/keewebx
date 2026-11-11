@@ -1,7 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { Model } from 'framework/model';
 import { AppSettingsModel } from 'models/app-settings-model';
-import { KdbxToHtml } from 'comp/format/kdbx-to-html';
 import { ENTRY_ICONS } from 'const/icon-registry';
 import { BuiltInFields } from 'const/entry-fields';
 import { AttachmentModel } from 'models/attachment-model';
@@ -778,11 +777,6 @@ class EntryModel extends Model {
             const fieldWeight = fieldWeights[fieldName] || defaultFieldWeight;
             return rank + stringRank * fieldWeight;
         }, 0);
-    }
-
-    getHtml(): string {
-        const file = this.file as { db: kdbxweb.Kdbx };
-        return KdbxToHtml.entryToHtml(file.db, this.entry);
     }
 
     canCheckPasswordIssues(): boolean {

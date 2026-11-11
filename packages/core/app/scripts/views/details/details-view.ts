@@ -5,6 +5,7 @@ import { Events } from 'framework/events';
 import { CopyPaste } from 'comp/browser/copy-paste';
 import { KeyHandler } from 'comp/browser/key-handler';
 import { OtpQrReader } from 'comp/format/otp-qr-reader';
+import { KdbxToHtml } from 'comp/format/kdbx-to-html';
 import { Alerts } from 'comp/ui/alerts';
 import { Keys } from 'const/keys';
 import { Timeouts } from 'const/timeouts';
@@ -877,7 +878,7 @@ class DetailsView extends View {
     }
 
     copyToClipboard(): void {
-        copyPaste.copyHtml(this.model.getHtml());
+        copyPaste.copyHtml(KdbxToHtml.entryToHtml(this.model.file.db, this.model.entry));
     }
 
     deleteFromTrash(): void {

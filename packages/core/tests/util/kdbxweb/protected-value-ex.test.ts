@@ -83,7 +83,7 @@ beforeAll(async () => {
     // The source file patches kdbxweb.ProtectedValue.prototype as a
     // side effect on import. Import the source first so by the time
     // we touch `kdbxweb.ProtectedValue` the prototype is extended.
-    await import('../../../app/scripts/util/kdbxweb/protected-value-ex');
+    await import('../../../../vault/src/util/kdbxweb/protected-value-ex');
     kdbxweb = (await import('kdbxweb')) as unknown as KdbxwebModule;
 });
 

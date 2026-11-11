@@ -4,6 +4,7 @@ import * as path from 'path';
 
 const rootDir = path.join(__dirname, '..');
 const scriptsDir = path.join(rootDir, 'app/scripts');
+const vaultDir = path.join(rootDir, '../vault/src');
 
 describe('core package smoke tests', () => {
     test('entry point app.ts exists', () => {
@@ -37,15 +38,32 @@ describe('core package smoke tests', () => {
         expect(parsed.compilerOptions.target).toBe('ES2020');
     });
 
-    test('key module directories exist', () => {
-        const dirs = [
-            'comp', 'models', 'views', 'util', 'storage',
-            'framework', 'const', 'collections', 'hbs-helpers'
-        ];
-        for (const dir of dirs) {
-            const dirPath = path.join(scriptsDir, dir);
-            expect(fs.existsSync(dirPath)).toBe(true);
+    test('interface and vault folders exist', () => {
+        for (const dir of ['comp', 'views', 'util', 'framework', 'hbs-helpers', 'presenters']) {
+            expect(fs.existsSync(path.join(scriptsDir, dir))).toBe(true);
         }
+        for (const dir of ['comp', 'models', 'util', 'storage', 'framework', 'const', 'collections', 'hooks', 'locales']) {
+            expect(fs.existsSync(path.join(vaultDir, dir))).toBe(true);
+        }
+    });
+
+    test('the vault package has no interface code', () => {
+        const offenders: string[] = [];
+        const walk = (dir: string) => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = path.join(dir, e.name);
+                if (e.isDirectory()) {
+                    walk(p);
+                } else if (p.endsWith('.ts')) {
+                    const src = fs.readFileSync(p, 'utf8');
+                    if (/from '(views|templates|presenters|hbs-helpers|comp\/ui)\/|from 'jquery'|from 'handlebars'/.test(src)) {
+                        offenders.push(path.relative(vaultDir, p));
+                    }
+                }
+            }
+        };
+        walk(vaultDir);
+        expect(offenders).toEqual([]);
     });
 
     test('templates directory exists', () => {
@@ -53,16 +71,16 @@ describe('core package smoke tests', () => {
         expect(fs.existsSync(templatesDir)).toBe(true);
     });
 
-    test('webpack config has correct alias mappings', () => {
+    test('webpack resolves the app folder first, then the vault package', () => {
         const content = fs.readFileSync(
             path.join(rootDir, 'webpack.config.js'),
             'utf-8'
         );
-        // Verify aliases for key module directories
-        expect(content).toContain("comp: path.join(rootDir, 'app/scripts/comp')");
-        expect(content).toContain("models: path.join(rootDir, 'app/scripts/models')");
+        const app = content.indexOf("path.join(rootDir, 'app/scripts'),");
+        const vault = content.indexOf("path.join(rootDir, '../vault/src'),");
+        expect(app).toBeGreaterThan(0);
+        expect(vault).toBeGreaterThan(app);
         expect(content).toContain("views: path.join(rootDir, 'app/scripts/views')");
-        expect(content).toContain("framework: path.join(rootDir, 'app/scripts/framework')");
         expect(content).toContain("templates: path.join(rootDir, 'app/templates')");
     });
 

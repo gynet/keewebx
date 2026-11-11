@@ -1,0 +1,13 @@
+{
+  "name": "@keewebx/vault",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KeeWebX logic without a user interface: vault models, storage, sync, settings and the extension API",
+  "license": "MIT",
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "hash-wasm": "4.12.0",
+    "kdbxweb": "workspace:@keewebx/db@*",
+    "tweetnacl": "^1.0.3"
+  }
+}

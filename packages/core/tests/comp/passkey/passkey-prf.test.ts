@@ -20,7 +20,7 @@ const {
     wrapKey,
     unwrapKey,
     isPasskeyPrfSupported
-} = await import('../../../app/scripts/comp/passkey/passkey-prf');
+} = await import('../../../../vault/src/comp/passkey/passkey-prf');
 
 // Helper: deterministic Uint8Array filler so tests stay readable.
 function bytes(len: number, fill = 0): Uint8Array {

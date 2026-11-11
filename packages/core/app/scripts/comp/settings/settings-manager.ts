@@ -27,6 +27,7 @@ import { Locale } from 'util/locale';
 import { ThemeWatcher } from 'comp/browser/theme-watcher';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { Logger } from 'util/logger';
+import { DateFormat } from 'comp/i18n/date-format';
 
 const logger = new Logger('settings-manager');
 
@@ -184,11 +185,10 @@ const SettingsManager = {
             if (this.customLocales[loc]) {
                 localeValues = this.customLocales[loc];
             } else {
-                // Webpack resolves this as a JSON import at build time.
-                // Path is relative to this file:
-                // app/scripts/comp/settings/ -> ../../locales/<loc>.json
+                // Webpack bundles every locale file at build time. They live
+                // in the vault package: packages/vault/src/locales/<loc>.json.
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
-                localeValues = require('../../locales/' + loc + '.json');
+                localeValues = require('../../../../../vault/src/locales/' + loc + '.json');
             }
         }
         if (!this.neutralLocale) {
@@ -200,6 +200,7 @@ const SettingsManager = {
             localeValues ?? {}
         );
         this.activeLocale = loc;
+        DateFormat.locale = loc;
         events.emit('set-locale', loc);
     },
 

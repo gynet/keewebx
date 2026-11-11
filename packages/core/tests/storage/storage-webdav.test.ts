@@ -23,7 +23,7 @@ import {
 // Bun's non-DOM test env — and which no other test file uses the real
 // version of — so we keep it on raw `mock.module` (the leak is inert).
 
-await installMockedModule('../../app/scripts/models/app-settings-model', () => ({
+await installMockedModule('../../../vault/src/models/app-settings-model', () => ({
     AppSettingsModel: {
         webdav: true,
         webdavSaveMethod: 'default',
@@ -34,11 +34,11 @@ await installMockedModule('../../app/scripts/models/app-settings-model', () => (
 // runtime-data-model's module body touches `window` — cannot snapshot
 // safely. No other test file imports the real module, so a leak here
 // is inert.
-mock.module('../../app/scripts/models/runtime-data-model', () => ({
+mock.module('../../../vault/src/models/runtime-data-model', () => ({
     RuntimeDataModel: {}
 }));
 
-await installMockedModule('../../app/scripts/util/logger', () => ({
+await installMockedModule('../../../vault/src/util/logger', () => ({
     Logger: class {
         debug(..._args: unknown[]) {}
         info(..._args: unknown[]) {}
@@ -51,7 +51,7 @@ await installMockedModule('../../app/scripts/util/logger', () => ({
 // cannot resolve in-test, so snapshot capture would fail. Use raw
 // mock.module; no other test imports the real Locale, so the leak is
 // inert — but if that ever changes, revisit this.
-mock.module('../../app/scripts/util/locale', () => ({
+mock.module('../../../vault/src/util/locale', () => ({
     Locale: {
         webdavNoLastModified: 'No Last-Modified header'
     }
@@ -70,7 +70,7 @@ await installMockedModule('kdbxweb', () => ({
 
 afterAll(restoreAllMockedModules);
 
-const { StorageWebDav } = await import('../../app/scripts/storage/impl/storage-webdav');
+const { StorageWebDav } = await import('../../../vault/src/storage/impl/storage-webdav');
 
 describe('StorageWebDav', () => {
     let storage: InstanceType<typeof StorageWebDav>;

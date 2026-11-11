@@ -175,6 +175,7 @@ declare module 'comp/app/focus-manager' {
 // comp/i18n/date-format — now a real TS module, keep ambient signature broader
 declare module 'comp/i18n/date-format' {
     const DateFormat: {
+        locale: string;
         dtStr(dt: Date | number | null | undefined): string;
         dStr(dt: Date | number | null | undefined): string;
         dtStrFs(dt: Date | number | null | undefined): string;

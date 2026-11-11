@@ -57,23 +57,17 @@ module.exports = (env, argv) => {
             extensions: ['.ts', '.js', '.json', '.hbs'],
             modules: [
                 path.join(rootDir, 'app/scripts'),
+                path.join(rootDir, '../vault/src'),
                 path.join(rootDir, 'app/styles'),
                 path.join(rootDir, 'node_modules'),
                 path.join(rootDir, '../../node_modules')
             ],
             alias: {
-                // Module aliases matching app/scripts/ directories
-                comp: path.join(rootDir, 'app/scripts/comp'),
-                models: path.join(rootDir, 'app/scripts/models'),
+                // Folders only the interface has. Shared folder names (comp,
+                // util, framework, models...) resolve through `modules`
+                // above: this app's own folder first, then the vault package.
                 views: path.join(rootDir, 'app/scripts/views'),
-                util: path.join(rootDir, 'app/scripts/util'),
-                storage: path.join(rootDir, 'app/scripts/storage'),
-                framework: path.join(rootDir, 'app/scripts/framework'),
-                const: path.join(rootDir, 'app/scripts/const'),
-                collections: path.join(rootDir, 'app/scripts/collections'),
                 presenters: path.join(rootDir, 'app/scripts/presenters'),
-                locales: path.join(rootDir, 'app/scripts/locales'),
-                hooks: path.join(rootDir, 'app/scripts/hooks'),
                 'hbs-helpers': path.join(rootDir, 'app/scripts/hbs-helpers'),
 
                 // Template and resource aliases
