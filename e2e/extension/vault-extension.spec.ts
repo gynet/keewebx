@@ -676,7 +676,7 @@ test('popup in dark mode', async () => {
     const site = await openSite();
     const popup = await openDemoInPopup(site);
     await popup.emulateMedia({ colorScheme: 'dark' });
-    await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(20, 21, 24)');
+    await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
     await shot(popup, '28-popup-dark');
 });
 

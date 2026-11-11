@@ -7,7 +7,7 @@
     --line: #e9e9e6;
     --line-strong: #e4e4e0;
     --sel: #e9f0f9;
-    --acc: #3a74c4;
+    --acc: #3373cb;
     --acc-text: #ffffff;
     --error: #d93025;
     --ok: #2fb872;
@@ -24,7 +24,7 @@
         --line: #2b2d32;
         --line-strong: #2b2d32;
         --sel: #23304a;
-        --acc: #8ab4ec;
+        --acc: #85b3f1;
         --acc-text: #0b1220;
         --error: #ff7b72;
         color-scheme: dark;
@@ -721,23 +721,21 @@ input[type='radio'] {
    footer float over the list as it scrolls beneath them.
    ------------------------------------------------------------------ */
 :root {
-    --wash: radial-gradient(120% 70% at 0% 0%, #e6eef9 0%, rgba(230, 238, 249, 0) 60%),
-        radial-gradient(110% 80% at 100% 100%, #f2f0ec 0%, rgba(242, 240, 236, 0) 55%), #f5f6f8;
-    --glass: rgba(255, 255, 255, 0.58);
+    --wash: #ffffff;
+    --glass: rgba(240, 242, 246, 0.82);
     --glass-strong: rgba(255, 255, 255, 0.78);
     --glass-edge: rgba(255, 255, 255, 0.85);
     --glass-line: rgba(31, 35, 41, 0.06);
     --glass-blur: blur(22px) saturate(140%);
     --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 0 0 0.5px rgba(31, 35, 41, 0.08),
         0 6px 18px rgba(31, 35, 41, 0.06);
-    --glass-sel: rgba(58, 116, 196, 0.11);
-    --pill-acc: linear-gradient(180deg, #4a82cf 0%, #3a74c4 100%);
-    --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 3px 8px rgba(58, 116, 196, 0.2);
+    --glass-sel: rgba(52, 114, 202, 0.12);
+    --pill-acc: linear-gradient(180deg, #4381d6 0%, #3373cb 100%);
+    --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 3px 8px rgba(52, 114, 202, 0.22);
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --wash: radial-gradient(120% 70% at 0% 0%, #1a2232 0%, rgba(26, 34, 50, 0) 60%),
-            radial-gradient(110% 80% at 100% 100%, #1f1e1c 0%, rgba(31, 30, 28, 0) 55%), #141518;
+        --wash: #17191f;
         --glass: rgba(44, 48, 58, 0.5);
         --glass-strong: rgba(52, 57, 68, 0.72);
         --glass-edge: rgba(255, 255, 255, 0.14);
@@ -745,7 +743,7 @@ input[type='radio'] {
         --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 0 0 0.5px rgba(255, 255, 255, 0.08),
             0 10px 28px rgba(0, 0, 0, 0.4);
         --glass-sel: rgba(138, 180, 236, 0.16);
-        --pill-acc: linear-gradient(180deg, #4f86d2 0%, #3f76c2 100%);
+        --pill-acc: linear-gradient(180deg, #4885d9 0%, #3875c9 100%);
         --pill-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 }
@@ -921,4 +919,14 @@ body,
 }
 .switch::after {
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* Plain backgrounds: white popup; settings keep light grey with white cards */
+.layout-settings,
+.layout-settings body {
+    background: var(--page);
+}
+.layout-settings .card,
+.layout-settings .segmented__item--on {
+    background: var(--bg);
 }
