@@ -1,4 +1,10 @@
 {
+  "uiTheme": {"message": "Theme"},
+  "uiThemeSystem": {"message": "System"},
+  "uiThemeLight": {"message": "Light"},
+  "uiThemeDark": {"message": "Dark"},
+  "uiThemeToLight": {"message": "Switch to light mode"},
+  "uiThemeToDark": {"message": "Switch to dark mode"},
   "description": {"message": "Password autofill for KeeWebX"},
   "cmdSubmitAuto": {"message": "Submit the form automatically"},
   "cmdInsertUsername": {"message": "Insert username"},

@@ -18,6 +18,7 @@ import {
 } from 'ui/vault-client';
 import { Icon, Mark, Tile } from 'ui-kit/mark';
 import { t } from 'ui/i18n';
+import { ThemeToggle } from 'ui/theme';
 
 export type Layout = 'popup' | 'side' | 'tab';
 
@@ -280,7 +281,10 @@ export function App({ layout }: { layout: Layout }) {
             body = <WebBasic keeWebUrl={keeWebUrl} tab={tab} onFilled={close} />;
             break;
     }
-    return <div class={`app app--${layout}`}>{body}</div>;
+    return <div class={`app app--${layout}`}>
+        {screen.name !== 'list' && screen.name !== 'detail' && <div class="theme-corner"><ThemeToggle /></div>}
+        {body}
+    </div>;
 }
 
 function Start(props: {
@@ -593,6 +597,7 @@ function List(props: {
                         autoFocus
                     />
                 </label>
+                <ThemeToggle />
                 {props.layout === 'popup' && (
                     <button
                         class="round-btn"
@@ -724,6 +729,7 @@ function Detail(props: {
                 </button>
                 <Tile title={entry.title} icon={entry.icon} customIcon={entry.customIcon} />
                 <h1 class="bar__title">{entry.title || t('uiNoTitle')}</h1>
+                <ThemeToggle />
             </header>
             <div class="fields">
                 {shown.map((f) => (

@@ -3,6 +3,7 @@ import { useState } from 'preact/hooks';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { Icon } from 'ui-kit/mark';
 import { t } from './i18n';
+import { ThemeToggle, ThemeSelect } from './theme';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
@@ -43,7 +44,13 @@ export function Settings({ onBack }: { onBack: () => void }) {
             </nav>
             <main class="settings">
                 <div class="settings__inner">
-                    <h1 class="settings__title">{t('Settings')}</h1>
+                    <div class="settings__titlebar">
+                        <button class="round settings__phone-back" aria-label={t('Back to vault')} onClick={onBack}>
+                            <Icon name="back" />
+                        </button>
+                        <h1 class="settings__title">{t('Settings')}</h1>
+                        <ThemeToggle />
+                    </div>
 
                     <h2 class="group-title">{t('Appearance')}</h2>
                     <section class="cardlist">
@@ -62,7 +69,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
                         </div>
                         <div class="cardlist__row">
                             <span>{t('Theme')}</span>
-                            <span class="muted">{t('Follows the system')}</span>
+                            <ThemeSelect />
                         </div>
                     </section>
 

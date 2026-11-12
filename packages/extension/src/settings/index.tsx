@@ -2,6 +2,7 @@ import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { VaultStatus, getMode, hostOf, onVaultChanged, vault } from 'ui/vault-client';
 import { t } from 'ui/i18n';
+import { ThemeToggle, ThemeSelect } from 'ui/theme';
 
 const DEFAULT_WEB_URL = 'https://keewebx.app/';
 const STORAGE_LABELS: Record<string, string> = { webdav: 'uiWebDav' };
@@ -69,7 +70,8 @@ function Settings() {
 
     return (
         <main class="settings">
-            <h1 class="settings__title">{t('uiSettings')}</h1>
+            <div class="settings-titlebar"><h1 class="settings__title">{t('uiSettings')}</h1><ThemeToggle /></div>
+            <section class="card"><label class="card__row"><span>{t('uiTheme')}</span><ThemeSelect /></label></section>
             <div class="segmented" role="radiogroup" aria-label={t('uiMode')}>
                 <label
                     class={mode.full ? 'segmented__item segmented__item--on' : 'segmented__item'}

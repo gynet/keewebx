@@ -153,6 +153,8 @@ import uiPlus from '@phosphor-icons/core/assets/regular/plus.svg';
 import uiSidebarSimple from '@phosphor-icons/core/assets/regular/sidebar-simple.svg';
 import uiSquaresFour from '@phosphor-icons/core/assets/regular/squares-four.svg';
 import uiTrash from '@phosphor-icons/core/assets/regular/trash.svg';
+import uiSun from '@phosphor-icons/core/assets/regular/sun.svg';
+import uiMoon from '@phosphor-icons/core/assets/regular/moon.svg';
 
 export const ENTRY_ICON_ASSETS = {
     'apple-logo': entryAppleLogo,
@@ -310,5 +312,7 @@ export const UI_ICON_ASSETS = {
     plus: uiPlus,
     'sidebar-simple': uiSidebarSimple,
     'squares-four': uiSquaresFour,
-    trash: uiTrash
+    trash: uiTrash,
+    sun: uiSun,
+    moon: uiMoon
 } as const;

@@ -12,6 +12,7 @@ import { IdleTracker } from 'comp/browser/idle-tracker';
 import { DateFormat } from 'comp/i18n/date-format';
 import { Icon, Mark, Tile } from 'ui-kit/mark';
 import { t } from './i18n';
+import { ThemeToggle } from './theme';
 import { confirmDiscardDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
@@ -160,6 +161,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </div>
                 <div class="side__foot">
                     <span style={{ flexGrow: 1 }} />
+                    <ThemeToggle />
                     <button class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={props.onSettings}>
                         <Icon name="gear" size={17} />
                     </button>
@@ -214,6 +216,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             </section>
 
             <div class="phone-bar">
+                <ThemeToggle />
                 <button class="round" aria-label={t('Settings')} onClick={props.onSettings}>
                     <Icon name="gear" size={18} />
                 </button>

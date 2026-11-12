@@ -30,7 +30,7 @@
     color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-kx-theme="light"]) {
         --kx-bg: #17191f;
         --kx-side: #1b1e24;
         --kx-sub: #23262e;
@@ -55,4 +55,30 @@
         --kx-tile-coral-ink: #d299a6;
         color-scheme: dark;
     }
+}
+
+:root[data-kx-theme="dark"] {
+    --kx-bg: #17191f;
+    --kx-side: #1b1e24;
+    --kx-sub: #23262e;
+    --kx-text: #f1f3f7;
+    --kx-muted: #a0a8b6;
+    --kx-line: #2c3039;
+    --kx-acc: #85b3f1;
+    --kx-acc-text: #0b1220;
+    --kx-sel: #23304a;
+    --kx-error: #ff7b72;
+    --kx-tile-blue-base: #23384c;
+    --kx-tile-blue-ink: #83aedb;
+    --kx-tile-amber-base: #443823;
+    --kx-tile-amber-ink: #d0a86a;
+    --kx-tile-green-base: #273f33;
+    --kx-tile-green-ink: #7db796;
+    --kx-tile-violet-base: #383045;
+    --kx-tile-violet-ink: #b39acb;
+    --kx-tile-slate-base: #273b40;
+    --kx-tile-slate-ink: #83b6bf;
+    --kx-tile-coral-base: #443038;
+    --kx-tile-coral-ink: #d299a6;
+    color-scheme: dark;
 }

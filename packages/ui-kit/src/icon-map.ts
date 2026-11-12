@@ -182,7 +182,9 @@ export const UI_ICON_MAP = {
     folder: 'folder',
     paperclip: 'paperclip',
     sort: 'arrows-down-up',
-    chevron: 'caret-down'
+    chevron: 'caret-down',
+    sun: 'sun',
+    moon: 'moon'
 } as const;
 
 export function entryIconName(name?: string | null) {

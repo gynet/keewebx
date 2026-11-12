@@ -705,11 +705,20 @@ button {
 }
 
 /* Phone: one pane at a time */
+.start__tools,
+.settings__titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.start__tools { margin: 0 10px 16px; }
+.settings__phone-back { display: none; }
 .phone-bar {
     display: none;
 }
 @media (max-width: 760px) {
-    .vault:not(.vault--detail) .phone-bar {
+    .vault .phone-bar {
         display: flex;
         gap: 6px;
         position: fixed;
@@ -725,6 +734,7 @@ button {
         height: 44px;
         border: 0;
     }
+    .settings__phone-back { display: flex; }
     .start {
         flex-direction: column-reverse;
     }

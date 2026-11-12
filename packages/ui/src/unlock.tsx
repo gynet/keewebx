@@ -4,6 +4,7 @@ import type { AppModel } from 'models/app-model';
 import { VaultApi } from 'comp/app/vault-api';
 import { Icon, Mark } from 'ui-kit/mark';
 import { t } from './i18n';
+import { ThemeToggle } from './theme';
 
 interface RecentFile {
     id: string;
@@ -61,7 +62,10 @@ export function Unlock({ model }: { model: AppModel }) {
     return (
         <div class="start">
             <aside class="start__side" aria-label={t('Your vaults')}>
-                <a class="link" href="index.html?ui=classic" style={{ margin: '0 10px 16px' }}>{t('Open Classic')}</a>
+                <div class="start__tools">
+                    <a class="link" href="index.html?ui=classic">{t('Open Classic')}</a>
+                    <ThemeToggle />
+                </div>
                 {recent.length > 0 && <h2 class="start__heading">{t('Your vaults')}</h2>}
                 {recent.map((file) => {
                     const on = pane.kind === 'recent' && pane.file.id === file.id;

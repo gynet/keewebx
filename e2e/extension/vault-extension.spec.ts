@@ -17,7 +17,7 @@ import * as path from 'path';
  *   bunx playwright test -c e2e/extension/vault.playwright.config.ts
  */
 
-const EXT_PATH = path.resolve(__dirname, '../../packages/extension/dist/chrome-vault');
+const EXT_PATH = process.env.KW_E2E_EXTENSION_DIR || path.resolve(__dirname, '../../packages/extension/dist/chrome-vault');
 const VECTORS = JSON.parse(
     fs.readFileSync(path.resolve(__dirname, '../../packages/db/test/crypto/argon2-vectors.json'), 'utf8')
 ) as Array<Record<string, any>>;
@@ -678,6 +678,22 @@ test('popup in dark mode', async () => {
     await popup.emulateMedia({ colorScheme: 'dark' });
     await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
     await shot(popup, '28-popup-dark');
+});
+
+test('popup theme switches in one click, persists and follows the system when selected', async () => {
+    const popup = await openPopup();
+    await popup.emulateMedia({ colorScheme: 'light' });
+    await popup.getByRole('button', { name: 'Switch to dark mode' }).click();
+    await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
+    await popup.reload();
+    await expect(popup.getByRole('button', { name: 'Switch to light mode' })).toBeVisible();
+    const settings = await openPopup(undefined, 'settings.html', { width: 720, height: 820 });
+    await expect(settings.getByRole('combobox', { name: 'Theme' })).toHaveValue('dark');
+    await settings.getByRole('combobox', { name: 'Theme' }).selectOption('light');
+    await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await settings.getByRole('combobox', { name: 'Theme' }).selectOption('system');
+    await popup.emulateMedia({ colorScheme: 'dark' });
+    await expect(popup.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
 });
 
 test('settings change the vault security options', async () => {
