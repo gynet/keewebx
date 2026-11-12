@@ -5,15 +5,15 @@
 
 This file exists because Feature B crosses three packages and the integration seam has historically been where bugs hide. Fix the types here, discuss here, and then write code against them. Do not evolve these interfaces silently in PRs — propose a change, update this doc, link in the commit.
 
-All types below assume TypeScript strict mode (no implicit any, no `@ts-ignore`). They match the 0-escape-hatch baseline for `packages/ui-classic`.
+All types below assume TypeScript strict mode (no implicit any, no `@ts-ignore`). They match the 0-escape-hatch baseline for `modules/ui-classic`.
 
 ---
 
 ## 1. Core ↔ Extension protocol (Feature B runtime)
 
-The extension background SW already talks to the core web app via an encrypted NaCl channel (see `packages/extension/src/background/protocol/protocol-impl.ts`). We add four verbs to that channel. They are transport-agnostic; the encryption + nonce layer is unchanged.
+The extension background SW already talks to the core web app via an encrypted NaCl channel (see `modules/extension/src/background/protocol/protocol-impl.ts`). We add four verbs to that channel. They are transport-agnostic; the encryption + nonce layer is unchanged.
 
-All types live in **`packages/extension/src/background/protocol/types.ts`** (extension side) and mirrored in **`packages/ui-classic/app/scripts/comp/extension/protocol-impl.ts`** (core side).
+All types live in **`modules/extension/src/background/protocol/types.ts`** (extension side) and mirrored in **`modules/ui-classic/app/scripts/comp/extension/protocol-impl.ts`** (core side).
 
 ```ts
 // --- passkey-create-entry ---
@@ -119,7 +119,7 @@ The canonical list of `NKW.Passkey.*` field names — **do not add fields withou
 
 ```ts
 // Not executable code; documentation contract. Helper implementation lives in
-// optional `packages/db/lib/helpers/passkey-entry.ts` (sub-issue B-6).
+// optional `modules/db/lib/helpers/passkey-entry.ts` (sub-issue B-6).
 
 export interface NkwPasskeyEntrySchema {
     readonly 'NKW.Passkey.Version': '1';
@@ -159,7 +159,7 @@ export const NKW_PASSKEY_PROTECTED_FIELDS: readonly string[] = [
 These interfaces are already implemented. Documented here so Phase 3 (#25, #39) reuses them consistently.
 
 ```ts
-// packages/ui-classic/app/scripts/comp/passkey/passkey-prf.ts
+// modules/ui-classic/app/scripts/comp/passkey/passkey-prf.ts
 
 export interface RegisterPasskeyOptions {
     rpId: string;                   // location.hostname
@@ -183,7 +183,7 @@ export function unwrapKey(wrapKey: Uint8Array, ciphertext: Uint8Array): Promise<
 ```
 
 ```ts
-// packages/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts
+// modules/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts
 
 // HKDF-SHA256 over PRF output, domain-separated by `info`.
 // Do not add new callers without a new `info` string.
@@ -202,7 +202,7 @@ export function deriveUnlockKey(
 **Contract rule:** every reuse of the PRF credential MUST use a unique `info` string from the union above. Never reuse `neokeeweb-passkey-unlock-v1` for anything else or the two derived keys collide and unlock ciphertext can be decrypted by a per-field attack — classic key-separation bug.
 
 ```ts
-// packages/ui-classic/app/scripts/models/file-info-model.ts (excerpt)
+// modules/ui-classic/app/scripts/models/file-info-model.ts (excerpt)
 
 export interface FileInfoPasskeyFields {
     passkeyCredentialId: string | null;     // base64url
@@ -219,7 +219,7 @@ export interface FileInfoPasskeyFields {
 ## 4. Extension-internal API (Feature B, new)
 
 ```ts
-// packages/extension/src/background/passkey/passkey-crypto.ts
+// modules/extension/src/background/passkey/passkey-crypto.ts
 
 export interface GeneratedPasskeyKeypair {
     credentialId: Uint8Array;        // 32 random bytes
@@ -255,7 +255,7 @@ export function encodeAttestationObjectNone(authData: Uint8Array): Uint8Array;
 ```
 
 ```ts
-// packages/extension/src/content/passkey-shim.ts (MAIN world, interface only)
+// modules/extension/src/content/passkey-shim.ts (MAIN world, interface only)
 
 // Installed once at document_start. Overrides navigator.credentials.create and .get.
 // No export surface — side-effect module.
@@ -330,4 +330,4 @@ This contract test is the single source of truth for "does core and extension st
 ## 7. Out of band
 
 - **NaCl session renegotiation:** unchanged from Phase 1. All 4 new verbs travel the existing encrypted channel. Stale-session handling (the 2026-04 extension-reconnect note in memory) applies unchanged — if the extension's session keys are stale after a core redeploy, the passkey verbs fail the same way autofill does, and the same reconnect flow applies.
-- **Cross-package imports:** none. Core does not import from extension; extension does not import from core. Both import types from `packages/extension/src/background/protocol/types.ts` via workspace linking (core side adds a type-only import of that file). This mirrors the existing autofill protocol split.
+- **Cross-package imports:** none. Core does not import from extension; extension does not import from core. Both import types from `modules/extension/src/background/protocol/types.ts` via workspace linking (core side adds a type-only import of that file). This mirrors the existing autofill protocol split.

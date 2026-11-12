@@ -28,7 +28,7 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
 
 const KDBX4_FILE = path.resolve(
     __dirname,
-    '../../packages/db/resources/KDBX4.1.kdbx'
+    '../../modules/db/resources/KDBX4.1.kdbx'
 );
 const KDBX4_PASSWORD = 'test';
 const KDBX4_BASENAME = 'KDBX4.1';

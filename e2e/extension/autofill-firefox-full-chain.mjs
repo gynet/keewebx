@@ -39,8 +39,8 @@
  *   - KeeWebX dev server running on http://localhost:8085 (start
  *     with `bun run --filter @keewebx/ui-classic dev` in another terminal,
  *     OR let the test fail with a clear error)
- *   - Built firefox xpi at packages/extension/web-ext-artifacts/
- *     keewebx_connect-1.0.3.zip (cd packages/extension && bun run
+ *   - Built firefox xpi at modules/extension/web-ext-artifacts/
+ *     keewebx_connect-1.0.3.zip (cd modules/extension && bun run
  *     build-firefox)
  */
 
@@ -53,7 +53,7 @@ import os from 'node:os';
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 const XPI = path.resolve(
     REPO_ROOT,
-    'packages/extension/web-ext-artifacts/keewebx_connect-1.0.3.zip'
+    'modules/extension/web-ext-artifacts/keewebx_connect-1.0.3.zip'
 );
 const KEEWEBX_URL = process.env.KEEWEBX_URL || 'http://localhost:8085/';
 const FF_BIN_MAC = '/Applications/Firefox.app/Contents/MacOS/firefox';
@@ -70,7 +70,7 @@ function ok(msg) {
 if (!fs.existsSync(XPI)) {
     fail(
         `firefox xpi missing at ${XPI}. Build with: ` +
-            `cd packages/extension && bun run build-firefox`
+            `cd modules/extension && bun run build-firefox`
     );
 }
 

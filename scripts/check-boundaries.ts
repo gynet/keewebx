@@ -3,8 +3,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 // Resolve aliases using the same TypeScript configuration as each interface.
-const require = createRequire(new URL('../packages/ui/package.json', import.meta.url));
-const ts: typeof import('../packages/ui/node_modules/typescript') = require('typescript');
+const require = createRequire(new URL('../modules/ui/package.json', import.meta.url));
+const ts: typeof import('../modules/ui/node_modules/typescript') = require('typescript');
 const root = path.resolve(import.meta.dir, '..');
 const packages = ['ui-classic', 'ui', 'vault', 'ui-kit', 'db'] as const;
 type Package = typeof packages[number];
@@ -17,7 +17,7 @@ const allowed: Record<Package, readonly Package[]> = {
 };
 
 function owner(file: string): Package | undefined {
-    return packages.find((name) => file.startsWith(path.join(root, 'packages', name) + path.sep));
+    return packages.find((name) => file.startsWith(path.join(root, 'modules', name) + path.sep));
 }
 
 function files(directory: string): string[] {
@@ -34,17 +34,17 @@ const internalAliases = new Set([
     'util', 'views'
 ]);
 
-function literal(node: import('../packages/ui/node_modules/typescript').Node): string | undefined {
+function literal(node: import('../modules/ui/node_modules/typescript').Node): string | undefined {
     return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined;
 }
 
 function assetTarget(specifier: string): Package | undefined {
     const candidate = specifier.startsWith('templates/')
-        ? path.resolve(root, 'packages/ui-classic/app', specifier)
+        ? path.resolve(root, 'modules/ui-classic/app', specifier)
         : specifier === 'hbs-helpers'
-            ? path.join(root, 'packages/ui-classic/app/scripts/hbs-helpers/index.ts')
+            ? path.join(root, 'modules/ui-classic/app/scripts/hbs-helpers/index.ts')
             : specifier.startsWith('ui-kit/')
-                ? path.resolve(root, 'packages/ui-kit/src', specifier.slice('ui-kit/'.length))
+                ? path.resolve(root, 'modules/ui-kit/src', specifier.slice('ui-kit/'.length))
                 : undefined;
     return candidate && existsSync(candidate) ? owner(realpathSync(candidate)) : undefined;
 }
@@ -52,9 +52,9 @@ function assetTarget(specifier: string): Package | undefined {
 let errors = 0;
 let checked = 0;
 for (const name of packages) {
-    const directory = path.join(root, 'packages', name);
+    const directory = path.join(root, 'modules', name);
     const source = path.join(directory, name === 'ui-classic' ? 'app/scripts' : name === 'db' ? 'lib' : 'src');
-    let options: import('../packages/ui/node_modules/typescript').CompilerOptions = {};
+    let options: import('../modules/ui/node_modules/typescript').CompilerOptions = {};
     if (name !== 'ui-kit') {
         const configPath = path.join(directory, 'tsconfig.json');
         const config = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -63,7 +63,7 @@ for (const name of packages) {
     }
     for (const file of files(source)) {
         const ast = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
-        function visit(node: import('../packages/ui/node_modules/typescript').Node) {
+        function visit(node: import('../modules/ui/node_modules/typescript').Node) {
             let specifier: string | undefined;
             if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
                 specifier = node.moduleSpecifier.text;

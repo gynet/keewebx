@@ -6,7 +6,7 @@ import path from 'path';
  * (index.html). Both use the same vaults and settings in one browser.
  */
 
-const KDBX4_FILE = path.resolve(__dirname, '../../packages/db/resources/KDBX4.1.kdbx');
+const KDBX4_FILE = path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx');
 const KDBX4_PASSWORD = 'test';
 
 async function openDemo(page: Page): Promise<void> {

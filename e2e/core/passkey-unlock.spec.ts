@@ -32,13 +32,13 @@ import path from 'path';
  * running it on firefox would race with its own PRF probe.
  *
  * See design: docs/phase2-passkey-unlock-design.md (WRAP MODE, HKDF-v1)
- * See impl:   packages/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts
- *             packages/ui-classic/app/scripts/views/open-view.ts
+ * See impl:   modules/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts
+ *             modules/ui-classic/app/scripts/views/open-view.ts
  */
 
 const SCREENSHOT_DIR = 'e2e/screenshots';
 
-const KDBX4_FILE = path.resolve(__dirname, '../../packages/db/resources/KDBX4.1.kdbx');
+const KDBX4_FILE = path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx');
 const KDBX4_PASSWORD = 'test';
 const KDBX4_BASENAME = 'KDBX4.1';
 

@@ -10,7 +10,7 @@
         "selenium-webdriver": "^4.41.0",
       },
     },
-    "packages/db": {
+    "modules/db": {
       "name": "@keewebx/db",
       "version": "2.2.0",
       "dependencies": {
@@ -40,7 +40,7 @@
         "webpack-cli": "^6.0.1",
       },
     },
-    "packages/extension": {
+    "modules/extension": {
       "name": "@keewebx/extension",
       "version": "1.0.3",
       "dependencies": {
@@ -65,7 +65,7 @@
         "webpack-cli": "^5.1.4",
       },
     },
-    "packages/ui": {
+    "modules/ui": {
       "name": "@keewebx/ui",
       "version": "0.2.4",
       "dependencies": {
@@ -86,7 +86,7 @@
         "webpack-cli": "^5.1.4",
       },
     },
-    "packages/ui-classic": {
+    "modules/ui-classic": {
       "name": "@keewebx/ui-classic",
       "version": "0.2.4",
       "dependencies": {
@@ -138,7 +138,7 @@
         "webpack-dev-server": "^4.0.0",
       },
     },
-    "packages/ui-kit": {
+    "modules/ui-kit": {
       "name": "@keewebx/ui-kit",
       "version": "0.1.0",
       "dependencies": {
@@ -152,7 +152,7 @@
         "@types/marked": "^2.0.0",
       },
     },
-    "packages/vault": {
+    "modules/vault": {
       "name": "@keewebx/vault",
       "version": "0.1.0",
       "dependencies": {
@@ -233,17 +233,17 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@keewebx/db": ["@keewebx/db@workspace:packages/db"],
+    "@keewebx/db": ["@keewebx/db@workspace:modules/db"],
 
-    "@keewebx/extension": ["@keewebx/extension@workspace:packages/extension"],
+    "@keewebx/extension": ["@keewebx/extension@workspace:modules/extension"],
 
-    "@keewebx/ui": ["@keewebx/ui@workspace:packages/ui"],
+    "@keewebx/ui": ["@keewebx/ui@workspace:modules/ui"],
 
-    "@keewebx/ui-classic": ["@keewebx/ui-classic@workspace:packages/ui-classic"],
+    "@keewebx/ui-classic": ["@keewebx/ui-classic@workspace:modules/ui-classic"],
 
-    "@keewebx/ui-kit": ["@keewebx/ui-kit@workspace:packages/ui-kit"],
+    "@keewebx/ui-kit": ["@keewebx/ui-kit@workspace:modules/ui-kit"],
 
-    "@keewebx/vault": ["@keewebx/vault@workspace:packages/vault"],
+    "@keewebx/vault": ["@keewebx/vault@workspace:modules/vault"],
 
     "@leichtgewicht/ip-codec": ["@leichtgewicht/ip-codec@2.0.5", "", {}, "sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw=="],
 
@@ -1249,7 +1249,7 @@
 
     "jws": ["jws@3.2.3", "", { "dependencies": { "jwa": "^1.4.2", "safe-buffer": "^5.0.1" } }, "sha512-byiJ0FLRdLdSVSReO/U4E7RoEyOCKnEnEPMjq3HxWtvzLsV08/i5RQKsFVNkCldrCaPr2vDNAOMsfs8T/Hze7g=="],
 
-    "kdbxweb": ["@keewebx/db@workspace:packages/db"],
+    "kdbxweb": ["@keewebx/db@workspace:modules/db"],
 
     "keyv": ["keyv@4.5.4", "", { "dependencies": { "json-buffer": "3.0.1" } }, "sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw=="],
 

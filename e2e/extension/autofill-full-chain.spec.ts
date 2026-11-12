@@ -54,13 +54,13 @@ import fs from 'node:fs';
  * Setup requirements:
  *   1. KeeWebX dev server on http://localhost:8085 (Playwright
  *      config's webServer takes care of this)
- *   2. Built extension at packages/extension/dist/chrome
- *      (cd packages/extension && bun run build-chrome)
+ *   2. Built extension at modules/extension/dist/chrome
+ *      (cd modules/extension && bun run build-chrome)
  *   3. Real github.com/login (live network — accept the cost,
  *      ~600KB cold load per test, fine for CI)
  */
 
-const EXT_PATH = path.resolve(__dirname, '../../packages/extension/dist/chrome');
+const EXT_PATH = path.resolve(__dirname, '../../modules/extension/dist/chrome');
 const NEOWEB_URL = 'http://localhost:8085/';
 
 async function waitForServiceWorker(context: BrowserContext): Promise<Worker> {
@@ -75,7 +75,7 @@ test.describe('Extension full-chain autofill (chromium)', () => {
     test('runCommand via chrome.action.onClicked.dispatch fills github.com login', async () => {
         expect(
             fs.existsSync(path.join(EXT_PATH, 'manifest.json')),
-            'extension must be built first: cd packages/extension && bun run build-chrome'
+            'extension must be built first: cd modules/extension && bun run build-chrome'
         ).toBe(true);
 
         const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kw-full-'));

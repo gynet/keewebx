@@ -15,4 +15,4 @@ playwright-report/
 test-results/
 e2e/test-results-*/
 e2e/screenshots/
-packages/ui-classic/app/styles/base/_whitesur-icons.scss
+modules/ui-classic/app/styles/base/_whitesur-icons.scss

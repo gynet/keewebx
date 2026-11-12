@@ -19,7 +19,7 @@ import fs from 'node:fs';
  * KeeWebX + picker + permission flow.
  */
 
-const EXT_PATH = path.resolve(__dirname, '../../packages/extension/dist/chrome');
+const EXT_PATH = path.resolve(__dirname, '../../modules/extension/dist/chrome');
 
 test.describe('Extension autofill with tab-switch before dispatch', () => {
     test('autoFill still works on github.com/login after tab-switch round-trip', async () => {

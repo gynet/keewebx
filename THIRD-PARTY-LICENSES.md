@@ -23,7 +23,7 @@ Production dependencies bundled into the KeeWebX app and browser extension. Each
 | [tiny-typed-emitter](https://github.com/binier/tiny-typed-emitter) | 2.1.0 | MIT | extension | Copyright (c) 2020 Zurab Benashvili (binier) <zura.bena@gmail.com> |
 | [tweetnacl](https://github.com/dchest/tweetnacl-js) | 1.0.3 | Unlicense | vault, extension | In jurisdictions that recognize copyright laws, the author or authors |
 
-KeeWebX is forked from [KeeWeb](https://github.com/keeweb/keeweb) by Antelle (MIT). `packages/db` is forked from [kdbxweb](https://github.com/keeweb/kdbxweb) (MIT) and `packages/extension` from [KeeWeb Connect](https://github.com/keeweb/keeweb-connect) (MIT); their original notices are kept in each package's LICENSE file.
+KeeWebX is forked from [KeeWeb](https://github.com/keeweb/keeweb) by Antelle (MIT). `modules/db` is forked from [kdbxweb](https://github.com/keeweb/kdbxweb) (MIT) and `modules/extension` from [KeeWeb Connect](https://github.com/keeweb/keeweb-connect) (MIT); their original notices are kept in each package's LICENSE file.
 
 ## Phosphor Icons
 

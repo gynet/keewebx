@@ -60,7 +60,7 @@ test.describe('Database Open Operations', () => {
         // Argon2.kdbx requires both password + key file, making it harder to test via the UI.
         const kdbxPath = path.resolve(
             __dirname,
-            '../../packages/db/resources/KDBX4.1.kdbx'
+            '../../modules/db/resources/KDBX4.1.kdbx'
         );
         const kdbxPassword = 'test';
 

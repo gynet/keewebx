@@ -61,7 +61,7 @@ export default defineConfig({
     {
       // Extension E2E — loads the built KeeWebX Connect extension as
       // unpacked and drives it via chrome.* APIs from the test. Needs
-      // `cd packages/extension && bun run build-chrome` first. Does NOT
+      // `cd modules/extension && bun run build-chrome` first. Does NOT
       // use the top-level webServer because the tests launch their own
       // persistent Chromium context with --load-extension, which is
       // incompatible with the headless webServer-driven projects above.

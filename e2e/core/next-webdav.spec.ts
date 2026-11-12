@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import * as kdbxweb from '../../packages/db/lib';
-import { argon2 } from '../../packages/db/test/test-support/argon2';
+import * as kdbxweb from '../../modules/db/lib';
+import { argon2 } from '../../modules/db/test/test-support/argon2';
 
-const FIXTURE = path.resolve(__dirname, '../../packages/db/resources/KDBX4.1.kdbx');
+const FIXTURE = path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx');
 const PASSWORD = 'test';
 const AUTHORIZATION = `Basic ${Buffer.from('alice:dav-password').toString('base64')}`;
 const VAULT_PATH = '/vault.kdbx';

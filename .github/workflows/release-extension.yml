@@ -53,10 +53,10 @@ jobs:
         # doesn't run), this catches it before we publish.
         run: |
           set -euo pipefail
-          MANIFEST_VER=$(jq -r '.version' packages/extension/manifest.json)
+          MANIFEST_VER=$(jq -r '.version' modules/extension/manifest.json)
           echo "Source manifest version: ${MANIFEST_VER}"
           for browser in chrome firefox edge; do
-            MANIFEST="packages/extension/dist/${browser}/manifest.json"
+            MANIFEST="modules/extension/dist/${browser}/manifest.json"
             test -f "${MANIFEST}" || { echo "::error::Missing ${MANIFEST}"; exit 1; }
             VER=$(jq -r '.version' "${MANIFEST}")
             if [ "${VER}" != "${MANIFEST_VER}" ]; then
@@ -64,8 +64,8 @@ jobs:
               exit 1
             fi
             echo "  ${browser}: ${VER} OK"
-            test -s "packages/extension/dist/${browser}/LICENSE"
-            test -s "packages/extension/dist/${browser}/THIRD-PARTY-LICENSES.md"
+            test -s "modules/extension/dist/${browser}/LICENSE"
+            test -s "modules/extension/dist/${browser}/THIRD-PARTY-LICENSES.md"
           done
           echo "version=${MANIFEST_VER}" >> "$GITHUB_OUTPUT"
 
@@ -87,14 +87,14 @@ jobs:
 
           # Chrome + Edge: zip the dist/<browser>/ contents (no wrapping
           # folder — web stores expect manifest.json at the zip root).
-          (cd packages/extension/dist/chrome && zip -rq "${GITHUB_WORKSPACE}/artifacts/keewebx-connect-chrome-${SHORT_SHA}.zip" .)
-          (cd packages/extension/dist/edge   && zip -rq "${GITHUB_WORKSPACE}/artifacts/keewebx-connect-edge-${SHORT_SHA}.zip"   .)
+          (cd modules/extension/dist/chrome && zip -rq "${GITHUB_WORKSPACE}/artifacts/keewebx-connect-chrome-${SHORT_SHA}.zip" .)
+          (cd modules/extension/dist/edge   && zip -rq "${GITHUB_WORKSPACE}/artifacts/keewebx-connect-edge-${SHORT_SHA}.zip"   .)
 
           # Firefox: `build-firefox` already produced a signed-layout
           # zip via `web-ext build` under web-ext-artifacts/. Rename
           # to .xpi so Firefox's install dialog treats it as an add-on.
-          XPI_SRC="packages/extension/web-ext-artifacts/keewebx_connect-${MANIFEST_VER}.zip"
-          test -f "${XPI_SRC}" || { echo "::error::Expected ${XPI_SRC} from web-ext build"; ls -la packages/extension/web-ext-artifacts/; exit 1; }
+          XPI_SRC="modules/extension/web-ext-artifacts/keewebx_connect-${MANIFEST_VER}.zip"
+          test -f "${XPI_SRC}" || { echo "::error::Expected ${XPI_SRC} from web-ext build"; ls -la modules/extension/web-ext-artifacts/; exit 1; }
           cp "${XPI_SRC}" "artifacts/keewebx-connect-firefox-${SHORT_SHA}.xpi"
 
           # Checksums — ubuntu-latest has sha256sum, not shasum.
@@ -102,10 +102,10 @@ jobs:
           for file in artifacts/*.zip artifacts/*.xpi; do unzip -tq "$file"; done
           for browser in chrome edge; do
             unzip -q "artifacts/keewebx-connect-${browser}-${SHORT_SHA}.zip" -d "unpacked/${browser}"
-            node scripts/check-extension-artifact.mjs "unpacked/${browser}" "packages/extension/dist/${browser}"
+            node scripts/check-extension-artifact.mjs "unpacked/${browser}" "modules/extension/dist/${browser}"
           done
           unzip -q "artifacts/keewebx-connect-firefox-${SHORT_SHA}.xpi" -d unpacked/firefox
-          node scripts/check-extension-artifact.mjs unpacked/firefox packages/extension/dist/firefox
+          node scripts/check-extension-artifact.mjs unpacked/firefox modules/extension/dist/firefox
 
           echo "Artifacts:"
           ls -la artifacts/
@@ -150,7 +150,7 @@ jobs:
       - name: Package the dual-mode trial build
         run: |
           set -euo pipefail
-          OUT=packages/extension/dist/chrome-vault
+          OUT=modules/extension/dist/chrome-vault
           test -s "$OUT/LICENSE"
           test -s "$OUT/THIRD-PARTY-LICENSES.md"
           test -s "$OUT/app/index.html"
@@ -164,7 +164,7 @@ jobs:
         run: |
           set -euo pipefail
           unzip -q preview-artifacts/*.zip -d preview-unpacked
-          node scripts/check-extension-artifact.mjs preview-unpacked packages/extension/dist/chrome-vault
+          node scripts/check-extension-artifact.mjs preview-unpacked modules/extension/dist/chrome-vault
           KW_E2E_EXTENSION_DIR="$GITHUB_WORKSPACE/preview-unpacked" bunx playwright test -c e2e/extension/vault.playwright.config.ts
       - uses: actions/upload-artifact@v7
         with:

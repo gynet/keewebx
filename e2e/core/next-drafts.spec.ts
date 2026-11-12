@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 
-const fixture = path.resolve(__dirname, '../../packages/db/resources/KDBX4.1.kdbx');
+const fixture = path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx');
 
 async function unlock(page: Page) {
     await page.goto('/next.html');

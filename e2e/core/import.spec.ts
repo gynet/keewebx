@@ -18,7 +18,7 @@ import path from 'path';
  *    visible and no `console.error: Uncaught` rolls past Playwright.
  *
  * Fixtures:
- *  - Real KDBX4: `packages/db/resources/KDBX4.1.kdbx` (already used by
+ *  - Real KDBX4: `modules/db/resources/KDBX4.1.kdbx` (already used by
  *    `database-open.spec.ts`). Reusing it avoids generating new files.
  *  - Corrupted: synthesized in-test by handing the file chooser a
  *    `setFiles({ buffer })` payload of garbage bytes. Nothing to commit.
@@ -32,7 +32,7 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
 
 const KDBX4_FILE = path.resolve(
     __dirname,
-    '../../packages/db/resources/KDBX4.1.kdbx'
+    '../../modules/db/resources/KDBX4.1.kdbx'
 );
 const KDBX4_PASSWORD = 'test';
 

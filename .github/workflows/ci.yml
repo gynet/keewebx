@@ -17,7 +17,7 @@ jobs:
 
   typecheck:
     # Hard type-check gate. As of commit 599485d9 (2026-04-09) the
-    # TS strict-mode baseline for packages/ui-classic is 0 AND
+    # TS strict-mode baseline for modules/ui-classic is 0 AND
     # `transpileOnly: true` has been dropped from webpack.config.js,
     # so webpack's ts-loader now does real type-checking at bundle
     # time. This job is the explicit standalone gate: `tsc --noEmit`
@@ -31,28 +31,28 @@ jobs:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
-      - name: Build packages/db (for kdbxweb type resolution)
-        # packages/ui-classic imports 'kdbxweb' (symlinked to packages/db).
+      - name: Build modules/db (for kdbxweb type resolution)
+        # modules/ui-classic imports 'kdbxweb' (symlinked to modules/db).
         # Without dist/types/, tsc can't find the module. Locally the
         # types are present from prior builds but CI starts clean.
-        run: cd packages/db && bun run build
-      - name: Run tsc --noEmit on packages/ui-classic (hard fail on any error)
-        run: cd packages/ui-classic && bunx tsc --noEmit
+        run: cd modules/db && bun run build
+      - name: Run tsc --noEmit on modules/ui-classic (hard fail on any error)
+        run: cd modules/ui-classic && bunx tsc --noEmit
       - name: Type-check New UI and shared vault
         run: |
-          cd packages/ui
+          cd modules/ui
           bunx tsc --noEmit
           bunx tsc --noEmit -p ../vault/tsconfig.json
       - name: Type-check webpack loaders (JSDoc, checkJs)
-        run: cd packages/ui-classic && bunx tsc -p tsconfig.build.json
+        run: cd modules/ui-classic && bunx tsc -p tsconfig.build.json
       - name: Type-check the service worker (WebWorker lib)
-        run: cd packages/ui-classic && bunx tsc -p app/sw/tsconfig.json
+        run: cd modules/ui-classic && bunx tsc -p app/sw/tsconfig.json
       - name: Enforce baseline sentinel is still 0
         run: |
-          cd packages/ui-classic
+          cd modules/ui-classic
           BASELINE=$(cat .typescript-baseline | tr -d '[:space:]')
           if [ "$BASELINE" != "0" ]; then
-            echo "::error title=TS baseline sentinel drifted::packages/ui-classic/.typescript-baseline must remain at 0. Got: $BASELINE. See Phase 1 TS migration closeout in 599485d9."
+            echo "::error title=TS baseline sentinel drifted::modules/ui-classic/.typescript-baseline must remain at 0. Got: $BASELINE. See Phase 1 TS migration closeout in 599485d9."
             exit 1
           fi
 
@@ -62,18 +62,18 @@ jobs:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
-      - run: cd packages/extension && bun run build-chrome
-      - run: cd packages/extension && bunx playwright install chromium --with-deps
+      - run: cd modules/extension && bun run build-chrome
+      - run: cd modules/extension && bunx playwright install chromium --with-deps
       - run: sudo apt-get install -y xvfb
       - name: Extension E2E (Playwright headed + xvfb)
-        run: cd packages/extension && xvfb-run bunx playwright test --config playwright.config.ts
+        run: cd modules/extension && xvfb-run bunx playwright test --config playwright.config.ts
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-extension-report
           path: |
-            packages/extension/test-results/
-            packages/extension/playwright-report/
+            modules/extension/test-results/
+            modules/extension/playwright-report/
           retention-days: 7
 
   e2e-full-chain-chromium:
@@ -87,13 +87,13 @@ jobs:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
-      - name: Build packages/db (webpack dev server needs kdbxweb dist)
-        # packages/ui-classic webpack aliases `kdbxweb` → packages/db/dist.
+      - name: Build modules/db (webpack dev server needs kdbxweb dist)
+        # modules/ui-classic webpack aliases `kdbxweb` → modules/db/dist.
         # Without this build step the dev server fails to compile with
         # "Can't resolve 'kdbxweb'" across ~20 files. Same root cause as
         # the typecheck job's missing-types issue, different layer.
-        run: cd packages/db && bun run build
-      - run: cd packages/extension && bun run build-chrome
+        run: cd modules/db && bun run build
+      - run: cd modules/extension && bun run build-chrome
       - run: bunx playwright install chromium --with-deps
       - run: sudo apt-get install -y xvfb
       - name: Full-chain chromium E2E
@@ -126,11 +126,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
-      - name: Build packages/db (webpack dev server needs kdbxweb dist)
-        # packages/ui-classic webpack aliases `kdbxweb` → packages/db/dist.
+      - name: Build modules/db (webpack dev server needs kdbxweb dist)
+        # modules/ui-classic webpack aliases `kdbxweb` → modules/db/dist.
         # Without this the dev server fails with "Can't resolve 'kdbxweb'".
-        run: cd packages/db && bun run build
-      - run: cd packages/extension && bun run build-firefox
+        run: cd modules/db && bun run build
+      - run: cd modules/extension && bun run build-firefox
       - name: Install Firefox + geckodriver (pinned binary download)
         run: |
           set -euxo pipefail

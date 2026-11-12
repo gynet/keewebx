@@ -1,7 +1,7 @@
 import { test, expect, chromium } from '@playwright/test';
 import type { BrowserContext, Page, Worker as PlaywrightWorker } from '@playwright/test';
-import * as kdbxweb from '../../packages/db/lib';
-import { argon2 } from '../../packages/db/test/test-support/argon2';
+import * as kdbxweb from '../../modules/db/lib';
+import { argon2 } from '../../modules/db/test/test-support/argon2';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import * as http from 'http';
@@ -13,13 +13,13 @@ import * as path from 'path';
 /**
  * The prototype extension: full mode (vault inside the extension) and
  * connect mode (existing app in a browser tab). Fully headless. Run:
- *   bun run build && (cd packages/extension && bun run build-chrome-vault)
+ *   bun run build && (cd modules/extension && bun run build-chrome-vault)
  *   bunx playwright test -c e2e/extension/vault.playwright.config.ts
  */
 
-const EXT_PATH = process.env.KW_E2E_EXTENSION_DIR || path.resolve(__dirname, '../../packages/extension/dist/chrome-vault');
+const EXT_PATH = process.env.KW_E2E_EXTENSION_DIR || path.resolve(__dirname, '../../modules/extension/dist/chrome-vault');
 const VECTORS = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, '../../packages/db/test/crypto/argon2-vectors.json'), 'utf8')
+    fs.readFileSync(path.resolve(__dirname, '../../modules/db/test/crypto/argon2-vectors.json'), 'utf8')
 ) as Array<Record<string, any>>;
 
 const LOGIN_HTML = `<!doctype html><title>Sign in</title><form action="/session" method="post">
@@ -30,7 +30,7 @@ const LOGIN_HTML = `<!doctype html><title>Sign in</title><form action="/session"
 const CORE_DIST = path.resolve(__dirname, '../../dist');
 const FIXTURE = path.resolve(
     __dirname,
-    '../../packages/db/resources/external/test_db_kdbx4_with_password_argon2.kdbx'
+    '../../modules/db/resources/external/test_db_kdbx4_with_password_argon2.kdbx'
 );
 const FIXTURE_PASSWORD = 'demopass';
 const CONTENT_TYPES: Record<string, string> = {
@@ -823,7 +823,7 @@ test('web mode popup: locking shows how to unlock in the tab', async () => {
 // tool that reads numbered PNGs and times.txt (milliseconds per frame).
 
 const DEMO_DIR = process.env.KW_E2E_DEMO;
-const DEMO_FILE = path.resolve(__dirname, '../../packages/vault/resources/Demo.kdbx');
+const DEMO_FILE = path.resolve(__dirname, '../../modules/vault/resources/Demo.kdbx');
 
 interface Scene {
     main: Page;

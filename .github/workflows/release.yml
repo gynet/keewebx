@@ -22,7 +22,7 @@ jobs:
   build-and-package:
     # Skip extension-specific tags (`v*-extension`). Those are handled by
     # release-extension.yml which builds Chrome/Firefox/Edge packages from
-    # packages/extension/. GitHub Actions tag filters don't support
+    # modules/extension/. GitHub Actions tag filters don't support
     # negation (e.g., `tags-ignore: 'v*-extension'` combined with
     # `tags: 'v*'` is ignored), so we gate at the job level instead. On
     # workflow_dispatch github.ref_name is the branch, which never matches.

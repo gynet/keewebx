@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import path from 'path';
 
-const FIXTURE = path.resolve(__dirname, '../../packages/db/resources/KDBX4.1.kdbx');
+const FIXTURE = path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx');
 const editor = (page: Page) => page.locator('.entry-editor');
 const entryRow = (page: Page, title: string) => page.locator('.entry-row').filter({
     has: page.getByText(title, { exact: true })

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 
-const KDBX4_FILE = path.resolve(__dirname, '../../packages/db/resources/KDBX4.1.kdbx');
+const KDBX4_FILE = path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx');
 
 test.describe('New interface notes', () => {
     test('renders Markdown through the shared sanitizer and edits the original source', async ({ page }) => {

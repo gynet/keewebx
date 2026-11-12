@@ -37,7 +37,7 @@ import fs from 'node:fs';
  * and we can fix it directly in our fork.
  */
 
-const EXT_PATH = path.resolve(__dirname, '../../packages/extension/dist/chrome');
+const EXT_PATH = path.resolve(__dirname, '../../modules/extension/dist/chrome');
 
 // Minimal login form served as a data URL. Two inputs, same form, no
 // JS, no frameworks, no CSP, no redirects. If autoFill can't fill
@@ -59,7 +59,7 @@ test.describe('Extension content-page autoFill (isolation test)', () => {
     test('content-page.js fills username + password on a vanilla form', async () => {
         // Verify the extension is built before launching
         expect(fs.existsSync(path.join(EXT_PATH, 'manifest.json')),
-            `extension must be built first: cd packages/extension && bun run build-chrome`).toBe(true);
+            `extension must be built first: cd modules/extension && bun run build-chrome`).toBe(true);
         expect(fs.existsSync(path.join(EXT_PATH, 'js/content-page.js'))).toBe(true);
 
         // Playwright extension loading requires persistent context + headed

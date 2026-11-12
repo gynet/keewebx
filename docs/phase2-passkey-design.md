@@ -15,7 +15,7 @@ Phase 2 ships WebAuthn passkey support in two independent features.
 
 | | Feature A: Quick Unlock | Feature B: Passkey Authenticator |
 |---|---|---|
-| **Location** | `packages/ui-classic` (the web app) | `packages/extension` + optional KDBX helpers in `packages/db` |
+| **Location** | `modules/ui-classic` (the web app) | `modules/extension` + optional KDBX helpers in `modules/db` |
 | **Touches KDBX file?** | **No.** Wrapper stored in IndexedDB. | **Yes.** Private key lives as a KDBX entry field; the KDBX file itself is still a standard KDBX4 file (no schema changes). |
 | **Who uses it?** | The vault owner, on their own device, to skip typing master password. | Any website, when the user chooses to register/login with a passkey and the extension wins the `navigator.credentials.*` call. |
 | **Status** | **Shipped 2026-04-11** (commits `ffdf5399`/`a1de7bab`/`34403462`/`6ca49366`/`ee7b0dbe`). | Designed, not implemented. Broken out into sub-issues — see §7. |
@@ -53,10 +53,10 @@ Constraints the user explicitly cares about:
 
 Already covered in `phase2-passkey-unlock-design.md`. One-paragraph summary for the umbrella doc:
 
-- `packages/ui-classic/app/scripts/comp/passkey/passkey-prf.ts` — pure WebAuthn+AES-GCM primitives (`isPasskeyPrfSupported`, `registerPasskey`, `evaluatePrf`, `wrapKey`, `unwrapKey`). No storage, no models.
-- `packages/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts` — HKDF-SHA256 over PRF output with `info='neokeeweb-passkey-unlock-v1'` and `salt=fileId`, domain-separated so Phase 3 #25 and #39 can reuse the same credential with different `info` strings.
-- `packages/ui-classic/app/scripts/models/file-info-model.ts` — new descriptor fields `passkeyCredentialId` / `passkeyPrfSalt` / `passkeyWrappedKey` / `passkeyCreatedDate`, round-tripped through `settings-store` (the persistence layer repaired on 2026-04-09).
-- `packages/ui-classic/app/scripts/views/open-view.ts` — checkbox "Enable passkey unlock for this file" on first open; tap-to-unlock affordance on subsequent opens.
+- `modules/ui-classic/app/scripts/comp/passkey/passkey-prf.ts` — pure WebAuthn+AES-GCM primitives (`isPasskeyPrfSupported`, `registerPasskey`, `evaluatePrf`, `wrapKey`, `unwrapKey`). No storage, no models.
+- `modules/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts` — HKDF-SHA256 over PRF output with `info='neokeeweb-passkey-unlock-v1'` and `salt=fileId`, domain-separated so Phase 3 #25 and #39 can reuse the same credential with different `info` strings.
+- `modules/ui-classic/app/scripts/models/file-info-model.ts` — new descriptor fields `passkeyCredentialId` / `passkeyPrfSalt` / `passkeyWrappedKey` / `passkeyCreatedDate`, round-tripped through `settings-store` (the persistence layer repaired on 2026-04-09).
+- `modules/ui-classic/app/scripts/views/open-view.ts` — checkbox "Enable passkey unlock for this file" on first open; tap-to-unlock affordance on subsequent opens.
 - `e2e/core/passkey-unlock.spec.ts` — CDP virtual authenticator end-to-end.
 
 Escape hatch: any persisted file without `passkeyCredentialId` falls through to the classic password form. Removal flow clears all 4 fields + wrapped ciphertext in one `settings-store` write.
@@ -89,12 +89,12 @@ Files and their world:
 
 | File | World | Purpose |
 |---|---|---|
-| `packages/extension/src/content/passkey-shim.ts` | **MAIN** (page) | Override `navigator.credentials.create` / `.get`. Post request to isolated world. Await response. Resolve/reject the original Promise. |
-| `packages/extension/src/content/content-passkey.ts` | ISOLATED | Relay between page and background. Validates `event.origin === window.location.origin`. |
-| `packages/extension/src/background/passkey/passkey-authenticator.ts` | SW | Orchestrator. Looks up the vault entry for `rp.id`, asks vault (via existing NaCl protocol) for the private key, signs, returns assertion. |
-| `packages/extension/src/background/passkey/passkey-crypto.ts` | SW | `SubtleCrypto` wrappers: generate ES256/EdDSA key pair, sign authenticator data + client data hash, build attestation object. |
-| `packages/extension/src/background/passkey/passkey-store.ts` | SW | Thin adapter over the NaCl protocol verbs that talk to the core app (`passkey-create-entry`, `passkey-get-by-rp`, `passkey-update-counter`). Does **not** touch KDBX directly — the SW does not hold vault credentials. |
-| `packages/ui-classic/app/scripts/comp/passkey/passkey-authenticator-bridge.ts` | core web app | Server side of the protocol verbs above. Reads/writes the KDBX entries. |
+| `modules/extension/src/content/passkey-shim.ts` | **MAIN** (page) | Override `navigator.credentials.create` / `.get`. Post request to isolated world. Await response. Resolve/reject the original Promise. |
+| `modules/extension/src/content/content-passkey.ts` | ISOLATED | Relay between page and background. Validates `event.origin === window.location.origin`. |
+| `modules/extension/src/background/passkey/passkey-authenticator.ts` | SW | Orchestrator. Looks up the vault entry for `rp.id`, asks vault (via existing NaCl protocol) for the private key, signs, returns assertion. |
+| `modules/extension/src/background/passkey/passkey-crypto.ts` | SW | `SubtleCrypto` wrappers: generate ES256/EdDSA key pair, sign authenticator data + client data hash, build attestation object. |
+| `modules/extension/src/background/passkey/passkey-store.ts` | SW | Thin adapter over the NaCl protocol verbs that talk to the core app (`passkey-create-entry`, `passkey-get-by-rp`, `passkey-update-counter`). Does **not** touch KDBX directly — the SW does not hold vault credentials. |
+| `modules/ui-classic/app/scripts/comp/passkey/passkey-authenticator-bridge.ts` | core web app | Server side of the protocol verbs above. Reads/writes the KDBX entries. |
 
 **Why the SW must not hold the master password / key:** the background SW in MV3 is short-lived and persisted only in `chrome.storage`. Putting raw `ProtectedValue` there would be a significant regression vs the current NaCl protocol where the vault-side process holds the key and the extension just asks for values.
 
@@ -210,7 +210,7 @@ For Phase 2 the consent UI is:
 - `navigator.credentials.create()` → extension popup (`browser.action.openPopup()`) with: origin, RP ID, RP name, user name, "This will create a new entry in your vault" + entry picker dropdown, "Create" / "Cancel".
 - `navigator.credentials.get()` → in-page overlay (injected by the content script into a closed ShadowRoot) with: origin, RP ID, entry name, "Sign in" / "Cancel". In-page because the page is waiting on a Promise and popping the extension popup mid-flow is jarring.
 
-Overlay style follows existing extension autofill UI (reuse `packages/extension/src/content/overlay/` if present; otherwise new module in Preact to match existing code style).
+Overlay style follows existing extension autofill UI (reuse `modules/extension/src/content/overlay/` if present; otherwise new module in Preact to match existing code style).
 
 ### 3.7 Degradation and compatibility matrix
 
@@ -263,9 +263,9 @@ Interop with KeeWeb upstream: same as KeePassXC — preserved but unused.
 
 | Package | Feature A (shipped) | Feature B (new) |
 |---|---|---|
-| `packages/ui-classic` | owns PRF wrap/unwrap, FileInfoModel fields, open-view UI, E2E spec | owns `passkey-authenticator-bridge.ts` (NaCl protocol verbs for the extension to reach vault), entry schema, entry create/read/update, KeePassXC round-trip tests |
-| `packages/db` | **no changes** | **no changes to format code.** Possibly add a helper `packages/db/lib/helpers/passkey-entry.ts` for reading/writing the `NKW.Passkey.*` field set with type safety — owned by the db package. Purely optional sugar; core can also use raw `KdbxEntry.fields.set()`. |
-| `packages/extension` | not involved | owns `passkey-shim.ts` (MAIN world), `content-passkey.ts` (isolated), `passkey-authenticator.ts` / `passkey-crypto.ts` / `passkey-store.ts` (SW), in-page consent overlay, option-page UI for "default target group" |
+| `modules/ui-classic` | owns PRF wrap/unwrap, FileInfoModel fields, open-view UI, E2E spec | owns `passkey-authenticator-bridge.ts` (NaCl protocol verbs for the extension to reach vault), entry schema, entry create/read/update, KeePassXC round-trip tests |
+| `modules/db` | **no changes** | **no changes to format code.** Possibly add a helper `modules/db/lib/helpers/passkey-entry.ts` for reading/writing the `NKW.Passkey.*` field set with type safety — owned by the db package. Purely optional sugar; core can also use raw `KdbxEntry.fields.set()`. |
+| `modules/extension` | not involved | owns `passkey-shim.ts` (MAIN world), `content-passkey.ts` (isolated), `passkey-authenticator.ts` / `passkey-crypto.ts` / `passkey-store.ts` (SW), in-page consent overlay, option-page UI for "default target group" |
 | `e2e/` | `passkey-unlock.spec.ts` done | new `e2e/extension/passkey-authenticator.spec.ts` (CDP virtual authenticator against a local fixture RP) |
 
 Cross-package work for Feature B is the **NaCl protocol extension** — new message verbs defined in §5.1 of [`phase2-interfaces.md`](./phase2-interfaces.md). These are owned jointly by core (server side) and the extension (client side) — the test suite should gate their integration with the new E2E spec.
@@ -302,12 +302,12 @@ The following sub-issues implement Feature B. Each is an independently reviewabl
 
 | # | Title | Owner | Depends on | Parallelizable |
 |---|---|---|---|---|
-| B-1 | Define NaCl protocol verbs `passkey-create-entry`, `passkey-get-by-rp`, `passkey-sign`, `passkey-update-counter` + extend `packages/extension/src/background/protocol/types.ts` + write contract tests | Core + Extension | — | no (blocks all others) |
+| B-1 | Define NaCl protocol verbs `passkey-create-entry`, `passkey-get-by-rp`, `passkey-sign`, `passkey-update-counter` + extend `modules/extension/src/background/protocol/types.ts` + write contract tests | Core + Extension | — | no (blocks all others) |
 | B-2 | `passkey-crypto.ts` in extension SW: keypair gen, AuthenticatorData encode, ES256 DER conversion, AttestationObject (fmt=none) | Extension | B-1 | yes (with B-3) |
 | B-3 | `passkey-authenticator-bridge.ts` in core: handle the 4 new verbs, read/write `NKW.Passkey.*` fields, SignCount persistence, mark file dirty | Core | B-1 | yes (with B-2) |
 | B-4 | `passkey-shim.ts` (MAIN world) + `content-passkey.ts` (isolated): override `navigator.credentials.*`, origin verification, fallback to native | Extension | B-2 | no |
 | B-5 | Consent UI: popup for `create()`, in-page overlay (closed ShadowRoot) for `get()`. Preact, match existing extension UX | Extension | B-4 | no |
-| B-6 | Optional `packages/db/lib/helpers/passkey-entry.ts` typed accessor | DB | B-3 (schema locked) | yes (anytime after B-3) |
+| B-6 | Optional `modules/db/lib/helpers/passkey-entry.ts` typed accessor | DB | B-3 (schema locked) | yes (anytime after B-3) |
 | B-7 | Options page: "Default target group for new passkeys" + "Enable passkey authenticator" toggle | Extension | B-4 | yes |
 | B-8 | E2E spec `e2e/extension/passkey-authenticator.spec.ts` — CDP virtual authenticator, local fixture RP, full create+get+kdbx-inspect | Test | B-5 | no |
 | B-9 | KeePassXC interop test: create passkey in KeeWebX → save → open in KeePassXC (via keepass-rs harness) → fields preserved → re-save → KeeWebX `get()` still works | Test | B-8 | no |

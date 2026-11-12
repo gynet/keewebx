@@ -157,7 +157,7 @@ PRF at `navigator.credentials.create()` time is a **capability probe**: the brow
 ### Primitives used (all already in deps)
 
 - WebCrypto `SubtleCrypto` — HKDF, SHA-256, AES-GCM.
-- tweetnacl — already in `packages/extension`; available if we decide on ChaCha20-Poly1305.
+- tweetnacl — already in `modules/extension`; available if we decide on ChaCha20-Poly1305.
 - hash-wasm (Argon2) — not strictly needed here (PRF is the source of entropy), but noted for completeness.
 
 We **do not introduce new crypto libraries**. No new dependencies.
@@ -328,7 +328,7 @@ We hash our own context string because the browser will hash again with `"WebAut
 
 ### Data stored per file
 
-Extend `FileInfoProperties` in `packages/ui-classic/app/scripts/models/file-info-model.ts`:
+Extend `FileInfoProperties` in `modules/ui-classic/app/scripts/models/file-info-model.ts`:
 
 ```ts
 interface FileInfoProperties {
@@ -412,11 +412,11 @@ The master-password text input is always rendered on `open-view`, just visually 
 
 | File | Change |
 |---|---|
-| `packages/ui-classic/app/scripts/views/open-view.ts` | Add a new `unlockWithPasskey()` method alongside existing `openDb()`. Render a new template block that shows passkey name(s) and the tap button. Gate visibility on `fileInfo.passkeys && window.PublicKeyCredential`. |
-| `packages/ui-classic/app/scripts/models/app-model.ts` | `openFileWithData()` already accepts `password: ProtectedValue`. New wrapper: after passkey PRF eval returns the master password bytes, build the `ProtectedValue` and call the existing path. Minimal surface change. |
-| `packages/ui-classic/app/scripts/models/file-info-model.ts` | Add the `passkeys` field as described in §6. Round-trip through `SettingsStore` with no custom serializer (it's plain JSON). |
-| `packages/ui-classic/app/scripts/models/file-model.ts` | **No change required for unlock itself** — `file.open(password, ...)` takes a `ProtectedValue` today. We reconstruct that ProtectedValue from the unwrapped bytes. |
-| New: `packages/ui-classic/app/scripts/util/webauthn-prf.ts` | New module: `registerCredential()`, `evalPrf()`, `wrapKey()`, `unwrapKey()`. All pure functions on top of WebCrypto and `navigator.credentials`. Tested in isolation. |
+| `modules/ui-classic/app/scripts/views/open-view.ts` | Add a new `unlockWithPasskey()` method alongside existing `openDb()`. Render a new template block that shows passkey name(s) and the tap button. Gate visibility on `fileInfo.passkeys && window.PublicKeyCredential`. |
+| `modules/ui-classic/app/scripts/models/app-model.ts` | `openFileWithData()` already accepts `password: ProtectedValue`. New wrapper: after passkey PRF eval returns the master password bytes, build the `ProtectedValue` and call the existing path. Minimal surface change. |
+| `modules/ui-classic/app/scripts/models/file-info-model.ts` | Add the `passkeys` field as described in §6. Round-trip through `SettingsStore` with no custom serializer (it's plain JSON). |
+| `modules/ui-classic/app/scripts/models/file-model.ts` | **No change required for unlock itself** — `file.open(password, ...)` takes a `ProtectedValue` today. We reconstruct that ProtectedValue from the unwrapped bytes. |
+| New: `modules/ui-classic/app/scripts/util/webauthn-prf.ts` | New module: `registerCredential()`, `evalPrf()`, `wrapKey()`, `unwrapKey()`. All pure functions on top of WebCrypto and `navigator.credentials`. Tested in isolation. |
 
 ---
 
@@ -824,9 +824,9 @@ The alternative — one credential per feature — has no concrete benefit and t
 
 ## 13. Test strategy
 
-### Unit tests (in `packages/ui-classic`)
+### Unit tests (in `modules/ui-classic`)
 
-Target file: `packages/ui-classic/test/webauthn-prf.test.ts` (new).
+Target file: `modules/ui-classic/test/webauthn-prf.test.ts` (new).
 
 - **HKDF determinism.** Same PRF output + same salt + same info → same wrapping key. Different info → different wrapping key. Property-based test with a few hundred random inputs.
 - **AES-GCM wrap/unwrap round-trip.** Wrap a known master password, unwrap, verify bytes match.
@@ -911,7 +911,7 @@ This is a sketch. Concrete sub-issues will be filed after this design is approve
 
 ### Suggested sub-issues under #9 (do not file yet)
 
-1. **#9.1 — WebAuthn PRF primitives module** (`packages/ui-classic/app/scripts/util/webauthn-prf.ts`) + unit tests. HKDF, wrap, unwrap, evalInput construction. Pure crypto, no UI. Ships self-contained.
+1. **#9.1 — WebAuthn PRF primitives module** (`modules/ui-classic/app/scripts/util/webauthn-prf.ts`) + unit tests. HKDF, wrap, unwrap, evalInput construction. Pure crypto, no UI. Ships self-contained.
 2. **#9.2 — `FileInfoModel.passkeys` schema** + `SettingsStore` persistence round-trip + data model upgrade path. Ships self-contained, zero UI.
 3. **#9.3 — Registration flow (Settings UI)**. Three-step modal described in §10.1. Calls into #9.1 and #9.2.
 4. **#9.4 — Unlock flow (`open-view` integration)**. New "Unlock with passkey" button. Passkey-aware render state. Fallback to master password. Calls into #9.1 to produce `ProtectedValue`, then hands off to existing `openFile()` path.
@@ -970,7 +970,7 @@ This is a sketch. Concrete sub-issues will be filed after this design is approve
 ## Appendix B — Minimum viable code sketch (illustrative only, not committed)
 
 ```ts
-// packages/ui-classic/app/scripts/util/webauthn-prf.ts — sketch, not final
+// modules/ui-classic/app/scripts/util/webauthn-prf.ts — sketch, not final
 
 const PRF_NAMESPACE_UNLOCK   = "keewebx-unlock-v1";
 const HKDF_INFO_UNLOCK       = "keewebx-master-unlock-v1";

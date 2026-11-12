@@ -33,12 +33,12 @@ import fs from 'node:fs';
  *   bouncing work back to the user.
  */
 
-const EXT_PATH = path.resolve(__dirname, '../../packages/extension/dist/chrome');
+const EXT_PATH = path.resolve(__dirname, '../../modules/extension/dist/chrome');
 
 test.describe('Extension autofill on real github.com', () => {
     test('autoFill writes username + password to github.com/login form', async () => {
         expect(fs.existsSync(path.join(EXT_PATH, 'manifest.json')),
-            `extension must be built: cd packages/extension && bun run build-chrome`).toBe(true);
+            `extension must be built: cd modules/extension && bun run build-chrome`).toBe(true);
 
         const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kw-ext-gh-'));
         const context = await chromium.launchPersistentContext(userDataDir, {

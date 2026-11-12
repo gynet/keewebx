@@ -1,4 +1,4 @@
-# <img src="packages/ui-classic/graphics/keewebx-logo.svg" width="36" height="36" alt="" align="top"> KeeWebX
+# <img src="modules/ui-classic/graphics/keewebx-logo.svg" width="36" height="36" alt="" align="top"> KeeWebX
 
 **Open a KeePass vault in your browser. No install, no signup, nothing to host.**
 
@@ -97,7 +97,7 @@ bun run dev     # http://localhost:8085
 ## Monorepo
 
 ```
-packages/
+modules/
   ui-classic/   Classic interface: views, templates, styles and browser shell
   ui/           New interface (Preact), alongside Classic
   ui-kit/       Shared icons, design tokens and presentation helpers
