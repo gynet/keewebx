@@ -372,9 +372,9 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
                     <span class="detail__where">{entry.groupName}</span>
                 </div>
                 <div class="entry-detail__actions">
-                    <button class="pill" onClick={onEdit}>{t('Edit')}</button>
-                    {onDelete && <button class="pill" onClick={onDelete}>{t('Move to Trash')}</button>}
-                    {onRestore && <button class="pill" onClick={onRestore}>{t('Restore')}</button>}
+                    <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
+                    {onDelete && <button class="pill pill--tinted pill--danger" onClick={onDelete}><Icon name="trash" size={16} />{t('Move to Trash')}</button>}
+                    {onRestore && <button class="pill pill--tinted" onClick={onRestore}>{t('Restore')}</button>}
                 </div>
             </div>
 

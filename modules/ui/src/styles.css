@@ -49,6 +49,26 @@ button {
 .pill--block {
     width: 100%;
 }
+.pill--tinted {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 44px;
+    padding: 10px 15px;
+    border: 1px solid rgba(10, 111, 232, 0.22);
+    border-radius: 10px;
+    background: rgba(10, 111, 232, 0.09);
+    color: var(--kx-acc);
+    transition: background-color 140ms ease, border-color 140ms ease;
+}
+@media (hover: hover) {
+    .pill--tinted:hover { background: rgba(10, 111, 232, 0.16); border-color: rgba(10, 111, 232, 0.4); }
+    .pill--tinted.pill--danger:hover { color: var(--kx-error); border-color: currentColor; background: rgba(192, 57, 43, 0.08); }
+}
+.pill--tinted:active { background: rgba(10, 111, 232, 0.23); }
+.pill--tinted:focus-visible { outline: 2px solid var(--kx-acc); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .pill--tinted { transition: none; } }
 .pill:disabled {
     opacity: 0.55;
     cursor: default;
