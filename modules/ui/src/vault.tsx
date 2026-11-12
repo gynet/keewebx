@@ -247,16 +247,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         setSelected(undefined);
         Events.emit('refresh');
     };
-    const restoreEntry = () => {
-        if (!entry) {
-            return;
-        }
-        const root = (entry.file as FileModel).groups[0];
-        root.moveHere(entry);
-        setFilter({});
-        setQuery('');
-        Events.emit('refresh');
-    };
 
     return (
         <div
@@ -451,7 +441,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         });
                     }}
                     onDelete={!filter.trash && (entry.file as FileModel).db.meta.recycleBinEnabled ? moveToTrash : undefined}
-                    onRestore={filter.trash ? restoreEntry : undefined} />
+                    inTrash={!!filter.trash} />
             ) : (
                 <main class="detail">
                     <p class="empty">{t('Select an entry')}</p>
@@ -521,7 +511,7 @@ function useOtp(entry: EntryModel): { code: string; left: number } | null {
     return otp;
 }
 
-function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete, onRestore }: {
+function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete, inTrash }: {
     model: AppModel;
     entry: EntryModel;
     onBack: () => void;
@@ -529,7 +519,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
     onMoved: (entryId: string, groupId: string) => void;
     onCloned: (entryId: string, groupId: string) => void;
     onDelete?: () => void;
-    onRestore?: () => void;
+    inTrash?: boolean;
 }) {
     const s = summarizeEntry(entry);
     const otp = useOtp(entry);
@@ -600,11 +590,10 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 </div>
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
-                    {!onRestore && <EntryMove model={model} entry={entry} onMoved={onMoved} />}
-                    {!onRestore && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
+                    <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
+                    {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
                     <EntryHistory entry={entry} onRestore={() => setNotesVersion(value => value + 1)} />
                     {onDelete && <button class="pill pill--tinted pill--danger" onClick={onDelete}><Icon name="trash" size={16} />{t('Move to Trash')}</button>}
-                    {onRestore && <button class="pill pill--tinted" onClick={onRestore}>{t('Restore')}</button>}
                 </div>
             </div>
 

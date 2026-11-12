@@ -32,15 +32,18 @@ interface Selection {
     editSeq: number;
     epoch: number;
     destinations: Destination[];
+    restore: boolean;
+    suggestedId: string;
+    originalAvailable: boolean;
 }
 
 // Check actual parent membership, not just a possibly stale group ID/index.
-function groupChain(file: FileModel, group: GroupModel): GroupReference[] | null {
+function groupChain(file: FileModel, group: GroupModel, allowTrash = false): GroupReference[] | null {
     const chain: GroupReference[] = [];
     const visited = new Set<GroupModel>();
     for (let current: GroupModel | null = group; current; current = current.parentGroup) {
         if (visited.has(current) || current.file !== file || file.getGroup(current.id) !== current
-            || file.db.meta.recycleBinUuid?.equals(current.group.uuid)) return null;
+            || (!allowTrash && file.db.meta.recycleBinUuid?.equals(current.group.uuid))) return null;
         visited.add(current);
         const parent: GroupModel | null = current.parentGroup;
         const siblings = parent ? parent.group.groups : file.db.groups;
@@ -57,14 +60,18 @@ function groupChain(file: FileModel, group: GroupModel): GroupReference[] | null
     return chain;
 }
 
-function unavailable(model: AppModel, entry: EntryModel): string {
+function unavailable(model: AppModel, entry: EntryModel, restore = false): string {
     const file = entry.file as FileModel;
     if (getSessionAccess(model).state !== 'open') return t('Unlock the database before moving an entry.');
     if (!file.active || model.files.get(file.id) !== file || file.getEntry(entry.id) !== entry
         || !(entry.group as GroupModel).group.entries.includes(entry.entry)
-        || entry.entry.parentGroup !== (entry.group as GroupModel).group
-        || !groupChain(file, entry.group as GroupModel)) {
-        return t('This entry is no longer available outside the trash.');
+        || entry.entry.parentGroup !== (entry.group as GroupModel).group) {
+        return t(restore ? 'This entry changed. Cancel and open Restore again.' : 'This entry is no longer available outside the trash.');
+    }
+    const chain = groupChain(file, entry.group as GroupModel, restore);
+    if (!chain) return t('This entry changed. Cancel and reopen the entry.');
+    if (restore && !chain.some(group => file.db.meta.recycleBinUuid?.equals(group.object.uuid))) {
+        return t('This entry is no longer in trash. Cancel and reopen the entry.');
     }
     if ((file as FileModel & { readOnly?: boolean }).readOnly === true) return t('This database is read-only.');
     if (file.syncing) return t('A save is in progress. Wait for it to finish, then try again.');
@@ -93,13 +100,13 @@ function changed(model: AppModel, selection: Selection, destination?: Destinatio
     const { file, entry } = selection;
     const access = getSessionAccess(model);
     if (access.state !== 'open' || !access.isCurrent(selection.epoch)) {
-        return t('The session changed. Cancel and open Move to group again.');
+        return t(selection.restore ? 'The session changed. Cancel and open Restore again.' : 'The session changed. Cancel and open Move to group again.');
     }
-    const reason = unavailable(model, entry);
+    const reason = unavailable(model, entry, selection.restore);
     if (reason) return reason;
     if (entry.file !== file || file.db !== selection.db || entry.entry !== selection.object
         || entry.group !== selection.source || file.editSeq !== selection.editSeq) {
-        return t('This entry changed. Cancel and open Move to group again.');
+        return t(selection.restore ? 'This entry changed. Cancel and open Restore again.' : 'This entry changed. Cancel and open Move to group again.');
     }
     if (destination) {
         const current = groupChain(file, destination.chain[destination.chain.length - 1].model);
@@ -114,34 +121,40 @@ function changed(model: AppModel, selection: Selection, destination?: Destinatio
 }
 
 /** Entry-only, same-vault movement. No new records or cross-vault import/delete. */
-export function EntryMove({ model, entry, onMoved }: {
+export function EntryMove({ model, entry, onMoved, restore = false }: {
     model: AppModel;
     entry: EntryModel;
     onMoved: (entryId: string, groupId: string) => void;
+    restore?: boolean;
 }) {
     const [selection, setSelection] = useState<Selection | null>(null);
     const [message, setMessage] = useState('');
     const trigger = useRef<HTMLButtonElement>(null);
-    const reason = unavailable(model, entry);
+    const reason = unavailable(model, entry, restore);
     const begin = () => {
-        if (selection || unavailable(model, entry) || !confirmDiscardDrafts()) return;
+        if (selection || unavailable(model, entry, restore) || (!restore && !confirmDiscardDrafts())) return;
         // The discard confirmation can outlive a sync or session transition.
-        const reason = unavailable(model, entry);
+        const reason = unavailable(model, entry, restore);
         if (reason) { setMessage(reason); return; }
         const file = entry.file as FileModel;
+        const choices = destinations(file);
+        const original = restore && entry.entry.previousParentGroup
+            ? choices.find(destination => destination.id === file.subId(entry.entry.previousParentGroup!.id)) : undefined;
+        const suggested = original ?? (restore ? choices.find(destination => destination.chain.length === 1) : undefined);
         setMessage('');
         setSelection({ file, db: file.db, entry, object: entry.entry,
             source: entry.group as GroupModel, editSeq: file.editSeq,
-            epoch: getSessionAccess(model).epoch, destinations: destinations(file) });
+            epoch: getSessionAccess(model).epoch, destinations: choices, restore,
+            suggestedId: suggested?.id ?? '', originalAvailable: !!original });
     };
     return <div>
         <button ref={trigger} type="button" class="pill pill--tinted" disabled={!!reason || !!selection}
-            title={reason || undefined} onClick={begin}>{t('Move to group…')}</button>
+            title={reason || undefined} onClick={begin}>{t(restore ? 'Restore' : 'Move to group…')}</button>
         {message && <p role="status">{message}</p>}
         {selection && <MoveDialog model={model} selection={selection} trigger={trigger}
             onCancel={() => setSelection(null)} onMoved={(groupId) => {
                 setSelection(null);
-                setMessage(t('Entry moved. Check the database sync status.'));
+                setMessage(t(selection.restore ? 'Entry restored. Check the database sync status.' : 'Entry moved. Check the database sync status.'));
                 onMoved(selection.entry.id, groupId);
             }} />}
     </div>;
@@ -154,11 +167,12 @@ function MoveDialog({ model, selection, trigger, onCancel, onMoved }: {
     onCancel: () => void;
     onMoved: (groupId: string) => void;
 }) {
-    const [destinationId, setDestinationId] = useState('');
+    const [destinationId, setDestinationId] = useState(selection.suggestedId);
     const [error, setError] = useState('');
     const [supported, setSupported] = useState(true);
     const dialog = useRef<HTMLDialogElement>(null);
     const select = useRef<HTMLSelectElement>(null);
+    const cancel = useRef<HTMLButtonElement>(null);
     const applied = useRef(false);
     const destination = selection.destinations.find(({ id }) => id === destinationId);
     const reason = changed(model, selection, destination);
@@ -170,7 +184,7 @@ function MoveDialog({ model, selection, trigger, onCancel, onMoved }: {
             return;
         }
         element.showModal();
-        select.current?.focus();
+        if (selection.restore) cancel.current?.focus(); else select.current?.focus();
         return () => {
             element.close();
             requestAnimationFrame(() => {
@@ -183,9 +197,14 @@ function MoveDialog({ model, selection, trigger, onCancel, onMoved }: {
 
     const move = () => {
         if (applied.current || !supported) return;
-        const reason = changed(model, selection, destination);
+        let reason = changed(model, selection, destination);
         if (reason) { setError(reason); return; }
         if (!destination || destination.id === selection.source.id) return;
+        if (selection.restore) {
+            if (!confirmDiscardDrafts()) return;
+            reason = changed(model, selection, destination);
+            if (reason) { setError(reason); return; }
+        }
         try {
             // No await between final validation and the existing synchronous model mutation.
             destination.chain[destination.chain.length - 1].model.moveHere(selection.entry);
@@ -200,7 +219,7 @@ function MoveDialog({ model, selection, trigger, onCancel, onMoved }: {
         <p>{error}</p>
         <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
     </div>;
-    return <dialog ref={dialog} aria-label={t('Move entry to group')} aria-modal="true"
+    return <dialog ref={dialog} aria-label={t(selection.restore ? 'Restore entry to group' : 'Move entry to group')} aria-modal="true"
         onCancel={(event) => { event.preventDefault(); onCancel(); }}
         onKeyDown={(event) => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         onClick={(event) => { IdleTracker.regUserAction(); event.stopPropagation(); }}
@@ -209,8 +228,12 @@ function MoveDialog({ model, selection, trigger, onCancel, onMoved }: {
             border: '1px solid var(--kx-line)', borderRadius: 'var(--kx-radius-card)',
             background: 'var(--kx-bg)', color: 'var(--kx-text)' }}>
         <form onSubmit={(event) => { event.preventDefault(); move(); }}>
-            <h2 style={{ margin: '0 0 16px' }}>{t('Move entry to group')}</h2>
+            <h2 style={{ margin: '0 0 16px' }}>{t(selection.restore ? 'Restore entry to group' : 'Move entry to group')}</h2>
             <p>{t('Choose a destination in {}.', selection.file.name)}</p>
+            {selection.restore && <p>{t(selection.originalAvailable
+                ? 'The original group is suggested. You can choose another group before restoring.'
+                : 'The original group is unavailable or was not recorded. The vault root is suggested; choose a destination before restoring.')}</p>}
+            {selection.restore && <p>{t('Unsaved drafts are not included. You will be asked before discarding them.')}</p>}
             {selection.destinations.some(({ chain }) => chain.some(group => group.sameNameCount > 1))
                 && <p>{t('Groups with the same name are numbered in their current order.')}</p>}
             <label class="vault-form__field">{t('Destination group')}
@@ -225,9 +248,9 @@ function MoveDialog({ model, selection, trigger, onCancel, onMoved }: {
             {destination && <p>{t('Destination: {}', destination.path)}</p>}
             {(reason || error) && <p class="error" role="alert">{reason || error}</p>}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px' }}>
-                <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
+                <button ref={cancel} type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
                 <button type="submit" class="pill pill--primary"
-                    disabled={!destination || destination.id === selection.source.id || !!reason || !!error}>{t('Move')}</button>
+                    disabled={!destination || destination.id === selection.source.id || !!reason || !!error}>{t(selection.restore ? 'Restore' : 'Move')}</button>
             </div>
         </form>
     </dialog>;

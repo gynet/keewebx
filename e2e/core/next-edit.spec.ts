@@ -190,6 +190,8 @@ test.describe('New interface entry editing', () => {
         await page.getByRole('button', { name: 'Trash', exact: true }).click();
         await entryRow(page, 'Created fixture entry').click();
         await page.getByRole('button', { name: 'Restore', exact: true }).click();
+        await page.getByRole('dialog', { name: 'Restore entry to group', exact: true })
+            .getByRole('button', { name: 'Restore', exact: true }).click();
         await expect(page.locator('#entry-title')).toHaveText('Created fixture entry');
         await expect(page.locator('.entry-row')).toHaveCount(initialCount + 1);
         await lockAndReopen(page);
