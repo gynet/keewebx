@@ -1,54 +1,28 @@
 #!/usr/bin/env bun
 /**
- * FULL-CHAIN extension autofill regression guard for Firefox.
+ * Headless Firefox full-chain autofill regression guard.
  *
- * Why this lives here as a standalone Bun script instead of inside
- * Playwright: Playwright's bundled Firefox enforces xpi signature
- * verification even with `xpinstall.signatures.required=false`,
- * so we cannot load our unsigned development xpi via
- * `firefox.launchPersistentContext`. Selenium WebDriver + geckodriver
- * does support `driver.installAddon(xpi, true)` where the second arg
- * is the "temporary" flag, so we drive Firefox via that.
+ * Installs the unsigned Firefox build as a temporary add-on, configures
+ * its options page, loads the KeeWebX demo database, and invokes the
+ * production invoke-action-click RPC against the real GitHub login form.
+ * Both fields must be filled through runCommand and the encrypted vault
+ * protocol; the harness only blocks submission, never supplies credentials.
  *
- * The test mirrors `autofill-full-chain.spec.ts` (Chromium) one-for-one:
+ * Prerequisites: geckodriver 0.36+, Firefox 149+, the built Firefox zip at
+ * modules/extension/web-ext-artifacts/keewebx_connect-1.0.3.zip, and the
+ * classic UI dev server (bun run --filter @keewebx/ui-classic dev).
  *
- *   1. Launch Firefox 149 with the built `.xpi` installed as a
- *      Temporary Add-on
- *   2. Set `keeWebUrl` in extension storage to localhost:8085
- *   3. Open KeeWebX dev server, click Demo, wait for unlock
- *   4. Open github.com/login, focus #login_field, block form submit
- *   5. Trigger `chrome.action.onClicked.dispatch(tab)` from the
- *      extension background page (Firefox MV3 uses `background.scripts`,
- *      so the background page is a real DOM page accessible via
- *      driver.setContext('chrome') or by navigating Marionette)
- *   6. Click the "Allow" button on KeeWebX's permission modal
- *   7. Wait for #login_field to fill
- *   8. Assert both fields populated
- *
- * Run as:
- *   bun run e2e/extension/autofill-firefox-full-chain.mjs
- *
- * Exit code 0 = pass, non-zero = fail. CI calls this directly.
- *
- * Prerequisites:
- *   - geckodriver installed (`brew install geckodriver` on macOS,
- *     `apt-get install firefox-geckodriver` on Ubuntu)
- *   - selenium-webdriver in devDependencies (already added 2026-04-09)
- *   - Firefox 149+ at /Applications/Firefox.app on macOS,
- *     `firefox` in PATH on Linux
- *   - KeeWebX dev server running on http://localhost:8085 (start
- *     with `bun run --filter @keewebx/ui-classic dev` in another terminal,
- *     OR let the test fail with a clear error)
- *   - Built firefox xpi at modules/extension/web-ext-artifacts/
- *     keewebx_connect-1.0.3.zip (cd modules/extension && bun run
- *     build-firefox)
+ * Run: bun run e2e/extension/autofill-firefox-full-chain.mjs
+ * FIREFOX_BINARY overrides browser discovery on every platform.
+ * FIREFOX_VERSION, when set, must match the launched browser version.
+ * GECKODRIVER_BINARY optionally selects a specific geckodriver executable.
+ * KEEWEBX_URL defaults to http://localhost:8085/.
  */
 
 import { Builder, By, until } from 'selenium-webdriver';
 import firefoxMod from 'selenium-webdriver/firefox.js';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 const XPI = path.resolve(
@@ -59,249 +33,210 @@ const KEEWEBX_URL = process.env.KEEWEBX_URL || 'http://localhost:8085/';
 const FF_BIN_MAC = '/Applications/Firefox.app/Contents/MacOS/firefox';
 
 function fail(msg) {
-    console.error('FAIL:', msg);
-    process.exit(1);
+    // Throw so failures after launch always reach driver.quit().
+    throw new Error(msg);
 }
 
 function ok(msg) {
     console.log('  ✓', msg);
 }
 
-if (!fs.existsSync(XPI)) {
-    fail(
-        `firefox xpi missing at ${XPI}. Build with: ` +
-            `cd modules/extension && bun run build-firefox`
-    );
-}
-
-// Quick liveness check on the dev server before spending 10s on
-// Firefox launch. Saves debugging confusion when the dev server is
-// down.
+let driver;
+let exitCode = 0;
 try {
+    if (!fs.existsSync(XPI)) {
+        fail(
+            `firefox xpi missing at ${XPI}. Build with: ` +
+                `cd modules/extension && bun run build-firefox`
+        );
+    }
+
     const r = await fetch(KEEWEBX_URL, { signal: AbortSignal.timeout(2000) });
     if (!r.ok) fail(`KeeWebX dev server at ${KEEWEBX_URL} returned ${r.status}`);
     ok(`KeeWebX dev server reachable at ${KEEWEBX_URL}`);
-} catch (e) {
-    fail(
-        `KeeWebX dev server at ${KEEWEBX_URL} unreachable: ${e.message}. ` +
-            `Start it with: bun run --filter @keewebx/ui-classic dev`
-    );
-}
 
-const opts = new firefoxMod.Options();
-if (fs.existsSync(FF_BIN_MAC)) {
-    opts.setBinary(FF_BIN_MAC);
-}
-opts.setPreference('xpinstall.signatures.required', false);
-opts.setPreference('extensions.logging.enabled', true);
-opts.setPreference('browser.shell.checkDefaultBrowser', false);
-// Headless mode for CI; comment out to debug visually:
-if (process.env.HEADLESS !== '0') {
+    const opts = new firefoxMod.Options();
+    if (process.env.FIREFOX_BINARY) {
+        opts.setBinary(process.env.FIREFOX_BINARY);
+    } else if (process.platform === 'darwin' && fs.existsSync(FF_BIN_MAC)) {
+        opts.setBinary(FF_BIN_MAC);
+    }
+    opts.setPreference('xpinstall.signatures.required', false);
+    opts.setPreference('extensions.logging.enabled', true);
+    opts.setPreference('browser.shell.checkDefaultBrowser', false);
     opts.addArguments('--headless');
-}
 
-const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(opts).build();
+    // Required since Firefox 138 for the privileged UUID lookup below.
+    // https://firefox-source-docs.mozilla.org/testing/geckodriver/Flags.html
+    const service = new firefoxMod.ServiceBuilder(process.env.GECKODRIVER_BINARY)
+        .addArguments('--allow-system-access')
+        .setEnvironment({ ...process.env, MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: '1' });
+    driver = await new Builder()
+        .forBrowser('firefox')
+        .setFirefoxOptions(opts)
+        .setFirefoxService(service)
+        .build();
+    await driver.manage().setTimeouts({ pageLoad: 60_000, script: 20_000 });
 
-let exitCode = 0;
-try {
-    const ver = await driver
-        .getCapabilities()
-        .then((c) => c.get('browserVersion'));
-    ok(`Firefox launched (v${ver})`);
+    const ver = (await driver.getCapabilities()).get('browserVersion');
+    ok(`Firefox launched (v${ver}, binary: ${process.env.FIREFOX_BINARY || 'auto'})`);
+    if (process.env.FIREFOX_VERSION && ver !== process.env.FIREFOX_VERSION) {
+        fail(`Expected Firefox ${process.env.FIREFOX_VERSION}, launched ${ver}`);
+    }
 
-    // Install extension as Temporary Add-on (geckodriver supports this
-    // for unsigned xpis when xpinstall.signatures.required=false)
-    await driver.installAddon(XPI, true);
-    ok('Extension installed as temporary add-on');
+    const addonId = await driver.installAddon(XPI, true);
+    if (!addonId) fail('Temporary add-on installation returned no ID');
+    ok(`Extension installed as temporary add-on: ${addonId}`);
 
-    // Give the extension's background page a moment to spin up
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // 1. Open KeeWebX dev server
-    await driver.get(KEEWEBX_URL);
-    const neowebHandle = await driver.getWindowHandle();
-    await driver.wait(until.elementLocated(By.css('#open__icon-demo')), 15_000);
-    await driver.findElement(By.css('#open__icon-demo')).click();
-    await driver.wait(until.elementLocated(By.css('.list__item')), 20_000);
-    ok('KeeWebX demo database loaded');
-
-    // 2. Configure extension keeWebUrl via the extension's
-    //    background. We need to access chrome.storage.local. The way
-    //    to do this in Firefox WebDriver: switch to chrome context
-    //    + execute privileged JS via Marionette.
-    //
-    //    Selenium-firefox's installAddon returns the addon ID; we
-    //    use that to find the moz-extension://<uuid>/ origin.
-    //    But we need the runtime UUID (random per install), not the
-    //    gecko id. Easiest path: open the options page and execute
-    //    chrome.storage.local.set from there. Options page has full
-    //    extension API access.
-    //
-    //    Actually simplest: navigate to about:debugging, scrape the
-    //    extension's "Internal UUID" from the DOM, build the
-    //    moz-extension URL, navigate to options, execute storage set.
-    const debuggingTab = await driver.switchTo().newWindow('tab');
-    await driver.get('about:debugging#/runtime/this-firefox');
-    await new Promise((r) => setTimeout(r, 1500));
-    // Scrape internal UUID — the extension page lists each addon
-    // with its "Internal UUID". Selector is fragile across Firefox
-    // versions; we use a generic match for our gecko id then walk up.
-    const internalUuid = await driver
-        .executeScript(`
-            // The about:debugging page is a privileged page; scrape
-            // visible text for our addon name + Internal UUID.
-            const root = document.body;
-            const text = root.innerText || '';
-            // Match: "Internal UUID\\n<uuid>" near "KeeWebX Connect"
-            const m = text.match(/Internal UUID\\s*([0-9a-f-]{36})/i);
-            return m ? m[1] : null;
-        `)
-        .catch(() => null);
-    if (!internalUuid) {
-        fail(
-            'Could not scrape extension Internal UUID from about:debugging. ' +
-                'Firefox UI may have changed; update the scraper selector.'
+    // Resolve this installed add-on's active policy, not a browser UI label
+    // or a UUID belonging to another extension. Restore content context even
+    // when lookup fails; all remaining operations use ordinary tab content.
+    let internalUuid;
+    try {
+        await driver.setContext('chrome');
+        internalUuid = await driver.wait(
+            () => driver.executeScript(`
+                const policy = WebExtensionPolicy.getByID(arguments[0]);
+                return policy ? policy.mozExtensionHostname : null;
+            `, addonId),
+            10_000,
+            `No active extension policy for installed add-on ${addonId}`
         );
+    } finally {
+        await driver.setContext('content');
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(internalUuid)) {
+        fail(`Invalid internal UUID for ${addonId}: ${internalUuid}`);
     }
     ok(`Extension internal UUID: ${internalUuid}`);
 
     const optionsUrl = `moz-extension://${internalUuid}/pages/options.html`;
     await driver.get(optionsUrl);
-    await new Promise((r) => setTimeout(r, 1000));
-    // Execute on the options page (which is a moz-extension:// page
-    // with full chrome.* API access)
+    const optionsHandle = await driver.getWindowHandle();
+    await driver.wait(
+        () => driver.executeScript(`
+            return typeof chrome !== 'undefined' && chrome.runtime?.id === arguments[0];
+        `, addonId),
+        10_000,
+        'Installed extension options API did not become ready'
+    );
+    // Pass the URL as data, and wait for persistence before opening the vault.
     await driver.executeScript(`
-        return new Promise((resolve) => {
-            chrome.storage.local.set({keeWebUrl: '${KEEWEBX_URL}'}, () => resolve(true));
+        return new Promise((resolve, reject) => {
+            const url = arguments[0];
+            chrome.storage.local.set({ keeWebUrl: url }, () => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                chrome.storage.local.get('keeWebUrl', (data) => {
+                    if (chrome.runtime.lastError) {
+                        reject(new Error(chrome.runtime.lastError.message));
+                    } else if (data.keeWebUrl !== url) {
+                        reject(new Error('keeWebUrl was not persisted'));
+                    } else {
+                        resolve(true);
+                    }
+                });
+            });
         });
-    `);
-    ok('keeWebUrl configured to localhost:8085');
+    `, KEEWEBX_URL);
+    ok(`keeWebUrl configured to ${KEEWEBX_URL}`);
 
-    // 3. Switch back to KeeWebX tab (still has demo loaded)
-    await driver.switchTo().window(neowebHandle);
+    await driver.switchTo().newWindow('tab');
+    await driver.get(KEEWEBX_URL);
+    const keewebxHandle = await driver.getWindowHandle();
+    await driver.wait(until.elementLocated(By.css('#open__icon-demo')), 60_000);
+    await driver.findElement(By.css('#open__icon-demo')).click();
+    await driver.wait(until.elementLocated(By.css('.list__item')), 60_000);
+    ok('KeeWebX demo database loaded');
 
-    // 4. Open github.com/login in a new tab
     await driver.switchTo().newWindow('tab');
     await driver.get('https://github.com/login');
     const githubHandle = await driver.getWindowHandle();
     await driver.wait(until.elementLocated(By.id('login_field')), 15_000);
+    await driver.wait(until.elementLocated(By.id('password')), 15_000);
     await driver.findElement(By.id('login_field')).click();
-    ok('github.com/login loaded, focus on login_field');
-
-    // Block form submit so the form-fill values survive for verification
     await driver.executeScript(`
-        const form = document.querySelector('form');
-        if (form) {
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-            }, {capture: true});
+        const login = document.getElementById('login_field');
+        const password = document.getElementById('password');
+        if (login.value || password.value) {
+            throw new Error('GitHub fields must start empty before extension autofill');
         }
+        const form = login.form;
+        if (!form || password.form !== form) {
+            throw new Error('GitHub login form not found');
+        }
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }, { capture: true });
     `);
+    ok('github.com/login loaded with empty fields; submission blocked');
 
-    // 5. Trigger chrome.action.onClicked.dispatch from the extension
-    //    background page. Firefox MV3 with our manifest patch uses
-    //    background.scripts (not service_worker), so the background
-    //    is a real DOM page accessible via the moz-extension:// URL,
-    //    NOT via context.serviceWorkers().
-    //
-    //    Easiest path to background: navigate to a moz-extension://
-    //    URL that has chrome.* API access (the options page works,
-    //    but we're not on it anymore). Just open a NEW tab, navigate
-    //    to about:debugging → click "Inspect" on the addon → that
-    //    opens a devtools window for the bg page. Too clunky for a
-    //    test.
-    //
-    //    Better: from any moz-extension:// page, we have chrome.tabs
-    //    + chrome.scripting API. We can navigate to the options page
-    //    again and dispatch from there, since options page shares the
-    //    same extension's chrome.action.onClicked event registry.
-    const githubTabId = await (async () => {
-        // Switch to options page to get chrome.tabs API
-        await driver.switchTo().newWindow('tab');
-        await driver.get(optionsUrl);
-        await new Promise((r) => setTimeout(r, 500));
-        const tabs = await driver.executeScript(`
-            return new Promise((resolve) => {
-                chrome.tabs.query({}, (tabs) => {
-                    resolve(tabs.map(t => ({id: t.id, url: t.url})));
-                });
-            });
-        `);
-        const t = tabs.find((tab) => tab.url?.startsWith('https://github.com/login'));
-        if (!t) fail(`No github tab found in tabs: ${JSON.stringify(tabs)}`);
-        return t.id;
-    })();
-    ok(`github tab id: ${githubTabId}`);
-
-    // Now invoke runCommand via the `invoke-action-click` RPC exposed
-    // by background/init.ts. Firefox 149 does not expose
-    // chrome.action.onClicked.dispatch, so we use runtime.sendMessage
-    // to reach the background listener. Same mechanism used by
-    // autofill-full-chain.spec.ts for Chromium — portable.
-    const dispatchResult = await driver.executeScript(`
-        return new Promise((resolve) => {
-            chrome.tabs.query({}, (tabs) => {
-                const tab = tabs.find(t => t.url?.startsWith('https://github.com/login'));
-                if (!tab) {
-                    resolve({error: 'no github tab'});
-                    return;
+    await driver.switchTo().window(optionsHandle);
+    const githubTabId = await driver.executeScript(`
+        return new Promise((resolve, reject) => {
+            chrome.tabs.query({ url: 'https://github.com/login*' }, (tabs) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else if (tabs.length !== 1) {
+                    reject(new Error('Expected exactly one GitHub login tab'));
+                } else {
+                    resolve(tabs[0].id);
                 }
-                // Fire and forget — runCommand is async and will still
-                // be running when sendMessage returns. Test polls the
-                // github form for filled values.
-                chrome.runtime.sendMessage({
-                    action: 'invoke-action-click',
-                    tabId: tab.id
-                });
-                resolve({dispatched: true, tabId: tab.id});
             });
         });
     `);
-    console.log('  dispatch result:', JSON.stringify(dispatchResult));
-    if (dispatchResult.error) {
-        fail(`dispatch failed: ${dispatchResult.error}`);
-    }
-    ok('chrome.action.onClicked.dispatch fired');
+    if (!Number.isInteger(githubTabId)) fail('GitHub tab has no numeric ID');
 
-    // 6. Switch to KeeWebX tab and click the permission modal "Allow"
-    await driver.switchTo().window(neowebHandle);
-    await new Promise((r) => setTimeout(r, 1500));
-    try {
-        const allowBtn = await driver.wait(
-            until.elementLocated(By.css("button[data-result='yes']")),
-            6_000
-        );
-        await allowBtn.click();
-        ok('Permission modal Allow clicked');
-    } catch {
-        ok('Permission modal not present (may be cached) — continuing');
-    }
+    // Do not await the RPC here: runCommand waits for the permission modal.
+    // Keep its eventual response on this options page and assert it below.
+    await driver.executeScript(`
+        window.__keewebxAutofillResult = null;
+        chrome.runtime.sendMessage({
+            action: 'invoke-action-click', tabId: arguments[0]
+        }, (response) => {
+            window.__keewebxAutofillResult = chrome.runtime.lastError
+                ? { error: chrome.runtime.lastError.message }
+                : (response || { error: 'No response from invoke-action-click' });
+        });
+    `, githubTabId);
+    ok(`invoke-action-click dispatched for GitHub tab ${githubTabId}`);
 
-    // 7. Wait for the github tab's #login_field to fill
+    await driver.switchTo().window(keewebxHandle);
+    const allowBtn = await driver.wait(
+        until.elementLocated(By.css("button[data-result='yes']")),
+        20_000,
+        'Fresh Firefox profile must show the KeeWebX permission modal'
+    );
+    await driver.wait(until.elementIsVisible(allowBtn), 10_000);
+    await allowBtn.click();
+    ok('Permission modal Allow clicked');
+
+    await driver.switchTo().window(optionsHandle);
+    const dispatchResult = await driver.wait(
+        () => driver.executeScript('return window.__keewebxAutofillResult;'),
+        20_000,
+        'invoke-action-click did not complete'
+    );
+    if (dispatchResult.ok !== true || dispatchResult.error) {
+        fail(`invoke-action-click failed: ${JSON.stringify(dispatchResult)}`);
+    }
+    ok('invoke-action-click completed successfully');
+
     await driver.switchTo().window(githubHandle);
     await driver.wait(async () => {
-        const v = await driver
-            .findElement(By.id('login_field'))
-            .getAttribute('value');
-        return v && v.length > 0;
-    }, 15_000);
+        const loginValue = await driver.findElement(By.id('login_field')).getAttribute('value');
+        const passwordValue = await driver.findElement(By.id('password')).getAttribute('value');
+        return Boolean(loginValue && passwordValue);
+    }, 15_000, 'Both GitHub fields must be filled by the full-chain extension flow');
 
-    // 8. Assert both fields populated
-    const loginValue = await driver
-        .findElement(By.id('login_field'))
-        .getAttribute('value');
-    const passwordValue = await driver
-        .findElement(By.id('password'))
-        .getAttribute('value');
-    console.log(`  login_field.value = ${JSON.stringify(loginValue)}`);
-    console.log(`  password.value    = ${JSON.stringify(passwordValue)}`);
-    if (!loginValue || loginValue.length === 0) {
-        fail('login_field is empty after full-chain dispatch');
-    }
-    if (!passwordValue || passwordValue.length === 0) {
-        fail('password is empty after full-chain dispatch');
-    }
+    // Keep separate assertions so neither field can be silently omitted.
+    const loginValue = await driver.findElement(By.id('login_field')).getAttribute('value');
+    const passwordValue = await driver.findElement(By.id('password')).getAttribute('value');
+    if (!loginValue) fail('login_field is empty after full-chain dispatch');
+    if (!passwordValue) fail('password is empty after full-chain dispatch');
     ok('Both fields filled by full-chain extension flow');
     ok('PASS — Firefox full-chain autofill works end-to-end');
 } catch (e) {
@@ -309,6 +244,11 @@ try {
     console.error(e.stack);
     exitCode = 1;
 } finally {
-    await driver.quit().catch(() => {});
+    if (driver) {
+        await driver.quit().catch((e) => {
+            console.error('Firefox cleanup failed:', e.message);
+            exitCode = 1;
+        });
+    }
 }
-process.exit(exitCode);
+process.exitCode = exitCode;
