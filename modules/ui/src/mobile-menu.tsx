@@ -8,41 +8,60 @@ export function MobileMenu({ children }: { children: ComponentChildren }) {
         try { return localStorage.getItem(storageKey('menuSide')) === 'left' ? 'left' : 'right'; }
         catch { return 'right'; }
     });
-    const start = useRef<number | null>(null);
+    const start = useRef<{ x: number; y: number; bottom: number } | null>(null);
+    const [bottom, setBottom] = useState(() => {
+        try { const value = Number(localStorage.getItem(storageKey('menuBottom')) ?? 24); return Number.isFinite(value) ? value : 24; }
+        catch { return 24; }
+    });
     const dragged = useRef(false);
     const [collapsed, setCollapsed] = useState(false);
     const [offset, setOffset] = useState(0);
+    const [offsetY, setOffsetY] = useState(0);
+    const moveHeight = (value: number) => {
+        const next = Math.max(12, Math.min(window.innerHeight - 72, value));
+        setBottom(next);
+        try { localStorage.setItem(storageKey('menuBottom'), String(next)); } catch { /* Optional preference. */ }
+    };
     const dock = (next: string) => {
         setSide(next);
         setOffset(0);
+        setOffsetY(0);
         try { localStorage.setItem(storageKey('menuSide'), next); } catch { /* Storage is optional. */ }
     };
-    return <div class="phone-bar" data-side={side} data-collapsed={collapsed} style={{ transform: offset ? `translateX(${offset}px)` : undefined }}>
+    return <div class="phone-bar" data-side={side} data-collapsed={collapsed} style={{
+        bottom: `clamp(12px, ${bottom}px, calc(100dvh - 72px))`,
+        transform: offset || offsetY ? `translate(${offset}px, ${offsetY}px)` : undefined
+    }}>
         <button class="round phone-bar__handle" aria-label={t(collapsed ? 'Show menu' : 'Move menu')} aria-expanded={!collapsed}
-            title={t('Click to hide or show. Drag left or right. Arrow keys also move the menu.')}
+            title={t('Click to hide or show. Drag to move. Arrow keys also move the menu.')}
             onClick={() => { if (dragged.current) { dragged.current = false; return; } setCollapsed(!collapsed); }}
             onKeyDown={(event) => {
                 if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                     event.preventDefault(); dock(event.key === 'ArrowLeft' ? 'left' : 'right');
                 }
+                if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                    event.preventDefault(); moveHeight(bottom + (event.key === 'ArrowUp' ? 24 : -24));
+                }
             }}
             onPointerDown={(event) => {
-                start.current = event.clientX;
+                const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+                start.current = { x: event.clientX, y: event.clientY, bottom: window.innerHeight - rect.bottom };
                 dragged.current = false;
                 event.currentTarget.setPointerCapture(event.pointerId);
             }}
             onPointerMove={(event) => {
-                if (start.current !== null) setOffset(event.clientX - start.current);
+                if (start.current) { setOffset(event.clientX - start.current.x); setOffsetY(event.clientY - start.current.y); }
             }}
             onPointerUp={(event) => {
                 if (start.current === null) return;
-                const moved = Math.abs(event.clientX - start.current) > 8;
+                const moved = Math.hypot(event.clientX - start.current.x, event.clientY - start.current.y) > 8;
+                if (moved) moveHeight(start.current.bottom + start.current.y - event.clientY);
                 dragged.current = moved;
                 start.current = null;
                 dock(moved ? (event.clientX < window.innerWidth / 2 ? 'left' : 'right') : side);
             }}
-            onPointerCancel={() => { start.current = null; setOffset(0); }}
-            onLostPointerCapture={() => { start.current = null; setOffset(0); }}>
+            onPointerCancel={() => { start.current = null; setOffset(0); setOffsetY(0); }}
+            onLostPointerCapture={() => { start.current = null; setOffset(0); setOffsetY(0); }}>
             <svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true" fill="currentColor">
                 {[5, 10, 15].map((y) => <g key={y}><circle cx="5" cy={y} r="1.5" /><circle cx="11" cy={y} r="1.5" /></g>)}
             </svg>
