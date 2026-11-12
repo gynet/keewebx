@@ -9,6 +9,7 @@ import type { AppModel } from 'models/app-model';
 import { DatabaseSettingsEditor } from './database-settings';
 import { ExtensionSessions, type ExtensionSessionsApi } from './extension-sessions';
 import { confirmDiscardDrafts, discardPendingDrafts } from './pending-drafts';
+import { GeneralPreferences } from './general-preferences';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
@@ -111,6 +112,7 @@ export function Settings({ onBack, model, extensionSessions }: { onBack: () => v
                         </label>
                         <ClipboardLockSetting value={settings.lockOnCopy === true} onChange={value => set('lockOnCopy', value)} />
                     </section>
+                    <GeneralPreferences model={model} />
                     <h2 class="group-title">{t('Browser extension')}</h2>
                     <section class="cardlist">
                         <button type="button" class="cardlist__row" style={{ width: '100%', border: 0, background: 'var(--kx-bg)', textAlign: 'left' }}

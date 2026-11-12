@@ -1,0 +1,5 @@
+.general-preferences .cardlist__row { flex-wrap: wrap; }
+.general-preferences .cardlist__row > span { min-width: 0; overflow-wrap: anywhere; }
+.general-preferences .plain-select { max-width: 100%; min-height: 32px; }
+.general-preferences input[type='checkbox'] { width: 20px; height: 20px; accent-color: var(--kx-accent); }
+.general-preferences__help { margin: 0; padding: 10px 16px; font-size: 12px; line-height: 1.5; color: var(--kx-muted); white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px solid var(--kx-line); }
