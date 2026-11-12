@@ -21,6 +21,8 @@ export interface ConnectDecision {
 export interface SaveGroupChoice {
     id: string;
     fileId: string;
+    fileName: string;
+    path: string[];
     spaces: string[];
     title: string;
     selected: boolean;

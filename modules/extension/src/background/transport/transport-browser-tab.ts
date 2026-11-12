@@ -7,6 +7,7 @@ import {
     KeeWebConnectPingResponse
 } from 'background/protocol/types';
 import { noop } from 'common/utils';
+import { matchesAppUrl } from 'common/app-url';
 import { urlToMatchPattern } from 'common/match-pattern';
 
 class TransportBrowserTab extends TransportBase {
@@ -100,36 +101,9 @@ class TransportBrowserTab extends TransportBase {
     }
 
     private findOrCreateTab(): Promise<chrome.tabs.Tab> {
-        // Historical bug: the original code used
-        //   chrome.tabs.query({ url: this._keeWebUrl })
-        // which treats `url` as a Chrome match pattern, NOT a literal
-        // URL. A literal URL without trailing `*` only matches the
-        // EXACT string. As soon as KeeWebX's hash-routed SPA added
-        // any fragment (#app/open, #list/entry/xyz, #settings/general)
-        // the pattern stopped matching, the extension assumed no
-        // KeeWebX tab existed, created a new one with a fresh
-        // locked database, get-logins threw `noOpenFiles`, and
-        // runCommand silently threw — the user saw "nothing happens"
-        // on autofill (2026-04-09).
-        //
-        // Fix: query ALL tabs and filter by URL prefix ourselves.
-        // Strip hash + query string from the tab URL before comparing
-        // against `this._keeWebUrl`. This matches whether the user
-        // is at `/keewebx/`, `/keewebx/index.html`,
-        // `/keewebx/#whatever`, or `/keewebx/?foo=bar`.
         return new Promise((resolve, reject) => {
             chrome.tabs.query({}, (allTabs) => {
-                const targetNoSlash = this._keeWebUrl.replace(/\/$/, '');
-                const tab = allTabs.find((t) => {
-                    if (!t.url) return false;
-                    const withoutFragment = t.url.split('#')[0].split('?')[0];
-                    return (
-                        withoutFragment === this._keeWebUrl ||
-                        withoutFragment === targetNoSlash ||
-                        withoutFragment.startsWith(this._keeWebUrl) ||
-                        withoutFragment.startsWith(targetNoSlash + '/')
-                    );
-                });
+                const tab = allTabs.find((tab) => matchesAppUrl(tab.url, this._keeWebUrl));
                 if (tab) {
                     return resolve(tab);
                 }

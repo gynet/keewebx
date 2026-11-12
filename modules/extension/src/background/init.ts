@@ -1,3 +1,4 @@
+import { matchesAppUrl } from 'common/app-url';
 import { backend } from './backend';
 import { createUIMenus, bindExtensionButtonClick } from './ui';
 import { startInternalIpc } from './internal-ipc';
@@ -141,7 +142,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 /** Web mode: the popup's requests to KeeWebX open in a browser tab. */
 async function webRequest(request: Record<string, unknown>): Promise<unknown> {
     const isOpen = async () =>
-        (await chrome.tabs.query({})).some((t) => t.url?.startsWith(backend.keeWebUrl));
+        (await chrome.tabs.query({})).some((t) => matchesAppUrl(t.url, backend.keeWebUrl));
     switch (request.op) {
         case 'status': {
             // Never opens a tab just to show the popup.
@@ -149,7 +150,7 @@ async function webRequest(request: Record<string, unknown>): Promise<unknown> {
                 return { open: false };
             }
             await backend.connect();
-            const features = await backend.features().catch(() => undefined);
+            const features = await backend.features();
             return { open: true, paired: backend.paired, ...(features ?? {}), supportsList: !!features?.features.includes('entries-v1') };
         }
         case 'entries': {

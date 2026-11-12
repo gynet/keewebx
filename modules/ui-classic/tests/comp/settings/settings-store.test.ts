@@ -263,3 +263,18 @@ describe('SettingsStore + FileInfoCollection round-trip (critical path)', () => 
         expect(restored.openDate?.getTime()).toBe(originalOpenDate.getTime());
     });
 });
+
+
+describe('checked security settings writes', () => {
+    test('saveRequired persists synchronously and round-trips the exact revocation', async () => {
+        const data = { extensionPairings: { identity: { revoked: true, created: '2026-11-13' } } };
+        SettingsStore.saveRequired('runtime-data', data);
+        expect(await SettingsStore.load('runtime-data')).toEqual(data);
+    });
+    test('saveRequired reports a storage implementation that silently ignores writes', () => {
+        const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+        Object.defineProperty(globalThis, 'localStorage', { value: new Proxy({}, { set: () => true }), configurable: true });
+        try { expect(() => SettingsStore.saveRequired('runtime-data', { revoked: true })).toThrow('Persistent settings write failed'); }
+        finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); }
+    });
+});

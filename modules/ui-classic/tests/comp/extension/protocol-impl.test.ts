@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { box as naclBox } from 'tweetnacl';
 import type { AppModel } from 'models/app-model';
 import type { EntryModel } from 'models/entry-model';
@@ -81,6 +81,10 @@ if (!previousWindow) Object.defineProperty(globalThis, 'window', { value: {}, co
 const protocolModule = await import('../../../app/scripts/comp/extension/protocol-impl');
 if (!previousWindow) Reflect.deleteProperty(globalThis, 'window');
 const { ProtocolImpl } = protocolModule;
+const { createClassicProtocolAccess, createSessionProtocolAccess } = await import('../../../../vault/src/comp/extension/protocol-access');
+const { getSessionAccess } = await import('../../../../vault/src/comp/app/session-access');
+const { Events } = await import('framework/events');
+const { SettingsStore } = await import('comp/settings/settings-store');
 const { Model } = await import('framework/model');
 class FixtureEntry extends Model {}
 FixtureEntry.defineModelProperties({}, { extensions: true });
@@ -140,6 +144,7 @@ function initProtocol(options: { hasOpenFiles?: boolean } = {}) {
     };
     ProtocolImpl.init({
         appModel: fakeAppModel as unknown as AppModel,
+        access: createClassicProtocolAccess(fakeAppModel as unknown as AppModel),
         ui: testUi(),
         logger: logger as unknown as Parameters<typeof ProtocolImpl.init>[0]['logger'],
         sendEvent: (data: ProtocolResponse) => {
@@ -705,9 +710,9 @@ describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
     };
 
     function initWithEntries(ui: ProtocolUi = testUi()) {
-        const file = { id: 'f1', active: true, getEntry: (id: string) => (id === 'e1' ? entry : undefined) };
-        ProtocolImpl.init({
-            appModel: {
+        const file = { id: 'f1', active: true, db: {}, getEntry: (id: string) => (id === 'e1' ? entry : undefined) };
+        entry.file = file;
+        const model = {
                 files: {
                     hasOpenFiles: () => true,
                     map: (fn: (f: unknown) => unknown) => [file].map(fn),
@@ -717,13 +722,15 @@ describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
                     length: 1
                 },
                 getEntriesByFilter: () => [entry]
-            } as unknown as AppModel,
+            } as unknown as AppModel;
+        ProtocolImpl.init({ appModel: model, access: createClassicProtocolAccess(model),
             ui,
             logger: { debug() {}, info() {}, warn() {}, error() {} } as unknown as Parameters<
                 typeof ProtocolImpl.init
             >[0]['logger'],
             sendEvent: () => {}
         });
+        return { model, file, ui };
     }
 
     async function call(client: ClientState, action: string, payload: Record<string, unknown> = {}) {
@@ -895,6 +902,106 @@ describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
         const res = await call(second, 'kwx-get-entry-fields', { handle, fields: ['password'] });
         expect(String(res.error?.errorCode)).toBe('kwx-expired-handle');
     });
+
+    async function pairedClient(id: string) {
+        const identity = naclSign.keyPair();
+        const identityKey = kdbxweb.ByteUtils.bytesToBase64(identity.publicKey);
+        RuntimeDataModel.extensionPairings = { [identityKey]: { created: '2026-11-11', permissions: { allFiles: true, canList: true } } };
+        const client = await handshake(id);
+        await call(client, 'kwx-pair', { identityKey, signature: pairingSignature(client, identity.secretKey) });
+        const items = (await call(client, 'kwx-get-entries')).ok?.items as Array<{ handle: string }>;
+        return { client, identity, identityKey, handle: items[0].handle };
+    }
+
+    for (const reason of ['epoch', 'file', 'database', 'entry', 'permissions'] as const) {
+        test(`issued entry handles fail after ${reason} changes`, async () => {
+            const f = initWithEntries();
+            const { client, handle } = await pairedClient('handle-test');
+            if (reason === 'epoch') Events.emit('lock-workspace');
+            if (reason === 'file') f.file.active = false;
+            if (reason === 'database') f.file.db = {};
+            if (reason === 'entry') f.file.getEntry = () => ({ ...entry });
+            if (reason === 'permissions') ProtocolImpl.setClientPermissions(client.clientId, { allFiles: false, files: [] });
+            const result = await call(client, 'kwx-get-entry-fields', { handle, fields: ['password'] });
+            expect(result.error?.errorCode).toBe('kwx-expired-handle');
+        });
+    }
+
+    test('live list revocation cannot reload the remembered list grant', async () => {
+        const connect = mock(async () => null);
+        initWithEntries(testUi({ connect }));
+        const { client } = await pairedClient('list-revocation');
+        ProtocolImpl.setClientPermissions(client.clientId, { canList: false });
+        expect((await call(client, 'kwx-get-entries')).error?.errorCode).toBe('6');
+        expect((await call(client, 'kwx-features')).ok?.canList).toBe(false);
+        expect(connect).not.toHaveBeenCalled();
+    });
+
+    test('disconnect retains approval, identity forget persists denial across reconnect without inheriting legacy approval', async () => {
+        const connect = mock(async () => null);
+        initWithEntries(testUi({ connect }));
+        const { client, identity, identityKey } = await pairedClient('durable');
+        const other = naclSign.keyPair();
+        const otherKey = kdbxweb.ByteUtils.bytesToBase64(other.publicKey);
+        Object.assign(RuntimeDataModel.extensionPairings as object, { [otherKey]: { created: '2026-11-11', permissions: { allFiles: true, canList: true } } });
+        RuntimeDataModel.extensionConnectConfig = { allFiles: true, askGet: 'multiple' };
+        ProtocolImpl.deleteConnection(9);
+        expect(ProtocolImpl.approvals.identities.map((item) => item.identity)).toContain(identityKey);
+        const storage = {};
+        const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+        Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
+        try {
+            ProtocolImpl.forgetApproval(identityKey);
+            const stored = await SettingsStore.load('runtime-data') as Record<string, unknown>;
+            expect((stored.extensionPairings as Record<string, unknown>)[identityKey]).toMatchObject({ revoked: true });
+            expect(ProtocolImpl.approvals.identities.map((item) => item.identity)).toEqual([otherKey]);
+            expect(ProtocolImpl.approvals.legacy).toBeDefined();
+            // Recreate the engine and reload the persisted runtime data, as on app restart.
+            initWithEntries(testUi({ connect }));
+            Object.assign(RuntimeDataModel, JSON.parse(JSON.stringify(stored)));
+            const again = await handshake('forgotten');
+            expect((await call(again, 'kwx-pair', { identityKey, signature: pairingSignature(again, identity.secretKey) })).ok?.known).toBe(false);
+            expect((await call(again, 'get-logins', { url: 'https://github.com' })).error?.errorCode).toBe('6');
+            expect(connect).toHaveBeenCalledTimes(1);
+            ProtocolImpl.forgetLegacyApproval();
+            expect(ProtocolImpl.approvals.legacy).toBeUndefined();
+            expect(ProtocolImpl.approvals.identities.map((item) => item.identity)).toEqual([otherKey]);
+            expect((await SettingsStore.load('runtime-data') as Record<string, unknown>).extensionConnectConfig).toBeUndefined();
+        } finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else Reflect.deleteProperty(globalThis, 'localStorage'); }
+    });
+
+    test('forgetting another identity or shared legacy approval preserves a dedicated current identity session', async () => {
+        initWithEntries();
+        const { client, identityKey } = await pairedClient('scoped');
+        const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+        Object.defineProperty(globalThis, 'localStorage', { value: {}, configurable: true });
+        try {
+            ProtocolImpl.forgetApproval('unrelated');
+            RuntimeDataModel.extensionConnectConfig = { allFiles: true };
+            ProtocolImpl.forgetLegacyApproval();
+            expect(ProtocolImpl.sessions[0].identity).toBe(identityKey);
+            expect((await call(client, 'kwx-get-entries')).ok?.locked).toBe(false);
+            ProtocolImpl.forgetApproval(identityKey);
+            expect(ProtocolImpl.sessions).toHaveLength(0);
+        } finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else Reflect.deleteProperty(globalThis, 'localStorage'); }
+    });
+
+    test('failed durable forget reports storage failure but still disconnects and denies in memory', async () => {
+        initWithEntries();
+        const { identityKey } = await pairedClient('failure');
+        const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+        Object.defineProperty(globalThis, 'localStorage', { value: new Proxy({}, { set() { throw new Error('quota'); } }), configurable: true });
+        try {
+            expect(() => ProtocolImpl.forgetApproval(identityKey)).toThrow('quota');
+            expect(ProtocolImpl.sessions).toHaveLength(0);
+            expect((RuntimeDataModel.extensionPairings as Record<string, unknown>)[identityKey]).toMatchObject({ revoked: true });
+            expect(ProtocolImpl.approvals.identities[0]).toMatchObject({ identity: identityKey, pendingPersistence: true });
+            Object.defineProperty(globalThis, 'localStorage', { value: {}, configurable: true });
+            ProtocolImpl.forgetApproval(identityKey);
+            expect(ProtocolImpl.approvals.identities).toHaveLength(0);
+        } finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else Reflect.deleteProperty(globalThis, 'localStorage'); }
+    });
+
 });
 
 // Exercise the new UI seam through real encrypted legacy requests, without views.
@@ -906,16 +1013,18 @@ describe('ProtocolImpl — explicit UI decisions', () => {
     function fixture(overrides: Partial<ProtocolUi> = {}) {
         const root = {
             id: 'root', title: 'Vault', iconId: 0, parentGroup: null,
-            group: { uuid: { bytes: new Uint8Array(16).fill(1) } },
+            group: { uuid: new kdbxweb.KdbxUuid(new Uint8Array(16).fill(1)) },
             items: [] as unknown[], matches: () => true
         };
         const file = {
-            id: 'f1', name: 'Vault', active: true, groups: [root],
-            getGroup: (id: string) => id === root.id ? root : undefined,
+            id: 'f1', name: 'Vault', active: true, groups: [root], db: kdbxweb.Kdbx.create(new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('master')), 'Vault'),
+            getGroup: (id: string): typeof root | undefined => groupMap.get(id),
             forEachGroup: (fn: (group: typeof root) => void) => fn(root),
             getEntry: (id: string) => id === 'e1' ? entry : undefined,
             subId: (id: string) => id
         };
+        Object.assign(root, { file });
+        const groupMap = new Map([[root.id, root]]);
         const entry = Object.assign(new FixtureEntry(), {
             id: 'e1', title: 'Login', user: 'user', url: 'https://example.com/login',
             searchText: 'login example.com', group: root, file,
@@ -928,9 +1037,11 @@ describe('ProtocolImpl — explicit UI decisions', () => {
             needsTouch: false,
             device: { shortName: 'Key' }
         });
-        const createNewGroupWithName = mock((_parent: unknown, _file: unknown, title: string) => ({
-            ...root, id: 'new', title, items: [], setIcon: mock(() => {})
-        }));
+        const createNewGroupWithName = mock((parent: unknown, _file: unknown, title: string) => {
+            const group = { ...root, file, parentGroup: parent, id: `new${groupMap.size === 1 ? '' : groupMap.size}`, title, items: [], setIcon: mock(() => {}) };
+            groupMap.set(group.id, group as typeof root);
+            return group;
+        });
         const createNewEntryWithFields = mock(() => entry);
         const model = {
             files: {
@@ -943,8 +1054,9 @@ describe('ProtocolImpl — explicit UI decisions', () => {
             createNewGroupWithName, createNewEntryWithFields
         } as unknown as AppModel;
         const ui = testUi({ connect: async () => approved, ...overrides });
-        ProtocolImpl.init({ appModel: model, logger, sendEvent() {}, ui });
-        return { model, ui, entry, root, createNewEntryWithFields, createNewGroupWithName };
+        const access = createSessionProtocolAccess(model);
+        ProtocolImpl.init({ appModel: model, logger, sendEvent() {}, ui, access });
+        return { model, ui, entry, root, file, access, createNewEntryWithFields, createNewGroupWithName };
     }
 
     async function call(client: ClientState, action: string, payload: Record<string, unknown> = {}) {
@@ -1087,5 +1199,259 @@ describe('ProtocolImpl — explicit UI decisions', () => {
             await Promise.resolve();
             expect(RuntimeDataModel.extensionConnectConfig).toBeUndefined();
         } finally { Timeouts.KeeWebConnectRequest = previous; }
+    });
+
+    function deferred<T>() {
+        let resolve!: (value: T) => void;
+        const promise = new Promise<T>((yes) => { resolve = yes; });
+        return { promise, resolve };
+    }
+
+    for (const kind of ['connect', 'selectEntry', 'selectField', 'saveEntry', 'createGroup'] as const) {
+        test(`gate invalidation cancels held ${kind} and late approval cannot mutate or deliver`, async () => {
+            const f = fixture();
+            f.ui.selectEntry = async () => f.entry as unknown as EntryModel;
+            const shown = deferred<AbortSignal>();
+            const decision = deferred<unknown>();
+            Object.assign(f.ui, { [kind]: (_input: unknown, signal: AbortSignal) => {
+                shown.resolve(signal); return decision.promise;
+            } });
+            const action = kind === 'saveEntry' ? 'set-login' : kind === 'createGroup' ? 'create-new-group'
+                : kind === 'selectField' ? 'get-any-field' : 'get-logins';
+            const client = await handshake();
+            const result = call(client, action, { url: f.entry.url, login: 'new', password: 'secret', groupName: 'New' });
+            const signal = await shown.promise;
+            const gate = getSessionAccess(f.model);
+            gate.beginSecuring();
+            expect(f.model.files.hasOpenFiles()).toBe(true);
+            expect(signal.aborted).toBe(true);
+            expect((await result).error?.errorCode).toBe('1');
+            decision.resolve(kind === 'connect' ? approved : kind === 'selectEntry' ? f.entry : kind === 'selectField'
+                ? 'Password' : kind === 'saveEntry' ? { fileId: 'f1', groupId: 'root', askSave: 'auto' } : 'f1');
+            await Promise.resolve(); await Promise.resolve();
+            expect(f.createNewEntryWithFields).not.toHaveBeenCalled();
+            expect(f.createNewGroupWithName).not.toHaveBeenCalled();
+            expect(RuntimeDataModel.extensionSaveConfig).toBeUndefined();
+            if (kind === 'connect') expect(RuntimeDataModel.extensionConnectConfig).toBeUndefined();
+        });
+    }
+
+    for (const invalidation of ['disconnect', 'permissions', 'rekey', 'forget'] as const) {
+        test(`held save is denied on ${invalidation}`, async () => {
+            const shown = deferred<AbortSignal>();
+            const decision = deferred<{ fileId: string; groupId: string; askSave: string }>();
+            const f = fixture({ saveEntry: (_input, signal) => { shown.resolve(signal); return decision.promise; } });
+            const client = await handshake();
+            const result = call(client, 'set-login', { url: f.entry.url, login: 'new', password: 'value' });
+            const signal = await shown.promise;
+            if (invalidation === 'disconnect') ProtocolImpl.deleteConnection(1);
+            if (invalidation === 'permissions') ProtocolImpl.setClientPermissions(client.clientId, { allFiles: false, files: [] });
+            if (invalidation === 'rekey') await handshake('replacement');
+            if (invalidation === 'forget') {
+                const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+                Object.defineProperty(globalThis, 'localStorage', { value: {}, configurable: true });
+                try { ProtocolImpl.forgetLegacyApproval(); }
+                finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else Reflect.deleteProperty(globalThis, 'localStorage'); }
+            }
+            expect(signal.aborted).toBe(true);
+            expect((await result).error?.errorCode).toBe('6');
+            decision.resolve({ fileId: 'f1', groupId: 'root', askSave: 'auto' });
+            await Promise.resolve(); await Promise.resolve();
+            expect(f.createNewEntryWithFields).not.toHaveBeenCalled();
+            expect(RuntimeDataModel.extensionSaveConfig).toBeUndefined();
+        });
+    }
+
+    test('gate rejects automatic fill/save with retained models but permits locked status and handshake', async () => {
+        const f = fixture();
+        const gate = getSessionAccess(f.model);
+        gate.beginSecuring();
+        const client = await handshake();
+        RuntimeDataModel.extensionConnectConfig = { ...approved, askGet: 'multiple', askSave: 'auto', saveTo: { fileId: 'f1', groupId: 'root' } };
+        expect((await call(client, 'kwx-features')).ok?.locked).toBe(true);
+        expect((await call(client, 'get-logins', { url: f.entry.url })).error?.errorCode).toBe('1');
+        expect((await call(client, 'set-login', { url: f.entry.url, password: 'value' })).error?.errorCode).toBe('1');
+        expect(f.createNewEntryWithFields).not.toHaveBeenCalled();
+    });
+
+    test('transport delivery rechecks epoch, current permissions and file/database identity', async () => {
+        for (const reason of ['epoch', 'permission', 'file', 'db'] as const) {
+            const f = fixture({ connect: async () => ({ ...approved, askGet: 'multiple' }) });
+            delete RuntimeDataModel.extensionConnectConfig;
+            const client = await handshake();
+            const response = await ProtocolImpl.handleRequest(buildEncryptedRequest(client, 'get-logins', { url: f.entry.url }), conn);
+            expect(response.message).toBeDefined();
+            if (reason === 'epoch') getSessionAccess(f.model).beginSecuring();
+            if (reason === 'permission') ProtocolImpl.setClientPermissions(client.clientId, { allFiles: false, files: [] });
+            if (reason === 'file') f.file.active = false;
+            if (reason === 'db') f.file.db = kdbxweb.Kdbx.create(new kdbxweb.Credentials(null), 'Replacement');
+            const delivered = ProtocolImpl.prepareResponse(response);
+            expect(delivered.error).toBeDefined();
+            expect(delivered.message).toBeUndefined();
+        }
+    });
+
+    test('touch OTP cancellation disconnects promptly and consumes late provider completion', async () => {
+        const shown = deferred<void>();
+        const dispose = mock(() => {});
+        const f = fixture({ showTouch: () => { shown.resolve(); return { dispose }; } });
+        f.entry.needsTouch = true;
+        f.ui.selectEntry = async () => f.entry as unknown as EntryModel;
+        let complete!: (error: null, otp: string) => void;
+        f.entry.otpGenerator.next = (callback) => { complete = callback; };
+        const client = await handshake();
+        const pending = call(client, 'get-totp-by-url', { url: f.entry.url });
+        await shown.promise;
+        ProtocolImpl.deleteConnection(1);
+        expect((await pending).error?.errorCode).toBe('6');
+        expect(dispose).toHaveBeenCalledTimes(1);
+        complete(null, 'late-secret');
+        await Promise.resolve();
+    });
+
+    test('save rejects read-only, syncing, removed and recycled destinations', async () => {
+        for (const reason of ['readonly', 'syncing', 'removed', 'trash'] as const) {
+            const f = fixture({ saveEntry: async () => ({ fileId: 'f1', groupId: 'root', askSave: 'always' }) });
+            if (reason === 'readonly') Object.assign(f.file, { readOnly: true });
+            if (reason === 'syncing') Object.assign(f.file, { syncing: true });
+            if (reason === 'removed') f.file.getGroup = () => undefined;
+            if (reason === 'trash') {
+                Object.assign(f.file.db.meta, { recycleBinUuid: {} });
+                Object.assign(f.root.group.uuid, { equals: () => true });
+            }
+            const client = await handshake();
+            expect((await call(client, 'set-login', { url: f.entry.url, password: 'new' })).error).toBeDefined();
+            expect(f.createNewEntryWithFields).not.toHaveBeenCalled();
+        }
+    });
+
+
+    test('lock command acknowledges while synchronously canceling content and observer cleanup does not duplicate notifications', async () => {
+        const before = Events.listenerCount('lock-workspace');
+        const f = fixture();
+        expect(Events.listenerCount('lock-workspace')).toBe(before + 1);
+        const client = await handshake();
+        const close = () => { getSessionAccess(f.model).beginSecuring(); };
+        Events.on('lock-workspace', close);
+        try {
+            expect((await call(client, 'lock-database')).ok?.success).toBe('true');
+            expect((await call(client, 'kwx-features')).ok?.locked).toBe(true);
+        } finally { Events.off('lock-workspace', close); ProtocolImpl.cleanup(); }
+        expect(Events.listenerCount('lock-workspace')).toBe(before);
+        fixture(); ProtocolImpl.cleanup();
+        expect(Events.listenerCount('lock-workspace')).toBe(before);
+    });
+
+    test('normal physical unlock can complete, but disconnect cancels only its pending unlock', async () => {
+        const { AppSettingsModel } = await import('models/app-settings-model');
+        const previous = AppSettingsModel.extensionFocusIfLocked;
+        AppSettingsModel.extensionFocusIfLocked = true;
+        try {
+            for (const disconnect of [false, true]) {
+                const f = fixture({ connect: async () => ({ ...approved, askGet: 'multiple' }) });
+                let open = false;
+                f.model.files.hasOpenFiles = () => open;
+                const pending = deferred<typeof f.file>();
+                const started = deferred<void>();
+                const owner = { resolve: pending.resolve, reject() {}, unlockRes: '' };
+                Object.assign(f.model, {
+                    unlockAnyFile() { f.model.fileUnlockPromise = owner as unknown as AppModel['fileUnlockPromise']; started.resolve(); return pending.promise; },
+                    rejectPendingFileUnlockPromise: mock(() => { f.model.fileUnlockPromise = null; })
+                });
+                const client = await handshake();
+                const request = call(client, 'get-logins', { url: f.entry.url });
+                await started.promise;
+                if (disconnect) {
+                    ProtocolImpl.deleteConnection(1);
+                    expect((await request).error).toBeDefined();
+                    expect(f.model.rejectPendingFileUnlockPromise).toHaveBeenCalledTimes(1);
+                    pending.resolve(f.file);
+                } else {
+                    open = true;
+                    Events.emit('file-opened');
+                    pending.resolve(f.file);
+                    expect((await request).ok?.count).toBe(1);
+                    expect(f.model.rejectPendingFileUnlockPromise).not.toHaveBeenCalled();
+                }
+            }
+        } finally { AppSettingsModel.extensionFocusIfLocked = previous; }
+    });
+
+});
+
+
+describe('extension transport lifecycle', () => {
+    let connector: typeof import('../../../../vault/src/comp/extension/browser-extension-connector').BrowserExtensionConnector;
+    let originalGlobals: Map<string, PropertyDescriptor | undefined>;
+    const listeners = new Set<unknown>();
+    const fakeWindow = { location: { origin: 'https://vault.example' },
+        addEventListener(_event: string, listener: unknown) { listeners.add(listener); },
+        removeEventListener(_event: string, listener: unknown) { listeners.delete(listener); } };
+    const posted = mock((_response: ProtocolResponse, _origin: string) => {});
+    const invalidation = new Set<() => void>();
+    const access = { snapshot: () => ({ open: true, epoch: 0 }), assertOpen() {},
+        subscribeInvalidation(listener: () => void) { invalidation.add(listener); return () => { invalidation.delete(listener); }; } };
+    let init: ReturnType<typeof spyOn<typeof ProtocolImpl, 'init'>>;
+    let cleanup: ReturnType<typeof spyOn<typeof ProtocolImpl, 'cleanup'>>;
+    let handle: ReturnType<typeof spyOn<typeof ProtocolImpl, 'handleRequest'>>;
+    let prepare: ReturnType<typeof spyOn<typeof ProtocolImpl, 'prepareResponse'>>;
+    const send = (action = 'get-logins') => connector.browserWindowMessage({ source: window, origin: location.origin,
+        data: { kwConnect: 'request', action, clientID: 'client' } } as MessageEvent);
+    const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
+    beforeEach(async () => {
+        ProtocolImpl.cleanup();
+        originalGlobals = new Map(['window', 'location', 'localStorage', 'postMessage', 'navigator', 'screen'].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+        for (const [name, value] of Object.entries({ window: fakeWindow, location: fakeWindow.location, localStorage: {}, postMessage: posted,
+            navigator: { platform: '', userAgent: '' }, screen: { width: 1280 } })) {
+            Object.defineProperty(globalThis, name, { value, configurable: true });
+        }
+        connector = (await import('../../../../vault/src/comp/extension/browser-extension-connector')).BrowserExtensionConnector;
+        init = spyOn(ProtocolImpl, 'init').mockImplementation(() => {});
+        cleanup = spyOn(ProtocolImpl, 'cleanup').mockImplementation(() => {});
+        handle = spyOn(ProtocolImpl, 'handleRequest').mockImplementation(async () => ({ action: 'get-logins', message: 'ciphertext' }));
+        prepare = spyOn(ProtocolImpl, 'prepareResponse').mockImplementation((response) => response);
+        posted.mockClear();
+        connector.init({} as AppModel, testUi(), access);
+    });
+    afterEach(() => {
+        connector.stop(); init.mockRestore(); cleanup.mockRestore(); handle.mockRestore(); prepare.mockRestore();
+        for (const [name, descriptor] of originalGlobals) {
+            if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+            else Reflect.deleteProperty(globalThis, name);
+        }
+    });
+    test('stop/start renews policy binding and keeps exactly one window listener', () => {
+        expect(listeners.size).toBe(1); expect(invalidation.size).toBe(1);
+        connector.start(); expect(init).toHaveBeenCalledTimes(1);
+        connector.stop(); expect(listeners.size).toBe(0); expect(invalidation.size).toBe(0);
+        connector.start(); expect(init).toHaveBeenCalledTimes(2);
+        expect(listeners.size).toBe(1); expect(invalidation.size).toBe(1);
+    });
+    test('posting uses the final policy guard result, never previously encrypted content', async () => {
+        prepare.mockImplementation(() => ({ action: 'get-logins', error: 'Access suspended', errorCode: '1' }));
+        send(); await settle();
+        expect(posted.mock.calls[0]).toEqual([{ action: 'get-logins', error: 'Access suspended', errorCode: '1', kwConnect: 'response' }, 'https://vault.example']);
+    });
+    test('queued operations are denied synchronously on invalidation', async () => {
+        let finish!: (value: ProtocolResponse) => void;
+        handle.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+        send('get-logins'); send('set-login');
+        expect(handle).toHaveBeenCalledTimes(1);
+        invalidation.forEach((listener) => listener());
+        expect(posted.mock.calls[0][0]).toMatchObject({ action: 'set-login', errorCode: '1' });
+        finish({ action: 'get-logins', errorCode: '1', error: 'Access suspended' }); await settle();
+        expect(handle).toHaveBeenCalledTimes(1);
+    });
+    test('an in-flight response from an old transport lifetime is discarded after restart', async () => {
+        let finish!: (value: ProtocolResponse) => void;
+        handle.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+        send(); connector.stop(); connector.start();
+        finish({ action: 'get-logins', message: 'old ciphertext' }); await settle();
+        expect(posted).not.toHaveBeenCalled();
+    });
+    test('other windows and origins cannot enter the queue', async () => {
+        connector.browserWindowMessage({ source: null, origin: location.origin, data: { kwConnect: 'request' } } as MessageEvent);
+        connector.browserWindowMessage({ source: window, origin: 'https://evil.example', data: { kwConnect: 'request' } } as MessageEvent);
+        await settle(); expect(handle).not.toHaveBeenCalled();
     });
 });

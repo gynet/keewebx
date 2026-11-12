@@ -1,3 +1,4 @@
+import { matchesAppUrl } from 'common/app-url';
 import { TypedEmitter } from 'tiny-typed-emitter';
 import { BackendConnectionState } from 'common/backend-connection-state';
 import { TransportBase } from './transport/transport-base';
@@ -9,6 +10,7 @@ import {
 } from './protocol/types';
 import { KeeWebXEntryList, KeeWebXFeatures, ProtocolImpl } from './protocol/protocol-impl';
 import { getIdentity } from './identity';
+import { ProtocolError } from './protocol/protocol-error';
 import { noop } from 'common/utils';
 
 interface RequestQueueItem {
@@ -281,8 +283,11 @@ class Backend extends TypedEmitter<BackendEvents> {
         try {
             return await fn();
         } catch (e) {
+            // A permission or lock denial must never reconnect to reload stored grants.
+            if (e instanceof ProtocolError) throw e;
             const msg = (<Error>e).message || '';
             const isStaleSession =
+                /(?:^|: )Client not connected: [A-Za-z0-9+/]+={0,2}$/.test(msg) ||
                 msg.includes('decrypt') ||
                 msg.includes('nonce') ||
                 msg.includes('timeout') ||
@@ -314,7 +319,13 @@ class Backend extends TypedEmitter<BackendEvents> {
         if (!this._protocol || !this._paired) {
             return undefined;
         }
-        return this.withAutoReconnect(() => this._protocol!.features());
+        try {
+            return await this.withAutoReconnect(() => this._protocol!.features());
+        } catch (error) {
+            // Only an explicitly unsupported command indicates an older app.
+            if (!(error instanceof ProtocolError) && /(?:^|: )Handler not found: kwx-features$/.test((error as Error).message || '')) return undefined;
+            throw error;
+        }
     }
 
     async getEntries(url: string | undefined, query: string | undefined): Promise<KeeWebXEntryList> {
@@ -339,7 +350,7 @@ class Backend extends TypedEmitter<BackendEvents> {
 
     async focusKeeWeb(): Promise<void> {
         const tabs = await chrome.tabs.query({});
-        const tab = tabs.find((t) => t.url?.startsWith(this.keeWebUrl));
+        const tab = tabs.find((t) => matchesAppUrl(t.url, this.keeWebUrl));
         if (tab?.id) {
             await chrome.tabs.update(tab.id, { active: true });
             if (tab.windowId !== undefined) {

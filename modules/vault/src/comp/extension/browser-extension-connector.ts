@@ -1,4 +1,5 @@
 import type { AppModel } from 'models/app-model';
+import type { ProtocolAccess } from './protocol-access';
 import type { ProtocolUi } from './protocol-ui';
 import { Logger } from 'util/logger';
 import { storageKey } from 'comp/settings/storage-namespace';
@@ -7,6 +8,7 @@ import {
     type ConnectionInfo,
     type ProtocolRequest,
     type ProtocolResponse,
+    type ProtocolInitVars,
     type ClientPermissions
 } from './protocol-impl';
 import { Features } from 'util/features';
@@ -39,6 +41,10 @@ if (!localStorage[storageKey('debugBrowserExtension')]) {
 const connections = new Map<number, ConnectionInfo>();
 const pendingBrowserMessages: ProtocolRequest[] = [];
 let processingBrowserMessage = false;
+let transportGeneration = 0;
+let initVars: ProtocolInitVars | undefined;
+let unsubscribeInvalidation: (() => void) | undefined;
+let boundMessage: ((event: MessageEvent<BrowserWindowMessageEventData>) => void) | undefined;
 
 interface BrowserWindowMessageEventData {
     kwConnect?: string;
@@ -49,11 +55,10 @@ const BrowserExtensionConnector = {
     started: false,
     logger,
 
-    init(appModel: AppModel, ui: ProtocolUi): void {
+    init(appModel: AppModel, ui: ProtocolUi, access: ProtocolAccess): void {
+        if (this.started) this.stop();
         const sendEvent = this.sendEvent.bind(this);
-        ProtocolImpl.init({ appModel, ui, logger, sendEvent });
-
-        this.browserWindowMessage = this.browserWindowMessage.bind(this);
+        initVars = { appModel, ui, access, logger, sendEvent };
 
         if (this.isEnabled()) {
             this.start();
@@ -61,12 +66,24 @@ const BrowserExtensionConnector = {
     },
 
     start(): void {
+        if (this.started) return;
+        if (!initVars) throw new Error('Connector must be initialized');
+        ProtocolImpl.init(initVars);
         this.startWebMessageListener();
 
         this.started = true;
+        unsubscribeInvalidation = initVars.access.subscribeInvalidation(() => {
+            for (const request of pendingBrowserMessages.splice(0)) {
+                this.sendWebResponse({ action: request.action, error: 'Access suspended', errorCode: '1' });
+            }
+        });
     },
 
     stop(): void {
+        ++transportGeneration;
+        unsubscribeInvalidation?.(); unsubscribeInvalidation = undefined;
+        pendingBrowserMessages.length = 0;
+        processingBrowserMessage = false;
         this.stopWebMessageListener();
 
         ProtocolImpl.cleanup();
@@ -90,12 +107,13 @@ const BrowserExtensionConnector = {
     },
 
     startWebMessageListener(): void {
-        window.addEventListener('message', this.browserWindowMessage);
+        boundMessage ??= this.browserWindowMessage.bind(this);
+        window.addEventListener('message', boundMessage);
         logger.info('Started');
     },
 
     stopWebMessageListener(): void {
-        window.removeEventListener('message', this.browserWindowMessage);
+        if (boundMessage) window.removeEventListener('message', boundMessage);
     },
 
     browserWindowMessage(e: MessageEvent<BrowserWindowMessageEventData>): void {
@@ -104,7 +122,7 @@ const BrowserExtensionConnector = {
         // window`), which is a strong enough guarantee: a message from
         // the extension's content script injected into this document
         // will always match.
-        if (e.source !== window) {
+        if (!this.started || e.source !== window) {
             return;
         }
         if (location.origin !== 'null' && e.origin !== location.origin) {
@@ -119,7 +137,7 @@ const BrowserExtensionConnector = {
     },
 
     async processBrowserMessages(): Promise<void> {
-        if (!pendingBrowserMessages.length || processingBrowserMessage) {
+        if (!this.started || !pendingBrowserMessages.length || processingBrowserMessage) {
             return;
         }
 
@@ -135,7 +153,9 @@ const BrowserExtensionConnector = {
             return;
         }
 
+        const generation = transportGeneration;
         const response = await ProtocolImpl.handleRequest(request, WebConnectionInfo);
+        if (!this.started || generation !== transportGeneration) return;
 
         processingBrowserMessage = false;
 
@@ -147,6 +167,8 @@ const BrowserExtensionConnector = {
     },
 
     sendWebResponse(response: ProtocolResponse): void {
+        if (!this.started) return;
+        response = ProtocolImpl.prepareResponse(response);
         logger.debug('KeeWeb -> Extension', response);
         response.kwConnect = 'response';
         // On file:// in Firefox, location.origin is "null" which
@@ -159,7 +181,7 @@ const BrowserExtensionConnector = {
     },
 
     sendEvent(data: ProtocolResponse): void {
-        if (!this.isEnabled() || !connections.size) {
+        if (!this.started || !this.isEnabled() || !connections.size) {
             return;
         }
         this.sendWebResponse(data);

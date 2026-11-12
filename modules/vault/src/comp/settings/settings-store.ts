@@ -37,6 +37,16 @@ function getStorage(): Storage | null {
 }
 
 const SettingsStore = {
+    /** Security decisions must report unavailable or failed persistent storage. */
+    saveRequired(key: string, data: unknown): void {
+        const storage = getStorage();
+        if (!storage) throw new Error('Persistent settings storage is unavailable');
+        const name = storageKey(StringFormat.camelCase(key));
+        const serialized = JSON.stringify(data);
+        storage[name] = serialized;
+        if (storage[name] !== serialized) throw new Error('Persistent settings write failed');
+    },
+
     /**
      * Load a previously-saved blob for `key`. Returns the parsed JSON
      * value, or `null` if nothing was stored (or the stored value is

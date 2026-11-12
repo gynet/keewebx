@@ -45,7 +45,9 @@ function toBase64(buf: ArrayBuffer): string {
     return btoa(s);
 }
 
-export function Unlock({ model }: { model: AppModel }) {
+export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest }: {
+    model: AppModel; extensionRequest?: boolean; onCancelExtensionRequest?(): void;
+}) {
     const recent: RecentFile[] = model.fileInfos.map((fi) => ({
         id: fi.id,
         name: fi.name,
@@ -122,7 +124,11 @@ export function Unlock({ model }: { model: AppModel }) {
                     {t('Try the demo')}
                 </button>
             </aside>
-            <main class="start__main">
+            <main class="start__main" style={extensionRequest ? { flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' } : undefined}>
+                {extensionRequest && <div class="card" role="status" style={{ marginBottom: '16px' }}>
+                    <p>{t('Unlock to connect a browser extension')}</p>
+                    <button class="pill" type="button" onClick={onCancelExtensionRequest}>{t('Cancel extension request')}</button>
+                </div>}
                 {pane.kind === 'create' ? <CreateVault model={model} /> : pane.kind === 'webdav' ? (
                     <WebDavForm onNext={(url, user, pass) => setPane({ kind: 'webdav-unlock', url, user, pass })} />
                 ) : pane.kind === 'none' ? (

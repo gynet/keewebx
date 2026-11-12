@@ -6,6 +6,7 @@ import { t } from './i18n';
 import { ThemeToggle, ThemeSelect } from './theme';
 import type { AppModel } from 'models/app-model';
 import { DatabaseSettingsEditor } from './database-settings';
+import { ExtensionSessions, type ExtensionSessionsApi } from './extension-sessions';
 import { confirmDiscardDrafts, discardPendingDrafts } from './pending-drafts';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
@@ -31,7 +32,8 @@ export function switchToClassic(): void {
     location.href = 'index.html';
 }
 
-export function Settings({ onBack, model }: { onBack: () => void; model: AppModel }) {
+export function Settings({ onBack, model, extensionSessions }: { onBack: () => void; model: AppModel; extensionSessions?: ExtensionSessionsApi }) {
+    const [section, setSection] = useState<'general' | 'extensions'>('general');
     const [, rerender] = useState(0);
     const set = (key: string, value: unknown) => {
         settings[key] = value;
@@ -56,6 +58,7 @@ export function Settings({ onBack, model }: { onBack: () => void; model: AppMode
                         <ThemeToggle />
                     </div>
 
+                    {section === 'extensions' ? <ExtensionSessions model={model} api={extensionSessions} onBack={() => setSection('general')} /> : <>
                     <h2 class="group-title">{t('Appearance')}</h2>
                     <section class="cardlist">
                         <div class="cardlist__row">
@@ -106,9 +109,15 @@ export function Settings({ onBack, model }: { onBack: () => void; model: AppMode
                             </select>
                         </label>
                     </section>
+                    <h2 class="group-title">{t('Browser extension')}</h2>
+                    <section class="cardlist">
+                        <button type="button" class="cardlist__row" style={{ width: '100%', border: 0, background: 'var(--kx-bg)', textAlign: 'left' }}
+                            onClick={() => { if (confirmDiscardDrafts('database')) setSection('extensions'); }}><span>{t('Session permissions')}</span><Icon name="globe" size={18} /></button>
+                    </section>
                     <h2 class="group-title">{t('Database settings')}</h2>
                     {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file}
                         onCancel={() => { discardPendingDrafts('database'); onBack(); }} />)}
+                    </>}
                 </div>
             </main>
         </div>

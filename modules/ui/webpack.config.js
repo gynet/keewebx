@@ -85,7 +85,8 @@ module.exports = (env, argv) => {
         },
         plugins: [
             new webpack.DefinePlugin({
-                __KW_STORAGE_NAMESPACE__: JSON.stringify(process.env.KEEWEBX_STORAGE_NAMESPACE || '')
+                __KW_STORAGE_NAMESPACE__: JSON.stringify(process.env.KEEWEBX_STORAGE_NAMESPACE || ''),
+                __KW_NEW_EXTENSION__: process.env.KEEWEBX_NEW_EXTENSION === '1'
             }),
             new MiniCssExtractPlugin({ filename: 'css/[name].css' }),
             new HtmlWebpackPlugin({

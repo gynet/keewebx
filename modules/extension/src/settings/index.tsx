@@ -1,3 +1,4 @@
+import { matchesAppUrl } from 'common/app-url';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { VaultStatus, getMode, hostOf, onVaultChanged, vault } from 'ui/vault-client';
@@ -33,7 +34,7 @@ function Settings() {
             setStatus(await vault<VaultStatus>('status'));
         } else {
             const tabs = await chrome.tabs.query({});
-            setWebOpen(tabs.some((t) => t.url?.startsWith(m.keeWebUrl!)));
+            setWebOpen(tabs.some((t) => matchesAppUrl(t.url, m.keeWebUrl)));
         }
     };
 

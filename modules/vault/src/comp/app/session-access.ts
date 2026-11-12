@@ -68,11 +68,21 @@ export class SessionAccess {
     #approved = new Set<string>();
     #attempts = new Map<string, object>();
     #invalid = false;
+    #invalidationListeners = new Set<() => void>();
 
     readonly #model: AppModel;
     constructor(model: AppModel) { this.#model = model; }
     get state(): SessionAccessState { return this.#phase; }
     get epoch(): number { return this.#generation; }
+    subscribeInvalidation(listener: () => void): () => void {
+        this.#invalidationListeners.add(listener);
+        return () => { this.#invalidationListeners.delete(listener); };
+    }
+    #notifyInvalidation(): void {
+        for (const listener of [...this.#invalidationListeners]) {
+            try { listener(); } catch { console.error('Session access observer failed'); }
+        }
+    }
     isCurrent(epoch: number): boolean { return epoch === this.#generation; }
     assertOpen(expectedEpoch?: number): void {
         if (this.#phase !== 'open') throw new SessionAccessError('access-denied');
@@ -84,6 +94,7 @@ export class SessionAccess {
         if (this.#phase !== 'open') return this.#generation;
         this.#phase = 'securing';
         ++this.#generation;
+        this.#notifyInvalidation();
         this.#invalid = false;
         this.#targets = this.#activeRealFiles().map((file) => ({
             file, id: file.id, db: file.db, credentials: file.db.credentials,
@@ -100,6 +111,7 @@ export class SessionAccess {
         if (this.#phase !== 'securing') throw new SessionAccessError('invalid-state');
         this.#phase = 'recovery-required';
         ++this.#generation;
+        this.#notifyInvalidation();
         this.#clearReferences();
         return this.#generation;
     }
@@ -184,6 +196,7 @@ export class SessionAccess {
         }
         ++this.#generation;
         this.#phase = 'open';
+        this.#notifyInvalidation();
         this.#clearReferences();
         this.#targets = [];
     }
@@ -194,6 +207,7 @@ export class SessionAccess {
         if (this.#phase !== 'securing' || this.#model.files.some((file) => file.active)) throw new SessionAccessError('invalid-state');
         ++this.#generation;
         this.#phase = 'closed';
+        this.#notifyInvalidation();
         this.#clearReferences();
         this.#targets = [];
     }
@@ -203,6 +217,7 @@ export class SessionAccess {
         if (this.#phase !== 'closed' || this.#model.files.some((file) => file.active)) throw new SessionAccessError('invalid-state');
         ++this.#generation;
         this.#phase = 'open';
+        this.#notifyInvalidation();
         this.#invalid = false;
     }
 
@@ -236,6 +251,7 @@ export class SessionAccess {
         this.#invalid = true;
         ++this.#generation;
         this.#phase = 'recovery-required';
+        this.#notifyInvalidation();
         this.#clearReferences();
         throw new SessionAccessError('session-changed');
     }

@@ -1,7 +1,7 @@
 import 'ui-kit/tokens.css';
 import './styles.css';
 import { render } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Events } from 'framework/events';
 import type { AppModel } from 'models/app-model';
 import { saveAndLock, startVault } from 'boot';
@@ -14,13 +14,24 @@ import { waitForSync } from 'comp/app/vault-files';
 import { getSessionAccess, type RecoveryVault } from 'comp/app/session-access';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { SessionRecovery } from './session-recovery';
+import { createNewProtocolUi } from './extension-ui';
+import { NewProtocolUiHost } from './extension-prompts';
+import { createExtensionSessionsApi } from './extension-sessions';
+import { BrowserExtensionConnector } from 'comp/extension/browser-extension-connector';
+import { createSessionProtocolAccess } from 'comp/extension/protocol-access';
 import { waitForPendingOperations } from './pending-operations';
 import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
+
+declare const __KW_NEW_EXTENSION__: boolean;
 
 function App({ model }: { model: AppModel }) {
     const version = useVaultVersion(model);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [unlockRequest, setUnlockRequest] = useState(model.fileUnlockPromise);
     const access = getSessionAccess(model);
+    const protocolUi = useMemo(() => createNewProtocolUi(model,
+        () => !!document.querySelector('dialog[open]')), [model]);
+    const extensionSessions = useMemo(() => createExtensionSessionsApi(model), [model]);
     const [gate, setGate] = useState<{ epoch: number; ready: boolean; files: readonly RecoveryVault[]; error: string } | null>(null);
     const operation = useRef<AbortController | null>(null);
     const surface = useRef<HTMLDivElement>(null);
@@ -62,6 +73,7 @@ function App({ model }: { model: AppModel }) {
     };
     const lock = async () => {
         if (access.state !== 'open' || operation.current || !model.files.hasOpenFiles()) return;
+        protocolUi.cancel();
         const controller = new AbortController();
         operation.current = controller;
         previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -117,11 +129,33 @@ function App({ model }: { model: AppModel }) {
         };
     }, [model]);
 
-    if (!model.files.hasOpenFiles() && !gate) {
-        return <Unlock key={version} model={model} />;
-    }
+    useEffect(() => {
+        if (!__KW_NEW_EXTENSION__) return;
+        const updateUnlock = () => setUnlockRequest(model.fileUnlockPromise);
+        const showUnlock = () => {
+            if (access.state === 'open' && !model.files.hasOpenFiles()) setSettingsOpen(false);
+        };
+        Events.on('unlock-message-changed', updateUnlock);
+        Events.on('show-open-view', showUnlock);
+        BrowserExtensionConnector.init(model, protocolUi, createSessionProtocolAccess(model));
+        return () => {
+            protocolUi.cancel();
+            BrowserExtensionConnector.stop();
+            Events.off('unlock-message-changed', updateUnlock);
+            Events.off('show-open-view', showUnlock);
+        };
+    }, [model, protocolUi]);
+
     return (
         <>
+        <NewProtocolUiHost controller={protocolUi} />
+        {!model.files.hasOpenFiles() && !gate ? <Unlock key={version} model={model}
+            extensionRequest={unlockRequest?.unlockRes === 'extensionUnlockMessage'}
+            onCancelExtensionRequest={() => {
+                if (unlockRequest && model.fileUnlockPromise === unlockRequest) {
+                    model.rejectPendingFileUnlockPromise('Extension unlock canceled');
+                }
+            }} /> : <>
         {gate && <SessionRecovery key={gate.epoch} files={[...gate.files]} ready={gate.ready} error={gate.error}
             retry={() => void prepareRecovery(gate.epoch)}
             verify={(id, password, keyFile) => access.verifyVault(gate.epoch, id, { password, keyFile })}
@@ -145,8 +179,9 @@ function App({ model }: { model: AppModel }) {
             onLock={() => void lock()}
         />
         </div>
-        {settingsOpen && <Settings model={model} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
+        {settingsOpen && <Settings model={model} extensionSessions={__KW_NEW_EXTENSION__ ? extensionSessions : undefined} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
         </div>
+        </>}
         </>
     );
 }

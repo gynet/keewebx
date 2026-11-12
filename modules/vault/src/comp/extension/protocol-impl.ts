@@ -6,6 +6,7 @@ import { GeneratorPresets } from 'comp/app/generator-presets';
 import { Locale } from 'util/locale';
 import { RuntimeInfo } from 'const/runtime-info';
 import { KnownAppVersions } from 'const/known-app-versions';
+import { SettingsStore } from 'comp/settings/settings-store';
 import { RuntimeDataModel } from 'models/runtime-data-model';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { Timeouts } from 'const/timeouts';
@@ -15,6 +16,7 @@ import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
 import type { GroupModel } from 'models/group-model';
 import type { GroupCollection } from 'collections/group-collection';
+import type { ProtocolAccess } from './protocol-access';
 import type { ProtocolUi, SaveGroupChoice } from './protocol-ui';
 import type { Logger } from 'util/logger';
 import { entryFieldText, listEntries, summarizeEntry } from 'comp/extension/entry-list';
@@ -68,6 +70,7 @@ export interface ClientPermissions {
 interface Pairing {
     created: string;
     permissions?: ClientPermissions;
+    revoked?: boolean;
 }
 
 /** A short-lived reference to an entry, handed out in entry lists. */
@@ -75,6 +78,12 @@ interface EntryHandle {
     fileId: string;
     entryId: string;
     expires: number;
+    epoch: number;
+    generation: number;
+    file: FileModel;
+    db: FileModel['db'];
+    entry: EntryModel;
+    object: EntryModel['entry'];
 }
 
 interface ClientStats {
@@ -84,6 +93,8 @@ interface ClientStats {
 }
 
 interface ClientState {
+    generation: number;
+    permissionSource?: 'identity' | 'legacy';
     connection: ConnectionInfo;
     publicKey: Uint8Array;
     version?: string;
@@ -109,6 +120,7 @@ interface CodedError extends Error {
 export interface ProtocolInitVars {
     appModel: AppModel;
     ui: ProtocolUi;
+    access: ProtocolAccess;
     logger: Logger;
     sendEvent: (data: ProtocolResponse) => void;
 }
@@ -162,27 +174,156 @@ function savePairing(identity: string, pairing: Pairing): void {
     runtimeData.extensionPairings = { ...getPairings(), [identity]: pairing };
 }
 
+function clonePermissions(permissions: ClientPermissions): ClientPermissions {
+    return { ...permissions, ...(permissions.files ? { files: [...permissions.files] } : {}),
+        ...(permissions.saveTo ? { saveTo: { ...permissions.saveTo } } : {}) };
+}
+
 const connectedClients = new Map<string, ClientState>();
 
 let logger: Logger;
 let appModel: AppModel;
 let ui: ProtocolUi;
+let access: ProtocolAccess;
+let unsubscribeAccess: (() => void) | undefined;
+let removeListeners: (() => void) | undefined;
+let nextGeneration = 0;
+const pendingForgottenIdentities = new Set<string>();
+let pendingLegacyForget = false;
 let sendEvent: (data: ProtocolResponse) => void;
 
+interface RequestContext {
+    clientId: string;
+    client: ClientState;
+    generation: number;
+    controller: AbortController;
+    epoch?: number;
+    listRequired?: boolean;
+    awaitingUnlock?: boolean;
+    files: Map<FileModel, FileModel['db']>;
+    entries: Map<EntryModel, EntryModel['entry']>;
+    groups: Map<GroupModel, GroupModel['group']>;
+}
+const requestContexts = new WeakMap<ProtocolRequest, RequestContext>();
+const activeRequests = new Set<RequestContext>();
+const responseChecks = new WeakMap<ProtocolResponse, { request: ProtocolRequest; context: RequestContext }>();
+
+function assertContext(context: RequestContext): void {
+    if (context.controller.signal.aborted) throw context.controller.signal.reason;
+    if (connectedClients.get(context.clientId) !== context.client || context.client.generation !== context.generation) {
+        throw makeError(Errors.userRejected);
+    }
+    if (context.epoch === undefined) return;
+    try { access.assertOpen(context.epoch); } catch { throw makeError(Errors.noOpenFiles); }
+    if (context.listRequired && !context.client.permissions?.canList) throw makeError(Errors.userRejected);
+    for (const [file, db] of context.files) {
+        if (!file.active || appModel.files.get(file.id) !== file || file.db !== db) throw makeError(Errors.noOpenFiles);
+    }
+    for (const [entry, object] of context.entries) {
+        const file = entry.file as FileModel;
+        if (!allowedFile(context.client, file) || file.getEntry(entry.id) !== entry || entry.entry !== object) {
+            throw makeError(Errors.userRejected);
+        }
+    }
+    for (const [group, object] of context.groups) {
+        const file = group.file as FileModel;
+        if (!allowedFile(context.client, file) || file.getGroup(group.id) !== group || group.group !== object) {
+            throw makeError(Errors.userRejected);
+        }
+    }
+}
+
+function contextFor(request: ProtocolRequest): RequestContext {
+    const context = requestContexts.get(request);
+    if (!context) throw new Error('Missing request context');
+    assertContext(context);
+    return context;
+}
+
+function assertContent(request: ProtocolRequest): RequestContext {
+    const context = contextFor(request);
+    if (context.epoch === undefined) context.epoch = access.snapshot().epoch;
+    assertContext(context);
+    return context;
+}
+
+function allowedFile(client: ClientState, file: FileModel): boolean {
+    return file.active && appModel.files.get(file.id) === file &&
+        !!(client.permissions?.allFiles || client.permissions?.files?.includes(file.id));
+}
+
+function observeFile(context: RequestContext, file: FileModel): void {
+    if (!context.files.has(file)) context.files.set(file, file.db);
+    assertContext(context);
+}
+
+function assertEntry(request: ProtocolRequest, entry: EntryModel): void {
+    const context = assertContent(request);
+    const file = entry.file as FileModel;
+    observeFile(context, file);
+    if (!context.entries.has(entry)) context.entries.set(entry, entry.entry);
+    assertContext(context);
+}
+
+function assertWritableGroup(request: ProtocolRequest, group: GroupModel): void {
+    const context = assertContent(request);
+    const file = group.file as FileModel;
+    observeFile(context, file);
+    if (!context.groups.has(group)) context.groups.set(group, group.group);
+    assertContext(context);
+    if ((file as FileModel & { readOnly?: boolean }).readOnly || file.syncing) throw makeError(Errors.userRejected);
+    const visited = new Set<GroupModel>();
+    for (let parent: GroupModel | null = group; parent; parent = parent.parentGroup) {
+        if (visited.has(parent) || (file.db.meta.recycleBinUuid && parent.group.uuid.equals(file.db.meta.recycleBinUuid))) {
+            throw makeError(Errors.userRejected);
+        }
+        visited.add(parent);
+    }
+}
+
+function invalidateClient(client: ClientState, except?: RequestContext): void {
+    client.generation = ++nextGeneration;
+    client.handles.clear();
+    for (const context of activeRequests) {
+        if (context.client === client && context !== except) context.controller.abort(makeError(Errors.userRejected));
+    }
+    if (except) except.generation = client.generation;
+}
+
+function disconnectClient(clientId: string, client: ClientState): void {
+    invalidateClient(client);
+    connectedClients.delete(clientId);
+}
+
+function accessInvalidated(): void {
+    for (const client of connectedClients.values()) client.handles.clear();
+    for (const context of activeRequests) {
+        if (context.epoch !== undefined || (context.awaitingUnlock && !access.snapshot().open)) {
+            context.controller.abort(makeError(Errors.noOpenFiles));
+        }
+    }
+    if (!access.snapshot().open) sendEvent({ action: 'database-locked' });
+}
+
 function setupListeners(): void {
-    Events.on('file-opened', () => {
-        sendEvent({ action: 'database-unlocked' });
-    });
-    Events.on('one-file-closed', () => {
-        if (!appModel.files.hasOpenFiles()) {
-            sendEvent({ action: 'database-locked' });
-        }
-    });
-    Events.on('all-files-closed', () => {
-        for (const client of connectedClients.values()) {
-            client.handles.clear();
-        }
-        sendEvent({ action: 'database-locked' });
+    const opened = () => { if (access.snapshot().open) sendEvent({ action: 'database-unlocked' }); };
+    Events.on('file-opened', opened);
+    removeListeners = () => Events.off('file-opened', opened);
+}
+
+function waitForRequest<T>(request: ProtocolRequest, promise: Promise<T>): Promise<T> {
+    const context = requestContexts.get(request)!;
+    return new Promise((resolve, reject) => {
+        const signal = context.controller.signal;
+        const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason); };
+        signal.addEventListener('abort', abort, { once: true });
+        // Always consume completion, including when invalidation preceded this wait.
+        promise.then((value) => {
+            signal.removeEventListener('abort', abort);
+            try { assertContext(context); resolve(value); } catch (error) { reject(error); }
+        }, (error) => { signal.removeEventListener('abort', abort); reject(error); });
+        if (signal.aborted) abort();
+        else { try { assertContext(context); } catch (error) { signal.removeEventListener('abort', abort); reject(error); } }
     });
 }
 
@@ -198,6 +339,8 @@ function incrementNonce(nonce: Uint8Array): void {
 }
 
 function getClient(request: ProtocolRequest): ClientState {
+    const context = requestContexts.get(request);
+    if (context) assertContext(context);
     if (!request.clientID) {
         throw new Error('Empty clientID');
     }
@@ -312,24 +455,31 @@ function makeError(def: ErrorDef): CodedError {
     return e;
 }
 
-function ensureAtLeastOneFileIsOpen(): void {
-    if (!appModel.files.hasOpenFiles()) {
-        throw makeError(Errors.noOpenFiles);
-    }
+function ensureAtLeastOneFileIsOpen(request: ProtocolRequest): void {
+    assertContent(request);
 }
 
 async function checkContentRequestPermissions(
     request: ProtocolRequest,
     options: { list?: boolean } = {}
 ): Promise<void> {
-    if (!appModel.files.hasOpenFiles()) {
+    if (!access.snapshot().open) {
+        if (appModel.files.hasOpenFiles()) throw makeError(Errors.noOpenFiles);
         if (AppSettingsModel.extensionFocusIfLocked) {
             try {
                 focusKeeWeb();
-                await appModel.unlockAnyFile(
-                    'extensionUnlockMessage',
-                    Timeouts.KeeWebConnectRequest
-                );
+                const context = contextFor(request);
+                context.awaitingUnlock = true;
+                const pending = appModel.unlockAnyFile('extensionUnlockMessage', Timeouts.KeeWebConnectRequest);
+                const ownedUnlock = appModel.fileUnlockPromise;
+                const cancelUnlock = () => {
+                    if (ownedUnlock && appModel.fileUnlockPromise === ownedUnlock) {
+                        appModel.rejectPendingFileUnlockPromise('Extension request canceled');
+                    }
+                };
+                context.controller.signal.addEventListener('abort', cancelUnlock, { once: true });
+                try { await waitForRequest(request, pending); }
+                finally { context.awaitingUnlock = false; context.controller.signal.removeEventListener('abort', cancelUnlock); }
             } catch {
                 throw makeError(Errors.noOpenFiles);
             }
@@ -338,8 +488,10 @@ async function checkContentRequestPermissions(
         }
     }
 
+    const context = assertContent(request);
     const client = getClient(request);
-    if (client.permissions && (!options.list || client.permissions.canList)) {
+    if (client.permissions) {
+        if (options.list && !client.permissions.canList) throw makeError(Errors.userRejected);
         return;
     }
 
@@ -347,13 +499,15 @@ async function checkContentRequestPermissions(
     // Other clients share one approval, as before pairing existed: MV3
     // service workers restart often and come back with a new clientId.
     const shared = runtimeData.extensionConnectConfig as ClientPermissions | undefined;
-    const stored = client.identity ? getPairings()[client.identity]?.permissions : shared;
+    const pairing = client.identity ? getPairings()[client.identity] : undefined;
+    const stored = client.identity ? pairing?.permissions : shared;
     // A paired client may fill with an approval given before pairing existed,
     // but listing always needs its own.
-    const config = stored ?? (client.identity && !options.list ? shared : undefined);
+    const config = stored ?? (client.identity && !pairing?.revoked && !options.list ? shared : undefined);
 
     if (config && (!options.list || config.canList)) {
-        client.permissions = config;
+        client.permissions = clonePermissions(config);
+        client.permissionSource = client.identity && pairing?.permissions ? 'identity' : 'legacy';
         Events.emit('browser-extension-sessions-changed');
         return;
     }
@@ -364,6 +518,7 @@ async function checkContentRequestPermissions(
 
     focusKeeWeb();
 
+    for (const file of appModel.files.filter((file) => file.active)) observeFile(context, file);
     const files = appModel.files.map((f) => ({
         id: f.id,
         name: f.name,
@@ -372,7 +527,7 @@ async function checkContentRequestPermissions(
 
     let approved: ClientPermissions;
     try {
-        approved = { ...await promptWithTimeout((signal) => ui.connect({
+        approved = { ...await promptWithTimeout(request, (signal) => ui.connect({
             extensionName: getHumanReadableExtensionName(client),
             identityVerified: true,
             files,
@@ -387,6 +542,8 @@ async function checkContentRequestPermissions(
         throw e;
     }
 
+    assertContent(request);
+    client.permissionSource = client.identity ? 'identity' : 'legacy';
     if (client.identity) {
         savePairing(client.identity, {
             created: getPairings()[client.identity]?.created ?? new Date().toISOString(),
@@ -410,34 +567,43 @@ function requirePairing(request: ProtocolRequest): ClientState {
     return client;
 }
 
-function issueHandle(client: ClientState, entry: EntryModel): string {
+function issueHandle(request: ProtocolRequest, client: ClientState, entry: EntryModel): string {
+    assertEntry(request, entry);
+    const file = entry.file as FileModel;
     const handle = kdbxweb.ByteUtils.bytesToBase64(kdbxweb.CryptoEngine.random(12));
     client.handles.set(handle, {
         fileId: (entry.file as FileModel).id,
         entryId: entry.id,
-        expires: Date.now() + HANDLE_TTL_MS
+        expires: Date.now() + HANDLE_TTL_MS,
+        epoch: assertContent(request).epoch!, generation: client.generation, file, db: file.db, entry, object: entry.entry
     });
     return handle;
 }
 
-function resolveHandle(client: ClientState, handle: unknown): EntryModel {
+function resolveHandle(request: ProtocolRequest, client: ClientState, handle: unknown): EntryModel {
+    const context = assertContent(request);
     const ref = client.handles.get(String(handle));
-    if (!ref || ref.expires < Date.now()) {
+    if (!ref || ref.expires < Date.now() || ref.epoch !== context.epoch || ref.generation !== client.generation) {
         throw makeError(Errors.expiredHandle);
     }
     const file = appModel.files.get(ref.fileId);
     const entry = file?.getEntry(ref.entryId);
-    if (!entry) {
+    if (!entry || !file || file !== ref.file || file.db !== ref.db || entry !== ref.entry || entry.entry !== ref.object
+        || !allowedFile(client, file) || !client.permissions?.canList) {
         throw makeError(Errors.expiredHandle);
     }
+    assertEntry(request, entry);
     return entry;
 }
 
-async function promptWithTimeout<T>(show: (signal: AbortSignal) => Promise<T | null>): Promise<T> {
+async function promptWithTimeout<T>(request: ProtocolRequest, show: (signal: AbortSignal) => Promise<T | null>): Promise<T> {
+    const context = assertContent(request);
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    context.controller.signal.addEventListener('abort', abort, { once: true });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-        const result = await Promise.race([
+        const result = await waitForRequest(request, Promise.race([
             show(controller.signal),
             new Promise<null>((resolve) => {
                 timer = setTimeout(() => {
@@ -445,16 +611,18 @@ async function promptWithTimeout<T>(show: (signal: AbortSignal) => Promise<T | n
                     resolve(null);
                 }, Timeouts.KeeWebConnectRequest);
             })
-        ]);
+        ]));
         if (result === null) throw makeError(Errors.userRejected);
         return result;
     } finally {
         clearTimeout(timer);
+        context.controller.signal.removeEventListener('abort', abort);
         controller.abort();
     }
 }
 
 function getAvailableFiles(request: ProtocolRequest): FileModel[] | undefined {
+    const context = assertContent(request);
     const client = getClient(request);
     if (!client.permissions) {
         return undefined;
@@ -470,6 +638,7 @@ function getAvailableFiles(request: ProtocolRequest): FileModel[] | undefined {
         throw makeError(Errors.noOpenFiles);
     }
 
+    for (const file of files) observeFile(context, file);
     return files;
 }
 
@@ -556,9 +725,10 @@ async function findEntry(
         const extName = getHumanReadableExtensionName(client);
         const topMessage = loc['extensionSelectPasswordFor'].replace('{}', extName);
         focusKeeWeb();
-        entry = await promptWithTimeout((signal) => ui.selectEntry({ filter, topMessage }, signal));
+        entry = await promptWithTimeout(request, (signal) => ui.selectEntry({ filter, topMessage }, signal));
     }
 
+    assertEntry(request, entry);
     client.stats.passwordsRead++;
 
     return entry;
@@ -589,7 +759,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         }
 
         // on web there can be only one connected client
-        connectedClients.clear();
+        for (const [id, client] of connectedClients) disconnectClient(id, client);
 
         const keys = tweetnaclBox.keyPair();
         const publicKey = new Uint8Array(kdbxweb.ByteUtils.base64ToBytes(publicKeyStr));
@@ -601,6 +771,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         };
 
         connectedClients.set(clientId, {
+            generation: ++nextGeneration,
             connection,
             publicKey,
             version,
@@ -636,7 +807,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         if (request.triggerUnlock) {
             await checkContentRequestPermissions(request);
         } else {
-            ensureAtLeastOneFileIsOpen();
+            ensureAtLeastOneFileIsOpen(request);
         }
 
         return encryptResponse(request, {
@@ -660,7 +831,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
 
     'lock-database'(request: ProtocolRequest): ProtocolResponse {
         decryptRequest(request);
-        ensureAtLeastOneFileIsOpen();
+        if (!access.snapshot().open) throw makeError(Errors.noOpenFiles);
 
         Events.emit('lock-workspace');
 
@@ -676,7 +847,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
 
     'associate'(request: ProtocolRequest): ProtocolResponse {
         decryptRequest(request);
-        ensureAtLeastOneFileIsOpen();
+        ensureAtLeastOneFileIsOpen(request);
 
         return encryptResponse(request, {
             success: 'true',
@@ -688,7 +859,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
 
     'test-associate'(request: ProtocolRequest): ProtocolResponse {
         const payload = decryptRequest(request);
-        // ensureAtLeastOneFileIsOpen();
+        // ensureAtLeastOneFileIsOpen(request);
 
         if (payload.id !== KeeWebAssociationId) {
             throw makeError(Errors.noOpenFiles);
@@ -725,18 +896,20 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         ) {
             throw new Error('Bad pairing signature');
         }
+        invalidateClient(client, contextFor(request));
         client.identity = identity;
         client.permissions = undefined;
-        return encryptResponse(request, { success: 'true', known: !!getPairings()[identity] });
+        client.permissionSource = undefined;
+        return encryptResponse(request, { success: 'true', known: !!getPairings()[identity] && !getPairings()[identity].revoked });
     },
 
     'kwx-features'(request: ProtocolRequest): ProtocolResponse {
         decryptRequest(request);
         const client = getClient(request);
-        const permissions = client.identity ? getPairings()[client.identity]?.permissions : undefined;
+        const permissions = client.permissions ?? (client.identity ? getPairings()[client.identity]?.permissions : undefined);
         return encryptResponse(request, {
             features: ['entries-v1'],
-            locked: !appModel.files.hasOpenFiles(),
+            locked: !access.snapshot().open,
             paired: !!client.identity,
             canList: !!permissions?.canList
         });
@@ -745,16 +918,17 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
     async 'kwx-get-entries'(request: ProtocolRequest): Promise<ProtocolResponse> {
         const payload = decryptRequest(request);
         const client = requirePairing(request);
-        if (!appModel.files.hasOpenFiles()) {
+        if (!access.snapshot().open) {
             return encryptResponse(request, { locked: true, suggested: [], items: [] });
         }
         await checkContentRequestPermissions(request, { list: true });
+        assertContent(request).listRequired = true;
         const files = getAvailableFiles(request);
         const { suggested, items } = listEntries(appModel, files, {
             url: payload.url ? String(payload.url) : undefined,
             query: payload.query ? String(payload.query) : undefined
         });
-        const toWire = (entry: EntryModel) => ({ handle: issueHandle(client, entry), ...summarizeEntry(entry) });
+        const toWire = (entry: EntryModel) => ({ handle: issueHandle(request, client, entry), ...summarizeEntry(entry) });
         return encryptResponse(request, {
             locked: false,
             suggested: suggested.map(toWire),
@@ -765,15 +939,18 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
     async 'kwx-get-entry-fields'(request: ProtocolRequest): Promise<ProtocolResponse> {
         const payload = decryptRequest(request);
         const client = requirePairing(request);
-        ensureAtLeastOneFileIsOpen();
+        ensureAtLeastOneFileIsOpen(request);
         if (!client.permissions?.canList) {
             throw makeError(Errors.userRejected);
         }
-        const entry = resolveHandle(client, payload.handle);
+        assertContent(request).listRequired = true;
+        const entry = resolveHandle(request, client, payload.handle);
         const wanted = Array.isArray(payload.fields) ? payload.fields.map(String) : [];
         const values: Record<string, string> = {};
         for (const field of wanted) {
-            values[field] = await entryFieldText(entry, field);
+            assertEntry(request, entry);
+            values[field] = await waitForRequest(request, entryFieldText(entry, field));
+            assertEntry(request, entry);
         }
         if (wanted.includes('password')) {
             client.stats.passwordsRead++;
@@ -784,6 +961,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
 
     async 'get-logins'(request: ProtocolRequest): Promise<ProtocolResponse> {
         const entry = await findEntry(request, true);
+        assertEntry(request, entry);
 
         return encryptResponse(request, {
             success: 'true',
@@ -808,6 +986,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
     async 'get-totp-by-url'(request: ProtocolRequest): Promise<ProtocolResponse> {
         const entry = await findEntry(request, true, { otp: true });
 
+        assertEntry(request, entry);
         entry.initOtpGenerator();
 
         if (!entry.otpGenerator) {
@@ -816,11 +995,14 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
 
         // Device-backed entries are optional extensions of the shared EntryModel.
         const touchEntry = entry as EntryModel & { needsTouch?: boolean; device?: { shortName: string } };
+        const context = assertContent(request);
         const controller = new AbortController();
+        const abort = () => controller.abort();
+        context.controller.signal.addEventListener('abort', abort, { once: true });
         let touch: ReturnType<ProtocolUi['showTouch']> | undefined;
         let totp: string;
         try {
-            totp = await new Promise<string>((resolve, reject) => {
+            totp = await waitForRequest(request, new Promise<string>((resolve, reject) => {
                 if (touchEntry.needsTouch) {
                     touch = ui.showTouch({ deviceShortName: touchEntry.device!.shortName },
                         () => reject(makeError(Errors.userRejected)), controller.signal);
@@ -829,8 +1011,10 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
                     if (otp) resolve(otp);
                     else reject(err || makeError(Errors.userRejected));
                 });
-            });
+            }));
+            assertEntry(request, entry);
         } finally {
+            context.controller.signal.removeEventListener('abort', abort);
             touch?.dispose();
             controller.abort();
         }
@@ -845,7 +1029,9 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
     async 'get-any-field'(request: ProtocolRequest): Promise<ProtocolResponse> {
         const entry = await findEntry(request, false);
 
-        const field = await promptWithTimeout((signal) => ui.selectField({ entry }, signal));
+        assertEntry(request, entry);
+        const field = await promptWithTimeout(request, (signal) => ui.selectField({ entry }, signal));
+        assertEntry(request, entry);
         if (!field) throw makeError(Errors.userRejected);
 
         let value = entry.getAllFields()[field];
@@ -900,6 +1086,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
                     } else {
                         entryToUpdate = foundEntry;
                         selectedGroup = foundEntry.group as GroupModel;
+                        assertEntry(request, foundEntry);
                     }
                 }
             }
@@ -915,6 +1102,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
             selectedGroup = file?.getGroup(saveTo.groupId);
         }
 
+        if (selectedGroup) assertWritableGroup(request, selectedGroup);
         if (perms?.askSave !== 'auto' || !selectedGroup) {
             const saveConfig = runtimeData.extensionSaveConfig;
             if (!selectedGroup && saveConfig) {
@@ -927,6 +1115,8 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
             const allGroups: SaveGroupChoice[] = [];
             for (const file of files) {
                 file.forEachGroup((group: GroupModel) => {
+                    const path: string[] = [];
+                    for (let ancestor: GroupModel | null = group; ancestor; ancestor = ancestor.parentGroup) path.unshift(ancestor.title);
                     const spaces: string[] = [];
                     for (let parent = group; parent.parentGroup; parent = parent.parentGroup) {
                         spaces.push(' ', ' ');
@@ -943,6 +1133,8 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
                     allGroups.push({
                         id: group.id,
                         fileId: file.id,
+                        fileName: file.name,
+                        path,
                         spaces,
                         title: group.title,
                         selected: group.id === selectedGroup?.id
@@ -953,13 +1145,15 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
                 allGroups.splice(1, 0, {
                     id: '',
                     fileId: files[0].id,
+                    fileName: files[0].name,
+                    path: [files[0].groups[0].title, `${DefaultExtensionGroupName} (${loc['extensionSaveEntryNewGroup']})`],
                     spaces: [' ', ' '],
                     title: `${DefaultExtensionGroupName} (${loc['extensionSaveEntryNewGroup']})`,
                     selected: true
                 });
             }
 
-            const config = { ...await promptWithTimeout((signal) => ui.saveEntry({
+            const config = { ...await promptWithTimeout(request, (signal) => ui.saveEntry({
                 extensionName: getHumanReadableExtensionName(client),
                 url: payload.url as string,
                 user: payload.login as string | undefined,
@@ -972,15 +1166,19 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
                     const file = files.find((f) => f.id === config.fileId);
                     selectedGroup = file?.getGroup(config.groupId);
                 } else {
+                    assertWritableGroup(request, files[0].groups[0]);
                     selectedGroup = appModel.createNewGroupWithName(
                         files[0].groups[0],
                         files[0],
                         DefaultExtensionGroupName
                     );
+                    assertWritableGroup(request, selectedGroup);
                     selectedGroup.setIcon(ExtensionGroupIconId);
                     config.groupId = selectedGroup.id;
                 }
 
+                if (!selectedGroup) throw new Error('Selected group not found');
+                assertWritableGroup(request, selectedGroup);
                 runtimeData.extensionSaveConfig = config;
                 if (client.permissions) {
                     client.permissions.saveTo = {
@@ -990,6 +1188,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
                 }
             }
 
+            assertContent(request);
             if (client.permissions) {
                 client.permissions.askSave = config.askSave;
             }
@@ -1003,13 +1202,18 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         };
 
         if (entryToUpdate) {
+            assertEntry(request, entryToUpdate);
+            assertWritableGroup(request, entryToUpdate.group as GroupModel);
             for (const [field, value] of Object.entries(entryFields)) {
                 if (value) {
+                    assertEntry(request, entryToUpdate);
+                    assertWritableGroup(request, entryToUpdate.group as GroupModel);
                     entryToUpdate.setField(field, value);
                 }
             }
         } else {
             if (!selectedGroup) throw new Error('Selected group not found');
+            assertWritableGroup(request, selectedGroup);
             appModel.createNewEntryWithFields(selectedGroup, entryFields);
         }
 
@@ -1110,7 +1314,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         }
 
         const client = getClient(request);
-        const selectedFileId = await promptWithTimeout((signal) => ui.createGroup({
+        const selectedFileId = await promptWithTimeout(request, (signal) => ui.createGroup({
             extensionName: getHumanReadableExtensionName(client),
             groupPath: groupNames.join(' / '),
             files: files.map((f, ix) => ({
@@ -1134,6 +1338,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
             if (item) {
                 newGroup = item;
             } else {
+                assertWritableGroup(request, newGroup);
                 newGroup = appModel.createNewGroupWithName(newGroup, selectedFile, title);
             }
         }
@@ -1150,42 +1355,94 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
 const ProtocolImpl = {
     init(vars: ProtocolInitVars): void {
         if (!vars.ui) throw new Error('Protocol UI is required');
+        if (!vars.access) throw new Error('Protocol access policy is required');
+        this.cleanup();
         appModel = vars.appModel;
         ui = vars.ui;
+        access = vars.access;
         logger = vars.logger;
         sendEvent = vars.sendEvent;
-
+        unsubscribeAccess = access.subscribeInvalidation(accessInvalidated);
         setupListeners();
     },
 
     cleanup(): void {
         const wasNotEmpty = connectedClients.size;
-
-        connectedClients.clear();
-
-        if (wasNotEmpty) {
-            Events.emit('browser-extension-sessions-changed');
-        }
+        for (const [id, client] of connectedClients) disconnectClient(id, client);
+        unsubscribeAccess?.(); unsubscribeAccess = undefined;
+        removeListeners?.(); removeListeners = undefined;
+        if (wasNotEmpty) Events.emit('browser-extension-sessions-changed');
     },
 
     deleteConnection(connectionId: number): void {
-        for (const [clientId, client] of connectedClients.entries()) {
-            if (client.connection.connectionId === connectionId) {
-                connectedClients.delete(clientId);
-            }
+        for (const [clientId, client] of connectedClients) {
+            if (client.connection.connectionId === connectionId) disconnectClient(clientId, client);
         }
         Events.emit('browser-extension-sessions-changed');
     },
 
     getClientPermissions(clientId: string): ClientPermissions | undefined {
-        return connectedClients.get(clientId)?.permissions;
+        const permissions = connectedClients.get(clientId)?.permissions;
+        return permissions && clonePermissions(permissions);
     },
 
     setClientPermissions(clientId: string, permissions: Partial<ClientPermissions>): void {
         const client = connectedClients.get(clientId);
         if (client?.permissions) {
-            client.permissions = { ...client.permissions, ...permissions };
+            invalidateClient(client);
+            client.permissions = clonePermissions({ ...client.permissions, ...permissions });
+            Events.emit('browser-extension-sessions-changed');
         }
+    },
+
+    get approvals() {
+        return {
+            identities: Object.entries(getPairings()).filter(([identity, pairing]) => (!pairing.revoked && pairing.permissions) || pendingForgottenIdentities.has(identity))
+                .map(([identity, pairing]) => ({ identity, created: pairing.created, permissions: clonePermissions(pairing.permissions ?? {}),
+                    pendingPersistence: pendingForgottenIdentities.has(identity) })),
+            legacy: runtimeData.extensionConnectConfig ? clonePermissions(runtimeData.extensionConnectConfig) : pendingLegacyForget ? {} : undefined,
+            legacyPendingPersistence: pendingLegacyForget
+        };
+    },
+
+    forgetApproval(identity: string): void {
+        if (!identity) throw new Error('Missing extension identity');
+        pendingForgottenIdentities.add(identity);
+        // Retain a denial marker so this identity cannot inherit a legacy shared approval.
+        savePairing(identity, { created: getPairings()[identity]?.created ?? new Date().toISOString(), revoked: true });
+        for (const [id, client] of connectedClients) {
+            if (client.identity === identity) disconnectClient(id, client);
+        }
+        try {
+            SettingsStore.saveRequired('runtime-data', RuntimeDataModel);
+            pendingForgottenIdentities.clear(); pendingLegacyForget = false;
+        }
+        finally { Events.emit('browser-extension-sessions-changed'); }
+    },
+
+    forgetLegacyApproval(): void {
+        pendingLegacyForget = true;
+        runtimeData.extensionConnectConfig = undefined;
+        for (const [id, client] of connectedClients) {
+            if (!client.identity || client.permissionSource === 'legacy' || !getPairings()[client.identity]?.permissions) {
+                disconnectClient(id, client);
+            }
+        }
+        try {
+            SettingsStore.saveRequired('runtime-data', RuntimeDataModel);
+            pendingForgottenIdentities.clear(); pendingLegacyForget = false;
+        }
+        finally { Events.emit('browser-extension-sessions-changed'); }
+    },
+
+    /** The transport calls this immediately before posting the response. */
+    prepareResponse(response: ProtocolResponse): ProtocolResponse {
+        const check = responseChecks.get(response);
+        if (check) {
+            try { assertContext(check.context); }
+            catch (error) { return this.errorToResponse(error as CodedError, check.request); }
+        }
+        return response;
     },
 
     errorToResponse(e: CodedError, request: ProtocolRequest | undefined): ProtocolResponse {
@@ -1200,25 +1457,34 @@ const ProtocolImpl = {
         request: ProtocolRequest,
         connectionInfo: ConnectionInfo
     ): Promise<ProtocolResponse> {
-        let result: ProtocolResponse;
+        // A unique object also isolates concurrent calls that reuse their input object.
+        request = { ...request };
+        let context: RequestContext | undefined;
         try {
             const handler = ProtocolHandlers[request.action];
-            if (!handler) {
-                throw new Error(`Handler not found: ${request.action}`);
+            if (!handler) throw new Error(`Handler not found: ${request.action}`);
+            if (request.action !== 'ping' && request.action !== 'change-public-keys') {
+                const client = getClient(request);
+                context = { clientId: request.clientID!, client, generation: client.generation,
+                    controller: new AbortController(), files: new Map(), entries: new Map(), groups: new Map() };
+                requestContexts.set(request, context);
+                activeRequests.add(context);
             }
-            result = await handler(request, connectionInfo);
-            if (!result) {
-                throw new Error(`Handler returned an empty result: ${request.action}`);
+            const pending = Promise.resolve(handler(request, connectionInfo));
+            const result = context ? await waitForRequest(request, pending) : await pending;
+            if (!result) throw new Error(`Handler returned an empty result: ${request.action}`);
+            if (context) {
+                assertContext(context);
+                responseChecks.set(result, { request, context });
             }
-        } catch (e) {
-            const err = e as CodedError;
-            if (!err.code) {
-                logger.error(`Error in handler ${request.action}`, e);
-            }
-            result = this.errorToResponse(err, request);
+            return result;
+        } catch (error) {
+            const err = error as CodedError;
+            if (!err.code) logger.error(`Error in handler ${request.action}`, error);
+            return this.errorToResponse(err, request);
+        } finally {
+            if (context) activeRequests.delete(context);
         }
-
-        return result;
     },
 
     get sessions() {
@@ -1231,7 +1497,9 @@ const ProtocolImpl = {
                 connectedDate: client.stats.connectedDate,
                 passwordsRead: client.stats.passwordsRead,
                 passwordsWritten: client.stats.passwordsWritten,
-                permissions: client.permissions,
+                identity: client.identity,
+                generation: client.generation,
+                permissions: client.permissions && clonePermissions(client.permissions),
                 permissionsDenied: client.permissionsDenied
             }))
             .sort((x, y) => y.connectedDate.getTime() - x.connectedDate.getTime());

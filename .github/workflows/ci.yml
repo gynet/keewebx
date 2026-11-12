@@ -171,3 +171,59 @@ jobs:
       - name: Dump dev server log on failure
         if: failure()
         run: cat /tmp/dev-server.log || true
+
+  e2e-new-interface-connect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      KEEWEBX_NEW_EXTENSION: '1'
+      KEEWEBX_E2E_PORT: '8097'
+      KW_E2E_APP_ORIGIN: http://localhost:8097
+      PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/new-interface-connect
+      PLAYWRIGHT_HTML_OPEN: never
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2.2.0
+      - run: bun install --frozen-lockfile
+      - name: Build the app with New extension connections enabled
+        run: bun run build
+      - name: Build both extension packages
+        working-directory: modules/extension
+        run: |
+          bun run build-chrome
+          bun run build-chrome-vault
+      - name: Install full headless Chromium
+        run: bunx playwright install chromium --with-deps
+      - name: Test real New and Classic extension connections
+        run: |
+          set -euo pipefail
+          mkdir -p .cache
+          bun e2e/serve-app.ts > .cache/new-interface-connect-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8097/next.html > /dev/null; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat .cache/new-interface-connect-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
+          bunx playwright test --config e2e/extension/new-interface.playwright.config.ts e2e/extension/new-interface-connection.spec.ts --reporter=line,html
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-new-interface-connect-report
+          path: |
+            e2e/test-results-new-extension/
+            playwright-report/new-interface-connect/
+            .cache/new-interface-connect-server.log
+          retention-days: 7
