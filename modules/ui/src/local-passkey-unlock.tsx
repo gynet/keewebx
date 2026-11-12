@@ -3,9 +3,10 @@ import type { AppModel } from 'models/app-model';
 import { canUseLocalPasskeys, forgetLocalPasskey, hasLocalPasskey, hasLocalPasskeyData, localPasskeyError, unlockWithLocalPasskey } from './local-passkeys';
 import { t } from './i18n';
 
-export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage }: {
+export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage, onAttempt }: {
     model: AppModel; id?: string; keyFile: { name: string; data: string } | null;
     busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void;
+    onAttempt(): void;
 }) {
     const mounted = useRef(true), running = useRef(false);
     useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -15,6 +16,7 @@ export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessa
         {hasLocalPasskey(info) && <button type="button" class="pill pill--block"
             disabled={busy || !canUseLocalPasskeys()} onClick={async () => {
                 if (!info || running.current) return;
+                onAttempt();
                 running.current = true; setBusy(true); setMessage('');
                 try { await unlockWithLocalPasskey(model, info.id, keyFile, () => mounted.current); }
                 catch (error) { if (mounted.current) setMessage(t(localPasskeyError(error))); }

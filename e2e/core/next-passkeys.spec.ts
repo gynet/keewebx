@@ -201,6 +201,52 @@ async function holdCeremony(page: Page, method: 'create' | 'get') {
 }
 async function releaseCeremony(page: Page) { await page.evaluate(() => (window as any).__releasePasskey()); }
 
+for (const failRead of [false, true]) {
+    test(`held file read ${failRead ? 'failure' : 'success'} cannot replace an active virtual passkey unlock`, async ({ page, context }) => {
+        const errors: string[] = [];
+        page.on('pageerror', error => errors.push(error.message));
+        await authenticator(context, page); const source = await fixture();
+        await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page);
+        const saved = await record(page);
+        await page.locator('#password').fill('Keep this password fallback draft');
+        await holdCeremony(page, 'get');
+        await page.evaluate(() => {
+            const original = File.prototype.arrayBuffer;
+            File.prototype.arrayBuffer = function () {
+                if (this.name !== 'incoming.kdbx') return original.call(this);
+                File.prototype.arrayBuffer = original;
+                const gate = new Promise<boolean>(resolve => { (window as any).__releaseFileRead = resolve; });
+                const result = original.call(this).then(async bytes => {
+                    if (await gate) throw new DOMException('Held file read failed', 'NotReadableError');
+                    return bytes;
+                });
+                (window as any).__fileReadSettled = result.then(() => {}, () => {});
+                return result;
+            };
+        });
+        await page.locator('#open-file-input').setInputFiles(payload(source.bytes, 'incoming.kdbx'));
+        await expect(page.locator('.start__side').getByRole('status')).toHaveText('Reading file…');
+        await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+        await expect.poll(() => page.evaluate(() => !!(window as any).__passkeyHeld)).toBe(true);
+        // Complete the file read while the genuine virtual-authenticator result is still held.
+        await page.evaluate(async fail => {
+            (window as any).__releaseFileRead(fail);
+            await (window as any).__fileReadSettled;
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        }, failRead);
+        await expect(page.getByRole('heading', { name: 'passkey-one.kdbx', exact: true })).toBeVisible();
+        await expect(page.locator('#password')).toHaveValue('Keep this password fallback draft');
+        await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toBeDisabled();
+        await expect(page.locator('#open-file-error')).toHaveCount(0);
+        await expect(page.locator('.entry-row')).toHaveCount(0);
+        expect(await record(page)).toEqual(saved);
+        await releaseCeremony(page);
+        await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
+        expect(errors).toEqual([]);
+        await screenshot(page, `held-file-${failRead ? 'failure' : 'success'}-passkey-unlocked`);
+    });
+}
+
 test('lock during held enrollment rejects late descriptor publication', async ({ page, context }) => {
     await authenticator(context, page); const source = await fixture();
     await openFile(page, source); await openSettings(page); await holdCeremony(page, 'create');

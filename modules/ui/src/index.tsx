@@ -149,7 +149,7 @@ function App({ model }: { model: AppModel }) {
     return (
         <>
         <NewProtocolUiHost controller={protocolUi} />
-        {!model.files.hasOpenFiles() && !gate ? <Unlock key={version} model={model}
+        {!model.files.hasOpenFiles() && !gate ? <Unlock model={model}
             extensionRequest={unlockRequest?.unlockRes === 'extensionUnlockMessage'}
             onCancelExtensionRequest={() => {
                 if (unlockRequest && model.fileUnlockPromise === unlockRequest) {

@@ -1,7 +1,9 @@
 /** No vault open: recent vaults on the left, an unlock card or a way to add one on the right. */
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { ByteUtils, Consts } from 'kdbxweb';
 import type { AppModel } from 'models/app-model';
 import { VaultApi } from 'comp/app/vault-api';
+import { Locale } from 'util/locale';
 import { Icon, Mark } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
@@ -38,12 +40,7 @@ function where(file: RecentFile): string {
 }
 
 function toBase64(buf: ArrayBuffer): string {
-    let s = '';
-    const bytes = new Uint8Array(buf);
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-        s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    }
-    return btoa(s);
+    return ByteUtils.bytesToBase64(buf);
 }
 
 export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest }: {
@@ -57,12 +54,50 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     }));
     const [pane, setPane] = useState<Pane>(recent[0] ? { kind: 'recent', file: recent[0] } : { kind: 'none' });
     const fileInput = useRef<HTMLInputElement>(null);
+    const readVersion = useRef(0);
+    const [readingFile, setReadingFile] = useState(false);
+    const [fileError, setFileError] = useState<{ message: string; retry?: File } | null>(null);
+    useEffect(() => () => { ++readVersion.current; }, []);
 
-    const chooseFile = async () => {
-        const file = fileInput.current?.files?.[0];
-        if (file) {
-            setPane({ kind: 'file', name: file.name, data: toBase64(await file.arrayBuffer()) });
+    const cancelFileRead = () => {
+        ++readVersion.current;
+        setReadingFile(false);
+        setFileError(null);
+    };
+    const selectPane = (next: Pane) => {
+        cancelFileRead();
+        setPane(next);
+    };
+    const readFile = async (file: File) => {
+        const version = ++readVersion.current;
+        setReadingFile(true);
+        setFileError(null);
+        try {
+            const data = await file.arrayBuffer();
+            if (version !== readVersion.current) return;
+            // Match Classic's signature check before replacing the selected vault.
+            const signature = data.byteLength >= 8 ? new DataView(data) : null;
+            const magic = signature?.getUint32(0, true);
+            const format = signature?.getUint32(4, true);
+            if (magic !== Consts.Signatures.FileMagic || format !== Consts.Signatures.Sig2Kdbx) {
+                setFileError({ message: t(magic === Consts.Signatures.FileMagic && format === Consts.Signatures.Sig2Kdb
+                    ? Locale.openKdbFileBody : Locale.openWrongFileBody) });
+                return;
+            }
+            setPane({ kind: 'file', name: file.name, data: toBase64(data) });
+        } catch {
+            if (version === readVersion.current) {
+                setFileError({ message: t(Locale.openFailedRead), retry: file });
+            }
+        } finally {
+            if (version === readVersion.current) setReadingFile(false);
         }
+    };
+    const chooseFile = () => {
+        const input = fileInput.current;
+        const file = input?.files?.[0];
+        if (input) input.value = '';
+        if (file) void readFile(file);
     };
 
     return (
@@ -80,7 +115,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <button
                             class={on ? 'vault-row vault-row--on' : 'vault-row'}
                             data-vault={file.name}
-                            onClick={() => setPane({ kind: 'recent', file })}
+                            onClick={() => selectPane({ kind: 'recent', file })}
                         >
                             <span class="vault-row__icon">
                                 <Icon name={file.storage === 'webdav' ? 'cloud' : 'file'} size={18} />
@@ -96,29 +131,37 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                             onClick={() => {
                                 if (!window.confirm(t('Remove {} from this browser? Its encrypted local copy and recent entry will be deleted. Download a backup first if this is your only copy. Original files on disk are not deleted.', kdbxName(file.name)))) return;
                                 model.removeFileInfo(file.id);
-                                setPane({ kind: 'none' });
+                                selectPane({ kind: 'none' });
                             }}><Icon name="trash" size={16} /></button>}
                         </SwipeVaultRow>
                     );
                 })}
                 <h2 class={recent.length ? 'start__heading start__gap' : 'start__heading'}>{t('Add a vault')}</h2>
-                {model.settings.canCreate && <button class="add-row" id="create-vault" onClick={() => setPane({ kind: 'create' })}>
+                {model.settings.canCreate && <button class="add-row" id="create-vault" onClick={() => selectPane({ kind: 'create' })}>
                     <span class="add-row__icon"><Icon name="plus" /></span>{t('Create a vault')}
                 </button>}
-                <input ref={fileInput} type="file" accept=".kdbx" hidden onChange={chooseFile} id="open-file-input" />
+                <input ref={fileInput} type="file" accept=".kdbx,.kdb" hidden onChange={chooseFile} id="open-file-input" />
                 <button class="add-row" id="open-file" onClick={() => fileInput.current?.click()}>
                     <span class="add-row__icon">
                         <Icon name="file" />
                     </span>
                     {t('Open a file')}
                 </button>
-                <button class="add-row" id="open-webdav" onClick={() => setPane({ kind: 'webdav' })}>
+                {readingFile && <p role="status">{t('Reading file…')}</p>}
+                {fileError && <div role="alert" id="open-file-error">
+                    <p class="error">{fileError.message}</p>
+                    <button type="button" class="link" onClick={() => {
+                        if (fileError.retry) void readFile(fileError.retry);
+                        else fileInput.current?.click();
+                    }}>{fileError.retry ? t('Retry reading file') : t('Choose another file')}</button>
+                </div>}
+                <button class="add-row" id="open-webdav" onClick={() => selectPane({ kind: 'webdav' })}>
                     <span class="add-row__icon">
                         <Icon name="cloud" />
                     </span>
                     {t('Connect to WebDAV')}
                 </button>
-                <button class="add-row" id="open-demo" onClick={() => VaultApi.openDemo({})}>
+                <button class="add-row" id="open-demo" onClick={() => { cancelFileRead(); VaultApi.openDemo({}); }}>
                     <span class="add-row__icon">
                         <Icon name="play" />
                     </span>
@@ -131,7 +174,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     <button class="pill" type="button" onClick={onCancelExtensionRequest}>{t('Cancel extension request')}</button>
                 </div>}
                 {pane.kind === 'create' ? <CreateVault model={model} /> : pane.kind === 'webdav' ? (
-                    <WebDavForm onNext={(url, user, pass) => setPane({ kind: 'webdav-unlock', url, user, pass })} />
+                    <WebDavForm onNext={(url, user, pass) => selectPane({ kind: 'webdav-unlock', url, user, pass })} />
                 ) : pane.kind === 'none' ? (
                     <div class="card">
                         <Mark size={76} />
@@ -139,14 +182,18 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <p class="card__sub">{t('Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
                     </div>
                 ) : (
-                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} />
+                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} onUnlock={cancelFileRead} />
                 )}
             </main>
         </div>
     );
 }
 
-function UnlockCard({ model, pane }: { model: AppModel; pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }> }) {
+function UnlockCard({ model, pane, onUnlock }: {
+    model: AppModel;
+    pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }>;
+    onUnlock(): void;
+}) {
     const [password, setPassword] = useState('');
     const [show, setShow] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -165,6 +212,7 @@ function UnlockCard({ model, pane }: { model: AppModel; pane: Exclude<Pane, { ki
 
     const unlock = async (e: Event) => {
         e.preventDefault();
+        onUnlock();
         setBusy(true);
         setError('');
         try {
@@ -177,8 +225,8 @@ function UnlockCard({ model, pane }: { model: AppModel; pane: Exclude<Pane, { ki
                 await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key });
             }
         } catch (err) {
-            const msg = (err as Error).message;
-            setError(msg === 'invalid-password' ? t('Wrong password') : msg);
+            const msg = err instanceof Error ? err.message : String(err);
+            setError(msg === 'invalid-password' ? t('Wrong password') : `${t(Locale.openErrorDescription)}. ${msg}`);
             setBusy(false);
         }
     };
@@ -231,12 +279,12 @@ function UnlockCard({ model, pane }: { model: AppModel; pane: Exclude<Pane, { ki
                 }}>{t('Remove key file')}</button>}
             </div>
             {error && (
-                <p class="error" id="unlock-error" style={{ alignSelf: 'flex-start' }}>
+                <p class="error" role="alert" id="unlock-error" style={{ alignSelf: 'flex-start' }}>
                     {error}
                 </p>
             )}
             <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
-                keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setError} />
+                keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setError} onAttempt={onUnlock} />
             <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock')}
             </button>
