@@ -5,7 +5,7 @@
   "description": "KeeWebX logic without a user interface: vault models, storage, sync, settings and the extension API",
   "license": "MIT",
   "scripts": {
-    "test": "bun test tests/"
+    "test": "bun ../../scripts/test-isolated.ts"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",
