@@ -12,6 +12,9 @@ import { IdleTracker } from 'comp/browser/idle-tracker';
 import { DateFormat } from 'comp/i18n/date-format';
 import { Icon, Mark, Tile } from 'ui-kit/mark';
 import { tagColor } from 'ui-kit/tag-color';
+import { storageKey } from 'comp/settings/storage-namespace';
+import { PanelResizer } from 'ui-kit/panel-resizer';
+import { usePanelLayout } from './panel-layout';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { MobileMenu } from './mobile-menu';
@@ -63,6 +66,7 @@ interface GroupLike {
 
 export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void }) {
     const { model } = props;
+    const layout = usePanelLayout();
     const [filter, setFilter] = useState<Filter>({});
     const [query, setQuery] = useState('');
     const [selected, setSelected] = useState<string>();
@@ -130,6 +134,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     return (
         <div
             class={entry || editing ? 'vault vault--detail' : 'vault'}
+            style={{ '--sidebar-width': `${layout.sidebar}px`, '--list-width': `${layout.list}px` }}
             onKeyDown={() => IdleTracker.regUserAction()}
             onClick={() => IdleTracker.regUserAction()}
         >
@@ -175,6 +180,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </div>
             </nav>
 
+            <PanelResizer label={t('Resize folders panel')} value={layout.sidebar} min={180} max={layout.sidebarMax}
+                onChange={(width) => layout.set('sidebar', width)} onReset={() => layout.reset('sidebar')} />
+
             <section class="list" aria-label={t('Entries')}>
                 <div class="list__bar">
                     <label class="search">
@@ -219,6 +227,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </div>
             </section>
 
+            <PanelResizer label={t('Resize entries panel')} value={layout.list} min={240} max={layout.listMax}
+                onChange={(width) => layout.set('list', width)} onReset={() => layout.reset('list')} />
+
             <MobileMenu>
                 <ThemeToggle />
                 <button class="round" aria-label={t('Settings')} onClick={props.onSettings}>
@@ -251,13 +262,28 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
 function GroupBranch({ group, selected, onSelect }: {
     group: GroupLike; selected?: string; onSelect: (id: string) => void;
 }) {
-    const [expanded, setExpanded] = useState(true);
+    const [expanded, setExpanded] = useState(() => {
+        try {
+            const saved: unknown = JSON.parse(localStorage.getItem(storageKey('expandedGroups')) || '[]');
+            return Array.isArray(saved) && saved.includes(group.id);
+        } catch { return false; }
+    });
+    const toggle = () => {
+        const next = !expanded;
+        setExpanded(next);
+        try {
+            const saved: unknown = JSON.parse(localStorage.getItem(storageKey('expandedGroups')) || '[]');
+            const ids = new Set<string>(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []);
+            if (next) ids.add(group.id); else ids.delete(group.id);
+            localStorage.setItem(storageKey('expandedGroups'), JSON.stringify([...ids]));
+        } catch { /* Keep navigation available when storage is unavailable. */ }
+    };
     const children = Array.from(group.items ?? []).filter((child) => child.visible !== false);
     return <div class="group-branch">
         <div class="group-branch__row">
             {children.length > 0 ? <button class="group-branch__toggle" type="button"
                 aria-label={t(expanded ? 'Collapse {}' : 'Expand {}', group.title)} aria-expanded={expanded}
-                onClick={() => setExpanded(!expanded)}>
+                onClick={toggle}>
                 <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
                     style={{ transform: expanded ? 'rotate(90deg)' : undefined }}>
                     <path d="m4 2 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" />

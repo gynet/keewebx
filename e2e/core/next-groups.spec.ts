@@ -18,6 +18,11 @@ test('nested groups expand, filter descendants and retain new entries in the sel
     await page.click('#unlock');
     const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
     const branch = (name: string) => nav.getByRole('button', { name, exact: true });
+    await expect(branch('Leaf')).toHaveCount(0);
+    await expect(branch('Child')).toHaveCount(0);
+    await branch('Expand Parent').click();
+    await expect(branch('Leaf')).toHaveCount(0);
+    await branch('Expand Child').click();
     await expect(branch('Leaf')).toBeVisible();
     await branch('Collapse Parent').click();
     await expect(branch('Child')).toHaveCount(0);
@@ -36,6 +41,7 @@ test('nested groups expand, filter descendants and retain new entries in the sel
     await page.reload();
     await page.fill('#password', 'groups password');
     await page.click('#unlock');
+    await expect(branch('Leaf')).toBeVisible();
     await branch('Leaf').click();
     await expect(page.locator('.entry-row')).toHaveCount(2);
     await expect(page.locator('.entry-row[data-entry="Created inside leaf"]')).toBeVisible();

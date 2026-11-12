@@ -1,0 +1,34 @@
+import { test, expect } from '@playwright/test';
+
+test('desktop panel widths drag, persist, clamp on resize and reset; mobile hides dividers', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/next.html');
+    await page.click('#open-demo');
+    const folders = page.getByRole('separator', { name: 'Resize folders panel' });
+    const entries = page.getByRole('separator', { name: 'Resize entries panel' });
+    const box = (await folders.boundingBox())!;
+    await page.mouse.move(box.x + 3, 200);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 83, 200, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.locator('.side')).toHaveCSS('width', '328px');
+    await entries.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('.list')).toHaveCSS('width', '362px');
+    await page.reload();
+    await page.click('#open-demo');
+    await expect(page.locator('.side')).toHaveCSS('width', '328px');
+    await expect(page.locator('.list')).toHaveCSS('width', '362px');
+    await page.setViewportSize({ width: 800, height: 900 });
+    const detail = (await page.locator('.detail').boundingBox())!;
+    expect(detail.width).toBeGreaterThanOrEqual(280);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await folders.dblclick();
+    await entries.dblclick();
+    await expect(page.locator('.side')).toHaveCSS('width', '248px');
+    await expect(page.locator('.list')).toHaveCSS('width', '352px');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(folders).toBeHidden();
+    await expect(entries).toBeHidden();
+    await expect(page.locator('.list')).toHaveCSS('width', '390px');
+});

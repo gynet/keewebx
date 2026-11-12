@@ -98,6 +98,8 @@ button {
 /* Inputs */
 .input {
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
     border: 1px solid transparent;
     border-radius: var(--kx-radius-control);
     background: var(--kx-sub);
@@ -191,6 +193,7 @@ button {
 }
 .vault-row__name {
     font-weight: 600;
+    overflow-wrap: anywhere;
 }
 .vault-row__where {
     font-size: 12.5px;
@@ -224,8 +227,9 @@ button {
 }
 .start__main {
     flex-grow: 1;
+    min-width: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     padding: 24px;
     overflow: auto;
@@ -233,12 +237,16 @@ button {
 .card {
     width: 380px;
     max-width: 100%;
+    min-width: 0;
+    margin: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
     border-radius: var(--kx-radius-card);
 }
 .card__title {
+    max-width: 100%;
+    overflow-wrap: anywhere;
     margin: 18px 0 4px;
     font-size: 26px;
     font-weight: 700;
@@ -246,6 +254,8 @@ button {
     text-align: center;
 }
 .card__sub {
+    max-width: 100%;
+    overflow-wrap: anywhere;
     margin: 0 0 24px;
     font-size: 13px;
     color: var(--kx-muted);
@@ -255,6 +265,7 @@ button {
 }
 .card__form {
     width: 100%;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -267,7 +278,7 @@ button {
     overflow: hidden;
 }
 .side {
-    width: 248px;
+    width: var(--sidebar-width, 248px);
     flex: none;
     display: flex;
     flex-direction: column;
@@ -404,7 +415,7 @@ button {
 }
 
 .list {
-    width: 352px;
+    width: var(--list-width, 352px);
     flex: none;
     display: flex;
     flex-direction: column;
@@ -753,7 +764,7 @@ button {
 .phone-bar {
     display: none;
 }
-.vault-form__field { display: grid; gap: 8px; margin-bottom: 14px; text-align: left; }
+.vault-form__field { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; margin-bottom: 14px; text-align: left; }
 .vault-row-wrap { display: flex; align-items: center; gap: 4px; touch-action: pan-y; }
 .vault-row-wrap .vault-row { flex: 1; min-width: 0; }
 .vault-row__remove { opacity: 0; pointer-events: none; }
@@ -774,7 +785,10 @@ button {
 .database-settings__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .phone-bar__handle { touch-action: none; cursor: grab; color: var(--kx-muted); }
 .phone-bar__handle:active { cursor: grabbing; }
+.panel-resizer { flex: 0 0 6px; cursor: col-resize; touch-action: none; user-select: none; background: var(--kx-bg); }
+.panel-resizer:hover, .panel-resizer:focus-visible { background: var(--kx-sel); box-shadow: inset 2px 0 var(--kx-acc); }
 @media (max-width: 760px) {
+    .panel-resizer { display: none; }
     .vault .phone-bar[data-side="left"] { left: 16px; right: auto; }
     .vault .phone-bar {
         display: flex;
@@ -797,6 +811,20 @@ button {
     .settings__phone-back { display: flex; }
     .start {
         flex-direction: column-reverse;
+        height: auto;
+        min-height: 100%;
+    }
+    .start__main {
+        flex: none;
+        overflow: visible;
+        padding: 24px 20px;
+    }
+    .start .input { font-size: 16px; }
+    .start .card { margin: 0 auto; }
+    .start .error { overflow-wrap: anywhere; max-width: 100%; }
+    .start__side {
+        overflow: visible;
+        padding-bottom: max(30px, env(safe-area-inset-bottom));
     }
     .start__side {
         width: auto;
