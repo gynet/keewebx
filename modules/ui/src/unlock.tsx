@@ -5,6 +5,7 @@ import { VaultApi } from 'comp/app/vault-api';
 import { Icon, Mark } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
+import { CreateVault } from './create-vault';
 
 interface RecentFile {
     id: string;
@@ -14,6 +15,7 @@ interface RecentFile {
 }
 
 type Pane =
+    | { kind: 'create' }
     | { kind: 'recent'; file: RecentFile }
     | { kind: 'file'; name: string; data: string }
     | { kind: 'webdav' }
@@ -86,6 +88,9 @@ export function Unlock({ model }: { model: AppModel }) {
                     );
                 })}
                 <h2 class={recent.length ? 'start__heading start__gap' : 'start__heading'}>{t('Add a vault')}</h2>
+                {model.settings.canCreate && <button class="add-row" id="create-vault" onClick={() => setPane({ kind: 'create' })}>
+                    <span class="add-row__icon"><Icon name="plus" /></span>{t('Create a vault')}
+                </button>}
                 <input ref={fileInput} type="file" accept=".kdbx" hidden onChange={chooseFile} id="open-file-input" />
                 <button class="add-row" id="open-file" onClick={() => fileInput.current?.click()}>
                     <span class="add-row__icon">
@@ -107,7 +112,7 @@ export function Unlock({ model }: { model: AppModel }) {
                 </button>
             </aside>
             <main class="start__main">
-                {pane.kind === 'webdav' ? (
+                {pane.kind === 'create' ? <CreateVault model={model} /> : pane.kind === 'webdav' ? (
                     <WebDavForm onNext={(url, user, pass) => setPane({ kind: 'webdav-unlock', url, user, pass })} />
                 ) : pane.kind === 'none' ? (
                     <div class="card">
@@ -123,7 +128,7 @@ export function Unlock({ model }: { model: AppModel }) {
     );
 }
 
-function UnlockCard({ pane }: { pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' }> }) {
+function UnlockCard({ pane }: { pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }> }) {
     const [password, setPassword] = useState('');
     const [show, setShow] = useState(false);
     const [busy, setBusy] = useState(false);

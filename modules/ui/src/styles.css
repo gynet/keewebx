@@ -717,7 +717,11 @@ button {
 .phone-bar {
     display: none;
 }
+.vault-form__field { display: grid; gap: 8px; margin-bottom: 14px; text-align: left; }
+.phone-bar__handle { touch-action: none; cursor: grab; color: var(--kx-muted); }
+.phone-bar__handle:active { cursor: grabbing; }
 @media (max-width: 760px) {
+    .vault .phone-bar[data-side="left"] { left: 16px; right: auto; }
     .vault .phone-bar {
         display: flex;
         gap: 6px;

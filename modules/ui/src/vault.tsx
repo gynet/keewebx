@@ -13,6 +13,7 @@ import { DateFormat } from 'comp/i18n/date-format';
 import { Icon, Mark, Tile } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
+import { MobileMenu } from './mobile-menu';
 import { confirmDiscardDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
@@ -215,7 +216,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </div>
             </section>
 
-            <div class="phone-bar">
+            <MobileMenu>
                 <ThemeToggle />
                 <button class="round" aria-label={t('Settings')} onClick={props.onSettings}>
                     <Icon name="gear" size={18} />
@@ -223,7 +224,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <button class="round" aria-label={t('Lock')} onClick={props.onLock}>
                     <Icon name="lock" size={18} />
                 </button>
-            </div>
+            </MobileMenu>
 
             {editing ? (
                 <EntryEditor key={'entry' in editing ? editing.entry.id : 'new'}
