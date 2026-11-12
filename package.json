@@ -8,12 +8,14 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --filter @keewebx/core dev",
-    "build": "bun run --filter @keewebx/db build && bun run --filter @keewebx/core build && bun run --filter @keewebx/ui build",
+    "dev": "bun run --filter @keewebx/ui-classic dev",
+    "build": "bun run check:boundaries && bun run --filter @keewebx/db build && bun run --filter @keewebx/ui-classic build && bun run --filter @keewebx/ui build",
+    "check:boundaries": "bun scripts/check-boundaries.ts",
     "test": "bun run --filter @keewebx/db build && bun run --filter '*' test",
     "lint": "bun run --filter '*' lint",
     "test:db": "bun run --filter @keewebx/db test",
-    "test:core": "bun run --filter @keewebx/core test",
+    "test:classic": "bun run --filter @keewebx/ui-classic test",
+    "test:core": "bun run test:classic",
     "test:extension": "bun run --filter @keewebx/extension test",
     "test:e2e": "bunx playwright test",
     "test:e2e:live": "bunx playwright test --project=live",

@@ -51,7 +51,7 @@ jobs:
       - name: Verify static assets present in dist
         run: |
           set -e
-          cd packages/core/dist
+          cd dist
           test -f index.html
           test -f js/app.js
           test -f css/app.css
@@ -65,7 +65,7 @@ jobs:
       - name: Verify build SHA injected into bundle
         run: |
           set -e
-          cd packages/core/dist
+          cd dist
           grep -q "${GITHUB_SHA}" js/app.js \
             || { echo "::error::build SHA ${GITHUB_SHA} not found in js/app.js — DefinePlugin/webpack injection broken"; exit 1; }
           echo "Build SHA ${GITHUB_SHA} confirmed in bundle."
@@ -91,7 +91,7 @@ jobs:
           STAGE="staging/keewebx-web-${VERSION}"
           rm -rf staging
           mkdir -p "${STAGE}"
-          cp -r packages/core/dist/. "${STAGE}/"
+          cp -r dist/. "${STAGE}/"
           cat > "${STAGE}/DEPLOY.md" <<'DEPLOYEOF'
           # KeeWebX — Self-Host Deploy
 

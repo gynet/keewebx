@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 
 /**
- * Unit tests for the OTP / TOTP implementation in packages/core/app/scripts/util/data/otp.ts
+ * Unit tests for the OTP / TOTP implementation in packages/ui-classic/app/scripts/util/data/otp.ts
  *
  * The module uses a legacy-style constructor function + prototype chain and
  * references `window.crypto.subtle` directly, which makes it hard to import
@@ -19,7 +19,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inlined from packages/core/app/scripts/util/data/otp.ts
+// Inlined from packages/ui-classic/app/scripts/util/data/otp.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
 function leftPad(str: string, len: number): string {

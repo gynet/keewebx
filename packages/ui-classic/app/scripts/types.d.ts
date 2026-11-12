@@ -1,5 +1,5 @@
 /**
- * Global type declarations for @keewebx/core.
+ * Global type declarations for @keewebx/ui-classic.
  * Provides ambient module declarations for JS-only dependencies
  * and global types used across the application.
  */
@@ -116,7 +116,7 @@ declare module '*.hbs' {
 
 // The bundled demo database, loaded via webpack's base64-loader.
 // `demo.kdbx` is a resolve.alias target in webpack.config.js pointing
-// at app/resources/Demo.kdbx — it's handed to file-model to open the
+// at packages/vault/resources/Demo.kdbx — it's handed to file-model to open the
 // live demo on first run. base64-loader returns a base64-encoded
 // string which file-model then passes through kdbxweb.ByteUtils.
 declare module 'demo.kdbx' {

@@ -5,7 +5,7 @@ import { box as naclBox } from 'tweetnacl';
  * Protocol-impl integration tests.
  *
  * These exercise the KeePassXC-Browser NaCl box protocol implemented in
- * packages/core/app/scripts/comp/extension/protocol-impl.ts:
+ * packages/ui-classic/app/scripts/comp/extension/protocol-impl.ts:
  *
  *   - Curve25519 key exchange (change-public-keys handshake)
  *   - XSalsa20 + Poly1305 encrypted request/response via tweetnacl.box

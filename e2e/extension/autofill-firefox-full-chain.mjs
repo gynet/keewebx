@@ -37,7 +37,7 @@
  *   - Firefox 149+ at /Applications/Firefox.app on macOS,
  *     `firefox` in PATH on Linux
  *   - KeeWebX dev server running on http://localhost:8085 (start
- *     with `bun run --filter @keewebx/core dev` in another terminal,
+ *     with `bun run --filter @keewebx/ui-classic dev` in another terminal,
  *     OR let the test fail with a clear error)
  *   - Built firefox xpi at packages/extension/web-ext-artifacts/
  *     keewebx_connect-1.0.3.zip (cd packages/extension && bun run
@@ -84,7 +84,7 @@ try {
 } catch (e) {
     fail(
         `KeeWebX dev server at ${KEEWEBX_URL} unreachable: ${e.message}. ` +
-            `Start it with: bun run --filter @keewebx/core dev`
+            `Start it with: bun run --filter @keewebx/ui-classic dev`
     );
 }
 

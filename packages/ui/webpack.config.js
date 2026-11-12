@@ -7,8 +7,8 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 const rootDir = __dirname;
-const coreDir = path.join(rootDir, '../core');
-const pkg = require('../core/package.json');
+const vaultDir = path.join(rootDir, '../vault');
+const pkg = require('./package.json');
 
 module.exports = (env, argv) => {
     const mode = argv.mode || 'development';
@@ -17,7 +17,7 @@ module.exports = (env, argv) => {
         mode,
         entry: { next: path.join(rootDir, 'src/index.tsx') },
         output: {
-            path: path.join(coreDir, 'dist'),
+            path: path.resolve(rootDir, '../../dist'),
             filename: 'js/[name].js',
             clean: false
         },
@@ -37,9 +37,9 @@ module.exports = (env, argv) => {
                 app: path.join(rootDir, 'src'),
                 'ui-kit': path.join(rootDir, '../ui-kit/src'),
                 boot: path.join(rootDir, '../vault/src/boot.ts'),
-                'demo.kdbx': path.join(coreDir, 'app/resources/Demo.kdbx'),
-                'public-key.pem': path.join(coreDir, 'app/resources/public-key.pem'),
-                'public-key-new.pem': path.join(coreDir, 'app/resources/public-key-new.pem'),
+                'demo.kdbx': path.join(vaultDir, 'resources/Demo.kdbx'),
+                'public-key.pem': path.join(vaultDir, 'resources/public-key.pem'),
+                'public-key-new.pem': path.join(vaultDir, 'resources/public-key-new.pem'),
                 argon2: 'hash-wasm/dist/argon2.umd.min.js'
             },
             fallback: { crypto: false, fs: false, path: false, process: false, Buffer: false }

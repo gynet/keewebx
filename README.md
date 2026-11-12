@@ -1,4 +1,4 @@
-# <img src="packages/core/graphics/keewebx-logo.svg" width="36" height="36" alt="" align="top"> KeeWebX
+# <img src="packages/ui-classic/graphics/keewebx-logo.svg" width="36" height="36" alt="" align="top"> KeeWebX
 
 **Open a KeePass vault in your browser. No install, no signup, nothing to host.**
 
@@ -98,12 +98,21 @@ bun run dev     # http://localhost:8085
 
 ```
 packages/
-  core/         Web password manager UI
+  ui-classic/   Classic interface: views, templates, styles and browser shell
+  ui/           New interface (Preact), alongside Classic
+  ui-kit/       Shared icons, design tokens and presentation helpers
+  vault/        Shared vault models, storage, sync and application services
   db/           KDBX4 database library (@xmldom/xmldom, fflate — that's it)
   extension/    Browser autofill extension (Manifest V3, Chrome/Firefox/Edge)
 ```
 
 Package deep-dives and API examples: see each package's own README.
+
+Both interfaces use the same vault and database implementations. Shared code
+must not import either interface. UI-specific changes belong in `ui-classic/`
+or `ui/`; reusable presentation code belongs in `ui-kit/`. `bun run build`
+emits both entry points into the root `dist/` directory: `index.html` for
+Classic and `next.html` for the new interface. Classic remains the default.
 
 ## Storage
 

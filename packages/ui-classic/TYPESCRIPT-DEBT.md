@@ -4,7 +4,7 @@
 See [`.typescript-baseline`](./.typescript-baseline). As of 2026-04-09: **368 errors**.
 
 ## Why this file exists
-`packages/core/webpack.config.js:126` sets `transpileOnly: true` on
+`packages/ui-classic/webpack.config.js:126` sets `transpileOnly: true` on
 ts-loader. This skips the type checker during webpack build for
 performance, but it also means every bug that would have been caught by
 TypeScript ships to production instead. The 2026-04-09 fixes landed
@@ -23,7 +23,7 @@ eight separate fixes, most of which would have been blocked by a real
   resulting argument type mismatch)
 
 ## How the ratchet works
-CI runs `tsc --noEmit` on `packages/core` and counts `error TS` lines.
+CI runs `tsc --noEmit` on `packages/ui-classic` and counts `error TS` lines.
 It compares against the number in `.typescript-baseline`:
 
 - **count > baseline** → CI fails with "TypeScript type debt increased".
@@ -63,7 +63,7 @@ Biggest hot spots (as of 2026-04-09):
 ## End state
 When `.typescript-baseline` hits 0:
 1. Delete this file and `.typescript-baseline`
-2. Remove `transpileOnly: true` from `packages/core/webpack.config.js:126`
+2. Remove `transpileOnly: true` from `packages/ui-classic/webpack.config.js:126`
 3. Delete the `typecheck` job from `.github/workflows/ci.yml` (webpack
    now enforces type checks on every build)
 4. Celebrate

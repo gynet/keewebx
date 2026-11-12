@@ -4,7 +4,7 @@
  *
  * Usage:
  *   bun run scripts/screenshot-demo.ts
- *   open packages/core/screenshots/colorful-tags.png
+ *   open packages/ui-classic/screenshots/colorful-tags.png
  *
  * Requires the dev/dist server running at SCREENSHOT_URL (default
  * http://localhost:8086).

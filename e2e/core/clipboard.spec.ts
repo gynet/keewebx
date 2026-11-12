@@ -27,7 +27,7 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
  *  - The same path for `$Password` (which is a decrypted
  *    `kdbxweb.ProtectedValue`) and the OTP field (live TOTP code).
  *
- * Demo database content (see `packages/core/scripts/create-demo-db.ts`):
+ * Demo database content (see `packages/ui-classic/scripts/create-demo-db.ts`):
  *  - First entry "Sample Entry": UserName "User Name", Password "Password".
  *
  * The clipboard tests are gated to chromium because the
@@ -82,7 +82,7 @@ async function openDemoDatabase(page: Page) {
  * Click an entry by exact title in the entry list. The demo DB lists
  * entries alphabetically, so blindly grabbing `.list__item:first` lands
  * on "Demo Bank", not the "Sample Entry" we want for known
- * UserName/Password values. `packages/core/scripts/create-demo-db.ts`
+ * UserName/Password values. `packages/ui-classic/scripts/create-demo-db.ts`
  * is the source of truth for entry contents.
  */
 async function selectEntryByTitle(page: Page, title: string) {
@@ -162,7 +162,7 @@ test.describe('Clipboard copy', () => {
     test('copy username writes the entry UserName to the clipboard', async ({ page }) => {
         await openDemoDatabase(page);
         // "Sample Entry" has the canonical literal UserName "User Name"
-        // (see packages/core/scripts/create-demo-db.ts).
+        // (see packages/ui-classic/scripts/create-demo-db.ts).
         await selectEntryByTitle(page, 'Sample Entry');
 
         const userLabel = fieldLabel(page, /^user$/i);

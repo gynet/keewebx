@@ -5,7 +5,7 @@
 
 This file exists because Feature B crosses three packages and the integration seam has historically been where bugs hide. Fix the types here, discuss here, and then write code against them. Do not evolve these interfaces silently in PRs — propose a change, update this doc, link in the commit.
 
-All types below assume TypeScript strict mode (no implicit any, no `@ts-ignore`). They match the 0-escape-hatch baseline for `packages/core`.
+All types below assume TypeScript strict mode (no implicit any, no `@ts-ignore`). They match the 0-escape-hatch baseline for `packages/ui-classic`.
 
 ---
 
@@ -13,7 +13,7 @@ All types below assume TypeScript strict mode (no implicit any, no `@ts-ignore`)
 
 The extension background SW already talks to the core web app via an encrypted NaCl channel (see `packages/extension/src/background/protocol/protocol-impl.ts`). We add four verbs to that channel. They are transport-agnostic; the encryption + nonce layer is unchanged.
 
-All types live in **`packages/extension/src/background/protocol/types.ts`** (extension side) and mirrored in **`packages/core/app/scripts/comp/extension/protocol-impl.ts`** (core side).
+All types live in **`packages/extension/src/background/protocol/types.ts`** (extension side) and mirrored in **`packages/ui-classic/app/scripts/comp/extension/protocol-impl.ts`** (core side).
 
 ```ts
 // --- passkey-create-entry ---
@@ -159,7 +159,7 @@ export const NKW_PASSKEY_PROTECTED_FIELDS: readonly string[] = [
 These interfaces are already implemented. Documented here so Phase 3 (#25, #39) reuses them consistently.
 
 ```ts
-// packages/core/app/scripts/comp/passkey/passkey-prf.ts
+// packages/ui-classic/app/scripts/comp/passkey/passkey-prf.ts
 
 export interface RegisterPasskeyOptions {
     rpId: string;                   // location.hostname
@@ -183,7 +183,7 @@ export function unwrapKey(wrapKey: Uint8Array, ciphertext: Uint8Array): Promise<
 ```
 
 ```ts
-// packages/core/app/scripts/comp/passkey/passkey-unlock.ts
+// packages/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts
 
 // HKDF-SHA256 over PRF output, domain-separated by `info`.
 // Do not add new callers without a new `info` string.
@@ -202,7 +202,7 @@ export function deriveUnlockKey(
 **Contract rule:** every reuse of the PRF credential MUST use a unique `info` string from the union above. Never reuse `neokeeweb-passkey-unlock-v1` for anything else or the two derived keys collide and unlock ciphertext can be decrypted by a per-field attack — classic key-separation bug.
 
 ```ts
-// packages/core/app/scripts/models/file-info-model.ts (excerpt)
+// packages/ui-classic/app/scripts/models/file-info-model.ts (excerpt)
 
 export interface FileInfoPasskeyFields {
     passkeyCredentialId: string | null;     // base64url

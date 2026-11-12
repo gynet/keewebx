@@ -1,10 +1,10 @@
 {
-  "name": "@keewebx/core",
+  "name": "@keewebx/ui-classic",
   "version": "0.2.4",
   "description": "KeeWebX - Modern KeePass web client",
   "private": true,
   "scripts": {
-    "dev": "webpack serve --mode=development --open",
+    "dev": "webpack serve --mode=development",
     "build": "webpack --mode=production",
     "test": "bun test tests/",
     "lint": "eslint app/scripts/"

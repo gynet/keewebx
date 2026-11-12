@@ -1,7 +1,7 @@
 /**
  * Builds the prototype extension that carries the whole KeeWebX app, so no
  * separate app tab or website is needed. Output: dist/chrome-vault.
- * Requires a production build of packages/core (`bun run build` at the root).
+ * Requires a production build of packages/ui-classic (`bun run build` at the root).
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -9,12 +9,12 @@ import * as path from 'path';
 import { buildArgon2WorkerSource } from '../../vault/src/util/kdbxweb/argon2-worker-source';
 
 const root = path.resolve(__dirname, '..');
-const coreDist = path.join(root, '../core/dist');
+const coreDist = path.join(root, '../../dist');
 const out = path.join(root, 'dist/chrome-vault');
 const appDir = path.join(out, 'app');
 
 if (!fs.existsSync(path.join(coreDist, 'js/app.js'))) {
-    throw new Error('packages/core/dist is missing: run `bun run build` at the repo root first');
+    throw new Error('dist is missing: run `bun run build` at the repo root first');
 }
 
 const build = spawnSync('bunx', ['webpack', '--mode=production'], {
@@ -33,7 +33,7 @@ fs.cpSync(coreDist, appDir, {
     filter: (src) => !path.basename(src).startsWith('service-worker')
 });
 
-const loader = require.resolve('hash-wasm/dist/argon2.umd.min.js', { paths: [path.join(root, '../core')] });
+const loader = require.resolve('hash-wasm/dist/argon2.umd.min.js', { paths: [path.join(root, '../ui-classic')] });
 fs.writeFileSync(
     path.join(appDir, 'js/argon2-worker.js'),
     buildArgon2WorkerSource(fs.readFileSync(loader, 'utf8'))

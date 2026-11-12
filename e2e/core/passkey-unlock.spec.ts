@@ -32,8 +32,8 @@ import path from 'path';
  * running it on firefox would race with its own PRF probe.
  *
  * See design: docs/phase2-passkey-unlock-design.md (WRAP MODE, HKDF-v1)
- * See impl:   packages/core/app/scripts/comp/passkey/passkey-unlock.ts
- *             packages/core/app/scripts/views/open-view.ts
+ * See impl:   packages/ui-classic/app/scripts/comp/passkey/passkey-unlock.ts
+ *             packages/ui-classic/app/scripts/views/open-view.ts
  */
 
 const SCREENSHOT_DIR = 'e2e/screenshots';

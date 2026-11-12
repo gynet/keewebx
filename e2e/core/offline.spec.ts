@@ -5,12 +5,12 @@ import * as path from 'path';
 import { AddressInfo } from 'net';
 
 /**
- * Offline support. Runs against the production build in packages/core/dist
+ * Offline support. Runs against the production build in dist
  * (the dev server never registers the service worker), served by a small
  * static server that can publish a "new version" of the worker on demand.
  */
 
-const DIST = path.join(__dirname, '../../packages/core/dist');
+const DIST = path.join(__dirname, '../../dist');
 const TYPES: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript',

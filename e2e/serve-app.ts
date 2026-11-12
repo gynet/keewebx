@@ -1,6 +1,6 @@
 import { resolve, sep } from 'node:path';
 
-const root = resolve(import.meta.dir, '../packages/core/dist');
+const root = resolve(import.meta.dir, '../dist');
 const previewRoot = process.env.KEEWEBX_PREVIEW_DIST ? resolve(process.env.KEEWEBX_PREVIEW_DIST) : null;
 
 Bun.serve({

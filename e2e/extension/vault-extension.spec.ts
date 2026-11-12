@@ -27,7 +27,7 @@ const LOGIN_HTML = `<!doctype html><title>Sign in</title><form action="/session"
 <input id="password" name="password" type="password" autocomplete="current-password">
 <button type="submit">Sign in</button></form>`;
 
-const CORE_DIST = path.resolve(__dirname, '../../packages/core/dist');
+const CORE_DIST = path.resolve(__dirname, '../../dist');
 const FIXTURE = path.resolve(
     __dirname,
     '../../packages/db/resources/external/test_db_kdbx4_with_password_argon2.kdbx'
@@ -807,7 +807,7 @@ test('web mode popup: locking shows how to unlock in the tab', async () => {
 // tool that reads numbered PNGs and times.txt (milliseconds per frame).
 
 const DEMO_DIR = process.env.KW_E2E_DEMO;
-const DEMO_FILE = path.resolve(__dirname, '../../packages/core/app/resources/Demo.kdbx');
+const DEMO_FILE = path.resolve(__dirname, '../../packages/vault/resources/Demo.kdbx');
 
 interface Scene {
     main: Page;

@@ -1,7 +1,7 @@
 /**
  * Creates a KDBX4 Demo database for KeeWebX.
  *
- * Usage: bun run packages/core/scripts/create-demo-db.ts
+ * Usage: bun run packages/ui-classic/scripts/create-demo-db.ts
  *
  * Designed to showcase KeeWebX features at first launch:
  *   - Colorful tag chips (deterministic hue per tag string) — every
@@ -276,7 +276,7 @@ async function createDemoDb() {
     db.createRecycleBin();
 
     const data = await db.save();
-    const outputPath = resolve(__dirname, '../app/resources/Demo.kdbx');
+    const outputPath = resolve(__dirname, '../../vault/resources/Demo.kdbx');
     writeFileSync(outputPath, Buffer.from(data));
 
     const allTags = new Set<string>();

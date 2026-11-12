@@ -1,16 +1,11 @@
-# @keewebx/vault
+# Shared vault services
 
-The part of KeeWebX that has no user interface: vault and entry models,
-storage (WebDAV, the local cache), sync, settings, and the API the browser
-extension uses. Both interfaces build on it.
+Both web interfaces and the extension reuse this package's models, storage
+adapters, synchronization, settings, crypto helpers and extension API.
+The KDBX format implementation lives in `../db`.
 
-Code here imports by folder name (`models/…`, `storage/…`, `util/…`). An app
-that bundles it resolves those names in its own source folder first and in
-`src/` here second, so an app can provide its own version of a module.
+`src/` contains application services and browser platform helpers;
+`resources/` contains the shared demonstration database and public signing keys.
+This package must not import either UI, their styles or `../ui-kit`.
 
-Rules:
-
-- No interface code: no views, templates, DOM widgets or jQuery. Code that
-  needs the user to answer or see something emits an event or takes a
-  callback, and the interface handles it.
-- Stored formats only gain fields, so every interface keeps reading them.
+The root build checks these boundaries before compiling either interface.

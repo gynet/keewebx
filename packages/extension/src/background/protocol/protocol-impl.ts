@@ -221,7 +221,7 @@ class ProtocolImpl {
             action: 'change-public-keys',
             // On-the-wire identifier: MUST remain 'KeeWeb Connect' for
             // protocol compat with the app-side whitelist in
-            // packages/core/app/scripts/comp/extension/protocol-impl.ts
+            // packages/ui-classic/app/scripts/comp/extension/protocol-impl.ts
             // (isKeeWebConnect() and UI extension-names registry).
             // Renaming this breaks the change-public-keys handshake.
             extensionName: 'KeeWeb Connect',

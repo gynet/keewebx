@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
 
 /**
- * Regression tests for `packages/core/app/scripts/util/kdbxweb/protected-value-ex.ts`.
+ * Regression tests for `packages/ui-classic/app/scripts/util/kdbxweb/protected-value-ex.ts`.
  *
  * Specifically guards the 2026-04-09 fix to `isFieldReference()`.
  *

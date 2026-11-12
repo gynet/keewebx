@@ -16,7 +16,7 @@
  *
  * The 12 themes (`dark`, `light`, `sd`, `sl`, `fb`, `bl`, `db`, `lb`,
  * `te`, `lt`, `dc`, `hc`) and their auto-switched-pair configuration
- * match the SCSS in `packages/core/app/styles/themes/_all-themes.scss`
+ * match the SCSS in `packages/ui-classic/app/styles/themes/_all-themes.scss`
  * exactly, so removing one from this table would break the generated
  * CSS classes referenced by `setTheme` below.
  */

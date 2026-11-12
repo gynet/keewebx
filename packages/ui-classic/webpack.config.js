@@ -43,7 +43,7 @@ module.exports = (env, argv) => {
             'service-worker': path.join(rootDir, 'app/sw/service-worker.ts')
         },
         output: {
-            path: path.resolve(rootDir, 'dist'),
+            path: path.resolve(rootDir, '../../dist'),
             // The service worker must sit at the root so its scope covers the app.
             filename: (pathData) =>
                 pathData.chunk.name === 'service-worker' ? '[name].js' : 'js/[name].js',
@@ -72,17 +72,17 @@ module.exports = (env, argv) => {
 
                 // Template and resource aliases
                 templates: path.join(rootDir, 'app/templates'),
-                'public-key.pem': path.join(rootDir, 'app/resources/public-key.pem'),
-                'public-key-new.pem': path.join(rootDir, 'app/resources/public-key-new.pem'),
-                'demo.kdbx': path.join(rootDir, 'app/resources/Demo.kdbx'),
+                'public-key.pem': path.join(rootDir, '../vault/resources/public-key.pem'),
+                'public-key-new.pem': path.join(rootDir, '../vault/resources/public-key-new.pem'),
+                'demo.kdbx': path.join(rootDir, '../vault/resources/Demo.kdbx'),
 
                 // Library aliases
                 jquery: `jquery/dist/jquery${devMode ? '' : '.min'}.js`,
                 morphdom: `morphdom/dist/morphdom-umd${devMode ? '' : '.min'}.js`,
                 // `kdbxweb` is a workspace alias to @keewebx/db (see
-                // packages/core/package.json). No webpack alias needed —
+                // packages/ui-classic/package.json). No webpack alias needed —
                 // bun install materialises the workspace package at
-                // packages/core/node_modules/kdbxweb pointing at
+                // packages/ui-classic/node_modules/kdbxweb pointing at
                 // packages/db, and webpack resolves the bare specifier
                 // via the `main` field (packages/db/dist/kdbxweb.js).
                 baron: `baron/baron${devMode ? '' : '.min'}.js`,
@@ -114,7 +114,7 @@ module.exports = (env, argv) => {
         module: {
             rules: [
                 // TypeScript (strict-mode migration complete, 2026-04-09:
-                // packages/core now compiles at 0 errors — see
+                // packages/ui-classic now compiles at 0 errors — see
                 // .typescript-baseline. transpileOnly used to be `true`
                 // during the 368 -> 0 ratchet; now that the last file has
                 // been typed cleanly, ts-loader performs real type checks

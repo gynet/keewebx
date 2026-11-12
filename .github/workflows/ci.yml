@@ -17,7 +17,7 @@ jobs:
 
   typecheck:
     # Hard type-check gate. As of commit 599485d9 (2026-04-09) the
-    # TS strict-mode baseline for packages/core is 0 AND
+    # TS strict-mode baseline for packages/ui-classic is 0 AND
     # `transpileOnly: true` has been dropped from webpack.config.js,
     # so webpack's ts-loader now does real type-checking at bundle
     # time. This job is the explicit standalone gate: `tsc --noEmit`
@@ -32,22 +32,22 @@ jobs:
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - name: Build packages/db (for kdbxweb type resolution)
-        # packages/core imports 'kdbxweb' (symlinked to packages/db).
+        # packages/ui-classic imports 'kdbxweb' (symlinked to packages/db).
         # Without dist/types/, tsc can't find the module. Locally the
         # types are present from prior builds but CI starts clean.
         run: cd packages/db && bun run build
-      - name: Run tsc --noEmit on packages/core (hard fail on any error)
-        run: cd packages/core && bunx tsc --noEmit
+      - name: Run tsc --noEmit on packages/ui-classic (hard fail on any error)
+        run: cd packages/ui-classic && bunx tsc --noEmit
       - name: Type-check webpack loaders (JSDoc, checkJs)
-        run: cd packages/core && bunx tsc -p tsconfig.build.json
+        run: cd packages/ui-classic && bunx tsc -p tsconfig.build.json
       - name: Type-check the service worker (WebWorker lib)
-        run: cd packages/core && bunx tsc -p app/sw/tsconfig.json
+        run: cd packages/ui-classic && bunx tsc -p app/sw/tsconfig.json
       - name: Enforce baseline sentinel is still 0
         run: |
-          cd packages/core
+          cd packages/ui-classic
           BASELINE=$(cat .typescript-baseline | tr -d '[:space:]')
           if [ "$BASELINE" != "0" ]; then
-            echo "::error title=TS baseline sentinel drifted::packages/core/.typescript-baseline must remain at 0. Got: $BASELINE. See Phase 1 TS migration closeout in 599485d9."
+            echo "::error title=TS baseline sentinel drifted::packages/ui-classic/.typescript-baseline must remain at 0. Got: $BASELINE. See Phase 1 TS migration closeout in 599485d9."
             exit 1
           fi
 
@@ -83,7 +83,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - name: Build packages/db (webpack dev server needs kdbxweb dist)
-        # packages/core webpack aliases `kdbxweb` → packages/db/dist.
+        # packages/ui-classic webpack aliases `kdbxweb` → packages/db/dist.
         # Without this build step the dev server fails to compile with
         # "Can't resolve 'kdbxweb'" across ~20 files. Same root cause as
         # the typecheck job's missing-types issue, different layer.
@@ -122,7 +122,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - name: Build packages/db (webpack dev server needs kdbxweb dist)
-        # packages/core webpack aliases `kdbxweb` → packages/db/dist.
+        # packages/ui-classic webpack aliases `kdbxweb` → packages/db/dist.
         # Without this the dev server fails with "Can't resolve 'kdbxweb'".
         run: cd packages/db && bun run build
       - run: cd packages/extension && bun run build-firefox
@@ -150,7 +150,7 @@ jobs:
           sudo apt-get install -y libdbus-glib-1-2 libgtk-3-0 libasound2t64
       - name: Start KeeWebX dev server
         run: |
-          bun run --filter @keewebx/core dev > /tmp/dev-server.log 2>&1 &
+          bun run --filter @keewebx/ui-classic dev > /tmp/dev-server.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -fs http://localhost:8085 > /dev/null; then
               echo "dev server ready after ${i}s"
