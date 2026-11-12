@@ -26,6 +26,7 @@ import { EntryEditor, applyEntryDraft } from './entry-editor';
 import type { EntryDraft } from './entry-editor';
 import { GroupActions } from './group-actions';
 import type { GroupActionResult } from './group-actions';
+import { EntryMove } from './entry-move';
 
 interface Filter {
     group?: string;
@@ -425,6 +426,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             ) : entry ? (
                 <EntryDetail key={entry.id} model={model} entry={entry} onBack={() => setSelected(undefined)}
                     onEdit={() => { if (confirmDiscardDrafts()) setEditing({ entry }); }}
+                    onMoved={(entryId, groupId) => {
+                        setFilter({ group: groupId });
+                        setQuery('');
+                        setSelected(entryId);
+                        const group = (entry.file as FileModel).getGroup(groupId);
+                        changeExpandedGroups((ids) => {
+                            for (let parent = group?.parentGroup; parent; parent = parent.parentGroup) ids.add(parent.id);
+                        });
+                    }}
                     onDelete={!filter.trash && (entry.file as FileModel).db.meta.recycleBinEnabled ? moveToTrash : undefined}
                     onRestore={filter.trash ? restoreEntry : undefined} />
             ) : (
@@ -496,11 +506,12 @@ function useOtp(entry: EntryModel): { code: string; left: number } | null {
     return otp;
 }
 
-function EntryDetail({ model, entry, onBack, onEdit, onDelete, onRestore }: {
+function EntryDetail({ model, entry, onBack, onEdit, onMoved, onDelete, onRestore }: {
     model: AppModel;
     entry: EntryModel;
     onBack: () => void;
     onEdit: () => void;
+    onMoved: (entryId: string, groupId: string) => void;
     onDelete?: () => void;
     onRestore?: () => void;
 }) {
@@ -568,10 +579,11 @@ function EntryDetail({ model, entry, onBack, onEdit, onDelete, onRestore }: {
                     <h1 class="detail__title" id="entry-title">
                         {s.title || t('(no title)')}
                     </h1>
-                    <span class="detail__where">{entry.groupName}</span>
+                    <span class="detail__where" style={{ overflowWrap: 'anywhere' }}>{entry.groupName}</span>
                 </div>
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
+                    {!onRestore && <EntryMove model={model} entry={entry} onMoved={onMoved} />}
                     {onDelete && <button class="pill pill--tinted pill--danger" onClick={onDelete}><Icon name="trash" size={16} />{t('Move to Trash')}</button>}
                     {onRestore && <button class="pill pill--tinted" onClick={onRestore}>{t('Restore')}</button>}
                 </div>
