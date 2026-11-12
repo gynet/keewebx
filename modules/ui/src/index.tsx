@@ -10,7 +10,7 @@ import { Vault } from './vault';
 import { Settings } from './settings';
 import { useVaultVersion } from './vault-state';
 import { t } from './i18n';
-import { hasPendingDrafts, savePendingDrafts } from './pending-drafts';
+import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
 
 function App({ model }: { model: AppModel }) {
     const version = useVaultVersion(model);
@@ -63,7 +63,7 @@ function App({ model }: { model: AppModel }) {
             onLock={() => void lock()}
         />
         </div>
-        {settingsOpen && <Settings onBack={() => setSettingsOpen(false)} />}
+        {settingsOpen && <Settings model={model} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
         </>
     );
 }

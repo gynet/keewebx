@@ -4,6 +4,9 @@ import { AppSettingsModel } from 'models/app-settings-model';
 import { Icon } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle, ThemeSelect } from './theme';
+import type { AppModel } from 'models/app-model';
+import { DatabaseSettingsEditor } from './database-settings';
+import { confirmDiscardDrafts } from './pending-drafts';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
@@ -23,11 +26,12 @@ const CLEAR_CLIPBOARD: [number, string][] = [
 
 /** Switches to the Classic interface; it opens the same vaults. */
 export function switchToClassic(): void {
+    if (!confirmDiscardDrafts()) return;
     settings.ui = 'classic';
     location.href = 'index.html';
 }
 
-export function Settings({ onBack }: { onBack: () => void }) {
+export function Settings({ onBack, model }: { onBack: () => void; model: AppModel }) {
     const [, rerender] = useState(0);
     const set = (key: string, value: unknown) => {
         settings[key] = value;
@@ -102,6 +106,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                             </select>
                         </label>
                     </section>
+                    <h2 class="group-title">{t('Database settings')}</h2>
+                    {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file} />)}
                 </div>
             </main>
         </div>

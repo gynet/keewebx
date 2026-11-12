@@ -3,9 +3,11 @@ import type { AppModel } from 'models/app-model';
 import { createVault } from 'comp/app/vault-files';
 import { Mark } from 'ui-kit/mark';
 import { t } from './i18n';
+import { defaultDatabaseSettings } from 'comp/app/database-settings';
+import { DatabaseSettingsFields } from './database-settings-fields';
 
 export function CreateVault({ model, onCreated }: { model: AppModel; onCreated?: () => void }) {
-    const [name, setName] = useState('');
+    const [settings, setSettings] = useState(defaultDatabaseSettings);
     const [password, setPassword] = useState('');
     const [confirmation, setConfirmation] = useState('');
     const [busy, setBusy] = useState(false);
@@ -16,7 +18,7 @@ export function CreateVault({ model, onCreated }: { model: AppModel; onCreated?:
         setBusy(true);
         setError('');
         try {
-            await createVault(model, name, password);
+            await createVault(model, settings.name, password, settings);
             setPassword('');
             setConfirmation('');
             onCreated?.();
@@ -29,8 +31,7 @@ export function CreateVault({ model, onCreated }: { model: AppModel; onCreated?:
         <h1 class="card__title">{t('Create a vault')}</h1>
         <p class="card__sub">{t('Saved encrypted on this device.')}</p>
         <div class="card__form">
-            <label class="vault-form__field">{t('Vault name')}<input class="input" required value={name}
-                onInput={(event) => setName(event.currentTarget.value)} autoComplete="off" /></label>
+            <DatabaseSettingsFields value={settings} onChange={setSettings} />
             <label class="vault-form__field">{t('Master password')}<input class="input" required type="password"
                 autoComplete="new-password" value={password} onInput={(event) => setPassword(event.currentTarget.value)} /></label>
             <label class="vault-form__field">{t('Confirm password')}<input class="input" required type="password"

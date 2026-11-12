@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { t } from './i18n';
 
 interface PendingDraft {
+    scope?: string;
     dirty: boolean;
     save: () => boolean | void;
     discard: () => void;
@@ -9,9 +10,9 @@ interface PendingDraft {
 
 const pending = new Set<{ current: PendingDraft }>();
 
-export function usePendingDraft(dirty: boolean, save: PendingDraft['save'], discard: () => void): void {
+export function usePendingDraft(dirty: boolean, save: PendingDraft['save'], discard: () => void, scope?: string): void {
     const reference = useRef<PendingDraft>({ dirty, save, discard });
-    reference.current = { dirty, save, discard };
+    reference.current = { dirty, save, discard, scope };
     useEffect(() => {
         pending.add(reference);
         return () => { pending.delete(reference); };
@@ -33,10 +34,11 @@ export function savePendingDrafts(): void {
     }
 }
 
-export function confirmDiscardDrafts(): boolean {
-    if (!hasPendingDrafts()) return true;
+export function confirmDiscardDrafts(scope?: string): boolean {
+    const selected = [...pending].filter((reference) => !scope || reference.current.scope === scope);
+    if (!selected.some((reference) => reference.current.dirty)) return true;
     if (!window.confirm(t('Discard unsaved changes?'))) return false;
-    for (const reference of pending) {
+    for (const reference of selected) {
         if (reference.current.dirty) {
             reference.current.discard();
             reference.current.dirty = false;

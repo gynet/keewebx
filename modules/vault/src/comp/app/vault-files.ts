@@ -1,6 +1,7 @@
 import { ProtectedValue } from 'kdbxweb';
 import type { AppModel } from 'models/app-model';
 import type { FileModel } from 'models/file-model';
+import { applyDatabaseSettings, validateDatabaseSettings, type DatabaseSettings } from './database-settings';
 
 /** Wait for the existing writer before starting another explicit save. */
 async function waitForSync(file: FileModel): Promise<void> {
@@ -23,13 +24,15 @@ export async function saveVault(model: AppModel, file: FileModel): Promise<void>
         (error) => error ? reject(new Error(String(error))) : resolve()));
 }
 
-export async function createVault(model: AppModel, name: string, password: string): Promise<FileModel> {
+export async function createVault(model: AppModel, name: string, password: string, settings?: DatabaseSettings): Promise<FileModel> {
     name = name.trim().replace(/\.kdbx$/i, '');
     if (!name || !password) throw new Error('A name and master password are required.');
     if (!model.settings.canCreate) throw new Error('Creating vaults is disabled.');
+    if (settings) validateDatabaseSettings(settings);
     const file = await new Promise<FileModel>((resolve) => {
         model.createNewFile(name, (created) => {
             created.setPassword(ProtectedValue.fromString(password));
+            if (settings) applyDatabaseSettings(created, { ...settings, name });
             resolve(created);
         });
     });

@@ -717,6 +717,11 @@ button {
     display: none;
 }
 .vault-form__field { display: grid; gap: 8px; margin-bottom: 14px; text-align: left; }
+.database-advanced { margin: 12px 0; text-align: left; }
+.database-advanced summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
+.database-settings { padding: 20px; margin-bottom: 16px; }
+.database-settings fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+.database-settings__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .phone-bar__handle { touch-action: none; cursor: grab; color: var(--kx-muted); }
 .phone-bar__handle:active { cursor: grabbing; }
 @media (max-width: 760px) {
