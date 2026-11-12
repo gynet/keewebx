@@ -10,6 +10,7 @@ import { AppSettingsModel } from 'models/app-settings-model';
 import { EntryModel, type EntryFilter } from 'models/entry-model';
 import { FileInfoModel } from 'models/file-info-model';
 import { FileModel, type RemoteKey } from 'models/file-model';
+import { SaveVerificationError } from 'util/kdbxweb/save-verification';
 import { GroupModel } from 'models/group-model';
 import { MenuModel } from 'models/menu/menu-model';
 import { Features } from 'util/features';
@@ -164,6 +165,8 @@ interface OpenFileParams {
 }
 
 interface SyncOptions {
+    /** Optional UI continuation guard. Omitted by Classic callers. */
+    canContinue?: () => boolean;
     sessionEpoch?: number;
     storage?: string;
     path?: string;
@@ -1269,7 +1272,8 @@ class AppModel {
         const syncOptions: SyncOptions = options ?? {};
         const syncEpoch = access.epoch;
         const syncDb = file.db;
-        const canStart = () => access.isCurrent(syncEpoch) && file.active && !file.syncing &&
+        const admitted = () => !syncOptions.canContinue || syncOptions.canContinue();
+        const canStart = () => admitted() && access.isCurrent(syncEpoch) && file.active && !file.syncing &&
             this.files.get(file.id) === file && file.db === syncDb &&
             (access.state === 'open' || (access.state === 'securing' && syncOptions.sessionEpoch === syncEpoch));
         const logger = new Logger('sync', file.name);
@@ -1294,7 +1298,15 @@ class AppModel {
         const startSync = (resolvedFileInfo: FileInfoModel): void => {
             if (!canStart()) { callback?.('Sync request expired'); return; }
             file.setSyncProgress();
+            // A registered save may finish while immediate locking waits for it, but not
+            // after timeout/recovery has advanced the session again.
+            const canContinue = () => admitted() && file.active && this.files.get(file.id) === file &&
+                ((access.isCurrent(syncEpoch) && (access.state === 'open' || access.state === 'securing')) ||
+                    (access.state === 'securing' && access.epoch === syncEpoch + 1));
+            let completed = false;
             const complete = (err?: unknown): void => {
+                if (completed) return;
+                completed = true;
                 if (!file.active) {
                     if (callback) callback('File is closed');
                     return;
@@ -1337,34 +1349,24 @@ class AppModel {
                     }
                 });
             };
-            const asyncVerifySavedData = (data: ArrayBuffer): void => {
-                if (!this.settings.saveVerify) {
-                    return;
-                }
-                const creds = (file as { db?: { credentials?: unknown } }).db
-                    ?.credentials as kdbxweb.Credentials | undefined;
-                if (!creds) {
-                    logger.warn(
-                        'Save verification skipped: no credentials on file'
-                    );
-                    return;
-                }
-                logger.info('Verifying saved data (async, non-blocking)');
-                Promise.resolve()
-                    .then(() => kdbxweb.Kdbx.load(data, creds))
-                    .then(() => {
-                        logger.info('Save verification passed');
-                    })
-                    .catch((verifyErr: unknown) => {
-                        logger.error('Save verification FAILED', verifyErr);
-                        const errStr =
-                            verifyErr instanceof Error
-                                ? verifyErr.message
-                                : String(verifyErr);
-                        // The interface tells the user.
-                        Events.emit('save-verify-failed', { file, error: errStr });
+            const continueOrFail = (): boolean => {
+                if (canContinue()) return true;
+                complete('Sync request expired');
+                return false;
+            };
+            const getVerifiedData = (done: (data?: ArrayBuffer, error?: unknown) => void): void => {
+                if (!continueOrFail()) return;
+                const verify = this.settings.saveVerify;
+                file.getDataForSync((data, error) => {
+                    if (error instanceof SaveVerificationError) {
+                        // No unverified bytes were written; retain the recoverable live model.
                         file.dirty = true;
-                    });
+                        Events.emit('save-verify-failed', { file, error: error.message });
+                    }
+                    if (!error && !continueOrFail()) return;
+                    if (!error && data && verify) Events.emit('save-verify-passed', { file });
+                    done(data, error);
+                }, verify);
             };
             if (!storageName || !storageProvider) {
                 if (!file.modified && resolvedFileInfo.id === file.id) {
@@ -1372,11 +1374,10 @@ class AppModel {
                     return complete();
                 }
                 logger.info('Local, save to cache');
-                file.getDataForSync((data, err) => {
+                getVerifiedData((data, err) => {
                     if (err || !data) {
                         return complete(err || 'No file data');
                     }
-                    asyncVerifySavedData(data);
                     Storage.cache.save(resolvedFileInfo.id, null, data, (saveErr) => {
                         logger.info('Saved to cache', saveErr || 'no error');
                         complete(saveErr);
@@ -1389,11 +1390,13 @@ class AppModel {
             const maxLoadLoops = 3;
             let loadLoops = 0;
             const loadFromStorageAndMerge = (): void => {
+                if (!continueOrFail()) return;
                 if (++loadLoops === maxLoadLoops) {
                     return complete('Too many load attempts');
                 }
                 logger.info('Load from storage, attempt ' + loadLoops);
                 storageProvider.load(path, opts, (err, data, stat) => {
+                    if (!continueOrFail()) return;
                     logger.info('Load from storage', stat, err || 'no error');
                     if (!file.active) {
                         return complete('File is closed');
@@ -1460,11 +1463,13 @@ class AppModel {
                                 logger.info('Complete, no changes');
                                 complete();
                             }
-                        }
+                        },
+                        canContinue
                     );
                 });
             };
             const saveToStorage = (data: ArrayBuffer): void => {
+                if (!continueOrFail()) return;
                 logger.info('Save data to storage');
                 const storageRev =
                     resolvedFileInfo.storage === storageName
@@ -1505,11 +1510,10 @@ class AppModel {
             };
             const saveToCacheAndStorage = (): void => {
                 logger.info('Getting file data for saving');
-                file.getDataForSync((data, err) => {
+                getVerifiedData((data, err) => {
                     if (err || !data) {
                         return complete(err || 'No file data');
                     }
-                    asyncVerifySavedData(data);
                     if (storageName === 'file') {
                         logger.info('Saving to file storage');
                         saveToStorage(data);
@@ -1550,6 +1554,7 @@ class AppModel {
                 return;
             }
             storageProvider.stat(path, opts, (err, stat) => {
+                if (!continueOrFail()) return;
                 if (!file.active) {
                     return complete('File is closed');
                 }
@@ -1569,10 +1574,10 @@ class AppModel {
                             'Stat error, dirty, save to cache',
                             err || 'no error'
                         );
-                        file.getDataForSync((data, e) => {
+                        getVerifiedData((data, e) => {
                             if (e || !data) {
                                 logger.error('Error getting file data', e);
-                                return complete(err);
+                                return complete(e || err);
                             }
                             Storage.cache.save(
                                 resolvedFileInfo.id,

@@ -12,6 +12,7 @@ import { Locale } from 'util/locale';
 import { StringFormat } from 'util/formatting/string-format';
 import { FileInfoCollection } from 'collections/file-info-collection';
 import { changeCredential, credentialChangeVersion, isSupportedCredentialShape, publishCredentialHashes, resetCredentialHash, waitForCredentialChanges, withCredentialChanges } from 'util/kdbxweb/credential-changes';
+import { captureSaveCredentials, releaseSaveCredentials, verifySavedData } from 'util/kdbxweb/save-verification';
 
 export interface PreparedFileCredentials {
     db: kdbxweb.Kdbx;
@@ -459,8 +460,15 @@ class FileModel extends Model {
     mergeOrUpdate(
         fileData: ArrayBuffer,
         remoteKey: RemoteKey | null,
-        callback: (err?: unknown) => void
+        callback: (err?: unknown) => void,
+        canContinue?: () => boolean
     ): void {
+        const originalDb = this.db;
+        const originalCredentials = originalDb.credentials;
+        const originalVersion = credentialChangeVersion(originalCredentials);
+        const canMerge = () => this.active && this.db === originalDb &&
+            this.db.credentials === originalCredentials && credentialChangeVersion(originalCredentials) === originalVersion &&
+            (!canContinue || canContinue());
         let credentials: kdbxweb.Credentials;
         let credentialsPromise: Promise<unknown> = Promise.resolve();
         if (remoteKey) {
@@ -486,10 +494,12 @@ class FileModel extends Model {
         }
         credentialsPromise.then(async () => {
             await waitForCredentialChanges(credentials);
+            if (!canMerge()) throw new Error('The database changed before merging. Retry syncing.');
             const loadRemote = async () => {
                 try {
                     return await kdbxweb.Kdbx.load(fileData, credentials);
                 } catch (error) {
+                    if (!canMerge()) throw new Error('The database changed before merging. Retry syncing.');
                     // A pending local key change must still read the previously saved remote copy.
                     // Never reinterpret an explicitly supplied remote key or an additional factor.
                     if (remoteKey || this.chalResp ||
@@ -504,6 +514,7 @@ class FileModel extends Model {
             };
             loadRemote()
                 .then((remoteDb) => {
+                    if (!canMerge()) throw new Error('The database changed before merging. Retry syncing.');
                     if (this.modified) {
                         try {
                             if (
@@ -530,6 +541,7 @@ class FileModel extends Model {
                     callback();
                 })
                 .catch((err: { code?: string; message?: string }) => {
+                    if (!canMerge()) return callback(new Error('The database changed before merging. Retry syncing.'));
                     logger.error(
                         'Error opening file to merge',
                         err.code,
@@ -657,11 +669,11 @@ class FileModel extends Model {
         this.serializeData(cb, false);
     }
 
-    getDataForSync(cb: (data?: ArrayBuffer, err?: unknown) => void): void {
-        this.serializeData(cb, true);
+    getDataForSync(cb: (data?: ArrayBuffer, err?: unknown) => void, verify = false): void {
+        this.serializeData(cb, true, verify);
     }
 
-    private serializeData(cb: (data?: ArrayBuffer, err?: unknown) => void, forSync: boolean): void {
+    private serializeData(cb: (data?: ArrayBuffer, err?: unknown) => void, forSync: boolean, verify = false): void {
         this.db.cleanup({
             historyRules: true,
             customIcons: true,
@@ -677,19 +689,33 @@ class FileModel extends Model {
                 keyFileHash: credentials.keyFileHash, passwordLength: this.passwordLength,
                 keyFileName: this.keyFileName, keyChanged: db.meta.keyChanged
             };
-            const data = await db.save();
-            if (this.db !== db || db.credentials !== credentials ||
-                credentialChangeVersion(credentials) !== written.version ||
-                credentials.passwordHash !== written.passwordHash || credentials.keyFileHash !== written.keyFileHash) {
-                throw new Error('Credentials changed during serialization. Retry saving.');
-            }
-            if (forSync) {
-                if (!sync || syncCredentials.get(this) !== sync || !this.syncing) {
-                    throw new Error('The save operation is no longer active.');
+            const verificationCredentials = verify ? captureSaveCredentials(credentials) : undefined;
+            try {
+                const data = await db.save();
+                if (this.db !== db || db.credentials !== credentials ||
+                    credentialChangeVersion(credentials) !== written.version ||
+                    credentials.passwordHash !== written.passwordHash || credentials.keyFileHash !== written.keyFileHash) {
+                    throw new Error('Credentials changed during serialization. Retry saving.');
                 }
-                sync.written = written;
+                if (forSync) {
+                    if (!sync || syncCredentials.get(this) !== sync || !this.syncing) {
+                        throw new Error('The save operation is no longer active.');
+                    }
+                    sync.written = written;
+                }
+                if (verificationCredentials) {
+                    await verifySavedData(data, verificationCredentials);
+                    if (this.db !== db || db.credentials !== credentials ||
+                        credentialChangeVersion(credentials) !== written.version ||
+                        credentials.passwordHash !== written.passwordHash || credentials.keyFileHash !== written.keyFileHash ||
+                        !this.active || !this.syncing || syncCredentials.get(this) !== sync) {
+                        throw new Error('The database changed during verification. Retry saving.');
+                    }
+                }
+                return data;
+            } finally {
+                if (verificationCredentials) releaseSaveCredentials(verificationCredentials);
             }
-            return data;
         })
             .then((data) => {
                 cb(data);
