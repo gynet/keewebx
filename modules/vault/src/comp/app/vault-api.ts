@@ -50,6 +50,14 @@ function openFile(params: Record<string, unknown>): Promise<void> {
     });
 }
 
+function keyFileParams(req: VaultRequest): Record<string, unknown> {
+    if (typeof req.keyFileData !== 'string') return {};
+    return {
+        keyFileData: kdbxweb.ByteUtils.arrayToBuffer(kdbxweb.ByteUtils.base64ToBytes(req.keyFileData)),
+        keyFileName: String(req.keyFileName || 'key file')
+    };
+}
+
 function status() {
     const model = app();
     return {
@@ -107,6 +115,7 @@ const VaultApi: Record<string, (req: VaultRequest) => unknown> = {
             path: fileInfo.path,
             opts: fileInfo.opts,
             keyFileName: fileInfo.keyFileName,
+            ...keyFileParams(req),
             password: kdbxweb.ProtectedValue.fromString(String(req.password ?? ''))
         });
         return status();
@@ -119,6 +128,7 @@ const VaultApi: Record<string, (req: VaultRequest) => unknown> = {
             storage: 'webdav',
             path: url,
             opts: { user: req.user || '', password: req.pass || '' },
+            ...keyFileParams(req),
             password: kdbxweb.ProtectedValue.fromString(String(req.password ?? ''))
         });
         return status();
@@ -131,6 +141,7 @@ const VaultApi: Record<string, (req: VaultRequest) => unknown> = {
             storage: null,
             path: null,
             fileData: kdbxweb.ByteUtils.arrayToBuffer(bytes),
+            ...keyFileParams(req),
             password: kdbxweb.ProtectedValue.fromString(String(req.password ?? ''))
         });
         return status();

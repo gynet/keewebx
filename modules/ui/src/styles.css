@@ -270,6 +270,8 @@ button {
     flex-direction: column;
     gap: 12px;
 }
+.unlock-key-file { display: flex; flex-wrap: wrap; gap: 12px; width: 100%; margin: 14px 0 4px; }
+.unlock-key-file .link { min-width: 0; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 
 /* Vault: three panes */
 .vault {

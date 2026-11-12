@@ -144,6 +144,9 @@ function UnlockCard({ pane }: { pane: Exclude<Pane, { kind: 'webdav' } | { kind:
     const [show, setShow] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const [keyFile, setKeyFile] = useState<{ name: string; data: string } | null>(null);
+    const [readingKey, setReadingKey] = useState(false);
+    const keyInput = useRef<HTMLInputElement>(null);
     const name =
         pane.kind === 'recent'
             ? pane.file.name
@@ -158,12 +161,13 @@ function UnlockCard({ pane }: { pane: Exclude<Pane, { kind: 'webdav' } | { kind:
         setBusy(true);
         setError('');
         try {
+            const key = keyFile ? { keyFileData: keyFile.data, keyFileName: keyFile.name } : {};
             if (pane.kind === 'recent') {
-                await VaultApi.unlock({ id: pane.file.id, password });
+                await VaultApi.unlock({ id: pane.file.id, password, ...key });
             } else if (pane.kind === 'file') {
-                await VaultApi.openData({ name: pane.name, data: pane.data, password });
+                await VaultApi.openData({ name: pane.name, data: pane.data, password, ...key });
             } else {
-                await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password });
+                await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key });
             }
         } catch (err) {
             const msg = (err as Error).message;
@@ -202,12 +206,29 @@ function UnlockCard({ pane }: { pane: Exclude<Pane, { kind: 'webdav' } | { kind:
                     <Icon name="eye" size={18} />
                 </button>
             </div>
+            <div class="unlock-key-file">
+                <input ref={keyInput} id="unlock-key-file" type="file" hidden disabled={busy || readingKey}
+                    onChange={async (event) => {
+                        const file = event.currentTarget.files?.[0];
+                        if (!file) return;
+                        setReadingKey(true);
+                        try { setKeyFile({ name: file.name, data: toBase64(await file.arrayBuffer()) }); setError(''); }
+                        catch { setError(t('Unable to read the key file.')); }
+                        finally { setReadingKey(false); }
+                    }} />
+                <button type="button" class="link" disabled={busy || readingKey} onClick={() => keyInput.current?.click()}>
+                    {keyFile ? t('Key file: {}', keyFile.name) : t('Use a key file')}
+                </button>
+                {keyFile && <button type="button" class="link" disabled={busy || readingKey} onClick={() => {
+                    setKeyFile(null); if (keyInput.current) keyInput.current.value = '';
+                }}>{t('Remove key file')}</button>}
+            </div>
             {error && (
                 <p class="error" id="unlock-error" style={{ alignSelf: 'flex-start' }}>
                     {error}
                 </p>
             )}
-            <button class="pill pill--primary pill--block" id="unlock" disabled={busy}>
+            <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock')}
             </button>
         </form>
