@@ -39,7 +39,7 @@
     "autoprefixer": "^10.2.5",
     "base64-loader": "^1.0.0",
     "copy-webpack-plugin": "^14.0.0",
-    "css-loader": "^5.2.4",
+    "css-loader": "^7.1.5",
     "events": "^3.3.0",
     "exports-loader": "^5.0.0",
     "handlebars-loader": "1.7.1",
