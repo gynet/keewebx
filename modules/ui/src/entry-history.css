@@ -1,0 +1,19 @@
+.entry-history {
+    width: min(680px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    padding: 24px;
+    margin: auto;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--kx-line);
+    border-radius: var(--kx-radius-card);
+    background: var(--kx-bg);
+    color: var(--kx-text);
+}
+.entry-history h2 { margin: 0; flex-grow: 1; }
+.entry-history select { width: 100%; min-width: 0; }
+.entry-history__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.entry-history__fields { margin: 16px 0; }
+.entry-history__field { border-top: 1px solid var(--kx-line); padding: 12px 0; }
+.entry-history__field dt { font-weight: 600; }
+.entry-history__field dd { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }

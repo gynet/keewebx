@@ -7,6 +7,7 @@ import { PasswordGeneratorPanel } from './password-generator';
 import { t } from './i18n';
 import './entry-editor.css';
 import { usePendingDraft } from './pending-drafts';
+import { EntryHistory } from './entry-history';
 
 const FIELDS = [
     { name: 'Title', label: 'Title' },
@@ -125,6 +126,13 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
                 <div class="entry-editor__head">
                     <h1 class="detail__title">{entry ? t('Edit entry') : t('New entry')}</h1>
                     <div class="entry-editor__actions">
+                        {entry && <EntryHistory entry={entry} hasDraft={JSON.stringify(draft) !== initialDraft.current}
+                            onRestore={() => {
+                                const restored = makeDraft(entry, tags);
+                                initialDraft.current = JSON.stringify(restored);
+                                nextId.current = restored.custom.length;
+                                setDraft(restored); setError('');
+                            }} />}
                         <button class="pill" type="button" onClick={onCancel}>{t('Cancel')}</button>
                         <button class="pill pill--primary" type="submit">{t('Save')}</button>
                     </div>

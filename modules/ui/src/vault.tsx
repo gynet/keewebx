@@ -27,6 +27,7 @@ import type { EntryDraft } from './entry-editor';
 import { GroupActions } from './group-actions';
 import type { GroupActionResult } from './group-actions';
 import { EntryMove } from './entry-move';
+import { EntryHistory } from './entry-history';
 
 interface Filter {
     group?: string;
@@ -519,6 +520,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onDelete, onRestor
     const otp = useOtp(entry);
     const [reveal, setReveal] = useState(false);
     const [copied, setCopied] = useState('');
+    const [notesVersion, setNotesVersion] = useState(0);
     const password = entry.password?.getText?.() ?? '';
     const website = safeWebsiteUrl(entry.url);
 
@@ -584,6 +586,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onDelete, onRestor
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
                     {!onRestore && <EntryMove model={model} entry={entry} onMoved={onMoved} />}
+                    <EntryHistory entry={entry} onRestore={() => setNotesVersion(value => value + 1)} />
                     {onDelete && <button class="pill pill--tinted pill--danger" onClick={onDelete}><Icon name="trash" size={16} />{t('Move to Trash')}</button>}
                     {onRestore && <button class="pill pill--tinted" onClick={onRestore}>{t('Restore')}</button>}
                 </div>
@@ -633,7 +636,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onDelete, onRestor
                 </div>
             )}
 
-            <Notes key={entry.id} entry={entry} />
+            <Notes key={`${entry.id}:${notesVersion}`} entry={entry} />
 
             <Attachments key={entry.id} model={model} entry={entry} />
 
