@@ -669,12 +669,16 @@ class EntryModel extends Model {
     }
 
     setOtpUrl(url: string | undefined): void {
+        // Legacy-only removal still needs a history snapshot and dirty tracking.
+        if (this.entry.fields.has('TOTP Seed') || this.entry.fields.has('TOTP Settings')) this._entryModified();
         this.setField(
             'otp',
             url ? kdbxweb.ProtectedValue.fromString(url) : undefined
         );
+        // These are BuiltInFields: setField(undefined) retains an empty map item.
         this.entry.fields.delete('TOTP Seed');
         this.entry.fields.delete('TOTP Settings');
+        this._fillByEntry();
     }
 
     getEffectiveEnableAutoType(): boolean {

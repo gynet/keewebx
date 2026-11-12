@@ -1,6 +1,10 @@
 import { useRef, useState } from 'preact/hooks';
 import { ProtectedValue } from 'kdbxweb';
 import { BuiltInFields } from 'const/entry-fields';
+import type { AppModel } from 'models/app-model';
+import { getSessionAccess } from 'comp/app/session-access';
+import { OtpFieldNames, otpSnapshot, readEntryOtp, prepareOtpDraft, applyEntryOtp, type OtpDraft } from 'comp/app/entry-otp';
+import { EntryOtpFields } from './entry-otp-fields';
 import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
 import { PasswordGeneratorPanel } from './password-generator';
@@ -16,7 +20,7 @@ const FIELDS = [
     { name: 'URL', label: 'Website' },
     { name: 'Notes', label: 'Notes' }
 ] as const;
-const reservedNames = new Set([...BuiltInFields, 'otp'].map((name) => name.toLowerCase()));
+const reservedNames = new Set([...BuiltInFields, ...OtpFieldNames].map((name) => name.toLowerCase()));
 
 interface CustomField {
     id: number;
@@ -30,6 +34,8 @@ export interface EntryDraft {
     fields: Record<string, string>;
     tags: string;
     custom: CustomField[];
+    otp?: OtpDraft;
+    otpBaseline?: string;
 }
 
 function fieldText(value: unknown): string {
@@ -45,6 +51,8 @@ function makeDraft(entry: EntryModel | null, tags: string[]): EntryDraft {
     return {
         fields: Object.fromEntries(FIELDS.map(({ name }) => [name, fieldText(fields[name])])),
         tags: (entry?.tags ?? tags).join(', '),
+        otp: { action: 'keep', value: readEntryOtp(entry).value },
+        otpBaseline: otpSnapshot(entry),
         custom: Object.entries(fields)
             .filter(([name]) => !reservedNames.has(name.toLowerCase()))
             .map(([name, value], id) => ({
@@ -55,6 +63,7 @@ function makeDraft(entry: EntryModel | null, tags: string[]): EntryDraft {
 
 /** Apply only changed fields, letting the model own history and file modification. */
 export function applyEntryDraft(entry: EntryModel, draft: EntryDraft): void {
+    if (draft.otp) applyEntryOtp(entry, draft.otp, draft.otpBaseline!);
     const original = entry.getAllFields();
     for (const { name } of FIELDS) {
         const value = draft.fields[name];
@@ -86,7 +95,8 @@ export function applyEntryDraft(entry: EntryModel, draft: EntryDraft): void {
     }
 }
 
-export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
+export function EntryEditor({ model, entry, tags = [], onSave, onCancel }: {
+    model: AppModel;
     entry: EntryModel | null;
     tags?: string[];
     onSave: (draft: EntryDraft) => void;
@@ -94,6 +104,10 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
 }) {
     const [draft, setDraft] = useState(() => makeDraft(entry, tags));
     const initialDraft = useRef(JSON.stringify(draft));
+    const target = useRef(entry ? { file: entry.file as FileModel, db: (entry.file as FileModel).db, raw: entry.entry } : null);
+    const access = getSessionAccess(model);
+    const openEpoch = useRef(access.epoch);
+    if (access.state === 'open') openEpoch.current = access.epoch;
     const nextId = useRef(draft.custom.length);
     const [reveal, setReveal] = useState(false);
     const [generatorOpen, setGeneratorOpen] = useState(false);
@@ -101,7 +115,13 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
     const updateCustom = (id: number, changes: Partial<CustomField>) => setDraft((current) => ({
         ...current, custom: current.custom.map((field) => field.id === id ? { ...field, ...changes } : field)
     }));
-    const save = () => {
+    const save = (forLock = false) => {
+        const allowed = access.state === 'open' || (forLock && access.state === 'securing' && access.epoch === openEpoch.current + 1);
+        const original = target.current;
+        if (!allowed || (entry && (!original || !original.file.active || model.files.get(original.file.id) !== original.file ||
+            entry.file !== original.file || original.file.db !== original.db || entry.entry !== original.raw || (original.file as FileModel & { readOnly?: boolean }).readOnly))) {
+            setError(t('This entry is no longer available for editing.')); return false;
+        }
         if (entry && ((entry.file as FileModel).getEntry(entry.id) !== entry || JSON.stringify(makeDraft(entry, tags)) !== initialDraft.current)) {
             setError(t('This entry changed while you were editing. Copy your changes, then cancel and reopen the editor.'));
             return false;
@@ -115,10 +135,10 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
             }
             names.add(name);
         }
-        onSave(draft);
-        return true;
+        try { prepareOtpDraft(draft.otp); onSave(draft); return true; }
+        catch { setError(t('Could not save. Check the OTP configuration and reopen the editor if this entry changed.')); return false; }
     };
-    usePendingDraft(JSON.stringify(draft) !== initialDraft.current, save, onCancel);
+    usePendingDraft(JSON.stringify(draft) !== initialDraft.current, () => save(true), onCancel);
 
     return (
         <main class="detail entry-editor" aria-label={entry ? t('Edit entry') : t('New entry')}>
@@ -174,6 +194,8 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
                     <input class="input" value={draft.tags} placeholder={t('Separate tags with commas')}
                         onInput={(event) => setDraft({ ...draft, tags: event.currentTarget.value })} />
                 </label>
+                <EntryOtpFields model={model} value={draft.otp!} original={readEntryOtp(entry)}
+                    onChange={(otp) => setDraft((current) => ({ ...current, otp }))} />
                 <fieldset class="entry-editor__custom">
                     <legend class="section-title">{t('Custom fields')}</legend>
                     {draft.custom.map((field) => (

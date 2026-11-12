@@ -22,6 +22,7 @@ import { ThemeToggle } from './theme';
 import { MobileMenu } from './mobile-menu';
 import { confirmDiscardDrafts, hasPendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
+import { prepareOtpDraft } from 'comp/app/entry-otp';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
 import type { EntryDraft } from './entry-editor';
 import { GroupActions } from './group-actions';
@@ -229,6 +230,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         if (!editing) {
             return;
         }
+        prepareOtpDraft(draft.otp);
         const saved = 'entry' in editing ? editing.entry : model.createNewEntryWithFields(editing.group, {});
         applyEntryDraft(saved, draft);
         model.updateTags();
@@ -419,7 +421,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             </MobileMenu>
 
             {editing ? (
-                <EntryEditor key={'entry' in editing ? editing.entry.id : 'new'}
+                <EntryEditor model={model} key={'entry' in editing ? editing.entry.id : 'new'}
                     entry={'entry' in editing ? editing.entry : null}
                     tags={'tag' in editing && editing.tag ? [editing.tag] : []}
                     onSave={saveEntry} onCancel={() => setEditing(null)} />
