@@ -144,6 +144,8 @@ interface AdvancedSearch {
 
 interface OpenFileParams {
     sessionEpoch?: number;
+    /** Optional UI admission guard; Classic callers keep the existing behavior. */
+    canOpen?: () => boolean;
     id?: string;
     name: string;
     storage?: string;
@@ -750,6 +752,7 @@ class AppModel {
     openFile(params: OpenFileParams, callback: (err?: unknown, file?: FileModel) => void): void {
         const access = getSessionAccess(this);
         try { access.assertOpen(); } catch (error) { callback(error); return; }
+        if (params.canOpen && !params.canOpen()) { callback(new Error('Open canceled')); return; }
         params.sessionEpoch = access.epoch;
         const logger = new Logger('open', params.name);
         logger.info('File open request');
@@ -964,6 +967,7 @@ class AppModel {
         const access = getSessionAccess(this);
         const epoch = params.sessionEpoch ?? access.epoch;
         try { access.assertOpen(epoch); } catch (error) { callback(error); return; }
+        if (params.canOpen && !params.canOpen()) { callback(new Error('Open canceled')); return; }
         const logger = new Logger('open', params.name);
         let needLoadKeyFile = false;
         const fileStorage = getStorageProvider('file');
@@ -999,6 +1003,7 @@ class AppModel {
                 return callback(err);
             }
             try { access.assertOpen(epoch); } catch (error) { file.close(); callback(error); return; }
+            if (params.canOpen && !params.canOpen()) { file.close(); callback(new Error('Open canceled')); return; }
             if (this.files.get(file.id)) {
                 return callback('Duplicate file id');
             }
@@ -1016,6 +1021,7 @@ class AppModel {
             const rev = params.rev || (fileInfo && fileInfo.rev) || null;
             this.setFileOpts(file, params.opts).then(() => {
                 try { access.assertOpen(epoch); } catch (error) { file.close(); callback(error); return; }
+                if (params.canOpen && !params.canOpen()) { file.close(); callback(new Error('Open canceled')); return; }
                 if (updateCacheOnSuccess && !this.settings.disableOfflineStorage && params.fileData) {
                     logger.info('Save loaded file to cache');
                     Storage.cache.save(file.id, null, params.fileData);

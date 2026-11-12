@@ -9,6 +9,7 @@ import { DatabaseCredentialsEditor } from './database-credentials';
 import { runCredentialOperation } from './credential-operations';
 import { savePendingDrafts, usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
+import { DatabasePasskey } from './database-passkey';
 
 export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppModel; file: FileModel; onCancel: () => void }) {
     const [draft, setDraft] = useState(() => readDatabaseSettings(file));
@@ -105,6 +106,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
                 <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
             </div>
         </fieldset>
+        <DatabasePasskey key={file.id} model={model} file={file} />
         {message && <p role="status">{message}</p>}
     </form>;
 }

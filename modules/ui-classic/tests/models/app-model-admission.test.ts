@@ -150,6 +150,29 @@ function expectNoPublication(h: Harness) {
 }
 
 describe('AppModel open/create/import admission', () => {
+    for (const boundary of ['request', 'loaded', 'decrypted', 'options'] as const) {
+        test(`optional UI admission guard rejects at ${boundary} without cache/recent publication`, async () => {
+            const h = model(); const done = mock(); let allowed = boundary !== 'request';
+            const options = deferred<void>();
+            if (boundary === 'options') h.app.setFileOpts = mock(() => options.promise);
+            h.app.openFile({ name: 'guarded', ...(boundary === 'loaded'
+                ? { storage: 'webdav', path: '/guarded.kdbx' } : { fileData: bytes }), canOpen: () => allowed }, done);
+            if (boundary === 'loaded') {
+                allowed = false; remoteLoad.mock.calls[0][2](null, bytes);
+            } else if (boundary === 'decrypted') {
+                allowed = false; PendingFile.created[0].finishOpen();
+            } else if (boundary === 'options') {
+                PendingFile.created[0].finishOpen(); allowed = false; options.resolve();
+            }
+            await settle();
+            expect(done).toHaveBeenCalledTimes(1);
+            expect(done.mock.calls[0][0]).toBeInstanceOf(Error);
+            expectNoPublication(h);
+            if (boundary === 'request' || boundary === 'loaded') expect(PendingFile.created).toHaveLength(0);
+            else expect(PendingFile.created[0].close).toHaveBeenCalledTimes(1);
+        });
+    }
+
     test('Classic defaults to open: successful local open caches and publishes exactly once', async () => {
         const h = model(); const done = mock();
         expect(getSessionAccess(h.app).state).toBe('open');

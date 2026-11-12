@@ -7,6 +7,7 @@ import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { CreateVault } from './create-vault';
 import { SwipeVaultRow } from './swipe-vault-row';
+import { LocalPasskeyUnlock } from './local-passkey-unlock';
 
 interface RecentFile {
     id: string;
@@ -138,14 +139,14 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <p class="card__sub">{t('Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
                     </div>
                 ) : (
-                    <UnlockCard key={JSON.stringify(pane)} pane={pane} />
+                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} />
                 )}
             </main>
         </div>
     );
 }
 
-function UnlockCard({ pane }: { pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }> }) {
+function UnlockCard({ model, pane }: { model: AppModel; pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }> }) {
     const [password, setPassword] = useState('');
     const [show, setShow] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -234,6 +235,8 @@ function UnlockCard({ pane }: { pane: Exclude<Pane, { kind: 'webdav' } | { kind:
                     {error}
                 </p>
             )}
+            <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
+                keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setError} />
             <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock')}
             </button>
