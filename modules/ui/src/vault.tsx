@@ -28,6 +28,8 @@ import { GroupActions } from './group-actions';
 import type { GroupActionResult } from './group-actions';
 import { EntryMove } from './entry-move';
 import { EntryHistory } from './entry-history';
+import { EntryClone } from './entry-clone';
+import { EntrySort, sortEntries } from './entry-sort';
 
 interface Filter {
     group?: string;
@@ -121,6 +123,8 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     }, [navigationOpen]);
     const [filter, setFilter] = useState<Filter>({});
     const [query, setQuery] = useState('');
+    const [sort, setSort] = useState('title');
+    const viewEpoch = getSessionAccess(model).epoch;
     const [selected, setSelected] = useState<string>();
     const [editing, setEditing] = useState<{ entry: EntryModel } | { group: GroupModel; tag?: string } | null>(null);
     const [expandedGroups, setExpandedGroups] = useState(readExpandedGroups);
@@ -143,13 +147,11 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
 
     const files = model.files as unknown as FileModel[];
     const entries = useMemo(() => {
-        const result = model.getEntriesByFilter(
-            { text: query, group: filter.group, tag: filter.tag, trash: filter.trash, subGroups: true },
-            model.files
-        );
-        result.sortEntries('title', {});
+        const prepared = model.prepareFilter({ text: query, group: filter.group, tag: filter.tag, trash: filter.trash, subGroups: true });
+        const result = model.getEntriesByFilter(prepared, model.files);
+        sortEntries(result, sort, prepared);
         return [...(result as unknown as EntryModel[])];
-    }, [query, filter, props.version]);
+    }, [query, filter, sort, props.version]);
 
     const liveEntry = entries.find((e) => e.id === selected) ?? null;
     const retainedEntry = useRef<EntryModel | null>(null);
@@ -345,6 +347,12 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         />
                     </label>
                 </div>
+                <EntrySort value={sort} onChange={next => {
+                    const access = getSessionAccess(model);
+                    if (access.state !== 'open' || !access.isCurrent(viewEpoch)) return false;
+                    // Sorting changes presentation only: retain selection and the mounted draft.
+                    setSort(next); return true;
+                }} />
                 <button class="pill entry-list__create" disabled={!!editing || !model.canCreateEntries()} onClick={newEntry}>
                     {t('New entry')}
                 </button>
@@ -385,6 +393,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         const s = summarizeEntry(e);
                         return (
                             <button
+                                key={e.id}
                                 class={e.id === selected ? 'entry-row entry-row--on' : 'entry-row'}
                                 data-entry={s.title}
                                 onClick={() => {
@@ -429,6 +438,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     if (confirmDiscardDrafts()) setSelected(undefined);
                 }}
                     onEdit={() => { if (confirmDiscardDrafts()) setEditing({ entry }); }}
+                    onCloned={(id, groupId) => {
+                        setFilter({ group: groupId }); setQuery(''); setSelected(id);
+                    }}
                     onMoved={(entryId, groupId) => {
                         setFilter({ group: groupId });
                         setQuery('');
@@ -509,12 +521,13 @@ function useOtp(entry: EntryModel): { code: string; left: number } | null {
     return otp;
 }
 
-function EntryDetail({ model, entry, onBack, onEdit, onMoved, onDelete, onRestore }: {
+function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete, onRestore }: {
     model: AppModel;
     entry: EntryModel;
     onBack: () => void;
     onEdit: () => void;
     onMoved: (entryId: string, groupId: string) => void;
+    onCloned: (entryId: string, groupId: string) => void;
     onDelete?: () => void;
     onRestore?: () => void;
 }) {
@@ -588,6 +601,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onDelete, onRestor
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
                     {!onRestore && <EntryMove model={model} entry={entry} onMoved={onMoved} />}
+                    {!onRestore && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
                     <EntryHistory entry={entry} onRestore={() => setNotesVersion(value => value + 1)} />
                     {onDelete && <button class="pill pill--tinted pill--danger" onClick={onDelete}><Icon name="trash" size={16} />{t('Move to Trash')}</button>}
                     {onRestore && <button class="pill pill--tinted" onClick={onRestore}>{t('Restore')}</button>}
