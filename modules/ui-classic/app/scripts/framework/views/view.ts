@@ -5,6 +5,7 @@ import { Tip } from 'util/ui/tip';
 import { KeyHandler } from 'comp/browser/key-handler';
 import { FocusManager } from 'comp/app/focus-manager';
 import { Logger } from 'util/logger';
+import { storageKey } from 'comp/settings/storage-namespace';
 
 interface EventHandler {
     selector?: string;
@@ -45,7 +46,7 @@ class View extends EventEmitter {
     $el: any; // legacy jQuery wrapper
     eventListeners: Record<string, (e: Event) => void> = {};
     elementEventListeners: ElementEventListener[] = [];
-    debugLogger: Logger | undefined = (localStorage as any).debugView
+    debugLogger: Logger | undefined = localStorage[storageKey('debugView')]
         ? new Logger('view', this.constructor.name)
         : undefined;
 

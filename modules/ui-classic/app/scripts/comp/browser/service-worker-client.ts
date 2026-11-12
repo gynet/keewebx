@@ -1,6 +1,7 @@
 import { UpdateModel } from 'models/update-model';
 import { RuntimeInfo } from 'const/runtime-info';
 import { Logger } from 'util/logger';
+import { getStorageNamespace } from 'comp/settings/storage-namespace';
 
 const logger = new Logger('service-worker');
 
@@ -11,7 +12,8 @@ function supported(): boolean {
         'serviceWorker' in navigator &&
         window.isSecureContext &&
         /^https?:$/.test(location.protocol) &&
-        !RuntimeInfo.devMode
+        !RuntimeInfo.devMode &&
+        !getStorageNamespace()
     );
 }
 

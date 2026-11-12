@@ -287,6 +287,7 @@ module.exports = (env, argv) => {
             // live demo can all assert the same commit SHA. See
             // app/scripts/app.ts + e2e/live/smoke-live.spec.ts.
             new webpack.DefinePlugin({
+                __KW_STORAGE_NAMESPACE__: JSON.stringify(process.env.KEEWEBX_STORAGE_NAMESPACE || ''),
                 __KEEWEBX_BUILD_SHA__: JSON.stringify(gitSha),
                 __KEEWEBX_BUILD_SHA_SHORT__: JSON.stringify(gitShaShort),
                 __KEEWEBX_BUILD_TIME__: JSON.stringify(buildTime)

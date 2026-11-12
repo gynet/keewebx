@@ -1,5 +1,6 @@
 import '../styles/main.scss';
 import { Events } from 'framework/events';
+import { storageKey } from 'comp/settings/storage-namespace';
 import { StartProfiler } from 'comp/app/start-profiler';
 import { FileInfoCollection } from 'collections/file-info-collection';
 import { ExportApi } from 'comp/app/export-api';
@@ -187,7 +188,7 @@ $(() => {
     function showApp(): Promise<void> {
         return Promise.resolve().then(() => {
             const skipHttpsWarning =
-                localStorage.getItem('skipHttpsWarning') || appModel.settings.skipHttpsWarning;
+                localStorage.getItem(storageKey('skipHttpsWarning')) || appModel.settings.skipHttpsWarning;
             const protocolIsInsecure = ['https:', 'file:', 'app:', 'chrome-extension:'].indexOf(location.protocol) < 0;
             const hostIsInsecure = location.hostname !== 'localhost';
             if (protocolIsInsecure && hostIsInsecure && !skipHttpsWarning) {

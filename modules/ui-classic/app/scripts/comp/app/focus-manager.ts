@@ -1,9 +1,10 @@
 import { Logger } from 'util/logger';
+import { storageKey } from 'comp/settings/storage-namespace';
 
 const logger = new Logger(
     'focus-manager',
     undefined,
-    localStorage.debugFocusManager ? Logger.Level.Debug : Logger.Level.Info
+    localStorage[storageKey('debugFocusManager')] ? Logger.Level.Debug : Logger.Level.Info
 );
 
 const FocusManager = {

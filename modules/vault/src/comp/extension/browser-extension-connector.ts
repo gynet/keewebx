@@ -1,6 +1,7 @@
 import type { AppModel } from 'models/app-model';
 import type { ProtocolUi } from './protocol-ui';
 import { Logger } from 'util/logger';
+import { storageKey } from 'comp/settings/storage-namespace';
 import {
     ProtocolImpl,
     type ConnectionInfo,
@@ -31,7 +32,7 @@ if (Features.isMac) {
 }
 
 const logger = new Logger('browser-extension-connector');
-if (!localStorage.debugBrowserExtension) {
+if (!localStorage[storageKey('debugBrowserExtension')]) {
     logger.level = Logger.Level.Info;
 }
 

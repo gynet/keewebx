@@ -1,4 +1,5 @@
 import { Features } from 'util/features';
+import { storageKey } from 'comp/settings/storage-namespace';
 
 const FeatureTester = {
     test(): Promise<void> {
@@ -24,8 +25,8 @@ const FeatureTester = {
             return;
         }
         try {
-            localStorage.setItem('_test', '1');
-            localStorage.removeItem('_test');
+            localStorage.setItem(storageKey('_test'), '1');
+            localStorage.removeItem(storageKey('_test'));
         } catch (e) {
             throw new Error('LocalStorage is not supported');
         }
