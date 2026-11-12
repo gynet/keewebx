@@ -4,6 +4,7 @@ import { AppSettingsModel } from 'models/app-settings-model';
 import { Icon } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle, ThemeSelect } from './theme';
+import { ClipboardLockSetting } from './clipboard-lock-setting';
 import type { AppModel } from 'models/app-model';
 import { DatabaseSettingsEditor } from './database-settings';
 import { ExtensionSessions, type ExtensionSessionsApi } from './extension-sessions';
@@ -108,6 +109,7 @@ export function Settings({ onBack, model, extensionSessions }: { onBack: () => v
                                 ))}
                             </select>
                         </label>
+                        <ClipboardLockSetting value={settings.lockOnCopy === true} onChange={value => set('lockOnCopy', value)} />
                     </section>
                     <h2 class="group-title">{t('Browser extension')}</h2>
                     <section class="cardlist">

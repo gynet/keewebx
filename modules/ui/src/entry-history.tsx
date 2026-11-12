@@ -156,7 +156,7 @@ function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged }: {
         try {
             await navigator.clipboard.writeText(rawText(fields[name]));
             // Cleanup of an authorized write must be scheduled even if it finishes after lock.
-            VaultApi.copied({});
+            VaultApi.copied({ password: name === 'Password', sessionEpoch: snapshot.epoch });
             if (unavailable(snapshot)) return;
             setCopied(name);
         } catch { if (!unavailable(snapshot)) setError(t('Could not copy. Reveal the value and copy it manually.')); }

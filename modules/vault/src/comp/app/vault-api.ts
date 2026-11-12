@@ -14,12 +14,14 @@ import { entryFieldText, listEntries, summarizeEntry } from 'comp/extension/entr
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { UrlFormat } from 'util/formatting/url-format';
 import { getSessionAccess } from './session-access';
+import { Timeouts } from 'const/timeouts';
 
 export type VaultRequest = Record<string, unknown>;
 
 const SETTINGS = ['idleMinutes', 'clipboardSeconds', 'lockOnOsLock'] as const;
 
 let clipboardTimer: ReturnType<typeof setTimeout> | undefined;
+let copyLockTimer: ReturnType<typeof setTimeout> | undefined;
 
 function app(): AppModel {
     return AppModel.instance;
@@ -104,6 +106,23 @@ function scheduleClipboardClear(): void {
     }, seconds * 1000);
 }
 
+function schedulePasswordCopyLock(request: VaultRequest): void {
+    const model = app();
+    const access = getSessionAccess(model);
+    const epoch = access.epoch;
+    // A clipboard write may finish after suspension or reauthentication. Its
+    // cleanup still runs, but it must not lock a different authenticated session.
+    if (request.password !== true || request.sessionEpoch !== epoch ||
+        !AppSettingsModel.lockOnCopy || access.state !== 'open') return;
+    clearTimeout(copyLockTimer);
+    copyLockTimer = setTimeout(() => {
+        if (app() === model && access.state === 'open' && access.isCurrent(epoch) &&
+            AppSettingsModel.lockOnCopy && model.files.hasOpenFiles()) {
+            Events.emit('lock-workspace');
+        }
+    }, Timeouts.CopyTip + Timeouts.BeforeAutoLock);
+}
+
 const handlers: Record<string, (req: VaultRequest) => unknown> = {
     status,
     list,
@@ -177,8 +196,9 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
         return { user: await entryFieldText(entry, 'user'), password: await entryFieldText(entry, 'password') };
     },
 
-    copied() {
+    copied(request) {
         scheduleClipboardClear();
+        schedulePasswordCopyLock(request);
         return {};
     },
 
