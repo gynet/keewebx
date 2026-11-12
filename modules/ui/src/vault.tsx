@@ -8,6 +8,8 @@ import type { AttachmentModel } from 'models/attachment-model';
 import { Events } from 'framework/events';
 import { entryFieldText, summarizeEntry } from 'comp/extension/entry-list';
 import { VaultApi } from 'comp/app/vault-api';
+import { getSessionAccess } from 'comp/app/session-access';
+import { beginPendingOperation } from './pending-operations';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { DateFormat } from 'comp/i18n/date-format';
 import { Icon, Mark, Tile } from 'ui-kit/mark';
@@ -22,6 +24,8 @@ import { confirmDiscardDrafts, hasPendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
 import type { EntryDraft } from './entry-editor';
+import { GroupActions } from './group-actions';
+import type { GroupActionResult } from './group-actions';
 
 interface Filter {
     group?: string;
@@ -64,6 +68,28 @@ interface GroupLike {
     entries?: { length: number };
 }
 
+function readExpandedGroups(): Set<string> {
+    try {
+        const saved: unknown = JSON.parse(localStorage.getItem(storageKey('expandedGroups')) || '[]');
+        return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []);
+    } catch { return new Set(); }
+}
+
+function groupPath(group: GroupModel): string {
+    const names: string[] = [];
+    for (let current: GroupModel | null = group; current; current = current.parentGroup) {
+        names.unshift(current.title);
+    }
+    return names.join(' / ');
+}
+
+function isWithinGroup(group: GroupModel | null | undefined, id: string): boolean {
+    for (let current = group; current; current = current.parentGroup) {
+        if (current.id === id) return true;
+    }
+    return false;
+}
+
 export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void }) {
     const { model } = props;
     const layout = usePanelLayout();
@@ -95,6 +121,23 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const [query, setQuery] = useState('');
     const [selected, setSelected] = useState<string>();
     const [editing, setEditing] = useState<{ entry: EntryModel } | { group: GroupModel; tag?: string } | null>(null);
+    const [expandedGroups, setExpandedGroups] = useState(readExpandedGroups);
+    const [rootChoice, setRootChoice] = useState('');
+    const [groupMessage, setGroupMessage] = useState('');
+    const groupManager = useRef<HTMLDetailsElement>(null);
+    const groupSummary = useRef<HTMLElement>(null);
+    const changeExpandedGroups = (update: (ids: Set<string>) => void) => {
+        setExpandedGroups((current) => {
+            const next = new Set(current);
+            update(next);
+            try { localStorage.setItem(storageKey('expandedGroups'), JSON.stringify([...next])); }
+            catch { /* Navigation remains available without persistent storage. */ }
+            return next;
+        });
+    };
+    const toggleGroup = (id: string) => changeExpandedGroups((ids) => {
+        if (ids.has(id)) ids.delete(id); else ids.add(id);
+    });
 
     const files = model.files as unknown as FileModel[];
     const entries = useMemo(() => {
@@ -114,14 +157,63 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const entry = liveEntry ?? (retainedEntry.current?.id === selected && hasPendingDrafts() ? retainedEntry.current : null);
     const sync = model.syncScheduler.summary().state;
     const groups: GroupLike[] = files.flatMap(
-        (f) => ((f.groups?.[0] as unknown as GroupLike)?.items ?? []).filter((g) => g.visible !== false)
+        (file) => Array.from(file.groups).flatMap((root) =>
+            ((root as unknown as GroupLike).items ?? []).filter((group) => group.visible !== false))
     );
+    const roots = files.filter((file) => file.active).flatMap((file) =>
+        Array.from(file.groups).map((group, index) => ({ file, group, index })));
+    const selectedGroup = filter.group ? files.filter((file) => file.active)
+        .map((file) => ({ file, group: file.getGroup(filter.group!) }))
+        .find((target): target is { file: FileModel; group: GroupModel } => !!target.group) : undefined;
+    const groupTarget = filter.group ? selectedGroup : roots.find(({ group }) => group.id === rootChoice);
     const tags = model.tags;
     const changeFilter = (next: Filter) => {
         if (!confirmDiscardDrafts()) return;
         setEditing(null);
         setFilter(next);
+        setRootChoice('');
+        setGroupMessage('');
         if (navigationOpen) closeNavigation();
+    };
+    const openGroupManager = () => {
+        if (!confirmDiscardDrafts()) return;
+        setEditing(null);
+        setSelected(undefined);
+        closeNavigation();
+        if (groupManager.current) groupManager.current.open = true;
+        requestAnimationFrame(() => groupSummary.current?.focus());
+    };
+    const groupChanged = (result: GroupActionResult) => {
+        const file = model.files.get(result.fileId);
+        setEditing(null);
+        if (result.action === 'create') {
+            const created = file?.getGroup(result.groupId);
+            if (created) {
+                changeExpandedGroups((ids) => {
+                    for (let parent = created.parentGroup; parent; parent = parent.parentGroup) ids.add(parent.id);
+                });
+                setFilter({ group: created.id });
+                setQuery('');
+                setSelected(undefined);
+                setRootChoice('');
+                setGroupMessage(t('Created group: {}', groupPath(created)));
+            }
+        } else if (result.action === 'delete') {
+            const filtered = filter.group ? file?.getGroup(filter.group) : undefined;
+            if (filter.group === result.groupId || isWithinGroup(filtered, result.groupId)) {
+                const parent = file?.getGroup(result.parentId);
+                setFilter(parent && !parent.top && parent.visible !== false ? { group: parent.id } : {});
+                setRootChoice('');
+            }
+            if (selected) {
+                const selectedEntry = file?.getEntry(selected);
+                if (isWithinGroup(selectedEntry?.group as GroupModel | undefined, result.groupId)
+                    || (!selectedEntry && retainedEntry.current?.file === file)) setSelected(undefined);
+            }
+            setGroupMessage(t(result.trashed ? 'Group moved to trash.' : 'Group permanently deleted.'));
+        } else {
+            setGroupMessage(t('Group renamed: {}', file?.getGroup(result.groupId)?.title ?? ''));
+        }
     };
     const newEntry = () => {
         if (!confirmDiscardDrafts()) return;
@@ -198,8 +290,13 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 {groups.length > 0 && <h2 class="side__heading">{t('Groups')}</h2>}
                 {groups.map((g) => (
-                    <GroupBranch key={g.id} group={g} selected={filter.group} onSelect={(id) => changeFilter({ group: id })} />
+                    <GroupBranch key={g.id} group={g} selected={filter.group} onSelect={(id) => changeFilter({ group: id })}
+                        expandedGroups={expandedGroups} onToggle={toggleGroup} />
                 ))}
+                <button type="button" class="nav-row" onClick={openGroupManager}>
+                    <Icon name="folder" size={17} />
+                    <span class="nav-row__label">{t('Manage groups')}</span>
+                </button>
                 {tags.length > 0 && <h2 class="side__heading">{t('Tags')}</h2>}
                 <div class="tags">
                     {tags.map((tag) => (
@@ -249,6 +346,37 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <button class="pill entry-list__create" disabled={!!editing || !model.canCreateEntries()} onClick={newEntry}>
                     {t('New entry')}
                 </button>
+                <details ref={groupManager} style={{ flex: '0 0 auto', margin: '0 14px 6px', minWidth: 0 }}>
+                    <summary ref={groupSummary} style={{ cursor: 'pointer', padding: '10px 0', fontWeight: 600 }}>
+                        {t('Manage groups')}
+                    </summary>
+                    <div style={{ maxHeight: 'min(360px, 50dvh)', overflowY: 'auto', padding: '4px 2px 10px', overflowWrap: 'anywhere' }}>
+                        {filter.group ? <p style={{ margin: '0 0 12px' }}>
+                            {groupTarget ? t('Selected group: {}', groupPath(groupTarget.group))
+                                : t('The selected group is no longer available. Select another group or All items.')}
+                        </p> : <label class="vault-form__field">{t('Choose a vault root')}
+                            <select class="input" value={groupTarget?.group.id ?? ''} onChange={(event) => {
+                                if (!confirmDiscardDrafts()) { event.currentTarget.value = rootChoice; return; }
+                                setRootChoice(event.currentTarget.value);
+                                setGroupMessage('');
+                            }}>
+                                <option value="">{t('Select a vault and root…')}</option>
+                                {roots.map(({ file, group, index }) => <option key={group.id} value={group.id}>
+                                    {t('{} (vault {}) — root {}: {}', kdbxName(file.name), String(files.indexOf(file) + 1), String(index + 1), group.title)}
+                                </option>)}
+                            </select>
+                        </label>}
+                        {groupTarget && <>
+                            <p class="muted" style={{ margin: '0 0 12px' }}>
+                                {t('Database: {} (vault {})', kdbxName(groupTarget.file.name), String(files.indexOf(groupTarget.file) + 1))}
+                            </p>
+                            <GroupActions key={groupTarget.group.id} model={model} file={groupTarget.file} group={groupTarget.group}
+                                onComplete={groupChanged} getReturnFocus={() => groupSummary.current} />
+                        </>}
+                        {!filter.group && <p class="muted">{t('Choose a root to create a top-level group. Select a group in Browse vault to rename, delete or create a subgroup.')}</p>}
+                        {groupMessage && <p role="status">{groupMessage}</p>}
+                    </div>
+                </details>
                 <p class="list__meta">{t('{} items', String(entries.length))}</p>
                 <div class="list__items">
                     {entries.map((e) => {
@@ -295,7 +423,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     tags={'tag' in editing && editing.tag ? [editing.tag] : []}
                     onSave={saveEntry} onCancel={() => setEditing(null)} />
             ) : entry ? (
-                <EntryDetail key={entry.id} entry={entry} onBack={() => setSelected(undefined)}
+                <EntryDetail key={entry.id} model={model} entry={entry} onBack={() => setSelected(undefined)}
                     onEdit={() => { if (confirmDiscardDrafts()) setEditing({ entry }); }}
                     onDelete={!filter.trash && (entry.file as FileModel).db.meta.recycleBinEnabled ? moveToTrash : undefined}
                     onRestore={filter.trash ? restoreEntry : undefined} />
@@ -308,31 +436,17 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     );
 }
 
-function GroupBranch({ group, selected, onSelect }: {
+function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle }: {
     group: GroupLike; selected?: string; onSelect: (id: string) => void;
+    expandedGroups: ReadonlySet<string>; onToggle: (id: string) => void;
 }) {
-    const [expanded, setExpanded] = useState(() => {
-        try {
-            const saved: unknown = JSON.parse(localStorage.getItem(storageKey('expandedGroups')) || '[]');
-            return Array.isArray(saved) && saved.includes(group.id);
-        } catch { return false; }
-    });
-    const toggle = () => {
-        const next = !expanded;
-        setExpanded(next);
-        try {
-            const saved: unknown = JSON.parse(localStorage.getItem(storageKey('expandedGroups')) || '[]');
-            const ids = new Set<string>(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []);
-            if (next) ids.add(group.id); else ids.delete(group.id);
-            localStorage.setItem(storageKey('expandedGroups'), JSON.stringify([...ids]));
-        } catch { /* Keep navigation available when storage is unavailable. */ }
-    };
+    const expanded = expandedGroups.has(group.id);
     const children = Array.from(group.items ?? []).filter((child) => child.visible !== false);
     return <div class="group-branch">
         <div class="group-branch__row">
             {children.length > 0 ? <button class="group-branch__toggle" type="button"
                 aria-label={t(expanded ? 'Collapse {}' : 'Expand {}', group.title)} aria-expanded={expanded}
-                onClick={toggle}>
+                onClick={() => onToggle(group.id)}>
                 <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
                     style={{ transform: expanded ? 'rotate(90deg)' : undefined }}>
                     <path d="m4 2 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" />
@@ -341,7 +455,8 @@ function GroupBranch({ group, selected, onSelect }: {
             <NavRow icon="folder" label={group.title} on={selected === group.id} onClick={() => onSelect(group.id)} />
         </div>
         {expanded && children.length > 0 && <div class="group-branch__children">
-            {children.map((child) => <GroupBranch key={child.id} group={child} selected={selected} onSelect={onSelect} />)}
+            {children.map((child) => <GroupBranch key={child.id} group={child} selected={selected} onSelect={onSelect}
+                expandedGroups={expandedGroups} onToggle={onToggle} />)}
         </div>}
     </div>;
 }
@@ -381,7 +496,8 @@ function useOtp(entry: EntryModel): { code: string; left: number } | null {
     return otp;
 }
 
-function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
+function EntryDetail({ model, entry, onBack, onEdit, onDelete, onRestore }: {
+    model: AppModel;
     entry: EntryModel;
     onBack: () => void;
     onEdit: () => void;
@@ -395,11 +511,19 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
     const password = entry.password?.getText?.() ?? '';
     const website = safeWebsiteUrl(entry.url);
 
-    const copy = async (key: string, text: string) => {
-        await navigator.clipboard.writeText(text);
-        VaultApi.copied({});
-        setCopied(key);
-        setTimeout(() => setCopied(''), 1500);
+    const copy = async (key: string, read: () => Promise<string>) => {
+        const access = getSessionAccess(model);
+        const epoch = access.epoch;
+        try {
+            access.assertOpen(epoch);
+            const text = await read();
+            access.assertOpen(epoch);
+            await navigator.clipboard.writeText(text);
+            VaultApi.copied({});
+            access.assertOpen(epoch);
+            setCopied(key);
+            setTimeout(() => setCopied(''), 1500);
+        } catch { setCopied(''); }
     };
 
     const custom = Object.entries(entry.fields ?? {}).filter(([k]) => k !== 'otp' && k !== 'TOTP Seed' && k !== 'TOTP Settings');
@@ -467,7 +591,7 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
                                     <Icon name="eye" size={17} />
                                 </button>
                             )}
-                            <button class="field__action" onClick={async () => copy(r.key, await r.text())}>
+                            <button class="field__action" onClick={() => void copy(r.key, r.text)}>
                                 {copied === r.key ? t('Copied') : t('Copy')}
                             </button>
                         </div>
@@ -499,14 +623,14 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
 
             <Notes key={entry.id} entry={entry} />
 
-            <Attachments key={entry.id} entry={entry} />
+            <Attachments key={entry.id} model={model} entry={entry} />
 
             <p class="detail__foot">{t('Updated {}', DateFormat.dtStr(entry.updated))}</p>
         </main>
     );
 }
 
-function Attachments({ entry }: { entry: EntryModel }) {
+function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
     const input = useRef<HTMLInputElement>(null);
     const mounted = useRef(true);
     const working = useRef(false);
@@ -534,15 +658,28 @@ function Attachments({ entry }: { entry: EntryModel }) {
             return;
         }
         working.current = true;
+        const finished = beginPendingOperation(model);
+        const access = getSessionAccess(model);
+        const epoch = access.epoch;
+        const canPublish = () => mounted.current && file.active &&
+            !(file as unknown as { readOnly?: boolean }).readOnly &&
+            ((access.state === 'open' && access.epoch === epoch) ||
+                (access.state === 'securing' && access.epoch === epoch + 1));
         setBusy(true);
         let message = t('Could not read the attachment. Try selecting the file again.');
         try {
+            access.assertOpen(epoch);
             const data = await attachment.arrayBuffer();
+            // Lock waits for this registered operation before saving/closing. Let an
+            // already requested upload finish, but not after timeout or recovery.
+            if (!canPublish()) {
+                throw new Error('Attachment operation expired');
+            }
             if (!mounted.current || !file.active) {
                 return;
             }
             message = t('Could not save the attachment. Try again.');
-            await entry.addAttachment(attachment.name, data);
+            await entry.addAttachment(attachment.name, data, canPublish);
             if (file.active) {
                 updated();
             }
@@ -551,6 +688,7 @@ function Attachments({ entry }: { entry: EntryModel }) {
                 setError(message);
             }
         } finally {
+            finished();
             working.current = false;
             if (mounted.current) {
                 setBusy(false);
@@ -574,6 +712,7 @@ function Attachments({ entry }: { entry: EntryModel }) {
         let url: string | undefined;
         const link = document.createElement('a');
         try {
+            getSessionAccess(model).assertOpen();
             let data = attachment.getBinary();
             if (!data) {
                 // getBinary does not convert an empty ArrayBuffer in older vault models.

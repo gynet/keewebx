@@ -3,6 +3,7 @@ import type { AppModel } from 'models/app-model';
 import type { FileModel } from 'models/file-model';
 import { applyDatabaseSettings, readDatabaseSettings } from 'comp/app/database-settings';
 import { exportVault, saveVault } from 'comp/app/vault-files';
+import { getSessionAccess } from 'comp/app/session-access';
 import { DatabaseSettingsFields } from './database-settings-fields';
 import { savePendingDrafts, usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
@@ -40,7 +41,11 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
         catch { setMessage(t('Resolve invalid or conflicting edits before downloading.')); return; }
         setBusy(true); setMessage('');
         try {
+            const access = getSessionAccess(model);
+            const epoch = access.epoch;
+            access.assertOpen(epoch);
             const data = await exportVault(file);
+            access.assertOpen(epoch);
             const url = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
             const link = document.createElement('a');
             link.href = url;
@@ -62,7 +67,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             catch { setMessage(t('Changes are pending. Keep the vault open and retry saving.')); }
             finally { setBusy(false); }
         }}>
-        <h3>{file.name}</h3>
+        <h3 style={{ overflowWrap: 'anywhere' }}>{file.name}</h3>
         <fieldset disabled={busy}>
             <DatabaseSettingsFields value={draft} onChange={setDraft} />
             <div class="database-settings__actions">

@@ -1,6 +1,7 @@
 import * as kdbxweb from 'kdbxweb';
 import { Model } from 'framework/model';
 import { AppSettingsModel } from 'models/app-settings-model';
+import type { FileModel } from 'models/file-model';
 import { ENTRY_ICONS } from 'const/icon-registry';
 import { BuiltInFields } from 'const/entry-fields';
 import { AttachmentModel } from 'models/attachment-model';
@@ -474,13 +475,23 @@ class EntryModel extends Model {
         return this.entry.fields.has(field);
     }
 
-    addAttachment(name: string, data: ArrayBuffer): Promise<void> {
+    /** Hash privately; an optional caller guard controls publication into the current entry. */
+    async addAttachment(name: string, data: ArrayBuffer, canPublish?: () => boolean): Promise<void> {
+        const file = this.file as FileModel;
+        const db = file.db;
+        const entry = this.entry;
+        const id = this.id;
+        // createBinary would register in the live database before the async guard can run.
+        const binary = await new kdbxweb.KdbxBinaries().add(data.slice(0));
+        if (canPublish && canPublish() !== true) throw new Error('Attachment upload canceled.');
+        if (!file.active || this.file !== file || file.db !== db || this.entry !== entry ||
+            this.id !== id || file.getEntry(id) !== this) {
+            throw new Error('The attachment target changed or closed.');
+        }
         this._entryModified();
-        const file = this.file as { db: { createBinary(data: ArrayBuffer): Promise<unknown> } };
-        return file.db.createBinary(data).then((binaryRef: unknown) => {
-            this.entry.binaries.set(name, binaryRef as kdbxweb.KdbxBinaryWithHash);
-            this._fillByEntry();
-        });
+        db.binaries.addWithHash(binary);
+        entry.binaries.set(name, binary);
+        this._fillByEntry();
     }
 
     removeAttachment(name: string): void {

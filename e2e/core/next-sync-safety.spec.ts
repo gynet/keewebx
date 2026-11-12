@@ -195,7 +195,9 @@ test.describe('Sync and draft data safety', () => {
         const input = page.locator('.entry-editor').getByLabel('Title', { exact: true });
         await input.fill('Saved before lock');
         await page.locator('#lock').click();
-        await expect(page.locator('[inert] .entry-editor')).toBeVisible();
+        await expect(page.locator('[inert][hidden] .entry-editor')).toHaveCount(1);
+        await expect(page.locator('.entry-editor')).toBeHidden();
+        await expect(page.getByRole('heading', { name: 'Securing your vaults', exact: true })).toBeVisible();
         // Real keyboard input must not reach the editor while synchronization is held.
         await page.keyboard.press('Tab');
         await page.keyboard.type('Must not enter the draft');
@@ -263,6 +265,25 @@ test.describe('Sync and draft data safety', () => {
                 expect(text(persistedTarget!, 'Password')).toBe('Remote password');
                 expect(text(persistedTarget!, 'Notes')).toBe('Remote notes');
                 expect(text(persistedTarget!, 'Remote addition')).toBe('Preserve this field');
+            }
+            if (scenario === 'notes') {
+                // A conflicting Notes draft must not defeat lock or disappear during recovery.
+                await page.locator('#lock').click();
+                const retainedNotes = page.locator('.entry-notes');
+                await expect(retainedNotes).toHaveCount(1);
+                await expect(retainedNotes).toBeHidden();
+                await expect(retainedNotes.locator('xpath=ancestor::*[@hidden and @inert]')).toHaveCount(1);
+                await expect(retainedNotes.locator('textarea')).toHaveValue('Local unsaved notes');
+                const recovery = page.getByRole('form', { name: 'Verify database: vault', exact: true });
+                await expect(recovery).toBeVisible({ timeout });
+                await expect(page.getByRole('button', { name: 'Return to unsaved changes', exact: true })).toBeDisabled();
+                await recovery.getByLabel('Master password', { exact: true }).fill(password);
+                await recovery.getByRole('button', { name: 'Verify', exact: true }).click();
+                await expect(recovery.getByRole('status')).toHaveText('Verified');
+                await page.getByRole('button', { name: 'Return to unsaved changes', exact: true }).click();
+                await expect(editor).toBeVisible();
+                await expect(editor.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue('Local unsaved notes');
+                expect(dav.remote().equals(beforeRejectedSave)).toBe(true);
             }
             await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
             if (isSettings) {

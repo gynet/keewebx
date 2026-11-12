@@ -136,7 +136,7 @@ class SyncScheduler {
         entry.timer = setTimeout(() => {
             entry.timer = undefined;
             // A running sync reschedules itself when it ends.
-            if (entry.file.active && !entry.file.syncing) {
+            if (this.enabled() && entry.file.active && !entry.file.syncing) {
                 this.sync(entry.file, () => {});
             }
         }, delay);

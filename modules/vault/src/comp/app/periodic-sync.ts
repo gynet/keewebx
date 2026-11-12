@@ -1,4 +1,5 @@
 import type { AppModel } from 'models/app-model';
+import { getSessionAccess } from './session-access';
 
 /** Periodic sync also checks for remote changes when the local file is clean. */
 export function startPeriodicSync(model: AppModel): () => void {
@@ -8,6 +9,7 @@ export function startPeriodicSync(model: AppModel): () => void {
         const minutes = model.settings.autoSaveInterval;
         if (Number.isFinite(minutes) && minutes > 0) {
             timer = setInterval(() => {
+                if (getSessionAccess(model).state !== 'open') return;
                 for (const file of model.files) {
                     if (file.active && !file.demo && !file.syncing) model.syncFile(file);
                 }

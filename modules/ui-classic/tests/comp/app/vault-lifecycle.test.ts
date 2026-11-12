@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'events';
 import type { AppModel } from '../../../../vault/src/models/app-model';
 import { saveAndLock } from '../../../../vault/src/comp/app/vault-lifecycle';
+import { waitForSync } from '../../../../vault/src/comp/app/vault-files';
+import type { FileModel } from '../../../../vault/src/models/file-model';
 
 class VaultFile extends EventEmitter {
     demo = false;
@@ -23,6 +25,44 @@ function model(files: VaultFile[], save: (file: VaultFile, callback: (error?: un
 }
 
 describe('vault lock persistence', () => {
+    test('pre-flush synchronization wait is cancelable and detaches its listener', async () => {
+        const file = new VaultFile();
+        file.syncing = true;
+        const controller = new AbortController();
+        const waiting = waitForSync(file as unknown as FileModel, controller.signal);
+        controller.abort();
+        await expect(waiting).rejects.toThrow('canceled');
+        expect(file.listenerCount('change:syncing')).toBe(0);
+    });
+    test('canceled lock detaches sync listeners and never starts another save', async () => {
+        const file = new VaultFile();
+        file.syncing = true;
+        const controller = new AbortController();
+        const vault = model([file], () => { throw new Error('Unexpected save'); });
+        const locking = saveAndLock(vault.instance, controller.signal);
+        controller.abort();
+        await expect(locking).rejects.toThrow('canceled');
+        expect(file.listenerCount('change:syncing')).toBe(0);
+        expect(vault.closed()).toBe(false);
+    });
+
+    test('late save completion cannot close a session after lock cancellation', async () => {
+        const file = new VaultFile();
+        let complete!: () => void;
+        const controller = new AbortController();
+        const vault = model([file], (saved, callback) => {
+            complete = () => { saved.dirty = false; saved.modified = false; callback(); };
+        });
+        const locking = saveAndLock(vault.instance, controller.signal);
+        controller.abort();
+        await expect(locking).rejects.toThrow('canceled');
+        complete();
+        await Promise.resolve();
+        expect(vault.closed()).toBe(false);
+        await saveAndLock(vault.instance);
+        expect(vault.closed()).toBe(true);
+    });
+
     test('keeps the vault open when serialization or cache saving fails', async () => {
         const file = new VaultFile();
         const vault = model([file], (_file, callback) => callback(new Error('disk full')));

@@ -6,16 +6,24 @@ import { createExportSnapshot } from '../../util/kdbxweb/export-snapshot';
 import { credentialChangeVersion, waitForCredentialChanges } from '../../util/kdbxweb/credential-changes';
 
 /** Wait for the existing writer before starting another explicit save. */
-export async function waitForSync(file: FileModel): Promise<void> {
+export async function waitForSync(file: FileModel, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw new Error('Lock attempt canceled.');
     if (!file.syncing) return;
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+            file.off('change:syncing', finished);
+            signal?.removeEventListener('abort', abort);
+        };
+        const abort = () => { cleanup(); reject(new Error('Lock attempt canceled.')); };
         const finished = () => {
             if (!file.syncing) {
-                file.off('change:syncing', finished);
+                cleanup();
                 resolve();
             }
         };
         file.on('change:syncing', finished);
+        signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) { abort(); return; }
         finished();
     });
 }
@@ -31,12 +39,12 @@ export async function createVault(model: AppModel, name: string, password: strin
     if (!name || !password) throw new Error('A name and master password are required.');
     if (!model.settings.canCreate) throw new Error('Creating vaults is disabled.');
     if (settings) validateDatabaseSettings(settings);
-    const file = await new Promise<FileModel>((resolve) => {
+    const file = await new Promise<FileModel>((resolve, reject) => {
         model.createNewFile(name, (created) => {
             created.setPassword(ProtectedValue.fromString(password));
             if (settings) applyDatabaseSettings(created, { ...settings, name });
             resolve(created);
-        });
+        }, reject);
     });
     await saveVault(model, file);
     return file;

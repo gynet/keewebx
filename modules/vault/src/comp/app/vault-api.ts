@@ -13,6 +13,7 @@ import type { FileModel } from 'models/file-model';
 import { entryFieldText, listEntries, summarizeEntry } from 'comp/extension/entry-list';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { UrlFormat } from 'util/formatting/url-format';
+import { getSessionAccess } from './session-access';
 
 export type VaultRequest = Record<string, unknown>;
 
@@ -60,6 +61,10 @@ function keyFileParams(req: VaultRequest): Record<string, unknown> {
 
 function status() {
     const model = app();
+    const access = getSessionAccess(model);
+    if (access.state !== 'open') {
+        return { open: false, accessState: access.state, files: [], recent: [], settings: {} };
+    }
     return {
         open: model.files.hasOpenFiles(),
         files: model.files.map((f) => ({ id: f.id, name: f.name, storage: f.storage })),
@@ -99,7 +104,7 @@ function scheduleClipboardClear(): void {
     }, seconds * 1000);
 }
 
-const VaultApi: Record<string, (req: VaultRequest) => unknown> = {
+const handlers: Record<string, (req: VaultRequest) => unknown> = {
     status,
     list,
 
@@ -154,7 +159,7 @@ const VaultApi: Record<string, (req: VaultRequest) => unknown> = {
 
     lock() {
         Events.emit('lock-workspace');
-        return { locked: true };
+        return { locked: !app().files.hasOpenFiles(), accessState: getSessionAccess(app()).state };
     },
 
     entry(req) {
@@ -192,5 +197,22 @@ const VaultApi: Record<string, (req: VaultRequest) => unknown> = {
         return {};
     }
 };
+
+const VaultApi: Record<string, (req: VaultRequest) => unknown> = Object.fromEntries(
+    Object.entries(handlers).map(([name, handler]) => [name, (request: VaultRequest) => {
+        // Cleanup of a previously authorized clipboard write must still run after suspension.
+        if (name === 'status' || name === 'lock' || name === 'copied') return handler(request);
+        const access = getSessionAccess(app());
+        const epoch = access.epoch;
+        access.assertOpen(epoch);
+        const result = handler(request);
+        if (result instanceof Promise) return result.then((value) => {
+            access.assertOpen(epoch);
+            return value;
+        });
+        access.assertOpen(epoch);
+        return result;
+    }])
+);
 
 export { VaultApi };

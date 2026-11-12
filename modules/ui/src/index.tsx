@@ -11,29 +11,92 @@ import { Settings } from './settings';
 import { useVaultVersion } from './vault-state';
 import { t } from './i18n';
 import { waitForSync } from 'comp/app/vault-files';
+import { getSessionAccess, type RecoveryVault } from 'comp/app/session-access';
+import { IdleTracker } from 'comp/browser/idle-tracker';
+import { SessionRecovery } from './session-recovery';
+import { waitForPendingOperations } from './pending-operations';
 import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
 
 function App({ model }: { model: AppModel }) {
     const version = useVaultVersion(model);
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const [error, setError] = useState('');
-    const locking = useRef(false);
+    const access = getSessionAccess(model);
+    const [gate, setGate] = useState<{ epoch: number; ready: boolean; files: readonly RecoveryVault[]; error: string } | null>(null);
+    const operation = useRef<AbortController | null>(null);
     const surface = useRef<HTMLDivElement>(null);
-    const lock = async () => {
-        if (locking.current) return;
-        locking.current = true;
-        surface.current?.setAttribute('inert', '');
-        setError('');
+    const previousFocus = useRef<HTMLElement | null>(null);
+    const dialogs = useRef<HTMLDialogElement[]>([]);
+    const preparation = useRef(0);
+    const prepareRecovery = async (epoch: number) => {
+        const attempt = ++preparation.current;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        setGate({ epoch, ready: false, files: [], error: '' });
         try {
-            await Promise.all(model.files.map((file) => waitForSync(file)));
-            savePendingDrafts();
-            await saveAndLock(model);
-            setSettingsOpen(false);
+            const files = await Promise.race([
+                access.prepareRecovery(epoch),
+                new Promise<never>((_resolve, reject) => {
+                    timeout = setTimeout(() => reject(new Error('Recovery preparation timed out')), 15_000);
+                })
+            ]);
+            if (attempt === preparation.current && access.isCurrent(epoch)) {
+                setGate({ epoch, ready: true, files, error: '' });
+            }
         } catch {
-            setError(t('Changes could not be saved. Keep this vault open and try again.'));
+            if (attempt === preparation.current) setGate((current) => current?.epoch === epoch ? {
+                epoch: access.epoch, ready: true, files: [],
+                error: t('Recovery is not ready or requires an unsupported authentication factor. Access remains suspended. Keep this tab open; retry when the current operation finishes.')
+            } : current);
+        } finally { clearTimeout(timeout); }
+    };
+    const reveal = () => {
+        ++preparation.current;
+        surface.current?.removeAttribute('inert');
+        if (surface.current) surface.current.hidden = false;
+        setGate(null);
+        requestAnimationFrame(() => {
+            if (access.state !== 'open') return;
+            for (const dialog of dialogs.current) if (dialog.isConnected && !dialog.open) dialog.showModal();
+            dialogs.current = [];
+            if (previousFocus.current?.isConnected) previousFocus.current.focus();
+        });
+    };
+    const lock = async () => {
+        if (access.state !== 'open' || operation.current || !model.files.hasOpenFiles()) return;
+        const controller = new AbortController();
+        operation.current = controller;
+        previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        dialogs.current = Array.from(surface.current?.querySelectorAll<HTMLDialogElement>('dialog[open]') ?? []);
+        for (const dialog of dialogs.current) dialog.close();
+        surface.current?.setAttribute('inert', '');
+        if (surface.current) surface.current.hidden = true;
+        let epoch: number;
+        try { epoch = access.beginSecuring(); }
+        catch {
+            operation.current = null;
+            setGate({ epoch: access.epoch, ready: true, files: [], error: t('This session changed unexpectedly. Access remains suspended.') });
+            return;
+        }
+        setGate({ epoch, ready: false, files: [], error: '' });
+        const timeout = window.setTimeout(() => controller.abort(), 15_000);
+        try {
+            await Promise.all(model.files.map((file) => waitForSync(file, controller.signal)));
+            await waitForPendingOperations(model, controller.signal);
+            if (controller.signal.aborted || !access.isCurrent(epoch)) throw new Error('Lock canceled');
+            savePendingDrafts();
+            await saveAndLock(model, controller.signal);
+            access.completeClose(epoch);
+            access.resetClosedSession();
+            setSettingsOpen(false);
+            dialogs.current = [];
+            reveal();
+        } catch {
+            controller.abort();
+            if (!access.isCurrent(epoch)) return;
+            const recoveryEpoch = access.requireRecovery(epoch);
+            await prepareRecovery(recoveryEpoch);
         } finally {
-            surface.current?.removeAttribute('inert');
-            locking.current = false;
+            clearTimeout(timeout);
+            if (operation.current === controller) operation.current = null;
         }
     };
 
@@ -54,13 +117,26 @@ function App({ model }: { model: AppModel }) {
         };
     }, [model]);
 
-    if (!model.files.hasOpenFiles()) {
+    if (!model.files.hasOpenFiles() && !gate) {
         return <Unlock key={version} model={model} />;
     }
     return (
         <>
-        {error && <div role="alert" class="error" style={{ padding: '12px 20px' }}>{error}</div>}
-        <div ref={surface} style={{ height: '100%' }}>
+        {gate && <SessionRecovery key={gate.epoch} files={[...gate.files]} ready={gate.ready} error={gate.error}
+            retry={() => void prepareRecovery(gate.epoch)}
+            verify={(id, password, keyFile) => access.verifyVault(gate.epoch, id, { password, keyFile })}
+            resume={() => {
+                try {
+                    operation.current?.abort();
+                    access.resumeRecovery(gate.epoch);
+                    IdleTracker.regUserAction();
+                    model.syncScheduler.retryAll();
+                    reveal();
+                } catch {
+                    setGate({ ...gate, error: t('The session changed. Access remains suspended.') });
+                }
+            }} />}
+        <div ref={surface} hidden={!!gate} style={{ height: '100%' }}>
         <div hidden={settingsOpen} style={{ height: '100%' }}>
         <Vault
             model={model}

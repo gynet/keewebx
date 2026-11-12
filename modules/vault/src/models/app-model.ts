@@ -21,6 +21,7 @@ import { Logger } from 'util/logger';
 import { debounce, noop } from 'util/fn';
 import { runBeforeOpen, runBeforeSync } from 'hooks/storage-guards';
 import { SyncScheduler } from 'comp/app/sync-scheduler';
+import { getSessionAccess } from 'comp/app/session-access';
 import 'util/kdbxweb/protected-value-ex';
 
 interface StorageStat {
@@ -142,6 +143,7 @@ interface AdvancedSearch {
 }
 
 interface OpenFileParams {
+    sessionEpoch?: number;
     id?: string;
     name: string;
     storage?: string;
@@ -160,6 +162,7 @@ interface OpenFileParams {
 }
 
 interface SyncOptions {
+    sessionEpoch?: number;
     storage?: string;
     path?: string;
     opts?: Record<string, unknown>;
@@ -233,7 +236,7 @@ class AppModel {
     appLogger!: Logger;
     syncScheduler: SyncScheduler = new SyncScheduler(
         (file, callback) => this.syncFile(file, undefined, callback),
-        () => this.settings.autoSaveInterval === -1
+        () => this.settings.autoSaveInterval === -1 && getSessionAccess(this).state === 'open'
     );
 
     constructor() {
@@ -709,9 +712,13 @@ class AppModel {
     }
 
     createDemoFile(): boolean {
+        const access = getSessionAccess(this);
+        const epoch = access.epoch;
+        access.assertOpen(epoch);
         if (!this.files.getByName('Demo')) {
             const demoFile = new FileModel({ id: IdGenerator.uuid() });
             demoFile.openDemo(() => {
+                try { access.assertOpen(epoch); } catch { demoFile.close(); return; }
                 this.addFile(demoFile);
             });
             return true;
@@ -720,7 +727,10 @@ class AppModel {
         }
     }
 
-    createNewFile(name: string | null, callback?: (file: FileModel) => void): void {
+    createNewFile(name: string | null, callback?: (file: FileModel) => void, onError?: (error: unknown) => void): void {
+        const access = getSessionAccess(this);
+        const epoch = access.epoch;
+        access.assertOpen(epoch);
         if (!name) {
             for (let i = 0; ; i++) {
                 name = Locale.openNewFile + (i || '');
@@ -731,12 +741,16 @@ class AppModel {
         }
         const newFile = new FileModel({ id: IdGenerator.uuid() });
         newFile.create(name, () => {
+            try { access.assertOpen(epoch); } catch (error) { newFile.close(); onError?.(error); return; }
             this.addFile(newFile);
             callback?.(newFile);
         });
     }
 
     openFile(params: OpenFileParams, callback: (err?: unknown, file?: FileModel) => void): void {
+        const access = getSessionAccess(this);
+        try { access.assertOpen(); } catch (error) { callback(error); return; }
+        params.sessionEpoch = access.epoch;
         const logger = new Logger('open', params.name);
         logger.info('File open request');
 
@@ -947,6 +961,9 @@ class AppModel {
         data: ArrayBuffer,
         updateCacheOnSuccess?: boolean
     ): void {
+        const access = getSessionAccess(this);
+        const epoch = params.sessionEpoch ?? access.epoch;
+        try { access.assertOpen(epoch); } catch (error) { callback(error); return; }
         const logger = new Logger('open', params.name);
         let needLoadKeyFile = false;
         const fileStorage = getStorageProvider('file');
@@ -981,6 +998,7 @@ class AppModel {
             if (err) {
                 return callback(err);
             }
+            try { access.assertOpen(epoch); } catch (error) { file.close(); callback(error); return; }
             if (this.files.get(file.id)) {
                 return callback('Duplicate file id');
             }
@@ -995,17 +1013,18 @@ class AppModel {
             if (fileInfo) {
                 file.syncDate = fileInfo.syncDate;
             }
-            if (updateCacheOnSuccess && !this.settings.disableOfflineStorage && params.fileData) {
-                logger.info('Save loaded file to cache');
-                Storage.cache.save(file.id, null, params.fileData);
-            }
             const rev = params.rev || (fileInfo && fileInfo.rev) || null;
             this.setFileOpts(file, params.opts).then(() => {
+                try { access.assertOpen(epoch); } catch (error) { file.close(); callback(error); return; }
+                if (updateCacheOnSuccess && !this.settings.disableOfflineStorage && params.fileData) {
+                    logger.info('Save loaded file to cache');
+                    Storage.cache.save(file.id, null, params.fileData);
+                }
                 this.addToLastOpenFiles(file, rev);
                 this.addFile(file);
                 callback(null, file);
                 this.fileOpened(file, data, params);
-            });
+            }, (error) => { file.close(); callback(error); });
         };
         const open = (): void => {
             const keyFileBuf: ArrayBuffer | null = toArrayBuffer(params.keyFileData);
@@ -1032,6 +1051,9 @@ class AppModel {
     }
 
     importFileWithXml(params: OpenFileParams, callback: (err?: unknown) => void): void {
+        const access = getSessionAccess(this);
+        const epoch = access.epoch;
+        try { access.assertOpen(epoch); } catch (error) { callback(error); return; }
         const logger = new Logger('import', params.name);
         logger.info('File import request with supplied xml');
         const file = new FileModel({
@@ -1048,6 +1070,7 @@ class AppModel {
             if (err) {
                 return callback(err);
             }
+            try { access.assertOpen(epoch); } catch (error) { file.close(); callback(error); return; }
             this.addFile(file);
             this.fileOpened(file);
         });
@@ -1220,6 +1243,11 @@ class AppModel {
     }
 
     syncFile(file: FileModel, options?: SyncOptions, callback?: (err?: unknown) => void): void {
+        const access = getSessionAccess(this);
+        if (access.state !== 'open' && !(access.state === 'securing' && options?.sessionEpoch === access.epoch)) {
+            callback?.('Session access suspended');
+            return;
+        }
         if (file.demo) {
             if (callback) callback();
             return;
@@ -1233,6 +1261,11 @@ class AppModel {
             return;
         }
         const syncOptions: SyncOptions = options ?? {};
+        const syncEpoch = access.epoch;
+        const syncDb = file.db;
+        const canStart = () => access.isCurrent(syncEpoch) && file.active && !file.syncing &&
+            this.files.get(file.id) === file && file.db === syncDb &&
+            (access.state === 'open' || (access.state === 'securing' && syncOptions.sessionEpoch === syncEpoch));
         const logger = new Logger('sync', file.name);
         const storageName = syncOptions.storage || file.storage || null;
         const storageProvider = getStorageProvider(storageName);
@@ -1253,6 +1286,7 @@ class AppModel {
         logger.info('Sync started', storageName, path, optionsForLogging);
         const existingFileInfo = this.getFileInfo(file);
         const startSync = (resolvedFileInfo: FileInfoModel): void => {
+            if (!canStart()) { callback?.('Sync request expired'); return; }
             file.setSyncProgress();
             const complete = (err?: unknown): void => {
                 if (!file.active) {
@@ -1578,6 +1612,7 @@ class AppModel {
             logger.info('Create new file info');
             const dt = new Date();
             this.getStoreOpts(file).then((storeOpts) => {
+                if (!canStart()) { callback?.('Sync request expired'); return; }
                 const newFileInfo = new FileInfoModel({
                     id: IdGenerator.uuid(),
                     name: file.name,
@@ -1592,7 +1627,7 @@ class AppModel {
                     backup: file.backup
                 });
                 startSync(newFileInfo);
-            });
+            }, (error) => callback?.(error));
         }
     }
 
