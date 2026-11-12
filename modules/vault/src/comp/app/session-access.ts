@@ -1,7 +1,7 @@
 import { ByteUtils, Credentials, ProtectedValue } from 'kdbxweb';
 import type { AppModel } from 'models/app-model';
 import type { FileModel } from 'models/file-model';
-import { credentialChangeVersion, waitForCredentialChanges } from '../../util/kdbxweb/credential-changes';
+import { credentialChangeVersion, isSupportedCredentialShape, waitForCredentialChanges } from '../../util/kdbxweb/credential-changes';
 
 export type SessionAccessState = 'open' | 'securing' | 'recovery-required' | 'closed';
 export interface RecoveryVault {
@@ -56,14 +56,7 @@ function sameFactor(a?: ProtectedValue, b?: ProtectedValue): boolean {
     } finally { ByteUtils.zeroBuffer(left); if (right) ByteUtils.zeroBuffer(right); }
 }
 function supported(target: Target): boolean {
-    const credentials = target.credentials;
-    const allowed = new Set(['ready', 'passwordHash', 'keyFileHash', '_challengeResponse']);
-    return !target.file.chalResp && Object.getPrototypeOf(credentials) === Credentials.prototype &&
-        !Object.getOwnPropertyDescriptor(credentials, '_challengeResponse')?.value &&
-        Reflect.ownKeys(credentials).every((key) => typeof key === 'string' && allowed.has(key) &&
-            'value' in Object.getOwnPropertyDescriptor(credentials, key)!) &&
-        (!credentials.passwordHash || Object.getPrototypeOf(credentials.passwordHash) === ProtectedValue.prototype) &&
-        (!credentials.keyFileHash || Object.getPrototypeOf(credentials.keyFileHash) === ProtectedValue.prototype);
+    return !target.file.chalResp && isSupportedCredentialShape(target.credentials);
 }
 
 /** In-memory access suspension, not a cryptographic lock or proof of persisted credentials. */

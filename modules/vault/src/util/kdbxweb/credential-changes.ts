@@ -1,4 +1,4 @@
-import { Credentials, type ProtectedValue } from 'kdbxweb';
+import { Credentials, ProtectedValue } from 'kdbxweb';
 
 type CredentialPart = 'password' | 'keyFile';
 interface Change { promise: Promise<void>; }
@@ -30,6 +30,29 @@ function replace(credentials: Credentials, part: CredentialPart, change: Change)
 
 export function credentialChangeVersion(credentials: Credentials): object {
     return version(credentials);
+}
+
+/** Same bounded credential shape used by session recovery; unknown factors fail closed. */
+export function isSupportedCredentialShape(credentials: Credentials): boolean {
+    const allowed = new Set(['ready', 'passwordHash', 'keyFileHash', '_challengeResponse']);
+    return Object.getPrototypeOf(credentials) === Credentials.prototype &&
+        !Object.getOwnPropertyDescriptor(credentials, '_challengeResponse')?.value &&
+        Reflect.ownKeys(credentials).every((key) => typeof key === 'string' && allowed.has(key) &&
+            'value' in Object.getOwnPropertyDescriptor(credentials, key)!) &&
+        (!credentials.passwordHash || Object.getPrototypeOf(credentials.passwordHash) === ProtectedValue.prototype) &&
+        (!credentials.keyFileHash || Object.getPrototypeOf(credentials.keyFileHash) === ProtectedValue.prototype);
+}
+
+/** Synchronous publication after ready/preparation and caller validation; invalidate older writers. */
+export function publishCredentialHashes(credentials: Credentials, passwordHash?: ProtectedValue, keyFileHash?: ProtectedValue): void {
+    const previous = version(credentials);
+    let invalidate!: () => void;
+    const superseded = new Promise<void>((resolve) => { invalidate = resolve; });
+    const done = { promise: Promise.resolve() };
+    changes.set(credentials, { parts: { password: done, keyFile: done }, superseded, invalidate });
+    credentials.passwordHash = passwordHash;
+    credentials.keyFileHash = keyFileHash;
+    previous.invalidate();
 }
 
 /** Hash privately; only the latest operation for this part may publish to live credentials. */
@@ -66,12 +89,20 @@ export function resetCredentialHash(credentials: Credentials, part: CredentialPa
     void change.promise.catch(() => {});
 }
 
-export async function waitForCredentialChanges(credentials: Credentials): Promise<void> {
+/** Replacing permits recovery from a failed factor only when the caller explicitly replaces it. */
+export async function waitForCredentialChanges(credentials: Credentials, replacing: readonly CredentialPart[] = []): Promise<void> {
     for (;;) {
         const current = version(credentials);
         try {
             await Promise.race([
-                Promise.all([credentials.ready, current.parts.password?.promise, current.parts.keyFile?.promise]),
+                // A failed factor must not let a tracked apply finish while another factor
+                // can still publish. Superseded writers are invalidated by replace().
+                Promise.allSettled([credentials.ready, current.parts.password?.promise, current.parts.keyFile?.promise])
+                    .then((results) => {
+                        const failed = results.find((result, index) => result.status === 'rejected' &&
+                            !(index === 1 && replacing.includes('password')) && !(index === 2 && replacing.includes('keyFile')));
+                        if (failed?.status === 'rejected') throw failed.reason;
+                    }),
                 current.superseded
             ]);
         } catch (error) {

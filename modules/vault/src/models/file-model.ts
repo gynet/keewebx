@@ -11,9 +11,35 @@ import { Logger } from 'util/logger';
 import { Locale } from 'util/locale';
 import { StringFormat } from 'util/formatting/string-format';
 import { FileInfoCollection } from 'collections/file-info-collection';
-import { changeCredential, resetCredentialHash, withCredentialChanges } from 'util/kdbxweb/credential-changes';
+import { changeCredential, credentialChangeVersion, isSupportedCredentialShape, publishCredentialHashes, resetCredentialHash, waitForCredentialChanges, withCredentialChanges } from 'util/kdbxweb/credential-changes';
+
+export interface PreparedFileCredentials {
+    db: kdbxweb.Kdbx;
+    credentials: kdbxweb.Credentials;
+    version: object;
+    passwordHash?: kdbxweb.ProtectedValue;
+    keyFileHash?: kdbxweb.ProtectedValue;
+    passwordLength: number;
+    keyFileName: string;
+    passwordChanged: boolean;
+    keyFileChanged: boolean;
+    keyChanged?: Date;
+    removeKeyFile: boolean;
+}
 
 const logger = new Logger('file');
+
+interface SerializedCredentials {
+    db: kdbxweb.Kdbx;
+    version: object;
+    passwordHash?: kdbxweb.ProtectedValue;
+    keyFileHash?: kdbxweb.ProtectedValue;
+    passwordLength: number;
+    keyFileName: string;
+    keyChanged?: Date;
+}
+// Only a serialization requested by the active sync may become its successful reset baseline.
+const syncCredentials = new WeakMap<FileModel, { written?: SerializedCredentials }>();
 
 interface KdfParams {
     parallelism?: number;
@@ -458,8 +484,25 @@ class FileModel extends Model {
         } else {
             credentials = this.db.credentials;
         }
-        credentialsPromise.then(() => {
-            kdbxweb.Kdbx.load(fileData, credentials)
+        credentialsPromise.then(async () => {
+            await waitForCredentialChanges(credentials);
+            const loadRemote = async () => {
+                try {
+                    return await kdbxweb.Kdbx.load(fileData, credentials);
+                } catch (error) {
+                    // A pending local key change must still read the previously saved remote copy.
+                    // Never reinterpret an explicitly supplied remote key or an additional factor.
+                    if (remoteKey || this.chalResp ||
+                        !(this.passwordChanged || this.keyFileChanged) ||
+                        (error as { code?: string }).code !== 'InvalidKey') throw error;
+                    const previous = new kdbxweb.Credentials(null);
+                    await previous.ready;
+                    previous.passwordHash = this.oldPasswordHash;
+                    previous.keyFileHash = this.oldKeyFileHash;
+                    return kdbxweb.Kdbx.load(fileData, previous);
+                }
+            };
+            loadRemote()
                 .then((remoteDb) => {
                     if (this.modified) {
                         try {
@@ -495,7 +538,7 @@ class FileModel extends Model {
                     );
                     callback(err);
                 });
-        });
+        }).catch(callback);
     }
 
     getLocalEditState(): kdbxweb.KdbxEditState {
@@ -507,6 +550,7 @@ class FileModel extends Model {
     }
 
     close(): void {
+        syncCredentials.delete(this);
         this.set({
             keyFileName: '',
             passwordLength: 0,
@@ -610,6 +654,14 @@ class FileModel extends Model {
     }
 
     getData(cb: (data?: ArrayBuffer, err?: unknown) => void): void {
+        this.serializeData(cb, false);
+    }
+
+    getDataForSync(cb: (data?: ArrayBuffer, err?: unknown) => void): void {
+        this.serializeData(cb, true);
+    }
+
+    private serializeData(cb: (data?: ArrayBuffer, err?: unknown) => void, forSync: boolean): void {
         this.db.cleanup({
             historyRules: true,
             customIcons: true,
@@ -617,7 +669,28 @@ class FileModel extends Model {
         });
         this.db.cleanup({ binaries: true });
         const db = this.db;
-        withCredentialChanges(db.credentials, () => db.save())
+        const credentials = db.credentials;
+        const sync = forSync ? syncCredentials.get(this) : undefined;
+        withCredentialChanges(credentials, async () => {
+            const written: SerializedCredentials = {
+                db, version: credentialChangeVersion(credentials), passwordHash: credentials.passwordHash,
+                keyFileHash: credentials.keyFileHash, passwordLength: this.passwordLength,
+                keyFileName: this.keyFileName, keyChanged: db.meta.keyChanged
+            };
+            const data = await db.save();
+            if (this.db !== db || db.credentials !== credentials ||
+                credentialChangeVersion(credentials) !== written.version ||
+                credentials.passwordHash !== written.passwordHash || credentials.keyFileHash !== written.keyFileHash) {
+                throw new Error('Credentials changed during serialization. Retry saving.');
+            }
+            if (forSync) {
+                if (!sync || syncCredentials.get(this) !== sync || !this.syncing) {
+                    throw new Error('The save operation is no longer active.');
+                }
+                sync.written = written;
+            }
+            return data;
+        })
             .then((data) => {
                 cb(data);
             })
@@ -658,15 +731,25 @@ class FileModel extends Model {
     }
 
     setSyncProgress(): void {
+        syncCredentials.set(this, {});
         this.set({ syncing: true, syncStartEditSeq: this.editSeq });
     }
 
+    /** False rejects completion ownership; callers must not publish saved FileInfo for this result. */
     setSyncComplete(
         path: string | null,
         storage: string | null,
         error: string | null
-    ): void {
+    ): boolean {
         // Changes made while the sync ran are not in the saved data.
+        const written = syncCredentials.get(this)?.written;
+        syncCredentials.delete(this);
+        if (written && this.db !== written.db) {
+            // The upload belongs to the previous database, including its cleanup and reset key.
+            // Leave the replacement's baseline, dirty state and storage metadata untouched.
+            this.set({ syncing: false, syncError: 'The database changed before saving completed.' });
+            return false;
+        }
         const editedDuringSync = this.editSeq !== this.syncStartEditSeq;
         if (!error && !editedDuringSync) {
             this.db.removeLocalEditState();
@@ -702,10 +785,59 @@ class FileModel extends Model {
         }
 
         if (!(this as unknown as Record<string, unknown>).open) {
-            return;
+            return true;
         }
-        this.setOpenFile({ passwordLength: this.passwordLength });
-        this.forEachEntry({ includeDisabled: true }, (entry) => entry.setSaved());
+        if (!error && written) {
+            const sameVersion = this.db === written.db && credentialChangeVersion(this.db.credentials) === written.version;
+            this.oldPasswordHash = written.passwordHash;
+            this.oldKeyFileHash = written.keyFileHash;
+            this.oldKeyChangeDate = written.keyChanged;
+            this.set({
+                oldPasswordLength: written.passwordLength, oldKeyFileName: written.keyFileName,
+                passwordChanged: this.db.credentials.passwordHash !== written.passwordHash || (!sameVersion && this.passwordChanged),
+                keyFileChanged: this.db.credentials.keyFileHash !== written.keyFileHash || (!sameVersion && this.keyFileChanged)
+            });
+        } else if (!error && !editedDuringSync) {
+            // A read-only sync may load a remote database without serializing it again.
+            this.setOpenFile({ passwordLength: this.passwordLength });
+        }
+        if (!error && !editedDuringSync) {
+            this.forEachEntry({ includeDisabled: true }, (entry) => entry.setSaved());
+        }
+        return true;
+    }
+
+    /** Commit prepared factors and metadata before notifying observers. Classic setters remain independent. */
+    commitPreparedCredentials(prepared: PreparedFileCredentials, canApply: () => boolean): void {
+        if (!canApply() || !this.active || this.syncing || this.chalResp || !(prepared.passwordHash || prepared.keyFileHash) || this.db !== prepared.db ||
+            this.db.credentials !== prepared.credentials || !isSupportedCredentialShape(prepared.credentials) ||
+            credentialChangeVersion(prepared.credentials) !== prepared.version) {
+            throw new Error('Credentials changed before apply. Discard this draft and try again.');
+        }
+        // Retain shared current/reset references, but own detached copies of newly prepared hashes.
+        const own = (hash: kdbxweb.ProtectedValue | undefined, current: kdbxweb.ProtectedValue | undefined,
+            previous: kdbxweb.ProtectedValue | undefined) => !hash || hash === current || hash === previous ? hash
+                : new kdbxweb.ProtectedValue(kdbxweb.ByteUtils.arrayToBuffer(hash.value.slice()),
+                    kdbxweb.ByteUtils.arrayToBuffer(hash.salt.slice()));
+        const passwordHash = own(prepared.passwordHash, prepared.credentials.passwordHash, this.oldPasswordHash);
+        const keyFileHash = own(prepared.keyFileHash, prepared.credentials.keyFileHash, this.oldKeyFileHash);
+        const props = {
+            passwordLength: prepared.passwordLength, keyFileName: prepared.keyFileName,
+            passwordChanged: prepared.passwordChanged, keyFileChanged: prepared.keyFileChanged,
+            keyFilePath: prepared.removeKeyFile ? '' : this.keyFilePath,
+            modified: this.demo ? this.modified : true, dirty: this.demo ? this.dirty : true,
+            editSeq: this.demo ? this.editSeq : this.editSeq + 1
+        };
+        const previous = Object.fromEntries(Object.keys(props).map((key) => [key, (this as unknown as Record<string, unknown>)[key]]));
+        publishCredentialHashes(prepared.credentials, passwordHash, keyFileHash);
+        this.db.meta.keyChanged = prepared.keyChanged;
+        this.set(props, { silent: true });
+        // No callback or await occurs between the final check and the completed publication.
+        for (const [key, value] of Object.entries(props)) {
+            if (value !== previous[key]) this.emit('change:' + key, this, value, previous[key]);
+        }
+        this.emit('change', this, props);
+        if (prepared.removeKeyFile) Events.emit('unset-keyfile', this.id);
     }
 
     setPassword(password: kdbxweb.ProtectedValue): void {

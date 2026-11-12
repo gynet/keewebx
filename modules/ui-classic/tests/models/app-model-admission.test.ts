@@ -33,10 +33,10 @@ class PendingFile extends EventEmitter {
     createDone?: () => void;
     close = mock(() => { this.active = false; });
     setPassword = mock(() => {});
-    getData = mock((done: (data: ArrayBuffer) => void) => done(bytes));
+    getDataForSync = mock((done: (data: ArrayBuffer) => void) => done(bytes));
     getLocalEditState = () => null;
     setSyncProgress = mock(() => { this.syncing = true; });
-    setSyncComplete = mock(() => { this.syncing = false; this.dirty = false; this.modified = false; });
+    setSyncComplete = mock(() => { this.syncing = false; this.dirty = false; this.modified = false; return true; });
     constructor(props: Record<string, unknown>) {
         super(); Object.assign(this, props); PendingFile.created.push(this);
     }
@@ -257,7 +257,7 @@ function syncHarness(existingInfo = true) {
     return { ...h, file, real: file as unknown as RealFile };
 }
 function expectNoSync(h: ReturnType<typeof syncHarness>, infoCount: number) {
-    expect(h.file.setSyncProgress).not.toHaveBeenCalled(); expect(h.file.getData).not.toHaveBeenCalled();
+    expect(h.file.setSyncProgress).not.toHaveBeenCalled(); expect(h.file.getDataForSync).not.toHaveBeenCalled();
     expect(cacheSave).not.toHaveBeenCalled(); expect(remoteSave).not.toHaveBeenCalled();
     expect(Info.created).toHaveLength(infoCount); expect(h.infos.save).not.toHaveBeenCalled();
     expect(h.file.dirty).toBe(true);
@@ -272,6 +272,25 @@ async function recover(app: Model) {
 }
 
 describe('AppModel background sync admission', () => {
+    test('a rejected stale completion reports failure without publishing replacement file metadata', async () => {
+        const h = syncHarness(); const done = mock();
+        let completed!: Callback;
+        cacheSave.mockImplementationOnce((_id, _opts, _data, callback) => { completed = callback!; });
+        h.app.syncFile(h.real, undefined, done); await settle();
+        expect(cacheSave).toHaveBeenCalledTimes(1);
+        expect(done).not.toHaveBeenCalled();
+        h.file.db = { credentials: new Credentials(ProtectedValue.fromString('replacement-password')) };
+        // FileModel's encrypted replacement test covers the identity decision itself. Here
+        // retain the admission fixture and exercise AppModel's handling of its false result.
+        h.file.setSyncComplete.mockImplementationOnce(() => { h.file.syncing = false; return false; });
+        completed(); await settle();
+        expect(h.file.setSyncComplete).toHaveBeenCalledTimes(1);
+        expect(done.mock.calls).toEqual([['The database changed before saving completed.']]);
+        expect(h.app.getStoreOpts).not.toHaveBeenCalled();
+        expect(h.infos[0].set).not.toHaveBeenCalled();
+        expect(h.infos.save).not.toHaveBeenCalled();
+        expect(h.file.modified && h.file.dirty).toBe(true);
+    });
     test('default Classic open admits a normal sync with no explicit epoch', async () => {
         const h = syncHarness(); const done = mock();
         h.app.syncFile(h.real, undefined, done); await settle();

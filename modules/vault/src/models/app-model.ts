@@ -1299,7 +1299,10 @@ class AppModel {
                         ? err
                         : (err as { toString?: () => string }).toString?.() ?? String(err)
                     : null;
-                file.setSyncComplete(path ?? null, storageName, errStr);
+                if (file.setSyncComplete(path ?? null, storageName, errStr) === false) {
+                    callback?.('The database changed before saving completed.');
+                    return;
+                }
                 this.getStoreOpts(file).then((storeOpts) => {
                     resolvedFileInfo.set({
                         name: file.name,
@@ -1363,7 +1366,7 @@ class AppModel {
                     return complete();
                 }
                 logger.info('Local, save to cache');
-                file.getData((data, err) => {
+                file.getDataForSync((data, err) => {
                     if (err || !data) {
                         return complete(err || 'No file data');
                     }
@@ -1496,7 +1499,7 @@ class AppModel {
             };
             const saveToCacheAndStorage = (): void => {
                 logger.info('Getting file data for saving');
-                file.getData((data, err) => {
+                file.getDataForSync((data, err) => {
                     if (err || !data) {
                         return complete(err || 'No file data');
                     }
@@ -1560,7 +1563,7 @@ class AppModel {
                             'Stat error, dirty, save to cache',
                             err || 'no error'
                         );
-                        file.getData((data, e) => {
+                        file.getDataForSync((data, e) => {
                             if (e || !data) {
                                 logger.error('Error getting file data', e);
                                 return complete(err);
