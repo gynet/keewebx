@@ -37,11 +37,14 @@ jobs:
           fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2.2.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
 
       - name: Install (frozen lockfile)
         run: bun install --frozen-lockfile
 
-      - name: Build all packages (db first, then core — core's kdbxweb alias points at packages/db/dist)
+      - name: Build database and both interfaces
         run: bun run build
         env:
           # Pin the build's embedded commit SHA to the CI commit so the
@@ -55,6 +58,11 @@ jobs:
           test -f index.html
           test -f js/app.js
           test -f css/app.css
+          test -f next.html
+          test -f js/next.js
+          test -f css/next.css
+          test -s LICENSE
+          test -s THIRD-PARTY-LICENSES.md
           test -f manifest.json
           test -f browserconfig.xml
           test -f icons/favicon-32x32.png
@@ -145,11 +153,25 @@ jobs:
           ls -la
           echo "base=${BASE}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify and smoke the actual extracted archive
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.pack.outputs.base }}"
+          (cd artifacts && sha256sum -c "${BASE}.zip.sha256" && sha256sum -c "${BASE}.tar.gz.sha256")
+          unzip -tq "artifacts/${BASE}.zip"
+          mkdir -p unpacked/zip unpacked/tar
+          unzip -q "artifacts/${BASE}.zip" -d unpacked/zip
+          tar -xzf "artifacts/${BASE}.tar.gz" -C unpacked/tar
+          diff -qr "unpacked/zip/${BASE}" "unpacked/tar/${BASE}"
+          bunx playwright install --with-deps chromium
+          node scripts/smoke-artifact.mjs "unpacked/zip/${BASE}" > artifacts/smoke.json
+
       - name: Upload as workflow artifact (always)
         uses: actions/upload-artifact@v7
         with:
           name: keewebx-web-${{ steps.version.outputs.version }}
           path: artifacts/*
+          if-no-files-found: error
           retention-days: 30
 
       - name: Compose release notes body (tag push only)

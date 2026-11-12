@@ -305,7 +305,9 @@ module.exports = (env, argv) => {
             new CopyWebpackPlugin({
                 patterns: [
                     { from: path.join(rootDir, 'app/icons'), to: 'icons' },
-                    { from: path.join(rootDir, 'app/manifest'), to: '.' }
+                    { from: path.join(rootDir, 'app/manifest'), to: '.' },
+                    { from: path.join(rootDir, '../../LICENSE'), to: 'LICENSE', toType: 'file' },
+                    { from: path.join(rootDir, '../../THIRD-PARTY-LICENSES.md'), to: 'THIRD-PARTY-LICENSES.md' }
                 ]
             })
         ],

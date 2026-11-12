@@ -72,6 +72,8 @@ export default {
                 { from: 'pages', to: 'pages' },
                 { from: `img/${browser}`, to: 'img' },
                 { from: 'styles', to: 'styles' },
+                { from: 'LICENSE', to: 'LICENSE', toType: 'file' },
+                { from: '../../THIRD-PARTY-LICENSES.md', to: 'THIRD-PARTY-LICENSES.md' },
                 {
                     from: 'manifest.json',
                     transform: (content) => {

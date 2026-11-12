@@ -64,6 +64,8 @@ jobs:
               exit 1
             fi
             echo "  ${browser}: ${VER} OK"
+            test -s "packages/extension/dist/${browser}/LICENSE"
+            test -s "packages/extension/dist/${browser}/THIRD-PARTY-LICENSES.md"
           done
           echo "version=${MANIFEST_VER}" >> "$GITHUB_OUTPUT"
 
@@ -97,6 +99,7 @@ jobs:
 
           # Checksums — ubuntu-latest has sha256sum, not shasum.
           (cd artifacts && sha256sum *.zip *.xpi > SHA256SUMS.txt)
+          for file in artifacts/*.zip artifacts/*.xpi; do unzip -tq "$file"; done
 
           echo "Artifacts:"
           ls -la artifacts/
@@ -109,6 +112,7 @@ jobs:
         with:
           name: keewebx-connect-${{ steps.pack.outputs.short_sha }}
           path: artifacts/*
+          if-no-files-found: error
           retention-days: 30
 
       - name: Attach to GitHub Release (tag push only)
@@ -122,3 +126,39 @@ jobs:
             artifacts/SHA256SUMS.txt
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+  dual-mode-preview:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2.2.0
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run --filter @keewebx/extension build-chrome-vault
+      - run: bunx playwright install --with-deps chromium
+      - name: Headless full-mode and connected-tab regression
+        run: bunx playwright test -c e2e/extension/vault.playwright.config.ts
+      - name: Package the dual-mode trial build
+        run: |
+          set -euo pipefail
+          OUT=packages/extension/dist/chrome-vault
+          test -s "$OUT/LICENSE"
+          test -s "$OUT/THIRD-PARTY-LICENSES.md"
+          test -s "$OUT/app/index.html"
+          test -s "$OUT/js/popup.js"
+          test -s "$OUT/js/settings.js"
+          mkdir -p preview-artifacts
+          (cd "$OUT" && zip -rq "$GITHUB_WORKSPACE/preview-artifacts/keewebx-extension-preview-${GITHUB_SHA:0:8}.zip" .)
+          (cd preview-artifacts && sha256sum *.zip > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+          unzip -tq preview-artifacts/*.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: keewebx-extension-preview-${{ github.sha }}
+          path: preview-artifacts/*
+          if-no-files-found: error
+          retention-days: 30
