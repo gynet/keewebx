@@ -115,8 +115,8 @@ jobs:
             go through the local file every time (which is fine for self-host).
           - Passkey quick unlock works on Firefox but is blocked by Chrome/Edge/Safari
             (WebAuthn requires HTTPS or localhost). Use Option B if you need passkey.
-          - Browser extension autofill currently has limited `file://` support;
-            see https://github.com/gynet/keewebx/issues/55 for status.
+          - For Chromium extension autofill, enable "Allow access to file URLs"
+            on the extension's details page.
 
           ## Option B: Any static HTTP server
 
@@ -128,10 +128,15 @@ jobs:
               # or: bunx serve .
               # or: npx serve .
 
-          Then open the printed URL. Under HTTP(S) the PWA service worker
-          registers and extension autofill works fully.
+          Then open the printed URL. HTTPS and localhost allow service-worker
+          offline caching and passkey APIs. Other plain HTTP origins do not
+          provide those browser capabilities and display a connection warning.
 
           Source and documentation: https://github.com/gynet/keewebx
+
+          Automated archive checks cover Chromium on localhost HTTP and
+          `file://`, with Classic and New entry pages. Other browsers, nested
+          hosting paths and server-specific configuration need separate checks.
           DEPLOYEOF
           ls -la "${STAGE}"
 
@@ -210,8 +215,7 @@ jobs:
           # Commit subjects: skip merges, drop empty lines, dedupe
           # while preserving order.
           CHANGES=$(git log "${RANGE}" --no-merges --pretty=format:'%s' \
-            | grep -v '^[[:space:]]*$' \
-            | awk '!seen[$0]++' \
+            | awk 'NF && !seen[$0]++' \
             | sed 's/^/- /')
 
           if [ -z "${CHANGES}" ]; then

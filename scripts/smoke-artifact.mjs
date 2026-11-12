@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { chromium, expect } from '@playwright/test';
 
 assert(process.argv[2], 'Usage: node scripts/smoke-artifact.mjs <extracted-web-directory>');
@@ -33,17 +34,30 @@ try {
     for (const [entry, demo, rows] of [
         ['index.html', '#open__icon-demo', '.list__item'],
         ['next.html', '#open-demo', '.entry-row']
-    ]) {
+    ]) for (const mode of ['http', 'file']) {
         const context = await browser.newContext();
         try {
             const page = await context.newPage();
             const errors = [];
             page.on('pageerror', (error) => errors.push(error.message));
-            await page.goto(`http://localhost:${server.address().port}/${entry}`);
+            page.on('requestfailed', (request) => errors.push(`Request failed: ${request.url()}`));
+            page.on('response', (response) => {
+                if (response.status() >= 400) errors.push(`HTTP ${response.status()}: ${response.url()}`);
+            });
+            await page.addInitScript(() => {
+                window.artifactCspErrors = [];
+                document.addEventListener('securitypolicyviolation', (event) => {
+                    window.artifactCspErrors.push(`${event.violatedDirective}: ${event.blockedURI}`);
+                });
+            });
+            await page.goto(mode === 'file' ? pathToFileURL(path.join(root, entry)).href
+                : `http://localhost:${server.address().port}/${entry}`);
             await page.locator(demo).click();
             await expect(page.locator(rows).first()).toBeVisible({ timeout: 30000 });
             expect(errors, `JavaScript errors in packaged ${entry}`).toEqual([]);
-            checked.push(entry);
+            expect(await page.evaluate(() => window.artifactCspErrors)).toEqual([]);
+            await expect(page.locator('body')).toHaveCSS('margin-top', '0px');
+            checked.push({ entry, mode });
         } finally {
             await context.close();
         }
