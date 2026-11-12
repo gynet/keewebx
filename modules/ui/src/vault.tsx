@@ -11,6 +11,7 @@ import { VaultApi } from 'comp/app/vault-api';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { DateFormat } from 'comp/i18n/date-format';
 import { Icon, Mark, Tile } from 'ui-kit/mark';
+import { tagColor } from 'ui-kit/tag-color';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { MobileMenu } from './mobile-menu';
@@ -154,6 +155,8 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     {tags.map((tag) => (
                         <button
                             class={filter.tag === tag ? 'tag tag--on' : 'tag'}
+                            style={tagColor(tag)}
+                            aria-pressed={filter.tag === tag}
                             onClick={() => changeFilter(filter.tag === tag ? {} : { tag })}
                         >
                             {tag}
@@ -390,7 +393,7 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
                     <h2 class="section-title">{t('Tags')}</h2>
                     <div class="tags" style={{ padding: 0 }}>
                         {entry.tags.map((tag) => (
-                            <span class="tag">{tag}</span>
+                            <span class="tag" style={tagColor(tag)}>{tag}</span>
                         ))}
                     </div>
                 </div>
