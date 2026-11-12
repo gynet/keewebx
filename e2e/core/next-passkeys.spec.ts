@@ -134,9 +134,22 @@ test('simulated cancellation preserves registration and password fallback', asyn
     await authenticator(context, page); const source = await fixture();
     await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page);
     const before = await record(page);
+    // Leave a real unlock failure on this same recent-vault card before the passkey attempt.
+    await page.evaluate(() => {
+        const digest = crypto.subtle.digest.bind(crypto.subtle);
+        crypto.subtle.digest = async () => {
+            crypto.subtle.digest = digest;
+            throw new Error('Injected unlock diagnostic');
+        };
+    });
+    await page.locator('#password').fill(password);
+    await page.locator('#unlock').click();
+    await expect(page.locator('#unlock-error-details pre')).toHaveText('Error: Injected unlock diagnostic');
+    await expect(page.locator('#unlock-error-details pre')).toBeHidden();
     await page.evaluate(() => { navigator.credentials.get = async () => { throw new DOMException('Simulated user cancellation', 'NotAllowedError'); }; });
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('canceled');
+    await expect(page.locator('#unlock-error-details')).toHaveCount(0);
     expect(await record(page)).toEqual(before);
     await screenshot(page, 'canceled-passkey-password-fallback');
     await passwordOpen(page, source);

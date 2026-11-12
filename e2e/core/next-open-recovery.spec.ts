@@ -89,15 +89,27 @@ test('a truncated KDBX reports an open error and permits a valid replacement and
     await page.locator('#open-file-input').setInputFiles(payload(buffer.subarray(0, 16), 'truncated.kdbx'));
     await page.locator('#password').fill(password);
     await page.locator('#unlock').click();
-    await expect(page.locator('#unlock-error')).toContainText('There was an error opening file');
+    await expect(page.locator('#unlock-error')).toHaveText('There was an error opening file. Try again or choose another file.');
+    const details = page.locator('#unlock-error-details');
+    await expect(details).not.toHaveAttribute('open', '');
+    await expect(details.locator('pre')).toBeHidden();
+    await expect(details.locator('pre')).toContainText('RangeError');
+    await details.locator('summary').click();
+    await expect(details.locator('pre')).toBeVisible();
+    // Repeating the same failure returns to the friendly, collapsed presentation.
+    await page.locator('#unlock').click();
+    await expect(details.locator('pre')).toContainText('RangeError');
+    await expect(details.locator('pre')).toBeHidden();
     await expect(page.locator('#password')).toHaveValue(password);
     await expect(page.locator('#unlock')).toBeEnabled();
     await expect(page.locator('.entry-row')).toHaveCount(0);
     await page.locator('#open-file-input').setInputFiles(payload(buffer, 'truncated.kdbx'));
     await expect(page.locator('#unlock-error')).toHaveCount(0);
+    await expect(details).toHaveCount(0);
     await page.locator('#password').fill('wrong password');
     await page.locator('#unlock').click();
     await expect(page.locator('#unlock-error')).toHaveText('Wrong password');
+    await expect(details).toHaveCount(0);
     await openSelected(page);
 });
 

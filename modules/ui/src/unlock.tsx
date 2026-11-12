@@ -198,6 +198,13 @@ function UnlockCard({ model, pane, onUnlock }: {
     const [show, setShow] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const [diagnostic, setDiagnostic] = useState('');
+    const errorDetails = useRef<HTMLDetailsElement>(null);
+    const setMessage = (message: string) => {
+        errorDetails.current?.removeAttribute('open');
+        setDiagnostic('');
+        setError(message);
+    };
     const [keyFile, setKeyFile] = useState<{ name: string; data: string } | null>(null);
     const [readingKey, setReadingKey] = useState(false);
     const keyInput = useRef<HTMLInputElement>(null);
@@ -214,7 +221,7 @@ function UnlockCard({ model, pane, onUnlock }: {
         e.preventDefault();
         onUnlock();
         setBusy(true);
-        setError('');
+        setMessage('');
         try {
             const key = keyFile ? { keyFileData: keyFile.data, keyFileName: keyFile.name } : {};
             if (pane.kind === 'recent') {
@@ -226,7 +233,11 @@ function UnlockCard({ model, pane, onUnlock }: {
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            setError(msg === 'invalid-password' ? t('Wrong password') : `${t(Locale.openErrorDescription)}. ${msg}`);
+            if (msg === 'invalid-password') setMessage(t('Wrong password'));
+            else {
+                setMessage(`${t(Locale.openErrorDescription)}. ${t('Try again or choose another file.')}`);
+                setDiagnostic(msg);
+            }
             setBusy(false);
         }
     };
@@ -267,8 +278,8 @@ function UnlockCard({ model, pane, onUnlock }: {
                         const file = event.currentTarget.files?.[0];
                         if (!file) return;
                         setReadingKey(true);
-                        try { setKeyFile({ name: file.name, data: toBase64(await file.arrayBuffer()) }); setError(''); }
-                        catch { setError(t('Unable to read the key file.')); }
+                        try { setKeyFile({ name: file.name, data: toBase64(await file.arrayBuffer()) }); setMessage(''); }
+                        catch { setMessage(t('Unable to read the key file.')); }
                         finally { setReadingKey(false); }
                     }} />
                 <button type="button" class="link" disabled={busy || readingKey} onClick={() => keyInput.current?.click()}>
@@ -283,8 +294,12 @@ function UnlockCard({ model, pane, onUnlock }: {
                     {error}
                 </p>
             )}
+            {diagnostic && <details ref={errorDetails} id="unlock-error-details" style={{ alignSelf: 'stretch' }}>
+                <summary>{t('Error details')}</summary>
+                <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{diagnostic}</pre>
+            </details>}
             <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
-                keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setError} onAttempt={onUnlock} />
+                keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setMessage} onAttempt={onUnlock} />
             <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock')}
             </button>
