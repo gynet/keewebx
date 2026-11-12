@@ -1,5 +1,9 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { box as naclBox } from 'tweetnacl';
+import type { AppModel } from 'models/app-model';
+import type { EntryModel } from 'models/entry-model';
+import { Timeouts } from 'const/timeouts';
+import type { ProtocolUi } from '../../../../vault/src/comp/extension/protocol-ui';
 
 /**
  * Protocol-impl integration tests.
@@ -12,7 +16,7 @@ import { box as naclBox } from 'tweetnacl';
  *   - 24-byte nonces + libsodium little-endian incrementNonce()
  *   - decryptRequest / encryptResponse byte boundaries
  *
- * We mock the heavy UI/view/model dependencies so the module loads in a
+ * We inject a UI decision port and mock non-UI dependencies so the module loads in a
  * Bun test process without webpack or DOM, then drive the real
  * ProtocolHandlers from test code end-to-end. The crypto is real:
  * tweetnacl and kdbxweb.ByteUtils are the exact libraries used at runtime.
@@ -33,53 +37,23 @@ import { box as naclBox } from 'tweetnacl';
 // file runs, the real `kdbxweb` namespace is back in place and we can
 // rely on it directly via the bare specifier import below.
 
-// --- Mock heavy UI/view/model dependencies so protocol-impl loads cleanly ---
-mock.module('views/extension/extension-connect-view', () => ({
-    ExtensionConnectView: class {
-        config = { allFiles: true };
-        render() {}
-    }
-}));
-mock.module('views/extension/extension-save-entry-view', () => ({
-    ExtensionSaveEntryView: class {
-        config = {};
-        render() {}
-    }
-}));
-mock.module('views/extension/extension-create-group-view', () => ({
-    ExtensionCreateGroupView: class {
-        render() {}
-    }
-}));
-mock.module('views/select/select-entry-view', () => ({
-    SelectEntryView: class {
-        render() {}
-    }
-}));
-mock.module('views/select/select-entry-field-view', () => ({
-    SelectEntryFieldView: class {
-        render() {}
-    }
-}));
-mock.module('comp/ui/alerts', () => ({
-    Alerts: {
-        alertDisplayed: false,
-        alert: () => null,
-        buttons: {
-            allow: { result: 'yes', title: 'Allow' },
-            deny: { result: '', title: 'Deny' }
-        }
-    }
-}));
+// The shared engine has no view imports. Explicit test UI denies every prompt
+// unless a test supplies a decision; cryptographic commands still run normally.
+function testUi(overrides: Partial<ProtocolUi> = {}): ProtocolUi {
+    return {
+        isBusy: () => false,
+        connect: async () => null,
+        selectEntry: async () => null,
+        selectField: async () => null,
+        saveEntry: async () => null,
+        createGroup: async () => null,
+        showTouch: (_input, cancel) => { cancel(); return { dispose() {} }; },
+        ...overrides
+    };
+}
+
 mock.module('comp/app/generator-presets', () => ({
     GeneratorPresets: { browserExtensionPreset: {} }
-}));
-mock.module('comp/app/select-entry-filter', () => ({
-    SelectEntryFilter: class {
-        getEntries() {
-            return [];
-        }
-    }
 }));
 mock.module('util/generators/password-generator', () => ({
     PasswordGenerator: { generate: () => 'generated-password' }
@@ -89,7 +63,8 @@ mock.module('util/locale', () => ({
         extensionErrorNoOpenFiles: 'No files are open',
         extensionErrorUserRejected: 'Rejected by user',
         extensionErrorNoMatches: 'No matches found',
-        extensionErrorAlertDisplayed: 'Alert already displayed'
+        extensionErrorAlertDisplayed: 'Alert already displayed',
+        extensionSelectPasswordFor: 'Select password for {}'
     }
 }));
 mock.module('models/runtime-data-model', () => ({
@@ -100,10 +75,15 @@ mock.module('models/app-settings-model', () => ({
 }));
 
 // --- Import the real module under test AFTER mocks are installed ---
-const protocolModule = await import(
-    '../../../app/scripts/comp/extension/protocol-impl'
-);
+// Shared ranking detects browser collation at module load; no DOM is needed.
+const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+if (!previousWindow) Object.defineProperty(globalThis, 'window', { value: {}, configurable: true });
+const protocolModule = await import('../../../app/scripts/comp/extension/protocol-impl');
+if (!previousWindow) Reflect.deleteProperty(globalThis, 'window');
 const { ProtocolImpl } = protocolModule;
+const { Model } = await import('framework/model');
+class FixtureEntry extends Model {}
+FixtureEntry.defineModelProperties({}, { extensions: true });
 
 // Real kdbxweb. The mock-isolation helper used by storage-webdav.test.ts
 // guarantees that any partial mock installed earlier in the run has
@@ -159,7 +139,8 @@ function initProtocol(options: { hasOpenFiles?: boolean } = {}) {
         }
     };
     ProtocolImpl.init({
-        appModel: fakeAppModel,
+        appModel: fakeAppModel as unknown as AppModel,
+        ui: testUi(),
         logger: logger as unknown as Parameters<typeof ProtocolImpl.init>[0]['logger'],
         sendEvent: (data: ProtocolResponse) => {
             sentEvents.push(data);
@@ -723,7 +704,7 @@ describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
         initOtpGenerator() {}
     };
 
-    function initWithEntries() {
+    function initWithEntries(ui: ProtocolUi = testUi()) {
         const file = { id: 'f1', active: true, getEntry: (id: string) => (id === 'e1' ? entry : undefined) };
         ProtocolImpl.init({
             appModel: {
@@ -736,7 +717,8 @@ describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
                     length: 1
                 },
                 getEntriesByFilter: () => [entry]
-            },
+            } as unknown as AppModel,
+            ui,
             logger: { debug() {}, info() {}, warn() {}, error() {} } as unknown as Parameters<
                 typeof ProtocolImpl.init
             >[0]['logger'],
@@ -825,6 +807,77 @@ describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
         expect(String(forged.error?.errorCode)).toBe('kwx-expired-handle');
     });
 
+    test('pairing alone does not grant listing; the injected consent may deny it', async () => {
+        const connect = mock(async () => null);
+        initWithEntries(testUi({ connect }));
+        const client = await handshake('kwx-denied');
+        const identity = naclSign.keyPair();
+        const identityKey = kdbxweb.ByteUtils.bytesToBase64(identity.publicKey);
+        await call(client, 'kwx-pair', {
+            identityKey, signature: pairingSignature(client, identity.secretKey)
+        });
+        expect(connect).not.toHaveBeenCalled();
+        const result = await call(client, 'kwx-get-entries', {});
+        expect(result.error?.errorCode).toBe('6');
+        expect(connect).toHaveBeenCalledTimes(1);
+        expect(ProtocolImpl.sessions[0].permissionsDenied).toBe(true);
+        expect(RuntimeDataModel.extensionPairings).toBeUndefined();
+    });
+
+    test('paired consent keeps file scope and stores the approved list permission', async () => {
+        const decision = { allFiles: false, files: ['f1'], askGet: 'always', canList: true };
+        const connect = mock(async (input: Parameters<ProtocolUi['connect']>[0]) => {
+            expect(input).toMatchObject({ offerList: true, canList: true, allFiles: true, askGet: 'multiple' });
+            return decision;
+        });
+        initWithEntries(testUi({ connect }));
+        const client = await handshake('kwx-approved');
+        const identity = naclSign.keyPair();
+        const identityKey = kdbxweb.ByteUtils.bytesToBase64(identity.publicKey);
+        await call(client, 'kwx-pair', {
+            identityKey, signature: pairingSignature(client, identity.secretKey)
+        });
+        expect((await call(client, 'kwx-get-entries', {})).ok?.locked).toBe(false);
+        expect(RuntimeDataModel.extensionPairings).toMatchObject({ [identityKey]: { permissions: decision } });
+        expect(RuntimeDataModel.extensionConnectConfig).toBeUndefined();
+        await call(client, 'kwx-get-entries', {});
+        expect(connect).toHaveBeenCalledTimes(1);
+    });
+
+    test('allowing paired fill without list consent still rejects the listing request', async () => {
+        initWithEntries(testUi({ connect: async () => ({
+            allFiles: true, files: ['f1'], askGet: 'multiple', canList: false
+        }) }));
+        const client = await handshake('kwx-no-list');
+        const identity = naclSign.keyPair();
+        await call(client, 'kwx-pair', {
+            identityKey: kdbxweb.ByteUtils.bytesToBase64(identity.publicKey),
+            signature: pairingSignature(client, identity.secretKey)
+        });
+        expect((await call(client, 'kwx-get-entries', {})).error?.errorCode).toBe('6');
+        expect(ProtocolImpl.sessions[0].permissions?.canList).toBe(false);
+    });
+
+    test('live permission reduction and disconnect retain their legacy enforcement', async () => {
+        initWithEntries();
+        const identity = naclSign.keyPair();
+        const identityKey = kdbxweb.ByteUtils.bytesToBase64(identity.publicKey);
+        RuntimeDataModel.extensionPairings = {
+            [identityKey]: { created: '2026-11-11', permissions: { allFiles: true, canList: true } }
+        };
+        const client = await handshake('kwx-revoke');
+        await call(client, 'kwx-pair', { identityKey, signature: pairingSignature(client, identity.secretKey) });
+        const handle = ((await call(client, 'kwx-get-entries', {})).ok?.items as Array<{ handle: string }>)[0].handle;
+        ProtocolImpl.setClientPermissions(client.clientId, { canList: false });
+        expect(ProtocolImpl.getClientPermissions(client.clientId)?.canList).toBe(false);
+        expect((await call(client, 'kwx-get-entry-fields', { handle, fields: ['password'] })).error?.errorCode).toBe('6');
+        ProtocolImpl.deleteConnection(1);
+        expect(ProtocolImpl.sessions).toHaveLength(0);
+        expect((await call(client, 'kwx-get-entry-fields', { handle, fields: ['password'] })).error).toBeDefined();
+        // Disconnect is deliberately not a durable forget-pairing operation.
+        expect(RuntimeDataModel.extensionPairings).toHaveProperty(identityKey);
+    });
+
     test('handles are bound to the client that received them', async () => {
         initWithEntries();
         const identity = naclSign.keyPair();
@@ -841,5 +894,198 @@ describe('ProtocolImpl — KeeWebX pairing and entry lists', () => {
         await call(second, 'kwx-get-entries', {});
         const res = await call(second, 'kwx-get-entry-fields', { handle, fields: ['password'] });
         expect(String(res.error?.errorCode)).toBe('kwx-expired-handle');
+    });
+});
+
+// Exercise the new UI seam through real encrypted legacy requests, without views.
+describe('ProtocolImpl — explicit UI decisions', () => {
+    const conn = { connectionId: 1, extensionName: 'KeePassXC-Browser' };
+    const logger = { debug() {}, info() {}, warn() {}, error() {} } as unknown as Parameters<typeof ProtocolImpl.init>[0]['logger'];
+    const approved = { allFiles: true, files: ['f1'], askGet: 'always' };
+
+    function fixture(overrides: Partial<ProtocolUi> = {}) {
+        const root = {
+            id: 'root', title: 'Vault', iconId: 0, parentGroup: null,
+            group: { uuid: { bytes: new Uint8Array(16).fill(1) } },
+            items: [] as unknown[], matches: () => true
+        };
+        const file = {
+            id: 'f1', name: 'Vault', active: true, groups: [root],
+            getGroup: (id: string) => id === root.id ? root : undefined,
+            forEachGroup: (fn: (group: typeof root) => void) => fn(root),
+            getEntry: (id: string) => id === 'e1' ? entry : undefined,
+            subId: (id: string) => id
+        };
+        const entry = Object.assign(new FixtureEntry(), {
+            id: 'e1', title: 'Login', user: 'user', url: 'https://example.com/login',
+            searchText: 'login example.com', group: root, file,
+            entry: { uuid: { bytes: new Uint8Array(16).fill(2) } },
+            password: kdbxweb.ProtectedValue.fromString('secret'),
+            getAllUrls: () => ['https://example.com/login'],
+            getAllFields: () => ({ Password: entry.password }),
+            initOtpGenerator() {},
+            otpGenerator: { next: (cb: (err: null, otp: string) => void) => cb(null, '123456') },
+            needsTouch: false,
+            device: { shortName: 'Key' }
+        });
+        const createNewGroupWithName = mock((_parent: unknown, _file: unknown, title: string) => ({
+            ...root, id: 'new', title, items: [], setIcon: mock(() => {})
+        }));
+        const createNewEntryWithFields = mock(() => entry);
+        const model = {
+            files: {
+                hasOpenFiles: () => true,
+                map: (fn: (f: typeof file) => unknown) => [file].map(fn),
+                filter: (fn: (f: typeof file) => boolean) => [file].filter(fn),
+                get: (id: string) => id === file.id ? file : undefined
+            },
+            getEntriesByFilter: () => [entry],
+            createNewGroupWithName, createNewEntryWithFields
+        } as unknown as AppModel;
+        const ui = testUi({ connect: async () => approved, ...overrides });
+        ProtocolImpl.init({ appModel: model, logger, sendEvent() {}, ui });
+        return { model, ui, entry, root, createNewEntryWithFields, createNewGroupWithName };
+    }
+
+    async function call(client: ClientState, action: string, payload: Record<string, unknown> = {}) {
+        const request = buildEncryptedRequest(client, action, payload);
+        const response = await ProtocolImpl.handleRequest(request, conn);
+        return response.error ? { error: response } : { ok: decryptResponse(client, request, response) };
+    }
+
+    beforeEach(() => {
+        ProtocolImpl.cleanup();
+        delete RuntimeDataModel.extensionConnectConfig;
+        delete RuntimeDataModel.extensionPairings;
+        delete RuntimeDataModel.extensionSaveConfig;
+    });
+
+    test('Classic facade and shared import expose one engine, and init requires UI', async () => {
+        const shared = await import('../../../../vault/src/comp/extension/protocol-impl');
+        expect(shared.ProtocolImpl).toBe(ProtocolImpl);
+        const { model } = fixture();
+        expect(() => ProtocolImpl.init({ appModel: model, logger, sendEvent() {} } as Parameters<typeof ProtocolImpl.init>[0]))
+            .toThrow('Protocol UI is required');
+    });
+
+    test('legacy consent and entry selection receive the shared filter without wire changes', async () => {
+        let chosen: EntryModel;
+        const connect = mock(async (input: Parameters<ProtocolUi['connect']>[0]) => {
+            expect(input).toMatchObject({ offerList: false, askGet: 'multiple', allFiles: true });
+            return approved;
+        });
+        const selectEntry = mock(async (input: Parameters<ProtocolUi['selectEntry']>[0]) => {
+            expect(input.filter.getEntries()[0]).toBe(chosen);
+            expect(input.topMessage).toBe('Select password for KeePassXC-Browser');
+            return chosen;
+        });
+        const f = fixture({ connect, selectEntry });
+        chosen = f.entry as unknown as EntryModel;
+        const client = await handshake();
+        const result = await call(client, 'get-logins', { url: f.entry.url });
+        expect(result.ok).toMatchObject({ success: 'true', hash: KEEWEB_HASH, count: 1,
+            entries: [{ group: 'Vault', login: 'user', password: 'secret', skipAutoSubmit: 'false' }] });
+        expect(connect).toHaveBeenCalledTimes(1);
+        expect(selectEntry).toHaveBeenCalledTimes(1);
+        expect(RuntimeDataModel.extensionConnectConfig).toEqual(approved);
+    });
+
+    test('one exact match with askGet=multiple keeps the no-picker path', async () => {
+        const selectEntry = mock(async () => null);
+        const f = fixture({ selectEntry, connect: async () => ({ ...approved, askGet: 'multiple' }) });
+        const client = await handshake();
+        expect((await call(client, 'get-logins', { url: f.entry.url })).ok?.count).toBe(1);
+        expect(selectEntry).not.toHaveBeenCalled();
+    });
+
+    test('entry cancellation and field cancellation keep user-rejected code 6', async () => {
+        const f = fixture();
+        const client = await handshake();
+        expect((await call(client, 'get-logins', { url: f.entry.url })).error?.errorCode).toBe('6');
+        f.ui.selectEntry = async () => f.entry as unknown as EntryModel;
+        expect((await call(client, 'get-any-field', { url: f.entry.url })).error?.errorCode).toBe('6');
+    });
+
+    test('field selection unwraps only the chosen field in the engine', async () => {
+        const f = fixture();
+        f.ui.selectEntry = async () => f.entry as unknown as EntryModel;
+        f.ui.selectField = async ({ entry }) => {
+            expect(entry.getAllFields().Password).toBeInstanceOf(kdbxweb.ProtectedValue);
+            return 'Password';
+        };
+        const client = await handshake();
+        expect((await call(client, 'get-any-field', { url: f.entry.url })).ok)
+            .toMatchObject({ success: 'true', field: 'Password', value: 'secret' });
+    });
+
+    test('save denial performs no mutation; approval preserves the new Browser group sentinel', async () => {
+        const f = fixture();
+        const client = await handshake();
+        const payload = { url: f.entry.url, login: 'saved-user', password: 'saved-secret' };
+        expect((await call(client, 'set-login', payload)).error?.errorCode).toBe('6');
+        expect(f.createNewEntryWithFields).not.toHaveBeenCalled();
+        expect(f.createNewGroupWithName).not.toHaveBeenCalled();
+        f.ui.saveEntry = async (input) => {
+            expect(input).toMatchObject({ url: payload.url, user: payload.login, update: false, askSave: 'always' });
+            expect(input).not.toHaveProperty('password');
+            expect(input.allGroups[1]).toMatchObject({ id: '', fileId: 'f1', selected: true });
+            return { fileId: 'f1', groupId: '', askSave: 'auto' };
+        };
+        expect((await call(client, 'set-login', payload)).ok).toMatchObject({ success: 'true', count: null, entries: null });
+        expect(f.createNewGroupWithName).toHaveBeenCalledWith(f.root, expect.anything(), 'Browser');
+        expect(f.createNewEntryWithFields).toHaveBeenCalledTimes(1);
+        const fields = (f.createNewEntryWithFields.mock.calls[0] as unknown as [unknown, Record<string, unknown>])[1];
+        expect(fields.Title).toBe('example.com');
+        expect((fields.Password as InstanceType<typeof kdbxweb.ProtectedValue>).getText()).toBe('saved-secret');
+        expect(ProtocolImpl.sessions[0].permissions).toMatchObject({ askSave: 'auto', saveTo: { fileId: 'f1', groupId: 'new' } });
+    });
+
+    test('group creation returns selected file and creates normalized path only after approval', async () => {
+        const f = fixture();
+        const client = await handshake();
+        expect((await call(client, 'create-new-group', { groupName: ' A / / B ' })).error?.errorCode).toBe('6');
+        expect(f.createNewGroupWithName).not.toHaveBeenCalled();
+        f.ui.createGroup = async (input) => {
+            expect(input).toMatchObject({ groupPath: 'A / B', files: [{ id: 'f1', name: 'Vault', selected: true }] });
+            return 'f1';
+        };
+        expect((await call(client, 'create-new-group', { groupName: ' A / / B ' })).ok)
+            .toMatchObject({ success: 'true', name: 'B' });
+        expect(f.createNewGroupWithName.mock.calls.map((args) => args[2])).toEqual(['A', 'B']);
+    });
+
+    test('touch notice is disposed on OTP completion and cancellation', async () => {
+        const dispose = mock(() => {});
+        const f = fixture({ showTouch: (input) => {
+            expect(input.deviceShortName).toBe('Key');
+            return { dispose };
+        } });
+        f.entry.needsTouch = true;
+        f.ui.selectEntry = async () => f.entry as unknown as EntryModel;
+        const client = await handshake();
+        expect((await call(client, 'get-totp-by-url', { url: f.entry.url })).ok?.totp).toBe('123456');
+        expect(dispose).toHaveBeenCalledTimes(1);
+        f.ui.showTouch = (_input, cancel) => { cancel(); return { dispose }; };
+        expect((await call(client, 'get-totp-by-url', { url: f.entry.url })).error?.errorCode).toBe('6');
+        expect(dispose).toHaveBeenCalledTimes(2);
+    });
+
+    test('timed-out consent aborts the UI and cannot later approve', async () => {
+        const previous = Timeouts.KeeWebConnectRequest;
+        Timeouts.KeeWebConnectRequest = 5;
+        let signal: AbortSignal | undefined;
+        let approve: ((value: typeof approved) => void) | undefined;
+        try {
+            const f = fixture({ connect: (_input, abortSignal) => {
+                signal = abortSignal;
+                return new Promise((resolve) => { approve = resolve; });
+            } });
+            const client = await handshake();
+            expect((await call(client, 'get-logins', { url: f.entry.url })).error?.errorCode).toBe('6');
+            expect(signal?.aborted).toBe(true);
+            approve?.(approved);
+            await Promise.resolve();
+            expect(RuntimeDataModel.extensionConnectConfig).toBeUndefined();
+        } finally { Timeouts.KeeWebConnectRequest = previous; }
     });
 });

@@ -4,6 +4,7 @@ import { StartProfiler } from 'comp/app/start-profiler';
 import { FileInfoCollection } from 'collections/file-info-collection';
 import { ExportApi } from 'comp/app/export-api';
 import { BrowserExtensionConnector } from 'comp/extension/browser-extension-connector';
+import { createClassicProtocolUi } from 'comp/extension/protocol-ui';
 import { FeatureTester } from 'comp/browser/feature-tester';
 import { FocusDetector } from 'comp/browser/focus-detector';
 import { IdleTracker } from 'comp/browser/idle-tracker';
@@ -215,7 +216,7 @@ $(() => {
     function postInit(): void {
         setTimeout(() => {
             IdleTracker.init();
-            BrowserExtensionConnector.init(appModel);
+            BrowserExtensionConnector.init(appModel, createClassicProtocolUi());
         }, Timeouts.AutoUpdatePluginsAfterStart);
     }
 
