@@ -11,6 +11,7 @@ import { Logger } from 'util/logger';
 import { Locale } from 'util/locale';
 import { StringFormat } from 'util/formatting/string-format';
 import { FileInfoCollection } from 'collections/file-info-collection';
+import { changeCredential, resetCredentialHash, withCredentialChanges } from 'util/kdbxweb/credential-changes';
 
 const logger = new Logger('file');
 
@@ -615,8 +616,8 @@ class FileModel extends Model {
             binaries: true
         });
         this.db.cleanup({ binaries: true });
-        this.db
-            .save()
+        const db = this.db;
+        withCredentialChanges(db.credentials, () => db.save())
             .then((data) => {
                 cb(data);
             })
@@ -708,15 +709,15 @@ class FileModel extends Model {
     }
 
     setPassword(password: kdbxweb.ProtectedValue): void {
-        this.db.credentials.setPassword(password);
+        changeCredential(this.db.credentials, 'password', (staged) => staged.setPassword(password));
         this.db.meta.keyChanged = new Date();
         this.set({ passwordLength: password.textLength, passwordChanged: true });
         this.setModified();
     }
 
     resetPassword(): void {
-        this.db.credentials.passwordHash = this.oldPasswordHash;
-        if (this.db.credentials.keyFileHash === this.oldKeyFileHash) {
+        resetCredentialHash(this.db.credentials, 'password', this.oldPasswordHash);
+        if (!this.keyFileChanged && this.db.credentials.keyFileHash === this.oldKeyFileHash) {
             this.db.meta.keyChanged = this.oldKeyChangeDate;
         }
         this.set({
@@ -726,7 +727,8 @@ class FileModel extends Model {
     }
 
     setKeyFile(keyFile: ArrayBuffer | Uint8Array, keyFileName: string): void {
-        this.db.credentials.setKeyFile(keyFile);
+        const data = keyFile.slice();
+        changeCredential(this.db.credentials, 'keyFile', (staged) => staged.setKeyFile(data));
         this.db.meta.keyChanged = new Date();
         this.set({ keyFileName, keyFileChanged: true });
         this.setModified();
@@ -741,17 +743,17 @@ class FileModel extends Model {
     }
 
     resetKeyFile(): void {
-        this.db.credentials.keyFileHash = this.oldKeyFileHash;
-        if (this.db.credentials.passwordHash === this.oldPasswordHash) {
+        resetCredentialHash(this.db.credentials, 'keyFile', this.oldKeyFileHash);
+        if (!this.passwordChanged && this.db.credentials.passwordHash === this.oldPasswordHash) {
             this.db.meta.keyChanged = this.oldKeyChangeDate;
         }
         this.set({ keyFileName: this.oldKeyFileName, keyFileChanged: false });
     }
 
     removeKeyFile(): void {
-        this.db.credentials.setKeyFile(null);
+        resetCredentialHash(this.db.credentials, 'keyFile');
         const changed = !!this.oldKeyFileHash;
-        if (!changed && this.db.credentials.passwordHash === this.oldPasswordHash) {
+        if (!changed && !this.passwordChanged && this.db.credentials.passwordHash === this.oldPasswordHash) {
             this.db.meta.keyChanged = this.oldKeyChangeDate;
         }
         this.set({

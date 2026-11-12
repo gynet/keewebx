@@ -2,6 +2,8 @@ import { ProtectedValue } from 'kdbxweb';
 import type { AppModel } from 'models/app-model';
 import type { FileModel } from 'models/file-model';
 import { applyDatabaseSettings, validateDatabaseSettings, type DatabaseSettings } from './database-settings';
+import { createExportSnapshot } from '../../util/kdbxweb/export-snapshot';
+import { credentialChangeVersion, waitForCredentialChanges } from '../../util/kdbxweb/credential-changes';
 
 /** Wait for the existing writer before starting another explicit save. */
 export async function waitForSync(file: FileModel): Promise<void> {
@@ -40,9 +42,24 @@ export async function createVault(model: AppModel, name: string, password: strin
     return file;
 }
 
-/** Export uses the same KDBX serializer as synchronization. It does not mark unsynced changes saved. */
+/**
+ * Export a point-in-time encrypted copy of the current model, including unsynced changes.
+ * No cache/network I/O, cleanup of live history, or saved-state changes occur here.
+ * UI callers must apply/validate their drafts before invoking this helper.
+ */
 export async function exportVault(file: FileModel): Promise<ArrayBuffer> {
-    await waitForSync(file);
-    return new Promise((resolve, reject) => file.getData((data, error) =>
-        data ? resolve(data) : reject(new Error(String(error || 'Unable to export vault')))));
+    for (;;) {
+        if (!file.active) throw new Error('Cannot export a closed vault.');
+        const db = file.db;
+        const credentials = db.credentials;
+        const version = credentialChangeVersion(credentials);
+        await waitForCredentialChanges(credentials);
+        if (!file.active) throw new Error('Cannot export a closed vault.');
+        // A remote refresh may replace the database while credentials are awaited.
+        if (db !== file.db || credentials !== db.credentials || version !== credentialChangeVersion(credentials)) continue;
+        const snapshot = createExportSnapshot(db);
+        const data = await snapshot.save();
+        if (!file.active || file.db !== db) throw new Error('The vault changed or closed during export. Retry exporting.');
+        return data;
+    }
 }

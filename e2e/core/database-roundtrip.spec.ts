@@ -83,7 +83,9 @@ async function setMasterPassword(page: Page, password: string) {
     await masterPassInput.focus();
 
     // Type the new password (triggers input -> shows confirm field).
-    await masterPassInput.fill(password);
+    // Classic changes input type and clears the value on focus. Send keyboard
+    // events: Firefox fill() can return without an input event during that change.
+    await masterPassInput.pressSequentially(password);
 
     // Confirm password group becomes visible after first keystroke.
     const confirmGroup = page.locator('#settings__file-confirm-master-pass-group');
@@ -92,7 +94,7 @@ async function setMasterPassword(page: Page, password: string) {
     // Fill and blur the confirm field — this commits via setPassword().
     const confirmInput = page.locator('#settings__file-confirm-master-pass');
     await confirmInput.focus();
-    await confirmInput.fill(password);
+    await confirmInput.pressSequentially(password);
     // blur to commit
     await confirmInput.press('Tab');
 }
