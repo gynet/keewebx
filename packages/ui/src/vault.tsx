@@ -1,9 +1,10 @@
 /** A vault is open: groups and tags, the entry list, and the selected entry. */
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { AppModel } from 'models/app-model';
 import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
 import type { GroupModel } from 'models/group-model';
+import type { AttachmentModel } from 'models/attachment-model';
 import { Events } from 'framework/events';
 import { entryFieldText, summarizeEntry } from 'comp/extension/entry-list';
 import { VaultApi } from 'comp/app/vault-api';
@@ -11,6 +12,7 @@ import { IdleTracker } from 'comp/browser/idle-tracker';
 import { DateFormat } from 'comp/i18n/date-format';
 import { Icon, Mark, Tile } from 'ui-kit/mark';
 import { t } from './i18n';
+import { confirmDiscardDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
 import type { EntryDraft } from './entry-editor';
@@ -30,6 +32,23 @@ const SYNC_LABELS: Record<string, string> = {
 };
 
 const kdbxName = (name: string) => (/\.kdbx$/i.test(name) ? name : `${name}.kdbx`);
+
+function safeWebsiteUrl(text: string): string | undefined {
+    const value = text.trim();
+    // Reject control characters and backslashes before the URL parser can normalize them.
+    // eslint-disable-next-line no-control-regex
+    if (!value || /[\x00-\x1f\x7f\\]/.test(value)) {
+        return undefined;
+    }
+    try {
+        const candidate = value.startsWith('//') ? `https:${value}`
+            : /^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`;
+        const url = new URL(candidate);
+        return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname ? url.href : undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 interface GroupLike {
     id: string;
@@ -63,6 +82,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     );
     const tags = model.tags;
     const changeFilter = (next: Filter) => {
+        if (!confirmDiscardDrafts()) return;
         setEditing(null);
         setFilter(next);
     };
@@ -159,7 +179,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             aria-label={t('Search')}
                             placeholder={t('Search')}
                             value={query}
-                            onInput={(e) => { setEditing(null); setQuery(e.currentTarget.value); }}
+                            onInput={(e) => {
+                                if (!confirmDiscardDrafts()) { e.currentTarget.value = query; return; }
+                                setEditing(null); setQuery(e.currentTarget.value);
+                            }}
                         />
                     </label>
                 </div>
@@ -174,7 +197,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             <button
                                 class={e.id === selected ? 'entry-row entry-row--on' : 'entry-row'}
                                 data-entry={s.title}
-                                onClick={() => { setEditing(null); setSelected(e.id); }}
+                                onClick={() => {
+                                    if (!confirmDiscardDrafts()) return;
+                                    setEditing(null); setSelected(e.id);
+                                }}
                             >
                                 <Tile title={s.title} icon={s.icon} customIcon={s.customIcon} />
                                 <span class="entry-row__text">
@@ -262,6 +288,7 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
     const [reveal, setReveal] = useState(false);
     const [copied, setCopied] = useState('');
     const password = entry.password?.getText?.() ?? '';
+    const website = safeWebsiteUrl(entry.url);
 
     const copy = async (key: string, text: string) => {
         await navigator.clipboard.writeText(text);
@@ -344,11 +371,11 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
                         <div class="field" data-field="url">
                             <span class="field__text">
                                 <span class="field__label">{t('Website')}</span>
-                                <span class="field__value">{entry.displayUrl || entry.url}</span>
+                                <span class="field__value">{entry.url}</span>
                             </span>
-                            <a class="field__action" href={entry.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+                            {website && <a class="field__action" href={website} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
                                 {t('Open')}
-                            </a>
+                            </a>}
                         </div>
                     )}
                 </div>
@@ -367,19 +394,138 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
 
             <Notes key={entry.id} entry={entry} />
 
-            {entry.attachments.length > 0 && (
-                <div>
-                    <h2 class="section-title">{t('Attachments')}</h2>
-                    {entry.attachments.map((a) => (
-                        <span class="attachment">
-                            <Icon name="paperclip" size={16} />
-                            {a.title}
-                        </span>
-                    ))}
-                </div>
-            )}
+            <Attachments key={entry.id} entry={entry} />
 
             <p class="detail__foot">{t('Updated {}', DateFormat.dtStr(entry.updated))}</p>
         </main>
+    );
+}
+
+function Attachments({ entry }: { entry: EntryModel }) {
+    const input = useRef<HTMLInputElement>(null);
+    const mounted = useRef(true);
+    const working = useRef(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const file = entry.file as FileModel;
+    const writable = file.active && !(file as unknown as { readOnly?: boolean }).readOnly;
+    useEffect(() => {
+        mounted.current = true;
+        return () => { mounted.current = false; };
+    }, []);
+
+    const updated = () => {
+        // Binary creation is asynchronous: schedule the completed mutation too.
+        file.setModified();
+        Events.emit('entry-updated', { entry });
+    };
+    const upload = async (attachment: File) => {
+        if (working.current || !writable) {
+            return;
+        }
+        setError('');
+        if (entry.attachments.some((item) => item.title === attachment.name)) {
+            setError(t('An attachment with this name already exists. Remove it before uploading a replacement.'));
+            return;
+        }
+        working.current = true;
+        setBusy(true);
+        let message = t('Could not read the attachment. Try selecting the file again.');
+        try {
+            const data = await attachment.arrayBuffer();
+            if (!mounted.current || !file.active) {
+                return;
+            }
+            message = t('Could not save the attachment. Try again.');
+            await entry.addAttachment(attachment.name, data);
+            if (file.active) {
+                updated();
+            }
+        } catch {
+            if (mounted.current) {
+                setError(message);
+            }
+        } finally {
+            working.current = false;
+            if (mounted.current) {
+                setBusy(false);
+            }
+        }
+    };
+    const remove = (name: string) => {
+        if (working.current || !writable) {
+            return;
+        }
+        setError('');
+        try {
+            entry.removeAttachment(name);
+            updated();
+        } catch {
+            setError(t('Could not remove the attachment. Try again.'));
+        }
+    };
+    const download = (attachment: AttachmentModel) => {
+        setError('');
+        let url: string | undefined;
+        const link = document.createElement('a');
+        try {
+            let data = attachment.getBinary();
+            if (!data) {
+                // getBinary does not convert an empty ArrayBuffer in older vault models.
+                const stored = attachment.data as { value?: unknown } | ArrayBuffer | undefined;
+                const value = stored instanceof ArrayBuffer ? stored : stored?.value;
+                if (value instanceof ArrayBuffer && value.byteLength === 0) {
+                    data = new Uint8Array(value);
+                }
+            }
+            if (!data) {
+                throw new Error('Missing attachment data');
+            }
+            url = URL.createObjectURL(new Blob([new Uint8Array(data).buffer], {
+                type: attachment.mimeType ?? 'application/octet-stream'
+            }));
+            link.href = url;
+            link.download = attachment.title ?? t('Attachment');
+            document.body.appendChild(link);
+            link.click();
+        } catch {
+            setError(t('Could not download the attachment. Try again.'));
+        } finally {
+            link.remove();
+            if (url) {
+                const objectUrl = url;
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+            }
+        }
+    };
+
+    return (
+        <section class="entry-attachments" aria-label={t('Attachments')} aria-busy={busy}>
+            <div class="entry-attachments__head">
+                <h2 class="section-title">{t('Attachments')}</h2>
+                <button class="pill" type="button" disabled={busy || !writable} onClick={() => input.current?.click()}>
+                    {busy ? t('Adding attachment…') : t('Add attachment')}
+                </button>
+                <input ref={input} type="file" hidden aria-label={t('Attachment file')} disabled={busy || !writable}
+                    onChange={(event) => {
+                        const attachment = event.currentTarget.files?.[0];
+                        event.currentTarget.value = '';
+                        if (attachment) {
+                            void upload(attachment);
+                        }
+                    }} />
+            </div>
+            {entry.attachments.length === 0 && <p class="muted">{t('No attachments')}</p>}
+            {entry.attachments.map((attachment) => (
+                <div class="attachment entry-attachments__row" key={attachment.title} data-attachment={attachment.title}>
+                    <Icon name="paperclip" size={16} />
+                    <span class="entry-attachments__name">{attachment.title}</span>
+                    <button class="link" type="button" disabled={busy} onClick={() => download(attachment)}>{t('Download')}</button>
+                    <button class="link" type="button" disabled={busy || !writable}
+                        onClick={() => remove(attachment.title ?? '')}>{t('Remove attachment')}</button>
+                </div>
+            ))}
+            {error && <p class="error" role="alert">{error}</p>}
+        </section>
     );
 }

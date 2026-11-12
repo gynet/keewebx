@@ -13,5 +13,6 @@ tmp/
 # Playwright
 playwright-report/
 test-results/
+e2e/test-results-*/
 e2e/screenshots/
 packages/core/app/styles/base/_whitesur-icons.scss

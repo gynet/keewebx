@@ -2,8 +2,10 @@ import { useRef, useState } from 'preact/hooks';
 import { ProtectedValue } from 'kdbxweb';
 import { BuiltInFields } from 'const/entry-fields';
 import type { EntryModel } from 'models/entry-model';
+import { PasswordGeneratorPanel } from './password-generator';
 import { t } from './i18n';
 import './entry-editor.css';
+import { usePendingDraft } from './pending-drafts';
 
 const FIELDS = [
     { name: 'Title', label: 'Title' },
@@ -89,8 +91,10 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
     onCancel: () => void;
 }) {
     const [draft, setDraft] = useState(() => makeDraft(entry, tags));
+    const initialDraft = useRef(JSON.stringify(draft));
     const nextId = useRef(draft.custom.length);
     const [reveal, setReveal] = useState(false);
+    const [generatorOpen, setGeneratorOpen] = useState(false);
     const [error, setError] = useState('');
     const updateCustom = (id: number, changes: Partial<CustomField>) => setDraft((current) => ({
         ...current, custom: current.custom.map((field) => field.id === id ? { ...field, ...changes } : field)
@@ -101,12 +105,14 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
             const name = field.name.trim().toLowerCase();
             if (!name || reservedNames.has(name) || names.has(name)) {
                 setError(t('Custom fields need unique names that are not built-in field names.'));
-                return;
+                return false;
             }
             names.add(name);
         }
         onSave(draft);
+        return true;
     };
+    usePendingDraft(JSON.stringify(draft) !== initialDraft.current, save, onCancel);
 
     return (
         <main class="detail entry-editor" aria-label={entry ? t('Edit entry') : t('New entry')}>
@@ -133,9 +139,20 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
                             )}
                         </label>
                         {name === 'Password' && (
-                            <button class="link entry-editor__reveal" type="button" onClick={() => setReveal(!reveal)}>
-                                {reveal ? t('Hide password') : t('Show password')}
-                            </button>
+                            <>
+                                <div class="entry-editor__password-actions">
+                                    <button class="link" type="button" onClick={() => setReveal(!reveal)}>
+                                        {reveal ? t('Hide password') : t('Show password')}
+                                    </button>
+                                    <button class="link" type="button" aria-expanded={generatorOpen}
+                                        onClick={() => setGeneratorOpen(!generatorOpen)}>{t('Generate password')}</button>
+                                </div>
+                                {generatorOpen && <PasswordGeneratorPanel onClose={() => setGeneratorOpen(false)}
+                                    onUse={(password) => {
+                                        setDraft((current) => ({ ...current, fields: { ...current.fields, Password: password } }));
+                                        setGeneratorOpen(false);
+                                    }} />}
+                            </>
                         )}
                     </div>
                 ))}

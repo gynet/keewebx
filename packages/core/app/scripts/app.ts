@@ -81,9 +81,12 @@ $(() => {
      * always shows Classic and makes it the choice again.
      */
     function openChosenInterface(): Promise<void> {
+        const embeddedConfig = document.querySelector('meta[name=kw-config]')?.getAttribute('content');
+        const configured = new URLSearchParams(location.search).has('config') ||
+            !!(embeddedConfig && embeddedConfig !== '(no-config)');
         if (/[?&]ui=classic\b/.test(location.search)) {
             appModel.settings.ui = 'classic';
-        } else if (appModel.settings.ui === 'new' && /^https?:$/.test(location.protocol)) {
+        } else if (!configured && appModel.settings.ui === 'new' && /^https?:$/.test(location.protocol)) {
             location.replace('next.html' + location.hash);
             return new Promise(() => {});
         }

@@ -4,6 +4,8 @@ import { Events } from 'framework/events';
 import { AppSettingsModel } from 'models/app-settings-model';
 import type { EntryModel } from 'models/entry-model';
 import { t } from './i18n';
+import { ProtectedValue } from 'kdbxweb';
+import { usePendingDraft } from './pending-drafts';
 
 export function Notes({ entry }: { entry: EntryModel }) {
     const [draft, setDraft] = useState<string | null>(null);
@@ -15,11 +17,13 @@ export function Notes({ entry }: { entry: EntryModel }) {
 
     const save = () => {
         if (draft !== null && draft !== value) {
-            entry.setField('Notes', draft);
+            const original = entry.entry.fields.get('Notes');
+            entry.setField('Notes', original instanceof ProtectedValue ? ProtectedValue.fromString(draft) : draft);
             Events.emit('entry-updated', { entry });
         }
         setDraft(null);
     };
+    usePendingDraft(draft !== null && draft !== value, save, () => setDraft(null));
 
     return (
         <section class="entry-notes" aria-label={t('Notes')}>

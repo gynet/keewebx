@@ -57,6 +57,7 @@ test.describe('New interface notes', () => {
         const editor = notes.getByRole('textbox', { name: 'Notes', exact: true });
         const original = await editor.inputValue();
         await editor.fill('Unsaved draft for GitHub');
+        page.once('dialog', (dialog) => dialog.accept());
         await page.locator('.entry-row').filter({ hasNot: page.getByText('GitHub', { exact: true }) }).first().click();
         await expect(editor).toHaveCount(0);
         await page.locator('.entry-row[data-entry="GitHub"]').click();

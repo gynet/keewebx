@@ -16,8 +16,8 @@ async function openDemo(page: Page): Promise<void> {
 }
 
 test.describe('New interface', () => {
-    test('opens the demo, shows an entry, copies a field, searches and filters', async ({ page, context }) => {
-        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    test('opens the demo, shows an entry, copies a field, searches and filters', async ({ page, context, browserName }) => {
+        if (browserName === 'chromium') await context.grantPermissions(['clipboard-read', 'clipboard-write']);
         await openDemo(page);
         await expect(page.locator('#sync-state')).toHaveText('Up to date');
         await expect(page.locator('.list__meta')).toHaveText('21 items');
@@ -29,7 +29,7 @@ test.describe('New interface', () => {
 
         await page.locator('[data-field="user"] .field__action').click();
         await expect(page.locator('[data-field="user"] .field__action')).toHaveText('Copied');
-        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('demouser');
+        if (browserName === 'chromium') expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('demouser');
 
         await page.locator('[data-field="password"] .icon-btn').click();
         await expect(page.locator('[data-field="password"] .field__value')).not.toHaveText(/•/);

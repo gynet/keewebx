@@ -10,6 +10,7 @@ import { Vault } from './vault';
 import { Settings } from './settings';
 import { useVaultVersion } from './vault-state';
 import { t } from './i18n';
+import { hasPendingDrafts, savePendingDrafts } from './pending-drafts';
 
 function App({ model }: { model: AppModel }) {
     const version = useVaultVersion(model);
@@ -21,6 +22,7 @@ function App({ model }: { model: AppModel }) {
         locking.current = true;
         setError('');
         try {
+            savePendingDrafts();
             await saveAndLock(model);
             setSettingsOpen(false);
         } catch {
@@ -34,7 +36,7 @@ function App({ model }: { model: AppModel }) {
         Events.on('user-idle', lock);
         Events.on('lock-workspace', lock);
         const beforeUnload = (event: BeforeUnloadEvent) => {
-            if (model.files.hasDirtyFiles()) {
+            if (model.files.hasDirtyFiles() || hasPendingDrafts()) {
                 event.preventDefault();
                 event.returnValue = '';
             }
@@ -47,21 +49,21 @@ function App({ model }: { model: AppModel }) {
         };
     }, [model]);
 
-    if (settingsOpen) {
-        return <Settings onBack={() => setSettingsOpen(false)} />;
-    }
     if (!model.files.hasOpenFiles()) {
         return <Unlock key={version} model={model} />;
     }
     return (
         <>
         {error && <div role="alert" class="error" style={{ padding: '12px 20px' }}>{error}</div>}
+        <div hidden={settingsOpen} style={{ height: '100%' }}>
         <Vault
             model={model}
             version={version}
             onSettings={() => setSettingsOpen(true)}
             onLock={() => void lock()}
         />
+        </div>
+        {settingsOpen && <Settings onBack={() => setSettingsOpen(false)} />}
         </>
     );
 }
