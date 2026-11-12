@@ -135,11 +135,16 @@ test.afterEach(async ({}, info) => {
 async function configure(url: string) {
     const settings = await context.newPage();
     await settings.goto(`chrome-extension://${id}/pages/settings.html`);
-    await settings.locator('#vault-mode-connect').check();
+    await expect(settings.locator('#vault-mode-full')).toBeChecked();
+    // The controlled radio changes after async storage commits. A single click
+    // followed by state assertions permits intermediate renders of the old mode.
+    const connectMode = settings.locator('#vault-mode-connect');
+    await connectMode.click();
+    await expect(connectMode).toBeChecked();
     await expect(settings.locator('#server-default')).toBeChecked();
-    expect(
-        await sw.evaluate(async () => (await chrome.storage.local.get('keeWebUrl')).keeWebUrl)
-    ).toBe('https://keewebx.app/');
+    await expect
+        .poll(() => sw.evaluate(async () => (await chrome.storage.local.get('keeWebUrl')).keeWebUrl))
+        .toBe('https://keewebx.app/');
     await settings.locator('#server-url').fill(url);
     await settings.locator('#server-url').press('Enter');
     await expect
@@ -148,6 +153,8 @@ async function configure(url: string) {
         )
         .toBe(url);
     await settings.reload();
+    await expect(connectMode).toBeChecked();
+    await expect(settings.locator('#server-custom')).toBeChecked();
     await expect(settings.locator('#server-url')).toHaveValue(url);
     await settings.close();
 }
