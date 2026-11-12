@@ -3,6 +3,7 @@ import { SettingsStore } from 'comp/settings/settings-store';
 import { DefaultAppSettings, type AppSettings } from 'const/default-app-settings';
 
 class AppSettingsModel extends Model {
+    declare ui: AppSettings['ui'];
     declare theme: AppSettings['theme'];
     declare autoSwitchTheme: AppSettings['autoSwitchTheme'];
     declare locale: AppSettings['locale'];

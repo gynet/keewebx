@@ -1,6 +1,7 @@
 import { getRegisteredSettings } from 'hooks/data-registry';
 
 interface AppSettings {
+    ui: string;
     theme: string | null;
     autoSwitchTheme: boolean;
     locale: string | null;
@@ -85,6 +86,7 @@ interface AppSettings {
 
 const DefaultAppSettings: AppSettings = {
     theme: null, // UI theme
+    ui: 'classic', // interface: "classic" (index.html) or "new" (next.html)
     autoSwitchTheme: false, // automatically switch between light and dark theme
     locale: null, // user interface language
     expandGroups: true, // show entries from all subgroups

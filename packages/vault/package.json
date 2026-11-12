@@ -8,6 +8,7 @@
     "@noble/hashes": "2.4.0",
     "hash-wasm": "4.12.0",
     "kdbxweb": "workspace:@keewebx/db@*",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "events": "^3.3.0"
   }
 }

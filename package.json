@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "bun run --filter @keewebx/core dev",
-    "build": "bun run --filter @keewebx/db build && bun run --filter @keewebx/core build",
+    "build": "bun run --filter @keewebx/db build && bun run --filter @keewebx/core build && bun run --filter @keewebx/ui build",
     "test": "bun run --filter @keewebx/db build && bun run --filter '*' test",
     "lint": "bun run --filter '*' lint",
     "test:db": "bun run --filter @keewebx/db test",

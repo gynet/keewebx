@@ -38,6 +38,11 @@ export default {
                     options: { transpileOnly: true }
                 },
                 exclude: /node_modules/
+            },
+            {
+                test: /\.svg$/,
+                include: /[\\/]@phosphor-icons[\\/]core[\\/]assets[\\/]/,
+                type: 'asset/source'
             }
         ]
     },
@@ -47,7 +52,8 @@ export default {
             common: path.resolve('src/common'),
             content: path.resolve('src/content'),
             options: path.resolve('src/options'),
-            ui: path.resolve('src/ui')
+            ui: path.resolve('src/ui'),
+            'ui-kit': path.resolve('../ui-kit/src')
         },
         extensions: ['.tsx', '.ts', '.js']
     },

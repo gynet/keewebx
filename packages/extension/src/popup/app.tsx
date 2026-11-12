@@ -16,7 +16,7 @@ import {
     vault,
     web
 } from 'ui/vault-client';
-import { Icon, Mark, Tile } from 'ui/mark';
+import { Icon, Mark, Tile } from 'ui-kit/mark';
 import { t } from 'ui/i18n';
 
 export type Layout = 'popup' | 'side' | 'tab';

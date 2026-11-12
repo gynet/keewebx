@@ -17,9 +17,10 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
 
-  reporter: [['html', { open: 'on-failure' }]],
+  reporter: [['html', { open: 'never' }]],
 
   use: {
+    headless: true,
     baseURL: 'http://localhost:8085',
     screenshot: 'on',
     trace: 'on-first-retry',
@@ -80,10 +81,10 @@ export default defineConfig({
     ? {}
     : {
         webServer: {
-          command: 'bun run --filter @keewebx/core dev',
+          command: 'bun run build && bun e2e/serve-app.ts',
           url: 'http://localhost:8085',
-          reuseExistingServer: !process.env.CI,
-          timeout: 30_000,
+          reuseExistingServer: false,
+          timeout: 180_000,
         },
       }),
 });

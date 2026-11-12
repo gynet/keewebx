@@ -29,7 +29,8 @@
     "morphdom": "^2.6.1",
     "normalize.css": "^8.0.1",
     "pikaday": "^1.8.2",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "@keewebx/ui-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22",

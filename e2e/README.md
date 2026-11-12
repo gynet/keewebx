@@ -26,6 +26,4 @@ e2e/
 
 Create `*.spec.ts` files under `e2e/`. Group by component: `e2e/core/`, `e2e/extension/`, etc.
 
-Tests use `baseURL: http://localhost:8085` -- the dev server starts automatically via the `webServer` config in `playwright.config.ts`.
-
-All tests are real and pass against the dev server. No `test.skip` stubs.
+Tests use `baseURL: http://localhost:8085`. Playwright builds Classic and the new interface, then starts `e2e/serve-app.ts` to serve the production assets. Keep this port free so each run tests its own build. Browsers run headlessly and the HTML report never opens automatically.

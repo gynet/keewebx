@@ -1,0 +1,31 @@
+/* KeeWebX colors and flat surfaces for the shared interface. */
+:root {
+    --kx-bg: #ffffff;
+    --kx-side: #f7f8fa;
+    --kx-sub: #f4f6f9;
+    --kx-text: #111a2b;
+    --kx-muted: #5d6a7e;
+    --kx-line: #e8ecf1;
+    --kx-acc: #3373cb;
+    --kx-acc-text: #ffffff;
+    --kx-sel: #eaf2fd;
+    --kx-error: #c0392b;
+    --kx-ok: #2fb872;
+    --kx-warn: #e8a10a;
+    --kx-shadow: none;
+    --kx-radius-control: 8px;
+    --kx-radius-card: 10px;
+    --kx-tile-blue-base: #dce8f5;
+    --kx-tile-blue-ink: #4776a6;
+    --kx-tile-amber-base: #f1e5cf;
+    --kx-tile-amber-ink: #a77d35;
+    --kx-tile-green-base: #dfebe2;
+    --kx-tile-green-ink: #4b8564;
+    --kx-tile-violet-base: #e8e1f1;
+    --kx-tile-violet-ink: #876aa8;
+    --kx-tile-slate-base: #deebed;
+    --kx-tile-slate-ink: #518794;
+    --kx-tile-coral-base: #f1e0e3;
+    --kx-tile-coral-ink: #af7180;
+    color-scheme: light;
+}

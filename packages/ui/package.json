@@ -1,0 +1,28 @@
+{
+  "name": "@keewebx/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The new KeeWebX web app interface",
+  "license": "MIT",
+  "scripts": {
+    "build": "webpack --mode=production && node scripts/icons-css.js",
+    "dev": "webpack --mode=development --watch"
+  },
+  "dependencies": {
+    "preact": "^10.5.13",
+    "kdbxweb": "workspace:@keewebx/db@*",
+    "@keewebx/ui-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "webpack": "^5.36.2",
+    "webpack-cli": "^5.1.4",
+    "ts-loader": "^9.2.5",
+    "css-loader": "^5.2.4",
+    "mini-css-extract-plugin": "^1.6.0",
+    "html-webpack-plugin": "^5.6.6",
+    "raw-loader": "^4.0.2",
+    "base64-loader": "^1.0.0",
+    "string-replace-loader": "^3.3.0",
+    "typescript": "^5.7.2"
+  }
+}

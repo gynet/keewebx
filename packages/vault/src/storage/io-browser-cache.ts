@@ -1,4 +1,5 @@
 import { Logger } from 'util/logger';
+import { storageKey } from 'comp/settings/storage-namespace';
 
 const idb: IDBFactory | undefined =
     typeof window !== 'undefined'
@@ -23,7 +24,7 @@ class IoBrowserCache {
     static readonly enabled: boolean = !!idb;
 
     constructor(config: IoBrowserCacheConfig) {
-        this.cacheName = config.cacheName;
+        this.cacheName = storageKey(config.cacheName);
         this.logger = config.logger;
     }
 

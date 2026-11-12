@@ -57,6 +57,7 @@ class SettingsGeneralView extends View {
 
     events: Record<string, string> = {
         'click .settings__general-theme': 'changeTheme',
+        'change .settings__general-ui': 'changeInterface',
         'click .settings__general-auto-switch-theme': 'changeAuthSwitchTheme',
         'change .settings__general-locale': 'changeLocale',
         'change .settings__general-font-size': 'changeFontSize',
@@ -307,6 +308,13 @@ class SettingsGeneralView extends View {
                 settingsManager.allThemes,
                 (theme: string) => loc[theme] as string
             ) as Record<string, string>;
+        }
+    }
+
+    changeInterface(e: any): void {
+        if (e.target.value === 'new') {
+            this.appModel.settings.ui = 'new';
+            location.href = 'next.html';
         }
     }
 

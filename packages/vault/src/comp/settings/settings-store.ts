@@ -18,6 +18,7 @@
 
 import { StringFormat } from 'util/formatting/string-format';
 import { Logger } from 'util/logger';
+import { storageKey } from 'comp/settings/storage-namespace';
 
 const logger = new Logger('settings-store');
 
@@ -47,7 +48,7 @@ const SettingsStore = {
             if (!storage) {
                 return null;
             }
-            const raw = storage[StringFormat.camelCase(key)];
+            const raw = storage[storageKey(StringFormat.camelCase(key))];
             if (raw == null || raw === '') {
                 return null;
             }
@@ -70,7 +71,7 @@ const SettingsStore = {
             if (!storage) {
                 return;
             }
-            storage[StringFormat.camelCase(key)] = JSON.stringify(data);
+            storage[storageKey(StringFormat.camelCase(key))] = JSON.stringify(data);
         } catch (err) {
             logger.error(`Error saving ${key}`, err);
         }

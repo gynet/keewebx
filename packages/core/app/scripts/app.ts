@@ -65,6 +65,7 @@ $(() => {
 
     Promise.resolve()
         .then(loadConfigs)
+        .then(openChosenInterface)
         .then(initModules)
         .then(loadRemoteConfig)
         .then(ensureCanRun)
@@ -74,6 +75,20 @@ $(() => {
         .catch((e: unknown) => {
             appModel.appLogger.error('Error starting app', e);
         });
+
+    /**
+     * Opens next.html when the new interface is the chosen one. index.html?ui=classic
+     * always shows Classic and makes it the choice again.
+     */
+    function openChosenInterface(): Promise<void> {
+        if (/[?&]ui=classic\b/.test(location.search)) {
+            appModel.settings.ui = 'classic';
+        } else if (appModel.settings.ui === 'new' && /^https?:$/.test(location.protocol)) {
+            location.replace('next.html' + location.hash);
+            return new Promise(() => {});
+        }
+        return Promise.resolve();
+    }
 
     function ensureCanRun(): Promise<void> {
         if (Features.isFrame && !appModel.settings.allowIframes) {
