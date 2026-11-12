@@ -7,7 +7,7 @@ import { DatabaseSettingsFields } from './database-settings-fields';
 import { usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
 
-export function DatabaseSettingsEditor({ model, file }: { model: AppModel; file: FileModel }) {
+export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppModel; file: FileModel; onCancel: () => void }) {
     const [draft, setDraft] = useState(() => readDatabaseSettings(file));
     const [baseline, setBaseline] = useState(() => JSON.stringify(draft));
     const [message, setMessage] = useState('');
@@ -20,6 +20,9 @@ export function DatabaseSettingsEditor({ model, file }: { model: AppModel; file:
     const apply = () => {
         try {
             if (!form.current?.checkValidity()) throw new Error('Please correct the invalid settings.');
+            if (JSON.stringify(readDatabaseSettings(file)) !== baseline) {
+                throw new Error('This database changed while you were editing. Cancel to reload its settings before editing again.');
+            }
             applyDatabaseSettings(file, draft);
             setBaseline(JSON.stringify(draft));
             return true;
@@ -40,7 +43,7 @@ export function DatabaseSettingsEditor({ model, file }: { model: AppModel; file:
             <DatabaseSettingsFields value={draft} onChange={setDraft} />
             <div class="database-settings__actions">
                 <button type="submit" class="pill pill--primary">{t('Save database settings')}</button>
-                <button type="button" class="pill" onClick={reset}>{t('Cancel')}</button>
+                <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
             </div>
         </fieldset>
         {message && <p role="status">{message}</p>}

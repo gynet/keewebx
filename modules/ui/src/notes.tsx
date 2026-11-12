@@ -1,14 +1,17 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useMemo, useRef, useState } from 'preact/hooks';
 import { MdToHtml } from '@keewebx/ui-kit/md-to-html';
 import { Events } from 'framework/events';
 import { AppSettingsModel } from 'models/app-settings-model';
 import type { EntryModel } from 'models/entry-model';
+import type { FileModel } from 'models/file-model';
 import { t } from './i18n';
 import { ProtectedValue } from 'kdbxweb';
 import { usePendingDraft } from './pending-drafts';
 
 export function Notes({ entry }: { entry: EntryModel }) {
     const [draft, setDraft] = useState<string | null>(null);
+    const baseline = useRef('');
+    const [error, setError] = useState('');
     const value = entry.notes || '';
     const converted = useMemo(
         () => (AppSettingsModel.useMarkdown ? MdToHtml.convert(value) : { text: value }),
@@ -16,6 +19,10 @@ export function Notes({ entry }: { entry: EntryModel }) {
     );
 
     const save = () => {
+        if (draft !== null && ((entry.file as FileModel).getEntry(entry.id) !== entry || value !== baseline.current)) {
+            setError(t('This entry changed while you were editing. Copy your notes, then cancel and reopen the editor.'));
+            return false;
+        }
         if (draft !== null && draft !== value) {
             const original = entry.entry.fields.get('Notes');
             entry.setField('Notes', original instanceof ProtectedValue ? ProtectedValue.fromString(draft) : draft);
@@ -30,11 +37,12 @@ export function Notes({ entry }: { entry: EntryModel }) {
             <div class="notes__head">
                 <h2 class="section-title">{t('Notes')}</h2>
                 {draft === null && (
-                    <button class="link" onClick={() => setDraft(value)}>{t('Edit notes')}</button>
+                    <button class="link" onClick={() => { baseline.current = value; setError(''); setDraft(value); }}>{t('Edit notes')}</button>
                 )}
             </div>
             {draft !== null ? (
                 <div class="notes__edit">
+                    {error && <p class="error" role="alert">{error}</p>}
                     <textarea
                         class="input notes__editor"
                         aria-label={t('Notes')}

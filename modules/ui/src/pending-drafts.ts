@@ -34,15 +34,19 @@ export function savePendingDrafts(): void {
     }
 }
 
-export function confirmDiscardDrafts(scope?: string): boolean {
-    const selected = [...pending].filter((reference) => !scope || reference.current.scope === scope);
-    if (!selected.some((reference) => reference.current.dirty)) return true;
-    if (!window.confirm(t('Discard unsaved changes?'))) return false;
-    for (const reference of selected) {
-        if (reference.current.dirty) {
+export function discardPendingDrafts(scope?: string): void {
+    for (const reference of pending) {
+        if ((!scope || reference.current.scope === scope) && reference.current.dirty) {
             reference.current.discard();
             reference.current.dirty = false;
         }
     }
+}
+
+export function confirmDiscardDrafts(scope?: string): boolean {
+    const selected = [...pending].filter((reference) => !scope || reference.current.scope === scope);
+    if (!selected.some((reference) => reference.current.dirty)) return true;
+    if (!window.confirm(t('Discard unsaved changes?'))) return false;
+    discardPendingDrafts(scope);
     return true;
 }

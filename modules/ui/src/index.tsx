@@ -10,6 +10,7 @@ import { Vault } from './vault';
 import { Settings } from './settings';
 import { useVaultVersion } from './vault-state';
 import { t } from './i18n';
+import { waitForSync } from 'comp/app/vault-files';
 import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
 
 function App({ model }: { model: AppModel }) {
@@ -17,17 +18,21 @@ function App({ model }: { model: AppModel }) {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [error, setError] = useState('');
     const locking = useRef(false);
+    const surface = useRef<HTMLDivElement>(null);
     const lock = async () => {
         if (locking.current) return;
         locking.current = true;
+        surface.current?.setAttribute('inert', '');
         setError('');
         try {
+            await Promise.all(model.files.map((file) => waitForSync(file)));
             savePendingDrafts();
             await saveAndLock(model);
             setSettingsOpen(false);
         } catch {
             setError(t('Changes could not be saved. Keep this vault open and try again.'));
         } finally {
+            surface.current?.removeAttribute('inert');
             locking.current = false;
         }
     };
@@ -55,6 +60,7 @@ function App({ model }: { model: AppModel }) {
     return (
         <>
         {error && <div role="alert" class="error" style={{ padding: '12px 20px' }}>{error}</div>}
+        <div ref={surface} style={{ height: '100%' }}>
         <div hidden={settingsOpen} style={{ height: '100%' }}>
         <Vault
             model={model}
@@ -64,6 +70,7 @@ function App({ model }: { model: AppModel }) {
         />
         </div>
         {settingsOpen && <Settings model={model} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
+        </div>
         </>
     );
 }

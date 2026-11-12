@@ -51,6 +51,7 @@ export function validateDatabaseSettings(value: DatabaseSettings): void {
 /** Only changed values reach the existing model setters; untouched KDF bytes stay intact. */
 export function applyDatabaseSettings(file: FileModel, value: DatabaseSettings): void {
     validateDatabaseSettings(value);
+    if (file.syncing) throw new Error('A save is in progress. Wait for it to finish, then retry.');
     const before = readDatabaseSettings(file);
     if (value.kdf === 'Aes' && before.kdf !== 'Aes') throw new Error('Select Argon2d or Argon2id.');
     if (value.name !== before.name) file.setName(value.name.trim());

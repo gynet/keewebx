@@ -23,6 +23,10 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await expect(page.getByLabel('Iterations', { exact: true })).toHaveValue('3');
     await page.getByLabel('Default user', { exact: true }).fill('canceled-user');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.locator('#settings-back')).toHaveCount(0);
+    await expect(page.getByRole('form', { name: /^Database settings: / })).toHaveCount(0);
+    await page.click('#open-settings');
+    await page.getByText('Advanced', { exact: true }).click();
     await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('initial-user');
     await page.getByLabel('Vault name', { exact: true }).fill('Renamed vault');
     await page.getByLabel('Default user', { exact: true }).fill('saved-user');

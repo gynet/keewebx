@@ -4,7 +4,7 @@ import type { FileModel } from 'models/file-model';
 import { applyDatabaseSettings, validateDatabaseSettings, type DatabaseSettings } from './database-settings';
 
 /** Wait for the existing writer before starting another explicit save. */
-async function waitForSync(file: FileModel): Promise<void> {
+export async function waitForSync(file: FileModel): Promise<void> {
     if (!file.syncing) return;
     await new Promise<void>((resolve) => {
         const finished = () => {

@@ -16,6 +16,7 @@ import { applyRegisteredFileInfoFields } from 'models/file-info-model';
 import { RuntimeDataModel } from 'models/runtime-data-model';
 import { applyRegisteredStorages, Storage } from 'storage';
 import { KdbxwebInit } from 'util/kdbxweb/kdbxweb-init';
+import { startPeriodicSync } from 'comp/app/periodic-sync';
 
 export { saveAndLock } from 'comp/app/vault-lifecycle';
 
@@ -41,6 +42,7 @@ export async function startVault(): Promise<AppModel> {
         provider.init();
     }
     IdleTracker.init();
+    startPeriodicSync(appModel);
     Events.emit('app-ready');
     return appModel;
 }

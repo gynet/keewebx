@@ -6,7 +6,7 @@ import { t } from './i18n';
 import { ThemeToggle, ThemeSelect } from './theme';
 import type { AppModel } from 'models/app-model';
 import { DatabaseSettingsEditor } from './database-settings';
-import { confirmDiscardDrafts } from './pending-drafts';
+import { confirmDiscardDrafts, discardPendingDrafts } from './pending-drafts';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
@@ -107,7 +107,8 @@ export function Settings({ onBack, model }: { onBack: () => void; model: AppMode
                         </label>
                     </section>
                     <h2 class="group-title">{t('Database settings')}</h2>
-                    {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file} />)}
+                    {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file}
+                        onCancel={() => { discardPendingDrafts('database'); onBack(); }} />)}
                 </div>
             </main>
         </div>

@@ -2,6 +2,7 @@ import { useRef, useState } from 'preact/hooks';
 import { ProtectedValue } from 'kdbxweb';
 import { BuiltInFields } from 'const/entry-fields';
 import type { EntryModel } from 'models/entry-model';
+import type { FileModel } from 'models/file-model';
 import { PasswordGeneratorPanel } from './password-generator';
 import { t } from './i18n';
 import './entry-editor.css';
@@ -100,6 +101,10 @@ export function EntryEditor({ entry, tags = [], onSave, onCancel }: {
         ...current, custom: current.custom.map((field) => field.id === id ? { ...field, ...changes } : field)
     }));
     const save = () => {
+        if (entry && ((entry.file as FileModel).getEntry(entry.id) !== entry || JSON.stringify(makeDraft(entry, tags)) !== initialDraft.current)) {
+            setError(t('This entry changed while you were editing. Copy your changes, then cancel and reopen the editor.'));
+            return false;
+        }
         const names = new Set<string>();
         for (const field of draft.custom) {
             const name = field.name.trim().toLowerCase();

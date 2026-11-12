@@ -1,5 +1,5 @@
 /** A vault is open: groups and tags, the entry list, and the selected entry. */
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { AppModel } from 'models/app-model';
 import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
@@ -18,7 +18,7 @@ import { usePanelLayout } from './panel-layout';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { MobileMenu } from './mobile-menu';
-import { confirmDiscardDrafts } from './pending-drafts';
+import { confirmDiscardDrafts, hasPendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
 import type { EntryDraft } from './entry-editor';
@@ -67,6 +67,30 @@ interface GroupLike {
 export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void }) {
     const { model } = props;
     const layout = usePanelLayout();
+    const [navigationOpen, setNavigationOpen] = useState(false);
+    const navigation = useRef<HTMLElement>(null);
+    const browse = useRef<HTMLButtonElement>(null);
+    const wasNavigationOpen = useRef(false);
+    const closeNavigation = () => { setNavigationOpen(false); };
+    useLayoutEffect(() => {
+        if (!navigationOpen) {
+            if (wasNavigationOpen.current) browse.current?.focus();
+            wasNavigationOpen.current = false;
+            return;
+        }
+        wasNavigationOpen.current = true;
+        const background = [...(navigation.current?.parentElement?.children ?? [])]
+            .filter((element) => element !== navigation.current && !element.classList.contains('navigation-backdrop') && !element.hasAttribute('inert'));
+        background.forEach((element) => element.setAttribute('inert', ''));
+        navigation.current?.querySelector<HTMLButtonElement>('.side__close')?.focus();
+        return () => background.forEach((element) => element.removeAttribute('inert'));
+    }, [navigationOpen]);
+    useEffect(() => {
+        if (navigationOpen) navigation.current?.querySelector<HTMLButtonElement>('.side__close')?.focus();
+        const resized = () => { if (window.innerWidth > 760) setNavigationOpen(false); };
+        window.addEventListener('resize', resized);
+        return () => window.removeEventListener('resize', resized);
+    }, [navigationOpen]);
     const [filter, setFilter] = useState<Filter>({});
     const [query, setQuery] = useState('');
     const [selected, setSelected] = useState<string>();
@@ -82,7 +106,12 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         return [...(result as unknown as EntryModel[])];
     }, [query, filter, props.version]);
 
-    const entry = entries.find((e) => e.id === selected) ?? null;
+    const liveEntry = entries.find((e) => e.id === selected) ?? null;
+    const retainedEntry = useRef<EntryModel | null>(null);
+    if (liveEntry) retainedEntry.current = liveEntry;
+    // Keep an inline draft mounted if a remote deletion/filter change removes its row.
+    // Save checks membership and rejects the conflict; the user can copy or discard it.
+    const entry = liveEntry ?? (retainedEntry.current?.id === selected && hasPendingDrafts() ? retainedEntry.current : null);
     const sync = model.syncScheduler.summary().state;
     const groups: GroupLike[] = files.flatMap(
         (f) => ((f.groups?.[0] as unknown as GroupLike)?.items ?? []).filter((g) => g.visible !== false)
@@ -92,8 +121,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         if (!confirmDiscardDrafts()) return;
         setEditing(null);
         setFilter(next);
+        if (navigationOpen) closeNavigation();
     };
     const newEntry = () => {
+        if (!confirmDiscardDrafts()) return;
         const groupId = filter.group;
         const group = groupId ? files.map((file) => file.getGroup(groupId)).find(Boolean) : undefined;
         setEditing({ group: group ?? model.getFirstSelectedGroupForCreation().group, tag: filter.tag });
@@ -133,12 +164,24 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
 
     return (
         <div
-            class={entry || editing ? 'vault vault--detail' : 'vault'}
+            class={`${entry || editing ? 'vault vault--detail' : 'vault'}${navigationOpen ? ' vault--navigation' : ''}`}
             style={{ '--sidebar-width': `${layout.sidebar}px`, '--list-width': `${layout.list}px` }}
-            onKeyDown={() => IdleTracker.regUserAction()}
+            onKeyDown={(event) => {
+                IdleTracker.regUserAction();
+                if (!navigationOpen) return;
+                if (event.key === 'Escape') { event.preventDefault(); closeNavigation(); }
+                if (event.key === 'Tab') {
+                    const controls = [...(navigation.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+                        .filter((button) => !button.disabled && button.getClientRects().length);
+                    const first = controls[0]; const last = controls[controls.length - 1];
+                    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+                    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+                }
+            }}
             onClick={() => IdleTracker.regUserAction()}
         >
-            <nav class="side" aria-label={t('Vault')}>
+            {navigationOpen && <button class="navigation-backdrop" tabIndex={-1} aria-label={t('Close navigation')} onClick={closeNavigation} />}
+            <nav ref={navigation} class="side" aria-label={t('Vault')}>
                 <div class="side__vault">
                     <Mark size={30} />
                     <span class="side__vault-text">
@@ -148,6 +191,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             {t(SYNC_LABELS[sync] ?? sync)}
                         </span>
                     </span>
+                    <button class="round side__close" aria-label={t('Close navigation')} onClick={closeNavigation}><Icon name="back" /></button>
                 </div>
                 <div class="side__content">
                 <NavRow icon="grid" label={t('All items')} on={!filter.group && !filter.tag && !filter.trash} onClick={() => changeFilter({})} />
@@ -165,7 +209,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             aria-pressed={filter.tag === tag}
                             onClick={() => changeFilter(filter.tag === tag ? {} : { tag })}
                         >
-                            {tag}
+                            <span class="tag__text">{tag}</span>
                         </button>
                     ))}
                 </div>
@@ -173,7 +217,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <div class="side__foot">
                     <span style={{ flexGrow: 1 }} />
                     <ThemeToggle />
-                    <button class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={props.onSettings}>
+                    <button class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={() => { setNavigationOpen(false); props.onSettings(); }}>
                         <Icon name="gear" size={17} />
                     </button>
                     <button class="round" aria-label={t('Lock')} title={t('Lock')} id="lock" onClick={props.onLock}>
@@ -233,6 +277,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 onChange={(width) => layout.set('list', width)} onReset={() => layout.reset('list')} />
 
             <MobileMenu>
+                <button ref={browse} class="round" aria-label={t('Browse vault')} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}>
+                    <Icon name="folder" size={18} />
+                </button>
                 <ThemeToggle />
                 <button class="round" aria-label={t('Settings')} onClick={props.onSettings}>
                     <Icon name="gear" size={18} />
@@ -249,7 +296,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     onSave={saveEntry} onCancel={() => setEditing(null)} />
             ) : entry ? (
                 <EntryDetail key={entry.id} entry={entry} onBack={() => setSelected(undefined)}
-                    onEdit={() => setEditing({ entry })}
+                    onEdit={() => { if (confirmDiscardDrafts()) setEditing({ entry }); }}
                     onDelete={!filter.trash && (entry.file as FileModel).db.meta.recycleBinEnabled ? moveToTrash : undefined}
                     onRestore={filter.trash ? restoreEntry : undefined} />
             ) : (
@@ -444,7 +491,7 @@ function EntryDetail({ entry, onBack, onEdit, onDelete, onRestore }: {
                     <h2 class="section-title">{t('Tags')}</h2>
                     <div class="tags" style={{ padding: 0 }}>
                         {entry.tags.map((tag) => (
-                            <span class="tag" style={tagColor(tag)}>{tag}</span>
+                            <span class="tag" style={tagColor(tag)}><span class="tag__text">{tag}</span></span>
                         ))}
                     </div>
                 </div>
