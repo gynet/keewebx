@@ -8,7 +8,6 @@ body {
     background: var(--kx-bg);
     color: var(--kx-text);
     font: 14px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, 'Segoe UI', sans-serif;
-    -webkit-font-smoothing: antialiased;
 }
 #root {
     height: 100%;
