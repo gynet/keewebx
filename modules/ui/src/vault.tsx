@@ -403,7 +403,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             >
                                 <Tile title={s.title} icon={s.icon} customIcon={s.customIcon} />
                                 <span class="entry-row__text">
-                                    <span class="entry-row__title">{s.title || t('(no title)')}</span>
+                                    <span class="entry-row__title" title={s.title || t('(no title)')}>{s.title || t('(no title)')}</span>
                                     <span class="entry-row__sub">{s.user || s.url}</span>
                                 </span>
                             </button>
