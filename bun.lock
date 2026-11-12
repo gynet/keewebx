@@ -97,7 +97,7 @@
         "dompurify": "^2.2.8",
         "handlebars": "^4.7.7",
         "hash-wasm": "4.12.0",
-        "jquery": "3.6.0",
+        "jquery": "4.0.0",
         "jsqrcode": "antelle/jsqrcode",
         "kdbxweb": "workspace:@keewebx/db@*",
         "marked": "^2.1.3",
@@ -1211,7 +1211,7 @@
 
     "jose": ["jose@4.13.1", "", {}, "sha512-MSJQC5vXco5Br38mzaQKiq9mwt7lwj2eXpgpRyQYNHYt2lq1PjkWa7DLXX0WVcQLE9HhMh3jPiufS7fhJf+CLQ=="],
 
-    "jquery": ["jquery@3.6.0", "", {}, "sha512-JVzAR/AjBvVt2BmYhxRCSYysDsPcssdmTFnzyLEts9qNwmjmu4JTAMYubEfwVOSwpQ1I1sKKFcxhZCI2buerfw=="],
+    "jquery": ["jquery@4.0.0", "", {}, "sha512-TXCHVR3Lb6TZdtw1l3RTLf8RBWVGexdxL6AC8/e0xZKEpBflBsjh9/8LXw+dkNFuOyW9B7iB3O1sP7hS0Kiacg=="],
 
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 
