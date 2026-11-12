@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -28,6 +28,27 @@ function files(directory: string): string[] {
     });
 }
 
+const internalAliases = new Set([
+    'app', 'boot', 'collections', 'comp', 'const', 'framework', 'hbs-helpers',
+    'hooks', 'locales', 'models', 'presenters', 'storage', 'templates', 'ui-kit',
+    'util', 'views'
+]);
+
+function literal(node: import('../packages/ui/node_modules/typescript').Node): string | undefined {
+    return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined;
+}
+
+function assetTarget(specifier: string): Package | undefined {
+    const candidate = specifier.startsWith('templates/')
+        ? path.resolve(root, 'packages/ui-classic/app', specifier)
+        : specifier === 'hbs-helpers'
+            ? path.join(root, 'packages/ui-classic/app/scripts/hbs-helpers/index.ts')
+            : specifier.startsWith('ui-kit/')
+                ? path.resolve(root, 'packages/ui-kit/src', specifier.slice('ui-kit/'.length))
+                : undefined;
+    return candidate && existsSync(candidate) ? owner(realpathSync(candidate)) : undefined;
+}
+
 let errors = 0;
 let checked = 0;
 for (const name of packages) {
@@ -51,20 +72,23 @@ for (const name of packages) {
                 specifier = node.moduleReference.expression.text;
             } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
                 specifier = node.argument.literal.text;
-            } else if (ts.isCallExpression(node) && node.arguments.length && ts.isStringLiteral(node.arguments[0]) &&
+            } else if (ts.isCallExpression(node) && node.arguments.length &&
                 (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
                     (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
-                specifier = node.arguments[0].text;
+                specifier = literal(node.arguments[0]);
             }
             if (specifier) {
                 checked++;
                 const resolved = ts.resolveModuleName(specifier, file, options, ts.sys).resolvedModule;
-                const target = resolved ? owner(realpathSync(resolved.resolvedFileName)) :
+                const target = resolved ? owner(realpathSync(resolved.resolvedFileName)) : assetTarget(specifier) || (
                     specifier.startsWith('.') ? owner(path.resolve(path.dirname(file), specifier)) :
-                        packages.find((pkg) => specifier === `@keewebx/${pkg}` || specifier.startsWith(`@keewebx/${pkg}/`));
-                if (target && !allowed[name].includes(target)) {
+                        specifier === 'kdbxweb' ? 'db' :
+                            packages.find((pkg) => specifier === `@keewebx/${pkg}` || specifier.startsWith(`@keewebx/${pkg}/`)));
+                const unresolvedInternal = !resolved && !target &&
+                    (internalAliases.has(specifier.split('/')[0]) || specifier.startsWith('@keewebx/'));
+                if ((target && !allowed[name].includes(target)) || unresolvedInternal) {
                     const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
-                    console.error(`${path.relative(root, file)}:${line}: ${name} must not import ${target} (${specifier})`);
+                    console.error(`${path.relative(root, file)}:${line}: ${unresolvedInternal ? 'Unresolved internal import' : `${name} must not import ${target}`} (${specifier})`);
                     errors++;
                 }
             }

@@ -35,7 +35,10 @@ export default {
                 test: /\.tsx?$/,
                 use: {
                     loader: 'ts-loader',
-                    options: { transpileOnly: true }
+                    // Preserve ES imports for webpack's asset/source modules.
+                    // CommonJS emits require(svg).default, but SVG assets export
+                    // the markup itself and have no .default property.
+                    options: { transpileOnly: true, compilerOptions: { module: 'esnext' } }
                 },
                 exclude: /node_modules/
             },

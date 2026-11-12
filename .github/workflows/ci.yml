@@ -38,6 +38,11 @@ jobs:
         run: cd packages/db && bun run build
       - name: Run tsc --noEmit on packages/ui-classic (hard fail on any error)
         run: cd packages/ui-classic && bunx tsc --noEmit
+      - name: Type-check New UI and shared vault
+        run: |
+          cd packages/ui
+          bunx tsc --noEmit
+          bunx tsc --noEmit -p ../vault/tsconfig.json
       - name: Type-check webpack loaders (JSDoc, checkJs)
         run: cd packages/ui-classic && bunx tsc -p tsconfig.build.json
       - name: Type-check the service worker (WebWorker lib)
