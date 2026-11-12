@@ -72,6 +72,7 @@ export function Unlock({ model }: { model: AppModel }) {
                 {recent.map((file) => {
                     const on = pane.kind === 'recent' && pane.file.id === file.id;
                     return (
+                        <div class="vault-row-wrap" key={file.id}>
                         <button
                             class={on ? 'vault-row vault-row--on' : 'vault-row'}
                             data-vault={file.name}
@@ -85,6 +86,15 @@ export function Unlock({ model }: { model: AppModel }) {
                                 <span class="vault-row__where">{where(file)}</span>
                             </span>
                         </button>
+                        {!file.storage && model.settings.canRemoveLatest && <button class="round"
+                            aria-label={t('Remove {} from this browser', kdbxName(file.name))}
+                            title={t('Remove local copy')}
+                            onClick={() => {
+                                if (!window.confirm(t('Remove {} from this browser? Its encrypted local copy and recent entry will be deleted. Download a backup first if this is your only copy. Original files on disk are not deleted.', kdbxName(file.name)))) return;
+                                model.removeFileInfo(file.id);
+                                setPane({ kind: 'none' });
+                            }}><Icon name="trash" size={16} /></button>}
+                        </div>
                     );
                 })}
                 <h2 class={recent.length ? 'start__heading start__gap' : 'start__heading'}>{t('Add a vault')}</h2>

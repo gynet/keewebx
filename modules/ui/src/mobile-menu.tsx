@@ -9,14 +9,18 @@ export function MobileMenu({ children }: { children: ComponentChildren }) {
         catch { return 'right'; }
     });
     const start = useRef<number | null>(null);
+    const dragged = useRef(false);
+    const [collapsed, setCollapsed] = useState(false);
     const [offset, setOffset] = useState(0);
     const dock = (next: string) => {
         setSide(next);
         setOffset(0);
         try { localStorage.setItem(storageKey('menuSide'), next); } catch { /* Storage is optional. */ }
     };
-    return <div class="phone-bar" data-side={side} style={{ transform: `translateX(${offset}px)` }}>
-        <button class="round phone-bar__handle" aria-label={t('Move menu')} title={t('Drag left or right. Arrow keys also move the menu.')}
+    return <div class="phone-bar" data-side={side} data-collapsed={collapsed} style={{ transform: offset ? `translateX(${offset}px)` : undefined }}>
+        <button class="round phone-bar__handle" aria-label={t(collapsed ? 'Show menu' : 'Move menu')} aria-expanded={!collapsed}
+            title={t('Click to hide or show. Drag left or right. Arrow keys also move the menu.')}
+            onClick={() => { if (dragged.current) { dragged.current = false; return; } setCollapsed(!collapsed); }}
             onKeyDown={(event) => {
                 if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                     event.preventDefault(); dock(event.key === 'ArrowLeft' ? 'left' : 'right');
@@ -24,6 +28,7 @@ export function MobileMenu({ children }: { children: ComponentChildren }) {
             }}
             onPointerDown={(event) => {
                 start.current = event.clientX;
+                dragged.current = false;
                 event.currentTarget.setPointerCapture(event.pointerId);
             }}
             onPointerMove={(event) => {
@@ -32,6 +37,7 @@ export function MobileMenu({ children }: { children: ComponentChildren }) {
             onPointerUp={(event) => {
                 if (start.current === null) return;
                 const moved = Math.abs(event.clientX - start.current) > 8;
+                dragged.current = moved;
                 start.current = null;
                 dock(moved ? (event.clientX < window.innerWidth / 2 ? 'left' : 'right') : side);
             }}
@@ -41,6 +47,6 @@ export function MobileMenu({ children }: { children: ComponentChildren }) {
                 {[5, 10, 15].map((y) => <g key={y}><circle cx="5" cy={y} r="1.5" /><circle cx="11" cy={y} r="1.5" /></g>)}
             </svg>
         </button>
-        {children}
+        {!collapsed && children}
     </div>;
 }

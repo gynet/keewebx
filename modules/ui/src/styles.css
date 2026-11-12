@@ -729,6 +729,8 @@ button {
     display: none;
 }
 .vault-form__field { display: grid; gap: 8px; margin-bottom: 14px; text-align: left; }
+.vault-row-wrap { display: flex; align-items: center; gap: 4px; }
+.vault-row-wrap .vault-row { flex: 1; min-width: 0; }
 .database-advanced { margin: 12px 0; text-align: left; }
 .database-advanced summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
 .database-settings { padding: 20px; margin-bottom: 16px; }
@@ -754,6 +756,8 @@ button {
         height: 44px;
         border: 0;
     }
+    .vault .phone-bar[data-collapsed="true"] { right: 0; border-radius: 8px 0 0 8px; padding: 2px; }
+    .vault .phone-bar[data-collapsed="true"][data-side="left"] { left: 0; right: auto; border-radius: 0 8px 8px 0; }
     .settings__phone-back { display: flex; }
     .start {
         flex-direction: column-reverse;
