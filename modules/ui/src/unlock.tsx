@@ -6,6 +6,7 @@ import { Icon, Mark } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { CreateVault } from './create-vault';
+import { SwipeVaultRow } from './swipe-vault-row';
 
 interface RecentFile {
     id: string;
@@ -72,7 +73,7 @@ export function Unlock({ model }: { model: AppModel }) {
                 {recent.map((file) => {
                     const on = pane.kind === 'recent' && pane.file.id === file.id;
                     return (
-                        <div class="vault-row-wrap" key={file.id}>
+                        <SwipeVaultRow key={file.id}>
                         <button
                             class={on ? 'vault-row vault-row--on' : 'vault-row'}
                             data-vault={file.name}
@@ -86,7 +87,7 @@ export function Unlock({ model }: { model: AppModel }) {
                                 <span class="vault-row__where">{where(file)}</span>
                             </span>
                         </button>
-                        {!file.storage && model.settings.canRemoveLatest && <button class="round"
+                        {!file.storage && model.settings.canRemoveLatest && <button class="round vault-row__remove"
                             aria-label={t('Remove {} from this browser', kdbxName(file.name))}
                             title={t('Remove local copy')}
                             onClick={() => {
@@ -94,7 +95,7 @@ export function Unlock({ model }: { model: AppModel }) {
                                 model.removeFileInfo(file.id);
                                 setPane({ kind: 'none' });
                             }}><Icon name="trash" size={16} /></button>}
-                        </div>
+                        </SwipeVaultRow>
                     );
                 })}
                 <h2 class={recent.length ? 'start__heading start__gap' : 'start__heading'}>{t('Add a vault')}</h2>

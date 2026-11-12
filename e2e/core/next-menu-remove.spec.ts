@@ -9,6 +9,10 @@ test('removes a browser-local database only after confirmation; original file st
     await page.click('#unlock');
     await page.click('#lock');
     const remove = page.getByRole('button', { name: 'Remove KDBX4.1.kdbx from this browser', exact: true });
+    await page.mouse.move(1000, 50);
+    await expect(remove).toHaveCSS('opacity', '0');
+    await page.locator('.vault-row-wrap').hover();
+    await expect(remove).toHaveCSS('opacity', '1');
     page.once('dialog', (dialog) => dialog.dismiss());
     await remove.click();
     await expect(remove).toBeVisible();

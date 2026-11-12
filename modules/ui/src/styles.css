@@ -346,9 +346,9 @@ button {
     border-radius: var(--kx-radius-control);
     font-size: 12px;
     font-weight: 600;
-    background: hsla(var(--tag-hue, 200), 30%, 55%, 0.12);
+    background: hsla(var(--tag-hue, 200), 24%, 55%, 0.1);
     color: var(--kx-text);
-    box-shadow: inset 0 0 0 1px hsla(var(--tag-hue, 200), 35%, 55%, 0.2);
+    border: 1px solid hsla(var(--tag-hue, 200), 24%, 55%, 0.16);
 }
 .tag::before {
     content: '';
@@ -356,10 +356,10 @@ button {
     height: 7px;
     flex: none;
     border-radius: 50%;
-    background: hsl(var(--tag-hue, 200), 65%, 55%);
+    background: hsl(var(--tag-hue, 200), 35%, 55%);
 }
 .tag--on {
-    outline: 2px solid hsl(var(--tag-hue, 200), 65%, 55%);
+    outline: 2px solid hsl(var(--tag-hue, 200), 35%, 55%);
     outline-offset: 1px;
 }
 .side__foot {
@@ -729,8 +729,19 @@ button {
     display: none;
 }
 .vault-form__field { display: grid; gap: 8px; margin-bottom: 14px; text-align: left; }
-.vault-row-wrap { display: flex; align-items: center; gap: 4px; }
+.vault-row-wrap { display: flex; align-items: center; gap: 4px; touch-action: pan-y; }
 .vault-row-wrap .vault-row { flex: 1; min-width: 0; }
+.vault-row__remove { opacity: 0; pointer-events: none; }
+.vault-row-wrap:focus-within .vault-row__remove { opacity: 1; pointer-events: auto; }
+@media (hover: hover) and (pointer: fine) {
+    .vault-row-wrap:hover .vault-row__remove { opacity: 1; pointer-events: auto; }
+}
+@media (hover: none), (pointer: coarse) {
+    .vault-row-wrap .vault-row__remove { display: none; }
+    .vault-row-wrap[data-revealed="true"] .vault-row__remove {
+        display: flex; opacity: 1; pointer-events: auto; width: 44px; height: 44px;
+    }
+}
 .database-advanced { margin: 12px 0; text-align: left; }
 .database-advanced summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
 .database-settings { padding: 20px; margin-bottom: 16px; }
