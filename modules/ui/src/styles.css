@@ -337,6 +337,11 @@ button {
     gap: 6px;
     padding: 2px 8px;
 }
+.group-branch__row { display: flex; align-items: center; min-width: 0; }
+.group-branch__row .nav-row { flex: 1; min-width: 0; margin-left: 0; }
+.group-branch__toggle, .group-branch__spacer { width: 24px; flex: 0 0 24px; }
+.group-branch__toggle { display: grid; place-items: center; height: 32px; padding: 0; border: 0; background: transparent; color: var(--kx-muted); }
+.group-branch__children { margin-left: 14px; }
 .tag {
     display: inline-flex;
     align-items: center;

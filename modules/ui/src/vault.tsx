@@ -148,7 +148,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 {groups.length > 0 && <h2 class="side__heading">{t('Groups')}</h2>}
                 {groups.map((g) => (
-                    <NavRow icon="folder" label={g.title} on={filter.group === g.id} onClick={() => changeFilter({ group: g.id })} />
+                    <GroupBranch key={g.id} group={g} selected={filter.group} onSelect={(id) => changeFilter({ group: id })} />
                 ))}
                 {tags.length > 0 && <h2 class="side__heading">{t('Tags')}</h2>}
                 <div class="tags">
@@ -246,6 +246,29 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             )}
         </div>
     );
+}
+
+function GroupBranch({ group, selected, onSelect }: {
+    group: GroupLike; selected?: string; onSelect: (id: string) => void;
+}) {
+    const [expanded, setExpanded] = useState(true);
+    const children = Array.from(group.items ?? []).filter((child) => child.visible !== false);
+    return <div class="group-branch">
+        <div class="group-branch__row">
+            {children.length > 0 ? <button class="group-branch__toggle" type="button"
+                aria-label={t(expanded ? 'Collapse {}' : 'Expand {}', group.title)} aria-expanded={expanded}
+                onClick={() => setExpanded(!expanded)}>
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+                    style={{ transform: expanded ? 'rotate(90deg)' : undefined }}>
+                    <path d="m4 2 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+            </button> : <span class="group-branch__spacer" />}
+            <NavRow icon="folder" label={group.title} on={selected === group.id} onClick={() => onSelect(group.id)} />
+        </div>
+        {expanded && children.length > 0 && <div class="group-branch__children">
+            {children.map((child) => <GroupBranch key={child.id} group={child} selected={selected} onSelect={onSelect} />)}
+        </div>}
+    </div>;
 }
 
 function NavRow(props: { icon: string; label: string; on: boolean; onClick: () => void }) {
