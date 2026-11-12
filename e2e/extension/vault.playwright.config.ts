@@ -4,6 +4,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
     testDir: '.',
     testMatch: 'vault-extension.spec.ts',
+    outputDir: '../test-results-vault',
     workers: 1,
     retries: 0,
     timeout: 120000,

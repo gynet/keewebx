@@ -750,7 +750,7 @@ test('web mode popup: one approval, then list, details, copy and fill', async ()
     await popup.bringToFront();
     await expect(popup.locator('.section').first()).toHaveText('Suggested for github.com', { timeout: 20000 });
     await expect(popup.locator('.row--selected .row__title')).toHaveText('GitHub');
-    await expect(popup.locator('.row--selected .tile i.fa')).toHaveCount(1);
+    await expect(popup.locator('.row--selected .tile svg')).toHaveCount(1);
     await expect(popup.locator('#web-state')).toHaveText('Connected');
     await shot(popup, '42-web-list');
 
@@ -1043,7 +1043,7 @@ test('acceptance video', async () => {
     expect(raw.length).toBeGreaterThan(50);
 });
 
-test('popup shows the entry icon, and a letter only for the default key', async () => {
+test('popup preserves custom and built-in entry icons with a key fallback, never letters', async () => {
     const db = await loadVault(davFiles.get('/vault.kdbx')!.data);
     const iconId = kdbxweb.KdbxUuid.random();
     db.meta.customIcons.set(iconId.id, {
@@ -1069,13 +1069,16 @@ test('popup shows the entry icon, and a letter only for the default key', async 
 
     const tile = (title: string) => popup.locator(`.row[data-entry="${title}"] .tile`);
     await expect(tile('With picture').locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
-    await expect(tile('With icon').locator('i.fa')).toHaveCount(1);
-    expect(
-        await tile('With icon')
-            .locator('i.fa')
-            .evaluate((el) => getComputedStyle(el, '::before').fontFamily)
-    ).toContain('Font Awesome');
-    await expect(tile('Test')).toHaveText('T');
+    await expect(tile('With picture').locator('svg')).toHaveCount(0);
+    await expect(tile('With icon').locator('svg')).toHaveCount(1);
+    await expect(tile('With icon').locator('svg path').first()).toHaveAttribute('d', /.+/);
+    await expect(tile('With icon')).toHaveText('');
+    await expect(tile('Test').locator('svg')).toHaveCount(1);
+    await expect(tile('Test')).toHaveText('');
+    // The standard icon and key fallback must remain visually distinct.
+    expect(await tile('With icon').locator('svg').innerHTML()).not.toBe(
+        await tile('Test').locator('svg').innerHTML()
+    );
     await shot(popup, '31-popup-entry-icons');
 
     // The demo vault: every entry there has its own icon.
@@ -1084,7 +1087,7 @@ test('popup shows the entry icon, and a letter only for the default key', async 
     await demo.click('#lock');
     await demo.click('#unlock-other');
     await demo.click('#start-demo');
-    await expect(demo.locator('.row--selected .tile i.fa')).toHaveCount(1, { timeout: 30000 });
+    await expect(demo.locator('.row--selected .tile svg')).toHaveCount(1, { timeout: 30000 });
     await shot(demo, '32-popup-demo-icons');
 });
 
