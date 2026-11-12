@@ -425,7 +425,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     tags={'tag' in editing && editing.tag ? [editing.tag] : []}
                     onSave={saveEntry} onCancel={() => setEditing(null)} />
             ) : entry ? (
-                <EntryDetail key={entry.id} model={model} entry={entry} onBack={() => setSelected(undefined)}
+                <EntryDetail key={entry.id} model={model} entry={entry} onBack={() => {
+                    if (confirmDiscardDrafts()) setSelected(undefined);
+                }}
                     onEdit={() => { if (confirmDiscardDrafts()) setEditing({ entry }); }}
                     onMoved={(entryId, groupId) => {
                         setFilter({ group: groupId });

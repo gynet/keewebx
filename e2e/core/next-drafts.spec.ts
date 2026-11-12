@@ -63,3 +63,41 @@ test('saves a draft before automatic idle lock', async ({ page }) => {
     await reopen(page);
     await expect(page.locator('.entry-row[data-entry="Idle saved draft"]')).toBeVisible();
 });
+
+for (const theme of ['light', 'dark']) {
+    test(`phone Back protects unsaved notes and respects explicit discard (${theme})`, async ({ page }) => {
+        await page.setViewportSize({ width: 320, height: 568 });
+        await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' });
+        await page.goto('/next.html');
+        await page.click('#open-demo');
+        const row = page.locator('.entry-row[data-entry="GitHub"]');
+        await row.click();
+        const notes = page.getByRole('region', { name: 'Notes', exact: true });
+        const input = notes.getByRole('textbox', { name: 'Notes', exact: true });
+        await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
+        const original = await input.inputValue();
+        await input.fill('Keep this unsaved mobile note');
+        page.once('dialog', async dialog => {
+            expect(dialog.type()).toBe('confirm');
+            expect(dialog.message()).toBe('Discard unsaved changes?');
+            await dialog.dismiss();
+        });
+        await page.getByRole('button', { name: 'Back', exact: true }).click();
+        await expect(input).toHaveValue('Keep this unsaved mobile note');
+        await expect(page.locator('#entry-title')).toHaveText('GitHub');
+
+        page.once('dialog', dialog => dialog.accept());
+        await page.getByRole('button', { name: 'Back', exact: true }).click();
+        await expect(page.locator('#entry-title')).toHaveCount(0);
+        await row.click();
+        await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
+        await expect(input).toHaveValue(original);
+
+        await input.fill('Saved mobile note');
+        await notes.getByRole('button', { name: 'Save', exact: true }).click();
+        await page.getByRole('button', { name: 'Back', exact: true }).click();
+        await expect(page.locator('#entry-title')).toHaveCount(0);
+        await row.click();
+        await expect(notes.locator('.notes')).toHaveText('Saved mobile note');
+    });
+}
