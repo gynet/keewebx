@@ -149,6 +149,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         </span>
                     </span>
                 </div>
+                <div class="side__content">
                 <NavRow icon="grid" label={t('All items')} on={!filter.group && !filter.tag && !filter.trash} onClick={() => changeFilter({})} />
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 {groups.length > 0 && <h2 class="side__heading">{t('Groups')}</h2>}
@@ -167,6 +168,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             {tag}
                         </button>
                     ))}
+                </div>
                 </div>
                 <div class="side__foot">
                     <span style={{ flexGrow: 1 }} />

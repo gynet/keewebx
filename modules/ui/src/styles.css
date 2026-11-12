@@ -286,9 +286,17 @@ button {
     padding: 14px 12px;
     background: var(--kx-side);
     border-right: 1px solid var(--kx-line);
+    min-height: 0;
+    overflow: hidden;
+}
+.side__content {
+    flex: 1;
+    min-height: 0;
     overflow: auto;
+    overscroll-behavior: contain;
 }
 .side__vault {
+    flex: none;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -399,6 +407,7 @@ button {
     outline-offset: 1px;
 }
 .side__foot {
+    flex: none;
     margin-top: auto;
     display: flex;
     align-items: center;
