@@ -32,7 +32,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await page.getByLabel('Default user', { exact: true }).fill('saved-user');
     await page.getByLabel('Enable trash', { exact: true }).uncheck();
     await page.getByRole('button', { name: 'Save database settings', exact: true }).click();
-    await expect(page.getByRole('status')).toHaveText('Database settings saved.');
+    await expect(page.getByRole('status')).toHaveText('Saved in browser storage. Download KDBX to update your external copy.');
     await page.click('#settings-back');
     await page.click('#lock');
     await expect(page.locator('#password')).toBeVisible();
