@@ -518,3 +518,24 @@ describe('remote cache acknowledgements', () => {
         expect(h.infos.save).not.toHaveBeenCalled();
     });
 });
+
+
+describe('registered connection metadata across recent-row replacement', () => {
+    for (const changed of ['none', 'storage', 'path'] as const) test(`preserves descriptors only for the same destination (${changed})`, async () => {
+        const {registerFileInfoField} = await import('../../../vault/src/hooks/data-registry');
+        registerFileInfoField('exampleConnection', null);
+        const h = model();
+        const previous = new Info({id: 'record', storage: 'example', path: 'original', exampleConnection: {ids: ['credential']}, unregistered: 'discard'});
+        h.infos.push(previous);
+        (h.infos as any).remove = (id: string) => { const index = h.infos.findIndex(info => info.id === id); if (index >= 0) h.infos.splice(index, 1); };
+        const file = new PendingFile({id: 'record', active: true, storage: changed === 'storage' ? 'other' : 'example', path: changed === 'path' ? 'other' : 'original'});
+        AppModel.prototype.addToLastOpenFiles.call(h.app, file as unknown as RealFile, 'revision');
+        await settle();
+        const current = h.infos.get('record') as any;
+        expect(current).not.toBe(previous);
+        expect(current.exampleConnection).toEqual(changed === 'none' ? {ids: ['credential']} : undefined);
+        expect(current.unregistered).toBeUndefined();
+        (previous as any).exampleConnection.ids.push('late mutation');
+        if (changed === 'none') expect(current.exampleConnection.ids).toEqual(['credential']);
+    });
+});

@@ -20,6 +20,7 @@ import { Locale } from 'util/locale';
 import { Logger } from 'util/logger';
 import { debounce, noop } from 'util/fn';
 import { runBeforeOpen, runBeforeSync } from 'hooks/storage-guards';
+import { getRegisteredFileInfoFields } from 'hooks/data-registry';
 import { SyncScheduler } from 'comp/app/sync-scheduler';
 import { getSessionAccess } from 'comp/app/session-access';
 import { SettingsStore } from 'comp/settings/settings-store';
@@ -1133,7 +1134,13 @@ class AppModel {
         // registration (#9) on any password-fallback re-open.
         const existingFileInfo = this.fileInfos.get(file.id);
         this.getStoreOpts(file).then((storeOpts) => {
+            // Registered descriptors belong to this exact storage destination. They have
+            // no FileModel counterpart and must survive replacing a recent-file row.
+            const extra = existingFileInfo?.storage === file.storage && existingFileInfo.path === file.path
+                ? Object.fromEntries([...getRegisteredFileInfoFields().keys()].map(key =>
+                    [key, (existingFileInfo as unknown as Record<string, unknown>)[key]])) : {};
             const fileInfo = new FileInfoModel({
+                ...JSON.parse(JSON.stringify(extra)),
                 id: file.id,
                 name: file.name,
                 storage: file.storage,
