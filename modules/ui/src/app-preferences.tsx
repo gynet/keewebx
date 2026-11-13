@@ -4,7 +4,7 @@ import { Events } from 'framework/events';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { Links } from 'const/links';
 import { RuntimeInfo } from 'const/runtime-info';
-import { t } from './i18n';
+import { currentLocale, t } from './i18n';
 import './app-preferences.css';
 
 export function usePreferences() {
@@ -88,6 +88,13 @@ export function AuditPreferences() {
 /** App-wide preferences stay active while settings and the vault are mounted. */
 export function PreferenceEffects() {
     const values = usePreferences();
+    const locale = currentLocale();
+    useEffect(() => { document.documentElement.lang = locale; }, [locale]);
+    useEffect(() => {
+        const changed = () => Events.emit('set-locale');
+        window.addEventListener('languagechange', changed);
+        return () => window.removeEventListener('languagechange', changed);
+    }, []);
     useEffect(() => {
         document.documentElement.dataset.textSize = String([0, 1, 2].includes(values.fontSize) ? values.fontSize : 0);
     }, [values.fontSize]);

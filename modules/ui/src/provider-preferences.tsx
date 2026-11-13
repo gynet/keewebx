@@ -18,7 +18,7 @@ type Provider = StorageBase & {
     getSettingsConfig?(): { fields: ConfigField[] };
     applySetting?(key: string, value: unknown): void;
 };
-const label = (key: string) => (Locale as Record<string, string>)[key] || t(key);
+const label = (key: string) => t((Locale as Record<string, string>)[key] || key);
 
 export function ProviderPreferences({ model }: { model: AppModel }) {
     usePreferences();
