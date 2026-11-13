@@ -1,0 +1,15 @@
+.entry-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; }
+.entry-table th, .entry-table td { padding: 8px 6px; overflow-wrap: anywhere; vertical-align: middle; border-bottom: 1px solid var(--kx-line); }
+.entry-table thead { position: sticky; top: 0; background: var(--kx-bg); z-index: 1; }
+.entry-table th:first-child { width: 150px; }
+.entry-table tbody th { padding: 0; }
+.entry-table .entry-row { gap: 5px; padding: 8px 4px; font-size: 13px; align-items: flex-start; }
+.entry-table .entry-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.entry-table .tile { width: 24px; height: 24px; flex-shrink: 0; }
+.entry-table small { display: block; font-weight: 400; color: var(--kx-muted); }
+.entry-table tr[data-selected=true] { background: var(--kx-sel); }
+.entry-table td { font-size: 12px; }
+.entry-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 10px; font-size: 12px; }
+.entry-pages button { min-height: 44px; font-size: 12px; padding: 4px 8px; }
+.entry-table td { white-space: pre-wrap; }
+.entry-table th { min-width: 0; }

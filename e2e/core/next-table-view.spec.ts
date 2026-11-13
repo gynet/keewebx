@@ -1,0 +1,77 @@
+import { test, expect } from '@playwright/test';
+import * as kdbx from '../../modules/db/lib';
+import { argon2 } from '../../modules/db/test/test-support/argon2';
+
+const password = 'Table fixture master';
+test('desktop table uses shared search, sorting and keyboard selection and preserves drafts on mobile fallback', async ({ page }) => {
+    kdbx.CryptoEngine.setArgon2Impl(argon2);
+    const db = kdbx.Kdbx.create(new kdbx.Credentials(kdbx.ProtectedValue.fromString(password)), 'Table vault');
+    db.header.kdfParameters!.set('M', kdbx.VarDictionary.ValueType.UInt64, kdbx.Int64.from(32 * 1024));
+    db.header.kdfParameters!.set('I', kdbx.VarDictionary.ValueType.UInt64, kdbx.Int64.from(2));
+    for (const title of ['Alpha', 'Beta']) {
+        const entry = db.createEntry(db.getDefaultGroup());
+        entry.fields.set('Title', title); entry.fields.set('UserName', title + '-user');
+        entry.fields.set('URL', 'https://example.test/' + title);
+        entry.fields.set('Password', kdbx.ProtectedValue.fromString('TableSecretNeverRender'));
+        entry.fields.set('Private', kdbx.ProtectedValue.fromString('CustomSecretNeverRender'));
+        if (title === 'Beta') {
+            entry.fields.set('UserName', kdbx.ProtectedValue.fromString('ProtectedUserNeverRender'));
+            entry.fields.set('URL', kdbx.ProtectedValue.fromString('https://protected.example.com'));
+            entry.fields.set('Notes', kdbx.ProtectedValue.fromString('Protected notes\nsecond secret line'));
+        }
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/next.html'); await page.locator('#open-file-input').setInputFiles({ name: 'table.kdbx', mimeType: 'application/octet-stream', buffer: Buffer.from(await db.save()) });
+    await page.locator('#password').fill(password); await page.locator('#unlock').click();
+    await expect(page.locator('.entry-row')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByLabel('Show entries as a table on desktop', { exact: true }).check();
+    await page.getByText('Table columns', { exact: true }).click();
+    const columns = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Table columns' }) });
+    for (const name of ['Notes', 'Group', 'Database']) await columns.getByRole('checkbox', { name, exact: true }).check();
+    await expect(columns.getByRole('checkbox', { name: 'Title', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: 'Back to vault', exact: true }).filter({ visible: true }).click();
+    const table = page.getByRole('table', { name: 'Entries table', exact: true });
+    await expect(table.getByRole('columnheader')).toHaveText(['Title', 'Username', 'Website', 'Notes', 'Group', 'Database']);
+    await expect(table.getByRole('row')).toHaveCount(3);
+    await expect(table).toContainText('Alpha-user');
+    for (const secret of ['ProtectedUserNeverRender', 'protected.example.com', 'second secret line']) await expect(table).not.toContainText(secret);
+    await expect(table).toContainText('••••••');
+    await expect(table).not.toContainText('TableSecretNeverRender'); await expect(table).not.toContainText('CustomSecretNeverRender');
+    await page.getByRole('combobox', { name: 'Sort entries', exact: true }).selectOption('-title');
+    await expect(table.locator('[data-entry-id]').first()).toHaveAttribute('data-entry', 'Beta');
+    await page.locator('#search').fill('Alpha'); await expect(table.locator('[data-entry-id]')).toHaveCount(1);
+    await page.locator('#search').fill(''); await page.locator('#search').press('ArrowDown');
+    await expect(page.locator('#entry-title')).toHaveText('Beta');
+    await page.keyboard.press('ArrowDown'); await expect(page.locator('#entry-title')).toHaveText('Alpha');
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.locator('.entry-editor').getByLabel('Notes', { exact: true }).fill('Keep my table draft');
+    page.once('dialog', dialog => dialog.dismiss());
+    await table.locator('[data-entry="Beta"]').click();
+    await expect(page.locator('.entry-editor').getByLabel('Notes', { exact: true })).toHaveValue('Keep my table draft');
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(table).toHaveCount(0);
+    await expect(page.locator('.entry-editor').getByLabel('Notes', { exact: true })).toHaveValue('Keep my table draft');
+    await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
+    await page.setViewportSize({ width: 1280, height: 900 }); await expect(table).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath('table-desktop.png') });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    const downloadEvent = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
+    const stream = await (await downloadEvent).createReadStream(); if (!stream) throw new Error('No encrypted download');
+    const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const reopened = await kdbx.Kdbx.load(new Uint8Array(Buffer.concat(chunks)).buffer, new kdbx.Credentials(kdbx.ProtectedValue.fromString(password)));
+    const entries = [...reopened.getDefaultGroup().allEntries()]; expect(entries).toHaveLength(2);
+    const beta = entries.find(entry => entry.fields.get('Title') === 'Beta')!;
+    for (const key of ['UserName', 'URL', 'Notes']) expect(beta.fields.get(key)).toBeInstanceOf(kdbx.ProtectedValue);
+    expect((beta.fields.get('Notes') as kdbx.ProtectedValue).getText()).toBe('Protected notes\nsecond secret line');
+    const alpha = entries.find(entry => entry.fields.get('Title') === 'Alpha')!;
+    expect(alpha.fields.get('Notes')).toBe('Keep my table draft');
+    expect(alpha.fields.get('Password')).toBeInstanceOf(kdbx.ProtectedValue);
+    expect((alpha.fields.get('Private') as kdbx.ProtectedValue).getText()).toBe('CustomSecretNeverRender');
+    await page.reload(); await page.locator('#password').fill(password); await page.locator('#unlock').click();
+    await expect(table).toBeVisible();
+    await expect(table.getByRole('columnheader')).toHaveText(['Title', 'Username', 'Website', 'Notes', 'Group', 'Database']);
+    await page.setViewportSize({ width: 320, height: 900 }); await expect(table).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

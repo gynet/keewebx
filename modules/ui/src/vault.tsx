@@ -1,4 +1,5 @@
 import { EntryAppearance, EntryFlag, EntryColorFilter } from './entry-appearance';
+import { EntryListing } from './entry-listing';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { PasswordAudit } from './password-audit';
 import { PreferenceTile } from './preference-tile';
@@ -590,7 +591,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 }} />}
                 <EntryColorFilter value={filter.color === true ? 'any' : filter.color || undefined} onChange={color => changeFilter({ ...filter, color: color === 'any' ? true : color || undefined })} />
                 <p class="list__meta">{t('{} items', String(entries.length))}</p>
-                <div class="list__items">
+                <EntryListing entries={entries} selected={selected} choose={chooseEntry} historyMatch={entry => !!historyFilter && !entry.matches(historyFilter)}>
                     {entries.map((e) => {
                         const s = summarizeEntry(e);
                         return (
@@ -611,7 +612,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             </button>
                         );
                     })}
-                </div>
+                </EntryListing>
             </section>
 
             <PanelResizer label={t('Resize entries panel')} value={layout.list} min={240} max={layout.listMax}
