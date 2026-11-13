@@ -674,6 +674,10 @@ describe('XmlUtils', () => {
             expect(item2!.protectedValue).toBeTruthy();
             expect(inner!.protectedValue).toBeTruthy();
             expect(inner!.protectedValue!.getText()).toBe('032');
+            const empty = XmlUtils.getChildNode(item1, 'i2');
+            expect(XmlUtils.getProtectedText(empty!)).toBeInstanceOf(ProtectedValue);
+            expect(empty!.protectedValue!.getText()).toBe('');
+            expect(count).toBe(2); // Empty values must not shift subsequent stream salts.
             expect(item2!.protectedValue!.getText()).toBe('674');
         });
 

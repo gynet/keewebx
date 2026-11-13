@@ -342,6 +342,10 @@ export function setProtectedValues(node: Node, protectSaltGenerator: ProtectSalt
                 if (value.byteLength) {
                     const salt = protectSaltGenerator.getSalt(value.byteLength);
                     node.protectedValue = new ProtectedValue(value, salt);
+                } else {
+                    // Empty template fields still carry protection on reopen.
+                    // They consume no bytes from the protected-value stream.
+                    node.protectedValue = new ProtectedValue(value, new ArrayBuffer(0));
                 }
             } catch (e) {
                 throw new KdbxError(
