@@ -12,6 +12,7 @@ import { ExtensionSessions, type ExtensionSessionsApi } from './extension-sessio
 import { discardPendingDrafts } from './pending-drafts';
 import { GeneralPreferences } from './general-preferences';
 import { ClassicSwitch } from './classic-switch';
+import { StoragePreferences } from './storage-preferences';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
@@ -153,6 +154,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                     </section>
                     <section id="settings-panel-saving" role="tabpanel" aria-labelledby="settings-tab-saving" hidden={section !== 'saving'}>
                         <GeneralPreferences model={model} />
+                        <StoragePreferences model={model} />
                     </section>
                     <section id="settings-panel-extensions" role="tabpanel" aria-labelledby="settings-tab-extensions" hidden={section !== 'extensions'}>
                         <ExtensionSessions model={model} api={extensionSessions} onBack={() => select('appearance')} />

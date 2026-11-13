@@ -17,16 +17,16 @@ class StorageCache extends StorageBase {
         return this;
     }
 
-    save(id: string, opts: unknown, data: unknown, callback?: CacheCallback): void {
-        this.io!.save(id, data, callback);
+    save(id: string, opts: unknown, data: unknown, callback?: CacheCallback, canWrite?: () => boolean): void {
+        this.io!.save(id, data, callback, canWrite);
     }
 
     load(id: string, opts: unknown, callback?: CacheCallback): void {
         this.io!.load(id, callback);
     }
 
-    remove(id: string, opts?: unknown, callback?: CacheCallback): void {
-        this.io!.remove(id, callback);
+    remove(id: string, opts?: unknown, callback?: CacheCallback, canRemove?: () => boolean): void {
+        this.io!.remove(id, callback, canRemove);
     }
 }
 

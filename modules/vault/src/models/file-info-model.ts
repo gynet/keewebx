@@ -8,6 +8,8 @@ interface FileInfoProperties {
     storage: string | null;
     path: string | null;
     modified: boolean;
+    // Remote revision may advance even when its optional cached bytes did not.
+    cacheInvalid: boolean;
     editState: unknown | null;
     rev: string | null;
     syncDate: Date | null;
@@ -42,6 +44,7 @@ const DefaultProperties: FileInfoProperties = {
     storage: null,
     path: null,
     modified: false,
+    cacheInvalid: false,
     editState: null,
     rev: null,
     syncDate: null,
@@ -67,6 +70,7 @@ class FileInfoModel extends Model {
     declare storage: string | null;
     declare path: string | null;
     declare modified: boolean;
+    declare cacheInvalid: boolean;
     declare editState: unknown | null;
     declare rev: string | null;
     declare syncDate: Date | null;

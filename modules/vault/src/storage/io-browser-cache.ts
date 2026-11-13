@@ -20,6 +20,7 @@ class IoBrowserCache {
     db: IDBDatabase | null = null;
     cacheName: string;
     logger: Logger;
+    private opening: CacheCallback[] | null = null;
 
     static readonly enabled: boolean = !!idb;
 
@@ -32,50 +33,62 @@ class IoBrowserCache {
         if (this.db) {
             return callback?.();
         }
+        // All callers share one connection and enqueue transactions in call order.
+        // Separate open requests can otherwise let an older import overwrite a save.
+        if (this.opening) { this.opening.push(callback ?? (() => {})); return; }
+        this.opening = [callback ?? (() => {})];
+        const finish = (error?: unknown) => {
+            const callbacks = this.opening;
+            this.opening = null;
+            for (const done of callbacks ?? []) done(error);
+        };
         try {
             const req = idb!.open(this.cacheName);
-            req.onerror = (e) => {
-                this.logger.error('Error opening indexed db', e);
-                callback?.(e);
+            req.onerror = () => finish(req.error || new Error('Cannot open browser storage'));
+            req.onsuccess = () => {
+                const db = req.result;
+                this.db = db;
+                const closed = () => { if (this.db === db) this.db = null; };
+                db.onversionchange = () => { db.close(); closed(); };
+                db.onclose = closed;
+                finish();
             };
-            req.onsuccess = (e) => {
-                this.db = (e.target as IDBOpenDBRequest).result;
-                callback?.();
+            req.onupgradeneeded = () => {
+                req.result.createObjectStore('files');
             };
-            req.onupgradeneeded = (e) => {
-                const db = (e.target as IDBOpenDBRequest).result;
-                db.createObjectStore('files');
-            };
-        } catch (e) {
-            this.logger.error('Error opening indexed db', e);
-            callback?.(e);
+        } catch (error) {
+            this.logger.error('Error opening indexed db', error);
+            finish(error);
         }
     }
 
-    save(id: string, data: unknown, callback?: CacheCallback): void {
+    save(id: string, data: unknown, callback?: CacheCallback, canWrite?: () => boolean): void {
         this.logger.debug('Save', id);
-        this.initDb((err) => {
-            if (err) {
-                return callback?.(err);
-            }
+        this.write(id, (store) => store.put(data, id), callback, canWrite);
+    }
+
+    /** A request may succeed and still roll back. Only the transaction commits bytes. */
+    private write(id: string, operation: (store: IDBObjectStore) => IDBRequest, callback?: CacheCallback, canWrite?: () => boolean): void {
+        let completed = false;
+        const finish = (error?: unknown) => {
+            if (completed) return;
+            completed = true;
+            if (error) this.logger.error('Cache transaction failed', id, error);
+            callback?.(error);
+        };
+        this.initDb((error) => {
+            if (error) return finish(error);
             try {
-                const ts = this.logger.ts();
-                const req = this.db!
-                    .transaction(['files'], 'readwrite')
-                    .objectStore('files')
-                    .put(data, id);
-                req.onsuccess = () => {
-                    this.logger.debug('Saved', id, this.logger.ts(ts));
-                    callback?.();
-                };
-                req.onerror = () => {
-                    this.logger.error('Error saving to cache', id, req.error);
-                    callback?.(req.error);
-                };
-            } catch (e) {
-                this.logger.error('Error saving to cache', id, e);
-                callback?.(e);
-            }
+                // Recheck at transaction creation, after any asynchronous database open.
+                if (canWrite && !canWrite()) return finish();
+                const tx = this.db!.transaction(['files'], 'readwrite', { durability: 'strict' });
+                let failure: unknown;
+                tx.oncomplete = () => finish(failure);
+                tx.onabort = () => finish(tx.error || failure || new Error('Cache transaction aborted'));
+                tx.onerror = () => { failure = tx.error || failure || new Error('Cache transaction failed'); };
+                const request = operation(tx.objectStore('files'));
+                request.onerror = () => { failure = request.error || new Error('Cache request failed'); };
+            } catch (error) { finish(error); }
         });
     }
 
@@ -106,31 +119,9 @@ class IoBrowserCache {
         });
     }
 
-    remove(id: string, callback?: CacheCallback): void {
+    remove(id: string, callback?: CacheCallback, canRemove?: () => boolean): void {
         this.logger.debug('Remove', id);
-        this.initDb((err) => {
-            if (err) {
-                return callback?.(err);
-            }
-            try {
-                const ts = this.logger.ts();
-                const req = this.db!
-                    .transaction(['files'], 'readwrite')
-                    .objectStore('files')
-                    .delete(id);
-                req.onsuccess = () => {
-                    this.logger.debug('Removed', id, this.logger.ts(ts));
-                    callback?.();
-                };
-                req.onerror = () => {
-                    this.logger.error('Error removing from cache', id, req.error);
-                    callback?.(req.error);
-                };
-            } catch (e) {
-                this.logger.error('Error removing from cache', id, e);
-                callback?.(e);
-            }
-        });
+        this.write(id, (store) => store.delete(id), callback, canRemove);
     }
 }
 

@@ -9,6 +9,7 @@ type Callback = (error?: unknown) => void;
 const bytes = new Uint8Array([1, 2, 3, 4]).buffer;
 const password = 'admission-test-password';
 const cacheSave = mock((_id: string, _opts: unknown, _data: ArrayBuffer, done?: Callback) => done?.());
+const cacheRemove = mock((_id: string, _opts: unknown, done?: Callback, canRemove?: () => boolean) => { if (canRemove?.() !== false) done?.(); });
 const cacheLoad = mock((_id: string, _opts: unknown, _done: (error: unknown, data?: ArrayBuffer) => void) => {});
 const remoteLoad = mock((_path: unknown, _opts: unknown, _done: (error: unknown, data?: ArrayBuffer) => void) => {});
 const remoteSave = mock(() => {});
@@ -22,6 +23,9 @@ class PendingFile extends EventEmitter {
     active = false;
     demo = false;
     syncing = false;
+    editSeq = 0;
+    syncStartEditSeq = 0;
+    set = (props: object) => Object.assign(this, props);
     dirty = true;
     modified = true;
     storage: string | null = null;
@@ -35,7 +39,7 @@ class PendingFile extends EventEmitter {
     setPassword = mock(() => {});
     getDataForSync = mock((done: (data: ArrayBuffer) => void) => done(bytes));
     getLocalEditState = () => null;
-    setSyncProgress = mock(() => { this.syncing = true; });
+    setSyncProgress = mock(() => { this.syncing = true; this.syncStartEditSeq = this.editSeq; });
     setSyncComplete = mock(() => { this.syncing = false; this.dirty = false; this.modified = false; return true; });
     constructor(props: Record<string, unknown>) {
         super(); Object.assign(this, props); PendingFile.created.push(this);
@@ -68,7 +72,7 @@ const events = new EventEmitter();
 class QuietLogger { info() {} debug() {} error() {} warn() {} }
 mock.module('framework/events', () => ({ Events: events }));
 mock.module('storage', () => ({ Storage: {
-    cache: { save: cacheSave, load: cacheLoad },
+    cache: { save: cacheSave, load: cacheLoad, remove: cacheRemove },
     webdav: { name: 'webdav', enabled: true, load: remoteLoad, save: remoteSave }
 } }));
 mock.module('collections/search-result-collection', () => ({ SearchResultCollection: class {} }));
@@ -129,7 +133,7 @@ function model() {
 type Harness = ReturnType<typeof model>;
 beforeEach(() => {
     PendingFile.created = []; Info.created = []; nextId = 0; events.removeAllListeners();
-    for (const call of [cacheSave, cacheLoad, remoteLoad, remoteSave, beforeSync]) call.mockClear();
+    for (const call of [cacheSave, cacheLoad, cacheRemove, remoteLoad, remoteSave, beforeSync]) call.mockClear();
 });
 type Phase = 'securing' | 'recovery-required' | 'reopened';
 function advanceEmpty(app: Model, phase: Phase) {
@@ -389,5 +393,96 @@ describe('AppModel background sync admission', () => {
         beforeSync.mockImplementationOnce(() => { h.file.db = { credentials: h.file.db.credentials }; });
         h.app.syncFile(h.real, undefined, done);
         expect(done.mock.calls).toEqual([['Sync request expired']]); expectNoSync(h, 1);
+    });
+});
+
+
+describe('cache durability ownership', () => {
+    test('local import queues primary bytes before the consumer can edit and save', async () => {
+        const h = model(); h.app.settings.disableOfflineStorage = true;
+        let finish!: Callback;
+        cacheSave.mockImplementationOnce((_id, _opts, _data, done) => { finish = done!; });
+        h.app.openFile({ name: 'import', fileData: bytes }, (_err, real) => {
+            expect(cacheSave).toHaveBeenCalledTimes(1);
+            const file = real as unknown as PendingFile;
+            file.editSeq++; file.dirty = true;
+        });
+        const file = PendingFile.created[0]; file.modified = false;
+        file.finishOpen(); await settle();
+        finish(); expect(file.dirty).toBe(true);
+    });
+    test('failed local import remains dirty even when optional caching is disabled', async () => {
+        const h = model(); h.app.settings.disableOfflineStorage = true;
+        cacheSave.mockImplementationOnce((_id, _opts, _data, done) => done?.(new Error('quota')));
+        h.app.openFile({ name: 'import', fileData: bytes }, mock());
+        const file = PendingFile.created[0]; file.modified = false;
+        file.finishOpen(); await settle();
+        expect(file.dirty).toBe(true);
+        expect((file as any).syncError).toContain('Browser storage could not save');
+        h.infos.push(new Info({ id: file.id, name: file.name }));
+        h.app.syncFile(file as unknown as RealFile); await settle();
+        expect(cacheSave).toHaveBeenCalledTimes(2);
+    });
+    for (const change of ['edit', 'sync', 'replace', 'close'] as const) {
+        test(`late import completion cannot clear dirty after ${change}`, async () => {
+            const h = model(); let finish!: Callback;
+            cacheSave.mockImplementationOnce((_id, _opts, _data, done) => { finish = done!; });
+            h.app.openFile({ name: 'import', fileData: bytes }, mock());
+            const file = PendingFile.created[0]; file.finishOpen(); await settle();
+            if (change === 'edit') file.editSeq++;
+            if (change === 'sync') file.syncing = true;
+            if (change === 'replace') file.db = { credentials: file.db.credentials };
+            if (change === 'close') file.active = false;
+            finish(); expect(file.dirty).toBe(true);
+        });
+    }
+    test('purge excludes local, modified, dirty and syncing vaults', () => {
+        const h = model();
+        for (const [id, props] of Object.entries({ local: { storage: null }, modified: { modified: true },
+            dirty: { dirty: true }, syncing: { syncing: true }, eligible: {} })) {
+            h.infos.push(new Info({ id, storage: 'webdav', modified: false, ...props }));
+            h.files.push(new PendingFile({ id, dirty: false, modified: false, ...props }));
+        }
+        const done = mock(); h.app.deleteAllCachedFiles(done);
+        expect(cacheRemove.mock.calls.map(call => call[0])).toEqual(['eligible']);
+        expect(done.mock.calls).toEqual([[undefined]]);
+    });
+    test('purge guard rejects a copy that became modified while database open was pending', () => {
+        const h = model(); const info = new Info({ id: 'remote', storage: 'webdav', modified: false });
+        h.infos.push(info);
+        let guard!: () => boolean; let finish!: Callback;
+        cacheRemove.mockImplementationOnce((_id, _opts, done, canRemove) => { guard = canRemove!; finish = done!; });
+        const done = mock(); h.app.deleteAllCachedFiles(done);
+        expect(guard()).toBe(true); info.set({ modified: true }); expect(guard()).toBe(false);
+        finish(); expect(done).toHaveBeenCalledTimes(1);
+    });
+    test('purge aggregates transaction failures and ignores duplicate callbacks', () => {
+        const h = model();
+        h.infos.push(new Info({ id: 'a', storage: 'webdav' }), new Info({ id: 'b', storage: 'webdav' }));
+        const error = new Error('abort');
+        cacheRemove.mockImplementationOnce((_id, _opts, done) => { done?.(error); done?.(); });
+        const done = mock(); h.app.deleteAllCachedFiles(done);
+        expect(done.mock.calls).toEqual([[error]]);
+    });
+});
+
+
+describe('remote cache acknowledgements', () => {
+    test('a cache commit for an older edit never clears newer dirty data during upload', async () => {
+        const h = syncHarness(); h.file.storage = 'webdav'; h.infos[0].set({ storage: 'webdav' });
+        let finish!: Callback;
+        cacheSave.mockImplementationOnce((_id, _opts, _data, done) => { finish = done!; });
+        h.app.syncFile(h.real); await settle(); h.file.editSeq++;
+        finish(); expect(h.file.dirty).toBe(true); expect(remoteSave).toHaveBeenCalledTimes(1);
+    });
+    test('a cache commit cannot clear replacement database dirtiness or start its upload', async () => {
+        const h = syncHarness(); h.file.storage = 'webdav'; h.infos[0].set({ storage: 'webdav' });
+        let finish!: Callback;
+        cacheSave.mockImplementationOnce((_id, _opts, _data, done) => { finish = done!; });
+        h.app.syncFile(h.real); await settle();
+        h.file.db = { credentials: h.file.db.credentials };
+        h.file.setSyncComplete.mockImplementationOnce(() => { h.file.syncing = false; return false; });
+        finish(); expect(h.file.dirty).toBe(true); expect(remoteSave).not.toHaveBeenCalled();
+        expect(h.infos.save).not.toHaveBeenCalled();
     });
 });

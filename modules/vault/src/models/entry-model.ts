@@ -296,8 +296,10 @@ class EntryModel extends Model {
             if (file.historyMaxItems !== 0) {
                 this.entry.pushHistory();
             }
-            file.setModified();
         }
+        // History is grouped until synchronization, but every later mutation must
+        // invalidate the cached snapshot and any save currently in flight.
+        (this.file as { setModified(): void }).setModified();
         if (this.isJustCreated) {
             this.isJustCreated = false;
             (this.file as { reload(): void }).reload();

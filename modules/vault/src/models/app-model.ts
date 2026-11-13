@@ -814,7 +814,7 @@ class AppModel {
             fileInfo.openDate &&
             fileInfo.rev === params.rev &&
             fileInfo.storage !== 'file' &&
-            !this.settings.disableOfflineStorage
+            !fileInfo.cacheInvalid && !this.settings.disableOfflineStorage
         ) {
             logger.info('Open file from cache because it is latest');
             this.openFileFromCache(
@@ -840,7 +840,7 @@ class AppModel {
             !fileInfo ||
             !fileInfo.openDate ||
             params.storage === 'file' ||
-            this.settings.disableOfflineStorage
+            fileInfo.cacheInvalid || this.settings.disableOfflineStorage
         ) {
             this.openFileFromStorage(params, callback, fileInfo ?? null, logger);
         } else {
@@ -910,7 +910,7 @@ class AppModel {
             logger.info('Load from storage');
             storage.load(params.path, params.opts, (err, data, stat) => {
                 if (err) {
-                    if (fileInfo && fileInfo.openDate && !this.settings.disableOfflineStorage) {
+                    if (fileInfo && fileInfo.openDate && !fileInfo.cacheInvalid && !this.settings.disableOfflineStorage) {
                         logger.info('Open file from cache because of storage load error', err);
                         this.openFileFromCache(params, callback, fileInfo);
                     } else {
@@ -938,7 +938,7 @@ class AppModel {
             storage.stat(params.path, params.opts, (err, stat) => {
                 if (
                     !noCache &&
-                    fileInfo &&
+                    fileInfo && !fileInfo.cacheInvalid &&
                     storage.name !== 'file' &&
                     (err || (stat && stat.rev === cacheRev)) &&
                     !this.settings.disableOfflineStorage
@@ -1028,12 +1028,31 @@ class AppModel {
             this.setFileOpts(file, params.opts).then(() => {
                 try { access.assertOpen(epoch); } catch (error) { file.close(); callback(error); return; }
                 if (params.canOpen && !params.canOpen()) { file.close(); callback(new Error('Open canceled')); return; }
-                if (updateCacheOnSuccess && !this.settings.disableOfflineStorage && params.fileData) {
+                const localData = updateCacheOnSuccess && !file.storage ? data : undefined;
+                const db = file.db, editSeq = file.editSeq;
+                // Imported local bytes are primary storage even when remote caching is off.
+                if (localData) file.dirty = true;
+                this.addToLastOpenFiles(file, rev, !!file.storage && !!updateCacheOnSuccess);
+                if (updateCacheOnSuccess && file.storage && !this.settings.disableOfflineStorage) {
                     logger.info('Save loaded file to cache');
-                    Storage.cache.save(file.id, null, params.fileData);
+                    Storage.cache.save(file.id, null, data, (error) => {
+                        const info = this.fileInfos.get(file.id);
+                        if (error || this.settings.disableOfflineStorage || !info || info.rev !== rev || file.db !== db || file.editSeq !== editSeq || file.syncing) return;
+                        info.cacheInvalid = false;
+                        this.fileInfos.save();
+                    }, () => !this.settings.disableOfflineStorage);
                 }
-                this.addToLastOpenFiles(file, rev);
                 this.addFile(file);
+                // Enqueue the import before calling consumers: they may edit and save
+                // synchronously. Never capture their newer edit sequence for these old bytes.
+                if (localData && file.dirty && !file.syncing && file.db === db && file.editSeq === editSeq) {
+                    Storage.cache.save(file.id, null, localData, (error) => {
+                        if (!file.active || this.files.get(file.id) !== file || file.db !== db ||
+                            file.editSeq !== editSeq || file.syncing || !file.dirty) return;
+                        file.set({ dirty: !!error, syncError: error
+                            ? 'Browser storage could not save this vault. Keep it open and download an encrypted copy.' : null });
+                    });
+                }
                 callback(null, file);
                 this.fileOpened(file, data, params);
             }, (error) => { file.close(); callback(error); });
@@ -1088,7 +1107,7 @@ class AppModel {
         });
     }
 
-    addToLastOpenFiles(file: FileModel, rev: string | null): void {
+    addToLastOpenFiles(file: FileModel, rev: string | null, cacheInvalid = false): void {
         this.appLogger.debug(
             'Add last open file',
             file.id,
@@ -1113,6 +1132,7 @@ class AppModel {
                 path: file.path,
                 opts: storeOpts,
                 modified: file.modified,
+                cacheInvalid,
                 editState: file.getLocalEditState(),
                 rev,
                 syncDate: file.syncDate || dt,
@@ -1315,6 +1335,7 @@ class AppModel {
                     (access.state === 'securing' && access.epoch === syncEpoch + 1));
             let completed = false;
             let verified = false;
+            let cached = !resolvedFileInfo.cacheInvalid && !file.dirty;
             const complete = (err?: unknown): void => {
                 if (completed) return;
                 completed = true;
@@ -1434,7 +1455,7 @@ class AppModel {
                 return;
             }
             if (!storageName || !storageProvider) {
-                if (!file.modified && resolvedFileInfo.id === file.id) {
+                if (!file.modified && !file.dirty && resolvedFileInfo.id === file.id) {
                     logger.info('Local, not modified');
                     return complete();
                 }
@@ -1500,6 +1521,7 @@ class AppModel {
                                 );
                                 saveToCacheAndStorage();
                             } else if (file.dirty) {
+                                resolvedFileInfo.cacheInvalid = true;
                                 if (this.settings.disableOfflineStorage) {
                                     logger.info(
                                         'File is dirty and cache is disabled'
@@ -1509,15 +1531,19 @@ class AppModel {
                                 logger.info(
                                     'Saving not modified dirty file to cache'
                                 );
+                                const cacheDb = file.db;
                                 Storage.cache.save(
                                     resolvedFileInfo.id,
                                     null,
                                     data,
                                     (cacheErr) => {
+                                        if (!continueOrFail()) return;
+                                        if (file.db !== cacheDb) return complete('The database changed before saving completed.');
                                         if (cacheErr) {
                                             return complete(cacheErr);
                                         }
-                                        file.dirty = false;
+                                        resolvedFileInfo.cacheInvalid = false;
+                                        if (file.editSeq === file.syncStartEditSeq) file.dirty = false;
                                         logger.info(
                                             'Complete, remove dirty flag'
                                         );
@@ -1536,6 +1562,7 @@ class AppModel {
             const saveToStorage = (data: ArrayBuffer): void => {
                 if (!continueOrFail()) return;
                 logger.info('Save data to storage');
+                const dataDb = file.db;
                 const storageRev =
                     resolvedFileInfo.storage === storageName
                         ? resolvedFileInfo.rev ?? undefined
@@ -1545,6 +1572,8 @@ class AppModel {
                     opts,
                     data,
                     (err, stat) => {
+                        if (!continueOrFail()) return;
+                        if (file.db !== dataDb) return complete('The database changed before saving completed.');
                         if (err && (err as StorageError).revConflict) {
                             logger.info('Save rev conflict, reloading from storage');
                             loadFromStorageAndMerge();
@@ -1562,6 +1591,7 @@ class AppModel {
                                 resolvedFileInfo.path = stat.path;
                                 path = stat.path;
                             }
+                            resolvedFileInfo.cacheInvalid = !cached;
                             file.syncDate = new Date();
                             logger.info(
                                 'Save to storage complete, update sync date'
@@ -1588,24 +1618,24 @@ class AppModel {
                         );
                         saveToStorage(data);
                     } else if (this.settings.disableOfflineStorage) {
+                        cached = false;
                         logger.info(
                             'Saving to storage because cache is disabled'
                         );
                         saveToStorage(data);
                     } else {
                         logger.info('Saving to cache');
+                        const cacheDb = file.db;
                         Storage.cache.save(
                             resolvedFileInfo.id,
                             null,
                             data,
                             (cacheErr) => {
-                                if (cacheErr) {
-                                    return complete(cacheErr);
-                                }
-                                file.dirty = false;
-                                logger.info(
-                                    'Saved to cache, saving to storage'
-                                );
+                                if (!continueOrFail()) return;
+                                if (file.db !== cacheDb) return complete('The database changed before saving completed.');
+                                cached = !cacheErr;
+                                if (!cacheErr && file.editSeq === file.syncStartEditSeq) file.dirty = false;
+                                logger.info(cacheErr ? 'Cache unavailable, trying storage' : 'Saved to cache, saving to storage');
                                 saveToStorage(data);
                             }
                         );
@@ -1644,11 +1674,14 @@ class AppModel {
                                 logger.error('Error getting file data', e);
                                 return complete(e || err);
                             }
+                            const cacheDb = file.db;
                             Storage.cache.save(
                                 resolvedFileInfo.id,
                                 null,
                                 data,
                                 (cacheErr) => {
+                                    if (!continueOrFail()) return;
+                                    if (file.db !== cacheDb) return complete('The database changed before saving completed.');
                                     if (cacheErr) {
                                         logger.error(
                                             'Error saving to cache',
@@ -1656,7 +1689,8 @@ class AppModel {
                                         );
                                     }
                                     if (!cacheErr) {
-                                        file.dirty = false;
+                                        resolvedFileInfo.cacheInvalid = false;
+                                        if (file.editSeq === file.syncStartEditSeq) file.dirty = false;
                                     }
                                     logger.info(
                                         'Saved to cache, exit with error',
@@ -1710,11 +1744,27 @@ class AppModel {
         }
     }
 
-    deleteAllCachedFiles(): void {
-        for (const fileInfo of this.fileInfos) {
-            if (fileInfo.storage && !fileInfo.modified) {
-                Storage.cache.remove(fileInfo.id);
-            }
+    deleteAllCachedFiles(callback?: (error?: unknown) => void): void {
+        const eligible = (fileInfo: FileInfoModel) => {
+            const file = this.files.get(fileInfo.id);
+            return this.fileInfos.get(fileInfo.id) === fileInfo && !!fileInfo.storage && !fileInfo.modified &&
+                !(file && (file.dirty || file.modified || file.syncing));
+        };
+        const files = this.fileInfos.filter(eligible);
+        let pending = files.length;
+        let failure: unknown;
+        if (!pending) { callback?.(); return; }
+        for (const fileInfo of files) {
+            let completed = false;
+            const done = (error?: unknown) => {
+                if (completed) return;
+                completed = true;
+                if (error) failure = error;
+                if (--pending === 0) callback?.(failure);
+            };
+            if (!eligible(fileInfo)) { done(); continue; }
+            try { Storage.cache.remove(fileInfo.id, null, done, () => eligible(fileInfo)); }
+            catch (error) { done(error); }
         }
     }
 
