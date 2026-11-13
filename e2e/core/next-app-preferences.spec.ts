@@ -198,18 +198,40 @@ test('provider and save preferences persist; disabled WebDAV disappears after re
     expect(await stored(page, 'saveVerify')).toBeUndefined(); // enabled is the persisted default
 });
 
-test('host restrictions hide entry points and reject synthetic input and stale button dispatch', async ({ page }) => {
+test('host restrictions hide entry points and reject file drops and startup links', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('appSettings', JSON.stringify({
         canOpen: false, canCreate: false, canOpenDemo: false, canOpenStorage: false, canOpenSettings: false
     })));
     await page.goto('/next.html');
     for (const id of ['open-file', 'create-vault', 'open-demo', 'open-webdav']) await expect(page.locator(`#${id}`)).toBeHidden();
     await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
-    await page.locator('#open-file-input').setInputFiles(await fixture());
-    await page.locator('#open-demo').evaluate((button: HTMLButtonElement) => button.click());
-    await page.locator('#open-webdav').evaluate((button: HTMLButtonElement) => button.click());
-    await expect(page.locator('#password')).toHaveCount(0); await expect(page.locator('#webdav-url')).toHaveCount(0);
-    await expect(page.locator('.entry-row')).toHaveCount(0);
+    await expect(page.locator('#open-file-input')).toHaveCount(0);
+    const source = await fixture();
+    const transfer = await page.evaluateHandle(({ name, bytes, type }) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([Uint8Array.from(atob(bytes), value => value.charCodeAt(0))], name, { type }));
+        return transfer;
+    }, { name: source.name, bytes: source.buffer.toString('base64'), type: source.mimeType });
+    try { await page.locator('.start').dispatchEvent('drop', { dataTransfer: transfer }); }
+    finally { await transfer.dispose(); }
+    await expect(page.locator('#open-file-error')).toContainText('Opening new files is disabled');
+    await expect(page.locator('#password')).toHaveCount(0);
+    let remoteRequests = 0;
+    await page.route('https://policy.invalid/**', route => { remoteRequests++; return route.abort(); });
+    for (const [link, message] of [
+        ['/next.html?demo=1', 'Opening the demo is disabled.'],
+        ['/next.html#open=https%3A%2F%2Fpolicy.invalid%2Fvault.kdbx', 'Opening remote databases is disabled.']
+    ]) {
+        // These are startup intents; a fragment-only navigation does not remount the app.
+        await page.goto('about:blank');
+        await page.goto(link);
+        await expect(page.locator('#open-file-error')).toContainText(message);
+        await expect(page.locator('#password')).toHaveCount(0);
+        await expect(page.locator('#webdav-url')).toHaveCount(0);
+        await expect(page.locator('.entry-row')).toHaveCount(0);
+        expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fileInfo') || '[]'))).toEqual([]);
+    }
+    expect(remoteRequests).toBe(0);
 });
 
 test('host export restriction denies hidden download dispatch while ordinary saving works', async ({ page }) => {

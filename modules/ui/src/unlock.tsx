@@ -319,6 +319,7 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
     canOpen?(): boolean; onOpened?(): void;
 }) {
     const mounted = useRef(true);
+    const canceled = useRef(false);
     useLayoutEffect(() => () => { mounted.current = false; }, []);
     const admission = () => mounted.current && canOpen?.() !== false &&
         (pane.kind === 'recent' || (pane.kind === 'file' ? model.settings.canOpen : canOpenProvider(pane.kind === 'provider-unlock' ? pane.provider : 'webdav')));
@@ -355,6 +356,7 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
         e.preventDefault();
         if (busy || readingKey || !admission()) return;
         onUnlock();
+        const access = getSessionAccess(model), epoch = access.epoch;
         setBusy(true);
         setMessage('');
         try {
@@ -370,12 +372,14 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
             } else {
                 result = await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key, canOpen: admission });
             }
-            if (admission && !admission()) return;
-            if (setupAfterUnlock) {
-                const id = (result as { openedFileId?: unknown })?.openedFileId;
-                const file = typeof id === 'string' ? model.files.get(id) : undefined;
-                if (file?.active) navigateToSetup(file.id);
-            }
+            // Admission is checked by the shared open pipeline before publication.
+            // A successful first open unmounts this card before the promise resumes;
+            // that teardown must not discard the requested post-open navigation.
+            const id = (result as { openedFileId?: unknown })?.openedFileId;
+            const file = typeof id === 'string' ? model.files.get(id) : undefined;
+            if (canceled.current || !access.isCurrent(epoch) || access.state !== 'open' ||
+                canOpen?.() === false || !file?.active) return;
+            if (setupAfterUnlock) navigateToSetup(file.id);
             onOpened?.();
         } catch (err) {
             if (!mounted.current) return;
@@ -460,6 +464,7 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
                 {busy ? t('Unlocking…') : t('Unlock')}
             </button>
             <button type="button" class="pill" onClick={() => {
+                canceled.current = true;
                 mounted.current = false;
                 onCancel();
             }}>{t('Cancel unlock')}</button>

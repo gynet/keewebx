@@ -184,6 +184,8 @@ for (const unlockSecond of [false, true]) test(`late setup-requested decrypt can
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect.poll(() => page.evaluate(() => !!(window as any).__setupRaceHeld)).toBe(true);
     try {
+        await expect(page.locator('#open-file-input')).toBeDisabled();
+        await page.getByRole('button', { name: 'Cancel unlock', exact: true }).click();
         await page.locator('#open-file-input').setInputFiles(payload(second.bytes, `${second.name}.kdbx`));
         await expect(page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true })).not.toBeChecked();
         if (unlockSecond) {
@@ -194,9 +196,17 @@ for (const unlockSecond of [false, true]) test(`late setup-requested decrypt can
             await expect(page.getByRole('heading', { name: `${second.name}.kdbx`, exact: true })).toBeVisible();
         }
         await expect(page.getByRole('tablist', { name: 'Settings categories', exact: true })).toHaveCount(0);
-        await page.evaluate(() => (window as any).__releaseSetupRace());
-        // Waiting for A's durable recent-file record proves its open continued past decrypt.
-        await expect.poll(async () => (await record(page, first.name))?.name, { timeout }).toBe(first.name);
+        await page.evaluate(() => {
+            const parse = DOMParser.prototype.parseFromString;
+            DOMParser.prototype.parseFromString = function(...args) {
+                const result = parse.apply(this, args);
+                (window as any).__setupRaceParsed = true;
+                return result;
+            };
+            (window as any).__releaseSetupRace();
+        });
+        // A completes real KDBX parsing after cancellation, but must never be admitted.
+        await expect.poll(() => page.evaluate(() => !!(window as any).__setupRaceParsed)).toBe(true);
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         await expect(page.getByRole('tablist', { name: 'Settings categories', exact: true })).toHaveCount(0);
         await expect(section(page)).toHaveCount(0);
@@ -208,7 +218,8 @@ for (const unlockSecond of [false, true]) test(`late setup-requested decrypt can
             expect(await record(page, second.name)).toBeUndefined();
         }
         expect((await auth.credentials()).credentials).toHaveLength(0);
-        expect((await record(page, first.name)).passkeyCredentialId).toBeFalsy();
+        expect(await record(page, first.name)).toBeUndefined();
+        await expect(page.locator('.entry-row[data-entry="Setup race entry A"]')).toHaveCount(0);
         expect(errors).toEqual([]);
     } finally {
         await page.evaluate(() => (window as any).__releaseSetupRace?.());
@@ -368,6 +379,8 @@ test('switching vault while virtual unlock result is held prevents stale admissi
     await holdCeremony(page, 'get');
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect.poll(() => page.evaluate(() => !!(window as any).__passkeyHeld)).toBe(true);
+    await expect(page.locator('#open-webdav')).toBeDisabled();
+    await page.getByRole('button', { name: 'Cancel unlock', exact: true }).click();
     await page.locator('#open-webdav').click();
     await releaseCeremony(page);
     await expect.poll(() => page.evaluate(() => !!(window as any).__passkeyUnwrapped)).toBe(true);
@@ -425,6 +438,8 @@ test('switching selection during real KDBX decrypt rejects admission after succe
     });
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect.poll(() => page.evaluate(() => !!(window as any).__kdbxHeld)).toBe(true);
+    await expect(page.locator('#open-webdav')).toBeDisabled();
+    await page.getByRole('button', { name: 'Cancel unlock', exact: true }).click();
     await page.locator('#open-webdav').click();
     // Observe completion of normal KDBX XML parsing, without changing its result.
     await page.evaluate(() => {
