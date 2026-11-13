@@ -218,6 +218,10 @@ jobs:
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           bunx playwright test --config e2e/extension/new-interface.playwright.config.ts e2e/extension/new-interface-connection.spec.ts --reporter=line,html
+      - name: Test installed compatible client commands
+        run: |
+          bun e2e/extension-command-client/build.ts
+          bunx playwright test --config e2e/extension-command-client/playwright.config.ts
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -226,6 +230,7 @@ jobs:
             e2e/test-results-new-extension/
             playwright-report/new-interface-connect/
             .cache/new-interface-connect-server.log
+            .cache/extension-command-results/
           retention-days: 7
 
   e2e-new-interface-core:
