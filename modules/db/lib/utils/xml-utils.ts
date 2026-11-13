@@ -59,7 +59,7 @@ export function parse(xml: string): Document {
 
     let doc;
     // eslint-disable-next-line no-control-regex
-    xml = xml.replace(/[\x00-\x09\x0B-\x0C\x0E-\x1F]/g, '');
+    xml = xml.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
     try {
         doc = parser.parseFromString(xml, 'application/xml');
     } catch (e) {
@@ -81,6 +81,13 @@ export function serialize(doc: Document, prettyPrint = false): string {
         prettyPrintXmlNode(doc, 0);
     }
     let xml = createXMLSerializer().serializeToString(doc);
+    // XML parsers normalize literal CR/CRLF to LF. Character references preserve
+    // field values across both plaintext XML and encrypted KDBX round-trips.
+    // Keep comments/instructions intact; split CDATA around CR references.
+    xml = xml.replace(/<!\[CDATA\[[\s\S]*?\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|\r/g, (part) =>
+        part === '\r' ? '&#13;' : part.startsWith('<![CDATA[')
+            ? part.replace(/\r/g, ']]>&#13;<![CDATA[') : part
+    );
     if (prettyPrint && xml.startsWith('<?')) {
         xml = xml.replace(/^(<\?.*?\?>)</, '$1\n<');
     }

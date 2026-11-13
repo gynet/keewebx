@@ -81,6 +81,19 @@ describe('XmlUtils', () => {
     });
 
     describe('serialize', () => {
+        test('preserves tabs, CRLF and lone CR in text and CDATA without changing the DOM', () => {
+            const value = 'before\t雪\r\nafter\rtail & < >';
+            for (const cdata of [false, true]) {
+                const doc = XmlUtils.parse('<root/>');
+                doc.documentElement.appendChild(cdata ? doc.createCDATASection(value) : doc.createTextNode(value));
+                const serialized = XmlUtils.serialize(doc);
+                expect(serialized).toContain('&#13;');
+                expect(doc.documentElement.textContent).toBe(value);
+                expect(XmlUtils.parse(serialized).documentElement.textContent).toBe(value);
+            }
+            expect(XmlUtils.parse('<root>one\ttwo</root>').documentElement.textContent).toBe('one\ttwo');
+        });
+
         test('serializes XML document', () => {
             const doc = XmlUtils.parse('<root><item><cd>123</cd><e></e></item></root>');
             const xml = XmlUtils.serialize(doc);
