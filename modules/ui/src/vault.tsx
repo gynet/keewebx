@@ -30,6 +30,7 @@ import type { GroupActionResult } from './group-actions';
 import { EntryMove } from './entry-move';
 import { EntryHistory } from './entry-history';
 import { EntryClone } from './entry-clone';
+import { EntryDelete } from './entry-delete';
 import { EntrySort, sortEntries } from './entry-sort';
 
 interface Filter {
@@ -241,14 +242,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         setQuery('');
         setSelected(saved.id);
     };
-    const moveToTrash = () => {
-        if (!entry || !(entry.file as FileModel).db.meta.recycleBinEnabled) {
-            return;
-        }
-        entry.moveToTrash();
-        setSelected(undefined);
-        Events.emit('refresh');
-    };
 
     return (
         <div
@@ -442,7 +435,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             for (let parent = group?.parentGroup; parent; parent = parent.parentGroup) ids.add(parent.id);
                         });
                     }}
-                    onDelete={!filter.trash && (entry.file as FileModel).db.meta.recycleBinEnabled ? moveToTrash : undefined}
+                    onDeleted={() => setSelected(undefined)}
                     inTrash={!!filter.trash} />
             ) : (
                 <main class="detail">
@@ -513,14 +506,14 @@ function useOtp(entry: EntryModel): { code: string; left: number } | null {
     return otp;
 }
 
-function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete, inTrash }: {
+function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDeleted, inTrash }: {
     model: AppModel;
     entry: EntryModel;
     onBack: () => void;
     onEdit: () => void;
     onMoved: (entryId: string, groupId: string) => void;
     onCloned: (entryId: string, groupId: string) => void;
-    onDelete?: () => void;
+    onDeleted: () => void;
     inTrash?: boolean;
 }) {
     const s = summarizeEntry(entry);
@@ -595,7 +588,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                     <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
                     {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
                     <EntryHistory entry={entry} onRestore={() => setNotesVersion(value => value + 1)} />
-                    {onDelete && <button class="pill pill--tinted pill--danger" onClick={onDelete}><Icon name="trash" size={16} />{t('Move to Trash')}</button>}
+                    <EntryDelete model={model} entry={entry} onDeleted={onDeleted} />
                 </div>
             </div>
 
