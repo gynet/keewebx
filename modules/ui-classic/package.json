@@ -61,7 +61,7 @@
     "wawoff2": "^2.0.1",
     "webpack": "^5.36.2",
     "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^4.0.0"
+    "webpack-dev-server": "^6.0.0"
   },
   "browserslist": [
     "last 2 Firefox versions",
