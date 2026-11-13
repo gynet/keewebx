@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
+import { activateVaultUtility } from './vault-utilities';
 
 const proof = Buffer.from([0, 1, 128, 200, 255, 0, 42]);
 const historyProof = Buffer.from([255, 17, 0, 88]);
@@ -56,7 +57,7 @@ async function unlock(page: Page, f: Fixture) {
 }
 async function openPair(page: Page, a: Fixture, b: Fixture, url?: string) {
     await page.goto('/next.html'); await page.locator('#open-file-input').setInputFiles(payload(a)); await unlock(page, a);
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     if (url) {
         await page.locator('#open-webdav').click(); await page.locator('#webdav-url').fill(url);
         await page.locator('#webdav-next').click();
@@ -67,8 +68,6 @@ async function openPair(page: Page, a: Fixture, b: Fixture, url?: string) {
 }
 async function navigation(page: Page, touch = false) {
     if (!(await nav(page).isVisible())) {
-        const showMenu = page.getByRole('button', { name: 'Show menu', exact: true });
-        if (touch && await showMenu.isVisible()) await click(showMenu, touch);
         await click(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
     }
 }
@@ -102,7 +101,7 @@ async function reopenPair(page: Page, a: Fixture, b: Fixture, touch = false) {
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload();
     await page.locator('.vault-row').filter({ has: page.getByText(`${a.name}.kdbx`, { exact: true }) }).click(); await unlock(page, a);
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault', { touch });
     await page.getByRole('dialog', { name: 'Open another vault', exact: true }).locator('.vault-row')
         .filter({ has: page.getByText(`${b.name}.kdbx`, { exact: true }) }).click(); await unlock(page, b);
     await expect(page.getByRole('dialog', { name: 'Open another vault', exact: true })).toHaveCount(0);
@@ -214,10 +213,6 @@ for (const touch of [false, true]) test.describe(touch ? '320px touch' : 'deskto
         await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
         await navigation(page, touch); await click(nav(page).getByRole('button', { name: 'Trash', exact: true }), touch);
         await click(page.locator('summary').filter({ hasText: /^Manage trash$/ }), touch);
-        if (touch) {
-            await click(page.getByRole('button', { name: 'Move menu', exact: true }), touch);
-            await expect(page.getByRole('button', { name: 'Show menu', exact: true })).toBeVisible();
-        }
         await click(page.getByRole('button', { name: 'Empty trash…', exact: true }), touch);
         action = page.getByRole('dialog', { name: 'Empty trash', exact: true });
         await expect(action).toContainText('Source: 1 groups, 1 entries'); await expect(action).toContainText('Destination: 1 groups, 1 entries');
