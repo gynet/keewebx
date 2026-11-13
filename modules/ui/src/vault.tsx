@@ -25,10 +25,9 @@ import { tagColor } from 'ui-kit/tag-color';
 import { storageKey } from 'comp/settings/storage-namespace';
 import { PanelResizer } from 'ui-kit/panel-resizer';
 import { usePanelLayout } from './panel-layout';
-import { SidebarToggle, useSidebarCollapse } from './sidebar-collapse';
+import { SidebarToggle, SidebarPanelIcon, useSidebarCollapse } from './sidebar-collapse';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
-import { MobileMenu } from './mobile-menu';
 import { confirmDiscardDrafts, hasPendingDrafts, savePendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { prepareOtpDraft } from 'comp/app/entry-otp';
@@ -424,8 +423,17 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             }}
             onClick={() => IdleTracker.regUserAction()}
         >
+            <header class="mobile-vault-header">
+                <button ref={browse} type="button" class="round mobile-vault-header__toggle"
+                    aria-label={t('Browse vault')} title={t('Browse vault')} aria-expanded={navigationOpen}
+                    aria-controls="vault-navigation" onClick={() => setNavigationOpen(true)}>
+                    <SidebarPanelIcon open={false} />
+                </button>
+                <span class="mobile-vault-header__title">{selectedGroup?.title || (filter.trash ? t('Trash')
+                    : filter.tag || (files.length === 1 ? kdbxName(files[0].name) : t('All open vaults')))}</span>
+            </header>
             {navigationOpen && <button class="navigation-backdrop" tabIndex={-1} aria-label={t('Close navigation')} onClick={closeNavigation} />}
-            <nav ref={navigation} class="side" aria-label={t('Vault')}>
+            <nav ref={navigation} id="vault-navigation" class="side" aria-label={t('Vault')}>
                 <div class="side__vault">
                     <Mark size={30} />
                     <span class="side__vault-text">
@@ -436,7 +444,8 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         </span>
                     </span>
                     <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="vault-sidebar-content" label={t('folders panel')} />
-                    <button class="round side__close" aria-label={t('Close navigation')} onClick={closeNavigation}><Icon name="back" /></button>
+                    <button type="button" class="round side__close" aria-label={t('Close navigation')} title={t('Close navigation')}
+                        aria-expanded={navigationOpen} aria-controls="vault-navigation" onClick={closeNavigation}><SidebarPanelIcon open /></button>
                 </div>
                 <div id="vault-sidebar-content" class="side__content">
                 <section class="open-vaults" aria-label={t('Open vaults')}>
@@ -617,20 +626,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
 
             <PanelResizer label={t('Resize entries panel')} value={layout.list} min={240} max={layout.listMax}
                 onChange={(width) => layout.set('list', width)} onReset={() => layout.reset('list')} />
-
-            <MobileMenu>
-                <button ref={browse} class="round" aria-label={t('Browse vault')} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}>
-                    <Icon name="folder" size={18} />
-                </button>
-                {props.onOpenAnother && <button class="round" aria-label={t('Open another vault')} onClick={props.onOpenAnother}><Icon name="plus" size={18} /></button>}
-                <ThemeToggle />
-                <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} onClick={props.onSettings}>
-                    <Icon name="gear" size={18} />
-                </button>
-                <button class="round" aria-label={t('Lock')} title={t(model.settings.autoSave ? 'Save all vaults and lock' : 'Lock vaults')} onClick={props.onLock}>
-                    <Icon name="lock" size={18} />
-                </button>
-            </MobileMenu>
 
             {editing ? (
                 <EntryEditor model={model} key={editing.key ?? ('entry' in editing ? editing.entry.id : 'new')}

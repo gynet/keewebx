@@ -810,7 +810,7 @@ button {
 }
 .start__tools { margin: 0 10px 16px; }
 .settings__phone-back { display: none; }
-.phone-bar {
+.mobile-vault-header {
     display: none;
 }
 .vault-form__field { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; margin-bottom: 14px; text-align: left; }
@@ -832,35 +832,34 @@ button {
 .database-settings { padding: 20px; margin-bottom: 16px; }
 .database-settings fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .database-settings__actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.phone-bar__handle { touch-action: none; cursor: grab; color: var(--kx-muted); }
-.phone-bar__handle:active { cursor: grabbing; }
 .side__close, .navigation-backdrop { display: none; }
 .panel-resizer { flex: 0 0 6px; cursor: col-resize; touch-action: none; user-select: none; background: var(--kx-bg); }
 .panel-resizer:hover, .panel-resizer:focus-visible { background: var(--kx-sel); box-shadow: inset 2px 0 var(--kx-acc); }
 @media (max-width: 760px) {
     .panel-resizer { display: none; }
-    .vault .phone-bar[data-side="left"] { left: 16px; right: auto; }
-    .vault .phone-bar {
+    .vault { flex-direction: column; }
+    .mobile-vault-header {
         display: flex;
-        flex-wrap: wrap;
-        max-width: calc(100vw - 12px);
-        gap: 6px;
-        position: fixed;
-        right: 16px;
-        bottom: 24px;
-        padding: 6px;
-        border-radius: var(--kx-radius-card);
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 52px;
+        padding: env(safe-area-inset-top) 12px 0 8px;
         background: var(--kx-bg);
-        border: 1px solid var(--kx-line);
+        border-bottom: 1px solid var(--kx-line);
     }
-    .phone-bar .round {
-        flex-shrink: 0;
+    .mobile-vault-header__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+    .mobile-vault-header__toggle, .vault--navigation .side__close {
+        flex: 0 0 44px;
         width: 44px;
         height: 44px;
         border: 0;
+        background: transparent;
+        color: var(--kx-text);
     }
-    .vault .phone-bar[data-collapsed="true"] { right: 0; border-radius: 8px 0 0 8px; padding: 2px; }
-    .vault .phone-bar[data-collapsed="true"][data-side="left"] { left: 0; right: auto; border-radius: 0 8px 8px 0; }
+    .mobile-vault-header__toggle:hover, .vault--navigation .side__close:hover { background: var(--kx-sub); }
+    .mobile-vault-header__toggle:focus-visible, .vault--navigation .side__close:focus-visible { outline: 2px solid var(--kx-acc); outline-offset: -2px; }
+    .vault > .detail { flex: 1 1 0; min-height: 0; padding-bottom: max(22px, env(safe-area-inset-bottom)); }
     .settings__phone-back { display: flex; }
     .start {
         flex-direction: column-reverse;
@@ -903,25 +902,19 @@ button {
     }
     .list {
         width: 100%;
+        flex: 1 1 0;
         border-right: 0;
         overflow-y: auto;
         box-sizing: border-box;
-        padding-bottom: calc(160px + env(safe-area-inset-bottom));
-        scroll-padding-block: 12px 160px;
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+        scroll-padding-block: 12px 16px;
     }
-    /* The complete header and rows share one mobile scroll surface. A tall
-       header must not squeeze the entries beneath the floating toolbar. */
+    /* Keep the navigation toggle above a single scroll surface for list tools and rows. */
     .list > * { flex-shrink: 0; }
     .list > .list__items { flex: 0 0 auto; overflow: visible; min-height: 120px; }
     .detail__head .round {
         display: flex !important;
     }
-}
-@media (max-width: 350px) {
-    .vault .phone-bar { gap: 2px; right: 6px; }
-    .vault .phone-bar[data-side="left"] { left: 6px; }
-    .vault .phone-bar[data-collapsed="true"] { right: 0; }
-    .vault .phone-bar[data-collapsed="true"][data-side="left"] { left: 0; right: auto; }
 }
 
 .passkey-setup-option { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; color: var(--kx-muted); }
