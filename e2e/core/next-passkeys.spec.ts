@@ -1,6 +1,7 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
+import { activateVaultUtility } from './vault-utilities';
 
 // Same CDP WebAuthn harness as Classic passkey-unlock.spec.ts. Successful ceremonies
 // use Chromium's virtual authenticator. Cancellation/delays are explicitly simulated.
@@ -49,7 +50,7 @@ async function openFile(page: Page, source: Fixture) {
     await passwordOpen(page, source);
 }
 async function openSettings(page: Page) {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await expect(section(page)).toBeVisible();
 }
@@ -64,7 +65,7 @@ async function lock(page: Page) {
     if (await page.getByRole('button', { name: 'Back to vault', exact: true }).isVisible()) {
         await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     }
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout });
 }
 async function screenshot(page: Page, name: string) {
@@ -364,7 +365,7 @@ test('lock during held enrollment rejects late descriptor publication', async ({
     await expect.poll(() => page.evaluate(() => !!(window as any).__passkeyHeld)).toBe(true);
     // Return to the vault while registered work is pending; unmount and lock both invalidate publication.
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.getByRole('heading', { name: 'Securing your vaults' })).toBeVisible();
     await screenshot(page, 'lock-awaits-held-enrollment');
     await releaseCeremony(page);

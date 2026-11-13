@@ -35,8 +35,6 @@ async function open(page: Page) {
     await page.goto('/next.html'); await page.locator('#open-file-input').setInputFiles(await fixture()); await unlock(page);
 }
 async function browse(page: Page) {
-    const menu = page.getByRole('button', { name: 'Show menu', exact: true });
-    if (await menu.isVisible()) await menu.click();
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible())
         await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
