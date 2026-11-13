@@ -1,0 +1,31 @@
+import { test, expect } from '@playwright/test';
+import path from 'node:path';
+test('stock build retains unsupported backup settings and offers no false WebDAV backup capability', async ({ page }) => {
+    await page.goto('/next.html');
+    await page.locator('#open-file-input').setInputFiles(path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx'));
+    await page.locator('#password').fill('test'); await page.locator('#unlock').click();
+    await expect(page.locator('.entry-row').first()).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
+    await page.click('#open-settings'); await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    const panel = page.getByRole('region', { name: /^Encrypted backups:/ });
+    await expect(panel).toContainText('No enabled provider supports backups');
+    await expect(panel.getByRole('button', { name: 'Back up now', exact: true })).toBeDisabled();
+    await expect(panel.getByLabel('Enable backups', { exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Download KDBX', exact: true })).toBeVisible();
+    await page.click('#settings-back'); await page.click('#lock'); await expect(page.locator('#password')).toBeVisible();
+    await page.evaluate(() => {
+        const infos = JSON.parse(localStorage.fileInfo);
+        infos[0].backup = { enabled: true, storage: 'webdav', path: '/retained.kdbx', schedule: '1w', lastTime: 42 };
+        localStorage.fileInfo = JSON.stringify(infos);
+    });
+    await page.reload(); await page.locator('#password').fill('test'); await page.locator('#unlock').click();
+    await expect(page.locator('.entry-row').first()).toBeVisible({ timeout: 30000 });
+    await page.click('#open-settings'); await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    await expect(panel).toContainText('Configured backup provider unavailable: webdav');
+    await expect(panel.getByLabel('Backup path', { exact: true })).toHaveValue('/retained.kdbx');
+    await expect(panel.getByRole('button', { name: 'Back up now', exact: true })).toBeDisabled();
+    await panel.getByLabel('Enable backups', { exact: true }).uncheck();
+    await panel.getByRole('button', { name: 'Save backup settings', exact: true }).click();
+    await expect(panel.getByRole('status')).toHaveText('Backup settings saved on this device.');
+    expect(await page.evaluate(() => JSON.parse(localStorage.fileInfo)[0].backup)).toEqual({ enabled: false, storage: 'webdav', path: '/retained.kdbx', schedule: '1w', lastTime: 42 });
+});

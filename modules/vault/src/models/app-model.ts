@@ -14,8 +14,7 @@ import { SaveVerificationError } from 'util/kdbxweb/save-verification';
 import { GroupModel } from 'models/group-model';
 import { MenuModel } from 'models/menu/menu-model';
 import { Features } from 'util/features';
-import { DateFormat } from 'comp/i18n/date-format';
-import { UrlFormat } from 'util/formatting/url-format';
+import { backupFile, scheduleBackupFile, type BackupAttemptOptions } from 'comp/app/vault-backup';
 import { IdGenerator } from 'util/generators/id-generator';
 import { Locale } from 'util/locale';
 import { Logger } from 'util/logger';
@@ -207,26 +206,6 @@ type AppFilter = EntryFilter & {
     textLowerParts?: string[] | null;
     advanced?: AdvancedSearch;
 };
-
-/**
- * Shape of FileModel.backup (declared as Record<string, unknown> on the
- * model since it is persisted as a JSON blob). Defined centrally so the
- * backup/restore helpers can narrow safely.
- */
-interface BackupSettings extends Record<string, unknown> {
-    enabled?: boolean;
-    pending?: boolean;
-    storage?: string;
-    path?: string;
-    schedule?: string;
-    lastTime?: number;
-}
-
-function asBackupSettings(
-    value: Record<string, unknown> | null | undefined
-): BackupSettings | null {
-    return (value ?? null) as BackupSettings | null;
-}
 
 class AppModel {
     static instance: AppModel;
@@ -1829,123 +1808,12 @@ class AppModel {
         this.fileInfos.save();
     }
 
-    backupFile(file: FileModel, data: ArrayBuffer, callback: (err?: unknown) => void): void {
-        const opts = file.opts ?? undefined;
-        const backup = asBackupSettings(file.backup);
-        const logger = new Logger('backup', file.name);
-        if (!backup || !backup.storage || !backup.path) {
-            return callback('Invalid backup settings');
-        }
-        const backupStorageName = backup.storage;
-        const backupStorage = getStorageProvider(backupStorageName);
-        if (!backupStorage) {
-            return callback('Backup storage not available: ' + backupStorageName);
-        }
-        let path = backup.path.replace('{date}', DateFormat.dtStrFs(new Date()));
-        logger.info('Backup file to', backupStorageName, path);
-        const saveToFolder = (): void => {
-            if (backupStorage.getPathForName) {
-                path = backupStorage.getPathForName(path);
-            }
-            backupStorage.save(path, opts, data, (err) => {
-                if (err) {
-                    logger.error('Backup error', err);
-                } else {
-                    logger.info('Backup complete');
-                    const updated = asBackupSettings(file.backup) ?? { ...backup };
-                    updated.lastTime = Date.now();
-                    delete updated.pending;
-                    file.backup = updated;
-                    this.setFileBackup(file.id, updated);
-                }
-                callback(err);
-            });
-        };
-        let folderPath = UrlFormat.fileToDir(path);
-        if (backupStorage.getPathForName) {
-            folderPath = backupStorage.getPathForName(folderPath).replace('.kdbx', '');
-        }
-        if (!backupStorage.stat) {
-            // No stat support (e.g. some remote providers) — save directly.
-            logger.info('Backup storage has no stat, saving without folder check');
-            saveToFolder();
-            return;
-        }
-        backupStorage.stat(folderPath, opts, (err) => {
-            if (err) {
-                if ((err as StorageError).notFound) {
-                    logger.info('Backup folder does not exist');
-                    if (!backupStorage.mkdir) {
-                        return callback('Mkdir not supported by ' + backupStorageName);
-                    }
-                    backupStorage.mkdir(folderPath, (mkErr) => {
-                        if (mkErr) {
-                            logger.error('Error creating backup folder', mkErr);
-                            callback('Error creating backup folder');
-                        } else {
-                            logger.info('Backup folder created');
-                            saveToFolder();
-                        }
-                    });
-                } else {
-                    logger.error('Stat folder error', err);
-                    callback('Cannot stat backup folder');
-                }
-            } else {
-                logger.info('Backup folder exists, saving');
-                saveToFolder();
-            }
-        });
+    backupFile(file: FileModel, data: ArrayBuffer, callback: (err?: unknown) => void, options?: BackupAttemptOptions): void {
+        backupFile(this, file, data, callback, options);
     }
 
     scheduleBackupFile(file: FileModel, data: ArrayBuffer): void {
-        const backup = asBackupSettings(file.backup);
-        if (!backup || !backup.enabled) {
-            return;
-        }
-        const logger = new Logger('backup', file.name);
-        let needBackup = false;
-        if (!backup.lastTime) {
-            needBackup = true;
-            logger.debug('No last backup time, backup now');
-        } else {
-            const dt = new Date(backup.lastTime);
-            switch (backup.schedule) {
-                case '0':
-                    break;
-                case '1d':
-                    dt.setDate(dt.getDate() + 1);
-                    break;
-                case '1w':
-                    dt.setDate(dt.getDate() + 7);
-                    break;
-                case '1m':
-                    dt.setMonth(dt.getMonth() + 1);
-                    break;
-                default:
-                    return;
-            }
-            if (dt.getTime() <= Date.now()) {
-                needBackup = true;
-            }
-            logger.debug(
-                'Last backup time: ' +
-                    new Date(backup.lastTime) +
-                    ', schedule: ' +
-                    backup.schedule +
-                    ', next time: ' +
-                    dt +
-                    ', ' +
-                    (needBackup ? 'backup now' : 'skip backup')
-            );
-        }
-        if (!backup.pending) {
-            backup.pending = true;
-            this.setFileBackup(file.id, backup);
-        }
-        if (needBackup) {
-            this.backupFile(file, data, noop);
-        }
+        scheduleBackupFile(this, file, data);
     }
 
     usbDevicesChanged(): void {
