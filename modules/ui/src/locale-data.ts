@@ -4,7 +4,7 @@ import french from '../../vault/src/locales/fr-FR.json';
 import newGerman from './locales/de-DE.json';
 import newFrench from './locales/fr-FR.json';
 export type UiLocale = 'en-US' | 'de-DE' | 'fr-FR';
-export function resolveUiLocale(value: string | null | undefined, browser: readonly string[]): UiLocale {
+export function resolveUiLocale(value: string | null | undefined, browser: readonly string[] = []): UiLocale {
     const preferred = value ? [value] : browser;
     for (const language of preferred) {
         if (/^de(?:-|$)/i.test(language)) return 'de-DE';

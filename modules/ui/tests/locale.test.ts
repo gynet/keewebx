@@ -15,6 +15,7 @@ test('locale choice respects explicit settings, browser order and unsupported fa
     expect(resolveUiLocale(undefined, ['en-GB', 'de-DE'])).toBe('en-US');
     expect(resolveUiLocale('unsupported', ['fr-FR'])).toBe('en-US');
     expect(resolveUiLocale(null, [])).toBe('en-US');
+    expect(resolveUiLocale(null, undefined)).toBe('en-US');
 });
 test('interpolation preserves values literally without treating them as templates', () => {
     expect(interpolate('{} / {}', ['$& {} <script>', 'Password'])).toBe('$& {} <script> / Password');
