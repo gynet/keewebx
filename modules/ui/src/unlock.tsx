@@ -125,11 +125,14 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                                 <span class="vault-row__where">{where(file)}</span>
                             </span>
                         </button>
-                        {!file.storage && model.settings.canRemoveLatest && <button class="round vault-row__remove"
+                        {model.settings.canRemoveLatest && <button class="round vault-row__remove"
                             aria-label={t('Remove {} from this browser', kdbxName(file.name))}
-                            title={t('Remove local copy')}
+                            title={t(file.storage ? 'Forget this vault' : 'Remove local copy')}
                             onClick={() => {
-                                if (!window.confirm(t('Remove {} from this browser? Its encrypted local copy and recent entry will be deleted. Download a backup first if this is your only copy. Original files on disk are not deleted.', kdbxName(file.name)))) return;
+                                const message = file.storage
+                                    ? 'Forget {} on this browser? Its cached copy and saved connection details will be removed. The remote database will not be deleted.'
+                                    : 'Remove {} from this browser? Its encrypted local copy and recent entry will be deleted. Download a backup first if this is your only copy. Original files on disk are not deleted.';
+                                if (!window.confirm(t(message, kdbxName(file.name)))) return;
                                 model.removeFileInfo(file.id);
                                 selectPane({ kind: 'none' });
                             }}><Icon name="trash" size={16} /></button>}

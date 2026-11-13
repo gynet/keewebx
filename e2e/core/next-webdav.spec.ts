@@ -384,3 +384,30 @@ test.describe('New interface WebDAV persistence', () => {
         await expect(row(page, 'Second in-flight account')).toBeVisible();
     });
 });
+
+
+test('forgetting a remote vault removes only this browser record and preserves the server database', async ({ page, dav }) => {
+    await connect(page, dav);
+    await synced(page);
+    await lockAndReload(page);
+    const before = Buffer.from(dav.remote().data);
+    const boundary = dav.requests.length;
+    const remove = page.getByRole('button', { name: 'Remove vault.kdbx from this browser', exact: true });
+    await page.locator('.vault-row-wrap').hover();
+    page.once('dialog', async dialog => {
+        expect(dialog.message()).toContain('remote database will not be deleted');
+        await dialog.dismiss();
+    });
+    await remove.click();
+    await expect(remove).toHaveCount(1);
+    page.once('dialog', dialog => dialog.accept());
+    await remove.click();
+    await expect(page.locator('.vault-row[data-vault="vault"]')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('.vault-row[data-vault="vault"]')).toHaveCount(0);
+    expect(dav.remote().data.equals(before)).toBe(true);
+    expect(dav.requests.slice(boundary).filter(request => ['DELETE','PUT','MOVE'].includes(request.method))).toEqual([]);
+    // A fresh connection still opens the original remote file.
+    await connect(page, dav);
+    await expect(page.locator('.entry-row').first()).toBeVisible();
+});
