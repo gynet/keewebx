@@ -21,6 +21,7 @@ import { createNewProtocolUi } from './extension-ui';
 import { NewProtocolUiHost } from './extension-prompts';
 import { createExtensionSessionsApi } from './extension-sessions';
 import { BrowserExtensionConnector } from 'comp/extension/browser-extension-connector';
+import { EmbeddedVault } from 'comp/extension/embedded-vault';
 import { createSessionProtocolAccess } from 'comp/extension/protocol-access';
 import { waitForPendingOperations } from './pending-operations';
 import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
@@ -122,6 +123,7 @@ function App({ model }: { model: AppModel }) {
     useEffect(() => {
         Events.on('user-idle', lock);
         Events.on('lock-workspace', lock);
+        const stopEmbedded = EmbeddedVault.init();
         const beforeUnload = (event: BeforeUnloadEvent) => {
             if (model.files.hasDirtyFiles() || hasPendingDrafts()) {
                 event.preventDefault();
@@ -130,6 +132,7 @@ function App({ model }: { model: AppModel }) {
         };
         window.addEventListener('beforeunload', beforeUnload);
         return () => {
+            stopEmbedded?.();
             Events.off('user-idle', lock);
             Events.off('lock-workspace', lock);
             window.removeEventListener('beforeunload', beforeUnload);

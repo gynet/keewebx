@@ -13,7 +13,7 @@ const coreDist = path.join(root, '../../dist');
 const out = path.join(root, 'dist/chrome-vault');
 const appDir = path.join(out, 'app');
 
-if (!fs.existsSync(path.join(coreDist, 'js/app.js'))) {
+if (!fs.existsSync(path.join(coreDist, 'js/app.js')) || !fs.existsSync(path.join(coreDist, 'js/next.js'))) {
     throw new Error('dist is missing: run `bun run build` at the repo root first');
 }
 
@@ -51,16 +51,13 @@ fs.writeFileSync(appJsPath, appJs.replace(evalCall, 'globalThis'));
 
 // The page talks to the extension through the same bridge script that gets
 // injected into website tabs.
-const indexPath = path.join(appDir, 'index.html');
-const html = fs.readFileSync(indexPath, 'utf8');
-const appScript = /<script src="js\/app\.js[^"]*"><\/script>/;
-if (!appScript.test(html)) {
-    throw new Error('app.js script tag not found in index.html');
+for (const [entry, bundle] of [['index.html', 'app'], ['next.html', 'next']]) {
+    const entryPath = path.join(appDir, entry);
+    const html = fs.readFileSync(entryPath, 'utf8');
+    const script = new RegExp(`<script[^>]*src="js/${bundle}\\.js[^\"]*"[^>]*><\\/script>`);
+    if (!script.test(html)) throw new Error(`${bundle}.js script tag not found in ${entry}`);
+    fs.writeFileSync(entryPath, html.replace(script, tag => `<script src="../js/content-keeweb.js"></script>${tag}`));
 }
-fs.writeFileSync(
-    indexPath,
-    html.replace(appScript, (tag) => `<script src="../js/content-keeweb.js"></script>${tag}`)
-);
 
 // Entry icons in the popup use the app's icon font, which the app build
 // inlines into its stylesheet.

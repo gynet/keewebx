@@ -560,7 +560,7 @@ async function openPopup(site?: Page, file = 'popup.html', size = POPUP): Promis
 
 const offscreenOpen = () => sw.evaluate(() => chrome.offscreen.hasDocument());
 const vaultTabOpen = () =>
-    sw.evaluate(async (url) => (await chrome.tabs.query({})).some((t) => t.url?.startsWith(url)), appUrl());
+    sw.evaluate(async (url) => (await chrome.tabs.query({})).some((t) => t.url?.startsWith(url)), appUrl().replace('index.html', 'next.html'));
 
 async function openDemoInPopup(site?: Page): Promise<Page> {
     const popup = await openPopup(site);
@@ -722,6 +722,40 @@ test('opening the full app moves the vault into a tab', async () => {
     await popup.click('#open-app');
     await expect.poll(vaultTabOpen, { timeout: 15000 }).toBe(true);
     await expect.poll(offscreenOpen, { timeout: 15000 }).toBe(false);
+    const app = context.pages().find(page => page.url().includes('/app/next.html'))!;
+    await expect(app.locator('#open-demo')).toBeVisible();
+});
+
+test('New embedded vault shares popup access and preserves a draft when locked from the popup', async () => {
+    const app = await context.newPage();
+    const errors: string[] = [];
+    app.on('pageerror', error => errors.push(error.message));
+    await app.goto(appUrl().replace('index.html', 'next.html'));
+    await app.locator('#open-file-input').setInputFiles(FIXTURE);
+    await app.locator('#password').fill(FIXTURE_PASSWORD);
+    await app.locator('#unlock').click();
+    await expect(app.locator('.entry-row').first()).toBeVisible({ timeout: 60000 });
+    await app.locator('.entry-row').first().click();
+    const title = await app.locator('#entry-title').textContent();
+    await app.getByRole('button', { name: 'Edit', exact: true }).click();
+    await app.locator('.entry-editor').getByLabel('Notes', { exact: true }).fill('Draft retained across embedded popup lock');
+    const popup = await openPopup();
+    await expect(popup.locator('#search')).toBeVisible({ timeout: 30000 });
+    await popup.click('#lock');
+    await expect(app.locator('#password')).toBeVisible({ timeout: 30000 });
+    const status = await popup.evaluate(async () => {
+        const response = await chrome.runtime.sendMessage({ action: 'vault', request: { vault: 'status' } });
+        return response.result;
+    });
+    expect(status.open).toBe(false);
+    expect(status.files).toHaveLength(0);
+    await app.reload();
+    await app.locator('#password').fill(FIXTURE_PASSWORD);
+    await app.locator('#unlock').click();
+    await app.locator('.entry-row').filter({ hasText: title! }).first().click();
+    await expect(app.locator('.entry-notes')).toContainText('Draft retained across embedded popup lock');
+    expect(errors).toEqual([]);
+    await shot(app, 'new-full-mode-draft-roundtrip');
 });
 
 // ---- Web mode: KeeWebX open in a tab, listed through the paired protocol ----

@@ -7,7 +7,7 @@
 
 declare const __KW_EMBEDDED_VAULT__: boolean | undefined;
 
-const APP_PATH = 'app/index.html';
+const APP_PATH = 'app/next.html';
 const READY_TIMEOUT_MS = 20000;
 
 export interface VaultResponse<T = unknown> {
@@ -33,7 +33,16 @@ export async function isFullMode(): Promise<boolean> {
 
 async function findAppTab(): Promise<chrome.tabs.Tab | undefined> {
     const tabs = await chrome.tabs.query({});
-    return tabs.find((t) => t.url?.startsWith(appUrl()));
+    return tabs.find((t) => isAppUrl(t.url) || isAppUrl(t.pendingUrl));
+}
+
+function isAppUrl(value?: string): boolean {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'chrome-extension:' && url.hostname === chrome.runtime.id &&
+            ['/app/index.html', '/app/next.html'].includes(url.pathname);
+    } catch { return false; }
 }
 
 async function hasOffscreen(): Promise<boolean> {
@@ -41,6 +50,7 @@ async function hasOffscreen(): Promise<boolean> {
 }
 
 let creating: Promise<void> | undefined;
+let moving: Promise<void> | undefined;
 
 function send<T>(request: Record<string, unknown>): Promise<VaultResponse<T> | undefined> {
     return chrome.runtime.sendMessage(request).then(
@@ -62,6 +72,9 @@ async function waitUntilReady(): Promise<void> {
 }
 
 async function ensureVault(): Promise<void> {
+    // Popup status refreshes during lock must not recreate the hidden document
+    // in the gap between closing it and opening the visible app.
+    await moving;
     if (!(await findAppTab()) && !(await hasOffscreen())) {
         creating ??= chrome.offscreen
             .createDocument({
@@ -103,23 +116,30 @@ export async function lockIfRunning(): Promise<void> {
 async function closeOffscreen(): Promise<void> {
     if (await hasOffscreen()) {
         // Locking saves pending changes first.
-        await Promise.race([send({ vault: 'lock' }), new Promise((r) => setTimeout(r, 3000))]);
+        const response = await send<{ locked: boolean }>({ vault: 'lock', vaultContext: 'offscreen' });
+        if (!response?.ok || !response.result?.locked) {
+            throw new Error(response?.error || 'The vault could not lock safely. Keep it open and retry.');
+        }
         await chrome.offscreen.closeDocument().catch(() => {});
     }
 }
 
 /** Moves the vault into a visible tab with the whole app. */
-export async function openFullApp(): Promise<void> {
-    await closeOffscreen();
-    const tab = await findAppTab();
-    if (tab?.id) {
-        await chrome.tabs.update(tab.id, { active: true });
-        if (tab.windowId !== undefined) {
-            await chrome.windows.update(tab.windowId, { focused: true });
+export function openFullApp(): Promise<void> {
+    moving ??= (async () => {
+        await creating;
+        await closeOffscreen();
+        const tab = await findAppTab();
+        if (tab?.id) {
+            await chrome.tabs.update(tab.id, { active: true });
+            if (tab.windowId !== undefined) {
+                await chrome.windows.update(tab.windowId, { focused: true });
+            }
+        } else {
+            await chrome.tabs.create({ url: appUrl() });
         }
-    } else {
-        await chrome.tabs.create({ url: appUrl() });
-    }
+    })().finally(() => { moving = undefined; });
+    return moving;
 }
 
 export function startVaultHost(): void {
@@ -128,8 +148,8 @@ export function startVaultHost(): void {
     }
     // A tab with the app replaces the hidden copy.
     chrome.tabs.onUpdated.addListener((_id, change, tab) => {
-        if (change.status === 'loading' && tab.url?.startsWith(appUrl())) {
-            void closeOffscreen();
+        if (change.status === 'loading' && isAppUrl(tab.url)) {
+            void closeOffscreen().catch(() => {});
         }
     });
 
