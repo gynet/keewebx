@@ -15,6 +15,8 @@ import { GeneralPreferences } from './general-preferences';
 import { ClassicSwitch } from './classic-switch';
 import { StoragePreferences } from './storage-preferences';
 import { IdlePreference, AppearancePreferences, SaveVerificationPreference, AuditPreferences, PreferencesHelp } from './app-preferences';
+import { DiagnosticsHelp } from './diagnostics-help';
+import { ExtensionPreferences } from './extension-preferences';
 import { ProviderPreferences } from './provider-preferences';
 import { RegisteredStorageSettings } from './storage-extensions';
 
@@ -110,6 +112,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                     </section>
                     <AppearancePreferences />
                     <PreferencesHelp />
+                    <DiagnosticsHelp />
                     </section>
                     <section id="settings-panel-security" role="tabpanel" aria-labelledby="settings-tab-security" hidden={section !== 'security'}>
                     <h2 class="group-title">{t('Security')}</h2>
@@ -147,6 +150,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                         <RegisteredStorageSettings model={model} />
                     </section>
                     <section id="settings-panel-extensions" role="tabpanel" aria-labelledby="settings-tab-extensions" hidden={section !== 'extensions'}>
+                        <ExtensionPreferences enabled={!!extensionSessions} />
                         <ExtensionSessions model={model} api={extensionSessions} onBack={() => select('appearance')} />
                     </section>
                     <section id="settings-panel-database" role="tabpanel" aria-labelledby="settings-tab-database" hidden={section !== 'database'}>

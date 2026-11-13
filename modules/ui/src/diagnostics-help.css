@@ -1,0 +1,7 @@
+.diagnostics-help pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; padding: 12px; background: var(--kx-sub); }
+.diagnostics-help__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.diagnostics-help__logs { padding-left: 24px; max-height: 400px; overflow: auto; overflow-wrap: anywhere; }
+.diagnostics-help__logs li { padding: 8px 0; border-bottom: 1px solid var(--kx-line); }
+.diagnostics-help__logs [data-level=error] strong { color: var(--kx-error); }
+.diagnostics-help__logs [data-level=warn] strong { color: var(--kx-text); text-decoration: underline; }
+.diagnostics-help__logs time { font-size: 0.85em; }

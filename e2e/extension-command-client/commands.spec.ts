@@ -343,3 +343,42 @@ test('Other field Escape cancels pending disclosure and revoked next request is 
     expect(JSON.stringify(await result(false))).not.toMatch(/A-password|A-recovery|A-unselected-secret/);
     await expect(app.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
 });
+
+test('real no-match preference rejects or opens chooser without expanding vault permissions', async () => {
+    await open(await fixture('A')); await approveWithLogin();
+    await sessions();
+    const preference = app.getByLabel('Show the entry chooser when no website matches', { exact: true });
+    await preference.uncheck();
+    await client.getByLabel('Login URL').fill('https://unmatched.invalid/');
+    const denied = await command('Read logins', false);
+    expect(denied.error).not.toBe('Command timed out');
+    await expect(app.getByRole('dialog', { name: 'Select an entry', exact: true })).toHaveCount(0);
+    await preference.check();
+    await start('Read logins');
+    const picker = app.getByRole('dialog', { name: 'Select an entry', exact: true });
+    await expect(picker.getByRole('option')).toHaveCount(1);
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click(); await result(false);
+    await app.getByRole('region', { name: 'Browser extension sessions', exact: true }).getByRole('checkbox', { name: 'A (1)', exact: true }).click();
+    await command('Read logins', false);
+    await expect(picker).toHaveCount(0);
+});
+
+test('real locked-focus preference suppresses prompting or offers cancelable unlock', async () => {
+    await open(await fixture('A')); await approveWithLogin();
+    await sessions();
+    await app.getByLabel('Ask to unlock when an extension requests a login', { exact: true }).uncheck();
+    await back(); await app.locator('#lock').click();
+    await expect(app.locator('#password')).toBeVisible();
+    const status = await command('Status');
+    const denied = await command('Read logins', false);
+    expect(denied.attention).toBe(status.attention);
+    expect(denied.error).not.toBe('Command timed out');
+    await expect(app.getByRole('button', { name: 'Cancel extension request', exact: true })).toHaveCount(0);
+    await app.locator('#password').fill(password); await app.locator('#unlock').click();
+    await expect(app.locator('.entry-row').first()).toBeVisible();
+    await sessions(); await app.getByLabel('Ask to unlock when an extension requests a login', { exact: true }).check();
+    await back(); await app.locator('#lock').click(); await expect(app.locator('#password')).toBeVisible();
+    await start('Read logins');
+    await app.getByRole('button', { name: 'Cancel extension request', exact: true }).click();
+    expect((await result(false)).attention).toBeGreaterThan(denied.attention);
+});
