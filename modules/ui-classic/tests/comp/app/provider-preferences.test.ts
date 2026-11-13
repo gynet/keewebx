@@ -50,3 +50,18 @@ test('host restrictions are independent; denied export does not disable local op
     expect(() => assertVaultPolicy('open')).toThrow('disabled');
     expect(() => assertVaultPolicy('demo')).toThrow('disabled');
 });
+
+test('a registered system provider needs explicit opening support and still obeys host policy', () => {
+    const provider = {enabled: true, system: true, supportsOpen: false};
+    Storage.example = provider;
+    try {
+        expect(canOpenProvider('example')).toBe(false);
+        provider.supportsOpen = true;
+        expect(canOpenProvider('example')).toBe(true);
+        AppSettingsModel.canOpenStorage = false;
+        expect(canOpenProvider('example')).toBe(false);
+        AppSettingsModel.canOpenStorage = true;
+        provider.enabled = false;
+        expect(canOpenProvider('example')).toBe(false);
+    } finally { delete Storage.example; }
+});

@@ -14,6 +14,8 @@ import { SwipeVaultRow } from './swipe-vault-row';
 import { LocalPasskeyUnlock } from './local-passkey-unlock';
 import { SidebarToggle, useSidebarCollapse } from './sidebar-collapse';
 import { PanelResizer } from 'ui-kit/panel-resizer';
+import { ProviderOpen, browsableProviders, type ProviderItem } from './provider-open';
+import { useStorageExtensions } from './storage-extensions';
 import { getSessionAccess } from 'comp/app/session-access';
 import { classifyStartFiles } from './start-files';
 import { readStartLink } from './start-link';
@@ -34,6 +36,8 @@ type Pane =
     | { kind: 'file'; name: string; data: string; key?: { name: string; data: string } }
     | { kind: 'webdav'; url?: string }
     | { kind: 'webdav-unlock'; url: string; user: string; pass: string }
+    | { kind: 'provider'; provider: string }
+    | { kind: 'provider-unlock'; provider: string; item: ProviderItem }
     | { kind: 'none' };
 
 const kdbxName = (name: string) => (/\.kdbx$/i.test(name) ? name : `${name}.kdbx`);
@@ -46,7 +50,7 @@ function where(file: RecentFile): string {
             return t('WebDAV');
         }
     }
-    return t('File on this device');
+    return file.storage ? t(file.storage) : t('File on this device');
 }
 
 function toBase64(buf: ArrayBuffer): string {
@@ -58,6 +62,9 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     canOpen?(): boolean; onOpened?(): void; onCreating?(busy: boolean): void; onSettings?(): void;
 }) {
     const sidebar = useSidebarCollapse('start');
+    const storageExtensions = useStorageExtensions();
+    const providers = browsableProviders();
+    const providerTitle = (name: string) => storageExtensions.find(extension => extension.provider === name)?.title || t((Locale as Record<string, string>)[name] || name);
     const additional = !!onOpened;
     const [creating, setCreating] = useState(false);
     const [unlocking, setUnlocking] = useState(false);
@@ -93,6 +100,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     };
     const selectPane = (next: Pane) => {
         if (busy || !admitted()) return;
+        if ((next.kind === 'provider' || next.kind === 'provider-unlock') && !canOpenProvider(next.provider)) return;
         if (next.kind === 'create' && !model.settings.canCreate) return;
         if ((next.kind === 'webdav' || next.kind === 'webdav-unlock') && !remoteAllowed()) return;
         if (next.kind === 'import' && !model.settings.canImportCsv && !model.settings.canImportXml) return;
@@ -257,6 +265,9 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     </span>
                     {t('Connect to WebDAV')}
                 </button>}
+                {providers.map(provider => <button key={provider.name} class="add-row" disabled={busy} onClick={() => selectPane({ kind: 'provider', provider: provider.name })}>
+                    <span class="add-row__icon"><Icon name="cloud" /></span>{providerTitle(provider.name)}
+                </button>)}
                 {!additional && model.settings.canOpenDemo && <button class="add-row" id="open-demo" disabled={busy} onClick={openDemo}>
                     <span class="add-row__icon">
                         <Icon name="play" />
@@ -273,9 +284,11 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     <p>{t('Unlock to connect a browser extension')}</p>
                     <button class="pill" type="button" onClick={onCancelExtensionRequest}>{t('Cancel extension request')}</button>
                 </div>}
-                {((pane.kind === 'file' && !model.settings.canOpen) || (pane.kind === 'create' && !model.settings.canCreate) ||
+                {(((pane.kind === 'provider' || pane.kind === 'provider-unlock') && !canOpenProvider(pane.provider)) || (pane.kind === 'file' && !model.settings.canOpen) || (pane.kind === 'create' && !model.settings.canCreate) ||
                     ((pane.kind === 'webdav' || pane.kind === 'webdav-unlock') && !canOpenProvider('webdav')) ||
                     (pane.kind === 'recent' && pane.file.storage && !canOpenProvider(pane.file.storage))) ? <p role="status">{t('This action is disabled by the host.')}</p>
+                    : pane.kind === 'provider' ? <ProviderOpen key={pane.provider} model={model} provider={providers.find(provider => provider.name === pane.provider)!} title={providerTitle(pane.provider)} canOpen={canOpen}
+                        cancel={() => selectPane({ kind: 'none' })} select={item => selectPane({ kind: 'provider-unlock', provider: pane.provider, item })} />
                     : pane.kind === 'import' ? <div class="card"><ImportVault key={pane.file?.name} initialFile={pane.file} model={model} onDone={onOpened} canImport={canOpen} /></div>
                     : pane.kind === 'create' ? <CreateVault model={model} onCreated={onOpened} onBusyChange={busy => { setCreating(busy); onCreating?.(busy); }} /> : pane.kind === 'webdav' ? (
                     <WebDavForm initialUrl={pane.url} onNext={(url, user, pass) => selectPane({ kind: 'webdav-unlock', url, user, pass })} />
@@ -298,7 +311,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
 
 function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpened, onBusyChange }: {
     model: AppModel;
-    pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' } | { kind: 'import'; file?: File }>;
+    pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' } | { kind: 'import'; file?: File } | { kind: 'provider' }>;
     onBusyChange: (busy: boolean) => void;
     onUnlock(): void; capturePasskeySetup(): (id: string) => void;
     canOpen?(): boolean; onOpened?(): void;
@@ -306,7 +319,7 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
     const mounted = useRef(true);
     useLayoutEffect(() => () => { mounted.current = false; }, []);
     const admission = () => mounted.current && canOpen?.() !== false &&
-        (pane.kind === 'recent' || (pane.kind === 'file' ? model.settings.canOpen : canOpenProvider('webdav')));
+        (pane.kind === 'recent' || (pane.kind === 'file' ? model.settings.canOpen : canOpenProvider(pane.kind === 'provider-unlock' ? pane.provider : 'webdav')));
     const [setupAfterUnlock, setSetupAfterUnlock] = useState(false);
     const [password, setPassword] = useState('');
     const [show, setShow] = useState(false);
@@ -332,9 +345,9 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
             ? pane.file.name
             : pane.kind === 'file'
             ? pane.name
-            : pane.url.split('/').pop()?.split('?')[0] || 'vault';
+            : pane.kind === 'provider-unlock' ? pane.item.name : pane.url.split('/').pop()?.split('?')[0] || 'vault';
     const sub =
-        pane.kind === 'recent' ? where(pane.file) : pane.kind === 'file' ? t('File on this device') : t('WebDAV');
+        pane.kind === 'recent' ? where(pane.file) : pane.kind === 'file' ? t('File on this device') : pane.kind === 'provider-unlock' ? t((Locale as Record<string, string>)[pane.provider] || pane.provider) : t('WebDAV');
 
     const unlock = async (e: Event) => {
         e.preventDefault();
@@ -350,6 +363,8 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
                 result = await VaultApi.unlock({ id: pane.file.id, password, ...key, canOpen: admission });
             } else if (pane.kind === 'file') {
                 result = await VaultApi.openData({ name: pane.name, data: pane.data, password, ...key, canOpen: admission });
+            } else if (pane.kind === 'provider-unlock') {
+                result = await VaultApi.openProvider({ ...pane.item, storage: pane.provider, password, ...key, canOpen: admission });
             } else {
                 result = await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key, canOpen: admission });
             }

@@ -12,6 +12,7 @@ import { t } from './i18n';
 import { PlaintextExport } from './plaintext-export';
 import { DatabasePasskey } from './database-passkey';
 import { WebDavSaveAs } from './webdav-save-as';
+import { RegisteredStorageSettings } from './storage-extensions';
 
 export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { model: AppModel; file: FileModel; onCancel: () => void; onClose?: () => void }) {
     const name = model.files.filter(candidate => candidate.name === file.name).length > 1
@@ -115,5 +116,5 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
         <PlaintextExport model={model} file={file} disabled={busy || credentialBusy} />
         <DatabasePasskey key={file.id} model={model} file={file} />
         {message && <p role="status">{message}</p>}
-    </form><WebDavSaveAs model={model} file={file} /></>;
+    </form><WebDavSaveAs model={model} file={file} /><RegisteredStorageSettings model={model} file={file} /></>;
 }

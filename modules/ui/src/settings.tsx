@@ -16,6 +16,7 @@ import { ClassicSwitch } from './classic-switch';
 import { StoragePreferences } from './storage-preferences';
 import { IdlePreference, AppearancePreferences, SaveVerificationPreference, AuditPreferences, PreferencesHelp } from './app-preferences';
 import { ProviderPreferences } from './provider-preferences';
+import { RegisteredStorageSettings } from './storage-extensions';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
@@ -143,6 +144,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                         <StoragePreferences model={model} />
                         <SaveVerificationPreference />
                         <ProviderPreferences model={model} />
+                        <RegisteredStorageSettings model={model} />
                     </section>
                     <section id="settings-panel-extensions" role="tabpanel" aria-labelledby="settings-tab-extensions" hidden={section !== 'extensions'}>
                         <ExtensionSessions model={model} api={extensionSessions} onBack={() => select('appearance')} />

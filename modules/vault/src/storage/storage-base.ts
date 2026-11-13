@@ -7,6 +7,8 @@ class StorageBase {
     icon: string | null = null;
     enabled: boolean = false;
     system: boolean = false;
+    // A registered system provider may explicitly offer a user-facing opener.
+    supportsOpen: boolean = false;
     uipos: number | null = null;
 
     logger: Logger | null = null;

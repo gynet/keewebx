@@ -3,8 +3,8 @@ import { Storage } from 'storage';
 
 /** Host policy is checked again by actions, including after asynchronous work. */
 export function canOpenProvider(name: string): boolean {
-    const provider = Storage[name] as { enabled?: boolean; system?: boolean } | undefined;
-    return AppSettingsModel.canOpenStorage !== false && !!provider && !provider.system && provider.enabled === true &&
+    const provider = Storage[name] as { enabled?: boolean; system?: boolean; supportsOpen?: boolean } | undefined;
+    return AppSettingsModel.canOpenStorage !== false && !!provider && (!provider.system || provider.supportsOpen === true) && provider.enabled === true &&
         (AppSettingsModel as unknown as Record<string, unknown>)[name] !== false;
 }
 

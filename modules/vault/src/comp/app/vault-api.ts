@@ -142,6 +142,25 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
         return { ...status(), openedFileId };
     },
 
+    async openProvider(req) {
+        const storage = String(req.storage ?? '');
+        assertVaultPolicy('provider', storage);
+        const id = typeof req.id === 'string' ? req.id : undefined;
+        const info = id ? app().fileInfos.get(id) : undefined;
+        if (id && (!info || info.storage !== storage || info.path !== req.path)) throw new Error('The selected provider file changed.');
+        const canOpen = () => {
+            try { assertVaultPolicy('provider', storage); } catch { return false; }
+            if (id && (app().fileInfos.get(id) !== info || info?.storage !== storage || info?.path !== req.path)) return false;
+            return typeof req.canOpen !== 'function' || (req.canOpen as () => boolean)();
+        };
+        const openedFileId = await openFile({
+            id, name: String(req.name ?? '').replace(/\.kdbx$/i, ''), storage,
+            path: String(req.path ?? ''), opts: req.opts, canOpen,
+            ...keyFileParams(req), password: kdbxweb.ProtectedValue.fromString(String(req.password ?? ''))
+        });
+        return { ...status(), openedFileId };
+    },
+
     async openData(req) {
         assertVaultPolicy('open');
         const bytes = kdbxweb.ByteUtils.base64ToBytes(String(req.data));
