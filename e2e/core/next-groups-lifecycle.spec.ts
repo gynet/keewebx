@@ -121,9 +121,9 @@ async function activate(control: Locator, touch = false) {
     else await control.click({ timeout: 10_000 });
 }
 async function showNavigation(page: Page, touch = false) {
+    const groups = page.getByRole('dialog', { name: 'Groups', exact: true });
+    if (await groups.isVisible()) await activate(groups.getByRole('button', { name: 'Close groups', exact: true }), touch);
     if (!await navigation(page).isVisible()) {
-        const showMenu = page.getByRole('button', { name: 'Show menu', exact: true });
-        if (touch && await showMenu.isVisible()) await activate(showMenu, touch);
         await activate(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
     }
     await expect(navigation(page)).toBeVisible();
@@ -141,8 +141,15 @@ async function chooseGroup(page: Page, path: string[], touch = false) {
 async function openManager(page: Page, touch = false) {
     await showNavigation(page, touch);
     await activate(navigation(page).getByRole('button', { name: 'Manage groups', exact: true }), touch);
-    await expect(page.locator('details').filter({ has: page.locator('summary', { hasText: /^Manage groups$/ }) }))
-        .toHaveAttribute('open', '');
+    if (await page.locator('.mobile-vault-header').isVisible()) {
+        const groups = page.getByRole('dialog', { name: 'Groups', exact: true });
+        await expect(groups).toBeVisible();
+        const more = groups.getByRole('button', { name: 'Group actions', exact: true });
+        if (await more.getAttribute('aria-expanded') !== 'true') await activate(more, touch);
+    } else {
+        await expect(page.locator('details').filter({ has: page.locator('summary', { hasText: /^Manage groups$/ }) }))
+            .toHaveAttribute('open', '');
+    }
 }
 async function actionBar(page: Page, group: string, touch = false) {
     await openManager(page, touch);
@@ -479,12 +486,6 @@ async function trashManager(page: Page, touch = false) {
     await activate(navigation(page).getByRole('button', { name: 'Trash', exact: true }), touch);
     const details = page.locator('details').filter({ has: page.locator('summary', { hasText: /^Manage trash$/ }) });
     if (await details.getAttribute('open') === null) await activate(details.locator('summary'), touch);
-    // The movable phone toolbar can cover lower trash actions. Use its public
-    // collapse control, then reopen it through showNavigation when needed.
-    if (touch) {
-        await activate(page.getByRole('button', { name: 'Move menu', exact: true }), touch);
-        await expect(page.getByRole('button', { name: 'Show menu', exact: true })).toBeVisible();
-    }
     return details;
 }
 async function chooseOptionBySuffix(select: Locator, suffix: string) {
