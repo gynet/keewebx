@@ -78,6 +78,7 @@ async function editEntry(page: Page) {
 
 async function openSettings(page: Page) {
     await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const form = page.getByRole('form', { name: /^Database settings: / });
     await expect(form).toBeVisible();
     return form;

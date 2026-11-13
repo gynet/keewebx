@@ -43,5 +43,6 @@ test('mobile menu drags to either edge and remembers its dock', async ({ page })
     await page.keyboard.press('ArrowRight');
     await expect(page.locator('.phone-bar')).toHaveAttribute('data-side', 'right');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
 });

@@ -155,7 +155,9 @@ test.describe('New suspended-session recovery', () => {
         const source = await fixture();
         await open(page, source);
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
+        await page.getByRole('tab', { name: 'Database', exact: true }).click();
         const form = page.getByRole('form', { name: 'Database settings: recovery', exact: true });
         await form.getByLabel('Vault name', { exact: true }).fill('Retained database name');
         await form.getByText('Advanced', { exact: true }).click();
@@ -174,6 +176,7 @@ test.describe('New suspended-session recovery', () => {
         await expect(form.getByLabel('Parallelism', { exact: true })).toHaveValue('4');
         await form.getByRole('button', { name: 'Cancel', exact: true }).click();
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Database', exact: true }).click();
         await expect(page.getByLabel('Vault name', { exact: true })).toHaveValue('recovery');
     });
 
@@ -182,6 +185,7 @@ test.describe('New suspended-session recovery', () => {
         const name = 'W'.repeat(128);
         await open(page, source, `${name}.kdbx`);
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Database', exact: true }).click();
         const form = page.getByRole('form', { name: `Database settings: ${name}`, exact: true });
         const heading = form.getByRole('heading', { level: 3 });
         await expect(heading).toHaveText(name);
@@ -250,7 +254,9 @@ test.describe('New suspended-session recovery', () => {
         const source = await fixture();
         await open(page, source);
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
+        await page.getByRole('tab', { name: 'Database', exact: true }).click();
         const gate = await pauseEncryption(page);
         const downloads: Download[] = [];
         page.on('download', download => downloads.push(download));
@@ -311,6 +317,7 @@ test.describe('New suspended-session recovery', () => {
             await expect(page.locator('[data-attachment="abandoned.bin"]')).toHaveCount(0);
             await expect(page.locator('#password')).toHaveCount(0);
             await page.locator('#open-settings').click();
+            await page.getByRole('tab', { name: 'Database', exact: true }).click();
             const pending = page.waitForEvent('download');
             await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
             const download = await pending;

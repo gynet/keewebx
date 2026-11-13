@@ -25,6 +25,7 @@ test('large navigation scrolls independently while footer actions stay visible a
     await content.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     expect((await footer.boundingBox())!.y).toBe(initial.y);
     await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
     await page.click('#settings-back');
     await page.setViewportSize({ width: 1024, height: 320 });

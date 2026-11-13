@@ -18,6 +18,7 @@ test('group modal retains an invalid raw create draft through recovery; locking 
     await page.locator('#unlock').click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
     await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Security', exact: true }).click();
     await page.locator('#setting-auto-lock').selectOption('5');
     await page.locator('#settings-back').click();
     const navigation = page.getByRole('navigation', { name: 'Vault', exact: true });
@@ -64,6 +65,7 @@ test('group modal retains an invalid raw create draft through recovery; locking 
     await expect(navigation.getByRole('button', { name: 'Guarded group', exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.entry-row').filter({ hasText: 'Retained modal record' })).toBeVisible();
     await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const download = await pending;

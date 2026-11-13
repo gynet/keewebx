@@ -48,6 +48,7 @@ async function save(page: Page) {
 }
 async function exportAndRead(page: Page, id: string) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const downloaded = page.waitForEvent('download');
     await page.getByRole('form', { name: /^Database settings:/ }).getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const download = await downloaded;

@@ -30,6 +30,7 @@ async function unlock(page: Page) {
 
 async function setting(page: Page, enabled: boolean) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Security', exact: true }).click();
     await page.getByLabel('Lock after copying a password', { exact: true }).setChecked(enabled);
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
 }

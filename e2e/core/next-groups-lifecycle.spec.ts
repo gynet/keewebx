@@ -181,6 +181,7 @@ async function downloadVault(page: Page, source: Fixture, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await showNavigation(page, touch);
     await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const form = page.getByRole('form', { name: `Database settings: ${source.name}`, exact: true });
     await expect(form).toBeVisible();
     const pending = page.waitForEvent('download', { timeout });

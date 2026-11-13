@@ -42,5 +42,6 @@ test('mobile toolbar collapses to a docked handle and restores its controls', as
     await expect(handle).toBeVisible();
     await page.keyboard.press('Enter');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
 });

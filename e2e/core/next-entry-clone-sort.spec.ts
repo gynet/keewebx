@@ -79,6 +79,7 @@ async function download(page: Page, touch = false, waitSaved = true) {
     if (waitSaved) await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await browse(page, touch);
     await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const pending = page.waitForEvent('download');
     await activate(page.getByRole('button', { name: 'Download KDBX', exact: true }), touch);
     const file = await pending; expect(await file.failure()).toBeNull();
@@ -272,6 +273,7 @@ test.describe('New entry clone and sort', () => {
         await page.locator('#settings__general-auto-save-interval').selectOption('0'); await page.clock.runFor(100);
         await open(page, source);
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#settings-back').click();
         await row(page).click();

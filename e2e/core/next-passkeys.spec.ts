@@ -395,7 +395,9 @@ for (const theme of ['light', 'dark']) {
         await authenticator(context, page);
         const source = await fixture('passkey-mobile', true);
         await openFile(page, source); await openSettings(page);
+        await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
         await page.getByRole('combobox', { name: 'Theme', exact: true }).selectOption(theme);
+        await page.getByRole('tab', { name: 'Database', exact: true }).click();
         const input = section(page).getByLabel('Current key file (if required)', { exact: true });
         const longName = 'required-key-'.repeat(14) + '.keyx';
         await input.setInputFiles(payload(source.key!, longName));

@@ -97,6 +97,7 @@ test.describe('Switching between Classic and New', () => {
 
         await page.click('#open-demo');
         await page.click('#open-settings');
+        await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
         await page.click('#use-classic');
         await page.waitForURL(/index\.html/);
         await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15000 });
@@ -111,6 +112,7 @@ test.describe('Switching between Classic and New', () => {
         await page.goto('/next.html');
         await page.click('#open-demo');
         await page.click('#open-settings');
+        await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
         await page.evaluate(() => {
             // Choose New the way its settings store it.
             const raw = localStorage.getItem('appSettings');

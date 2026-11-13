@@ -128,6 +128,7 @@ async function createEntry(page: Page, title: string) {
 
 async function settings(page: Page) {
     await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const form = page.getByRole('form', { name: /^Database settings: / });
     await form.getByText('Advanced', { exact: true }).click();
     return form;

@@ -31,6 +31,7 @@ async function unlock(page: Page) {
 
 async function configure(page: Page, seconds: number) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Security', exact: true }).click();
     await page.locator('#setting-clipboard').selectOption(String(seconds));
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
 }

@@ -95,7 +95,10 @@ async function browse(page: Page) {
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible())
         await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
-async function settings(page: Page) { await browse(page); await page.locator('#open-settings').click(); }
+async function settings(page: Page) {
+    await browse(page); await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
+}
 async function back(page: Page) { await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); }
 async function collapse(page: Page) {
     const menu = page.getByRole('button', { name: 'Move menu', exact: true });
@@ -127,7 +130,9 @@ async function lockReload(page: Page) {
 }
 async function mode(page: Page, value: string) {
     await settings(page);
+    await page.getByRole('tab', { name: 'Security', exact: true }).click();
     await page.locator('#setting-auto-lock').selectOption('0');
+    await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
     await page.locator('#setting-auto-save').selectOption(value);
     await back(page);
 }
@@ -139,6 +144,7 @@ async function editNotes(page: Page, value: string, apply = true) {
     if (apply) await region.getByRole('button', { name: 'Save', exact: true }).click();
 }
 async function download(page: Page, key?: Uint8Array) {
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const waiting = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const file = await waiting; expect(await file.failure()).toBeNull();
@@ -146,6 +152,7 @@ async function download(page: Page, key?: Uint8Array) {
     const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));
     const bytes = Buffer.concat(chunks); const path = test.info().outputPath('downloaded-preferences.kdbx');
     await writeFile(path, bytes); await test.info().attach('downloaded-preferences.kdbx', { path, contentType: 'application/octet-stream' });
+    await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
     return decrypt(bytes, key);
 }
 async function stored(page: Page, suffix: string) {
@@ -160,6 +167,7 @@ test.describe('New general preferences', () => {
     test('Off stops queued autosave; on-change saves existing dirty data and persists across reload', async ({ page, dav }) => {
         await page.clock.install(); await connect(page, dav);
         await settings(page); await expect(page.locator('#setting-auto-save')).toHaveValue('-1');
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('0'); await back(page);
         await page.clock.pauseAt(new Date());
         const before = dav.writes();
@@ -222,14 +230,18 @@ test.describe('New general preferences', () => {
     });
     test('manual save refuses invalid database settings and credential drafts without remote writes', async ({ page, dav }) => {
         await connect(page, dav); await mode(page, '0'); await settings(page);
+        await page.getByRole('tab', { name: 'Database', exact: true }).click();
         const form = page.getByRole('form', { name: /^Database settings: / });
         await form.getByLabel('Vault name', { exact: true }).fill('');
         const before = dav.writes();
+        await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
         await preferences(page).getByRole('button', { name: 'Save now', exact: true }).click();
         await expect(status(page)).toContainText('Apply or discard invalid or credential edits');
         expect(dav.writes()).toBe(before);
+        await page.getByRole('tab', { name: 'Database', exact: true }).click();
         await form.getByLabel('Vault name', { exact: true }).fill('preferences');
         await form.getByLabel('New master password', { exact: true }).fill('unfinished password');
+        await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
         await preferences(page).getByRole('button', { name: 'Retry save', exact: true }).click();
         await expect(status(page)).toContainText('Apply or discard invalid or credential edits');
         expect(dav.writes()).toBe(before);
@@ -284,7 +296,9 @@ test.describe('New general preferences', () => {
     });
     test('pending manual save is canceled by idle recovery and cannot resume after reauthentication', async ({ page, dav }) => {
         await page.clock.install(); await connect(page, dav); await mode(page, '0');
-        await settings(page); await page.locator('#setting-auto-lock').selectOption('5'); await back(page);
+        await settings(page);
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
+        await page.locator('#setting-auto-lock').selectOption('5'); await back(page);
         await page.locator(`.entry-row[data-entry="${title}"]`).click();
         let entered = false;
         let completed = false;

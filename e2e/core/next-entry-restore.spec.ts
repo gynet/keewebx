@@ -108,6 +108,7 @@ async function choose(page: Page, label = `${name} / Team B / Accounts`) {
 async function download(page: Page, touch = false) {
     await browse(page, touch);
     await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const form = page.getByRole('form', { name: `Database settings: ${name}`, exact: true });
     const waiting = page.waitForEvent('download');
     await activate(form.getByRole('button', { name: 'Download KDBX', exact: true }), touch);
@@ -291,6 +292,7 @@ test.describe('New chosen-group entry restore', () => {
         await classicSyncSetting(page, '0');
         await open(page, source);
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#settings-back').click();
         await row(page).click();

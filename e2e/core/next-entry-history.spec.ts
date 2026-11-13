@@ -86,6 +86,7 @@ async function download(page: Page, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await browse(page, touch);
     await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const pending = page.waitForEvent('download');
     await activate(page.getByRole('button', { name: 'Download KDBX', exact: true }), touch);
     const output = await pending;
@@ -332,6 +333,7 @@ test.describe('New entry history', () => {
         await page.clock.install();
         await open(page, source);
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#setting-clipboard').selectOption(String(ttl));
         await page.locator('#settings-back').click();
@@ -382,6 +384,7 @@ test.describe('New entry history', () => {
         await page.clock.install();
         await open(page, source);
         await page.locator('#open-settings').click();
+        await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#settings-back').click();
         await page.getByRole('button', { name: 'Edit', exact: true }).click();
