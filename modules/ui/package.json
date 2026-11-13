@@ -9,6 +9,7 @@
     "dev": "webpack --mode=development --watch"
   },
   "dependencies": {
+    "jsqrcode": "antelle/jsqrcode",
     "preact": "^10.5.13",
     "kdbxweb": "workspace:@keewebx/db@*",
     "@keewebx/ui-kit": "workspace:*"

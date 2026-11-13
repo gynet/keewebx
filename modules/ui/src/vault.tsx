@@ -512,8 +512,8 @@ function NavRow(props: { icon: string; label: string; on: boolean; onClick: () =
     );
 }
 
-function useOtp(entry: EntryModel): { code: string; left: number } | null {
-    const [otp, setOtp] = useState<{ code: string; left: number } | null>(null);
+function useOtp(entry: EntryModel): { code: string; left: number; counterBased: boolean } | null {
+    const [otp, setOtp] = useState<{ code: string; left: number; counterBased: boolean } | null>(null);
     useEffect(() => {
         entry.initOtpGenerator();
         const generator = entry.otpGenerator;
@@ -525,16 +525,16 @@ function useOtp(entry: EntryModel): { code: string; left: number } | null {
         const tick = () =>
             generator.next((err, pass, timeLeft) => {
                 if (!stopped && !err && pass) {
-                    setOtp({ code: pass, left: Math.ceil((timeLeft ?? 0) / 1000) });
+                    setOtp({ code: pass, left: Math.ceil((timeLeft ?? 0) / 1000), counterBased: generator.type === 'hotp' });
                 }
             });
         tick();
-        const timer = setInterval(tick, 1000);
+        const timer = generator.type === 'hotp' ? undefined : setInterval(tick, 1000);
         return () => {
             stopped = true;
             clearInterval(timer);
         };
-    }, [entry.id]);
+    }, [entry.id, entry.entry.fields.get('otp'), entry.entry.fields.get('TOTP Seed'), entry.entry.fields.get('TOTP Settings')]);
     return otp;
 }
 
@@ -635,7 +635,8 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                                 <span class="field__label">{r.label}</span>
                                 <span class={r.mono ? 'field__value field__value--mono' : 'field__value'}>{r.value}</span>
                             </span>
-                            {r.key === 'otp' && otp && <span class="muted" style={{ fontSize: '12px' }}>{t('{} s', String(otp.left))}</span>}
+                            {r.key === 'otp' && otp && <span class="muted" style={{ fontSize: '12px' }}>{otp.counterBased
+                                ? t('Counter-based OTP; this app does not advance its counter.') : t('{} s', String(otp.left))}</span>}
                             {r.secret && (
                                 <button class="icon-btn" aria-label={r.key === 'password' ? (reveal ? t('Hide password') : t('Show password'))
                                     : t(revealedFields.has(r.key) ? 'Hide {}' : 'Show {}', r.label)} onClick={() => {

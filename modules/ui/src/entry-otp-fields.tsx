@@ -5,6 +5,7 @@ import { Otp } from 'util/data/otp';
 import { getSessionAccess } from 'comp/app/session-access';
 import { normalizeOtpInput, type OtpDraft } from 'comp/app/entry-otp';
 import { t } from './i18n';
+import { OtpQrInput } from './otp-qr-input';
 
 export function EntryOtpFields({ model, value, original, onChange }: {
     model: AppModel; value: OtpDraft; original: { value: string; present: boolean; legacy: boolean };
@@ -29,6 +30,7 @@ export function EntryOtpFields({ model, value, original, onChange }: {
     };
     return <fieldset class="entry-editor__custom" aria-label={t('One-time password')}>
         <legend class="section-title">{t('One-time password')}</legend>
+        <OtpQrInput model={model} revision={`${value.action}:${value.value}`} onRead={secret => change({ action: 'set', value: secret })} />
         {value.action === 'keep' ? <>
             <p>{t(original.present ? 'An OTP configuration is stored in this entry.' : 'No OTP is configured.')}</p>
             {original.legacy && <p>{t('Legacy OTP configuration. Edit and save to migrate it to a protected OTP field.')}</p>}

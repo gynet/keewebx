@@ -70,6 +70,7 @@
       "version": "0.2.4",
       "dependencies": {
         "@keewebx/ui-kit": "workspace:*",
+        "jsqrcode": "antelle/jsqrcode",
         "kdbxweb": "workspace:@keewebx/db@*",
         "preact": "^10.5.13",
       },
@@ -2014,6 +2015,8 @@
     "@keewebx/ui-classic/@types/node": ["@types/node@22.20.5", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA=="],
 
     "@keewebx/ui-classic/copy-webpack-plugin": ["copy-webpack-plugin@14.0.0", "", { "dependencies": { "glob-parent": "^6.0.1", "normalize-path": "^3.0.0", "schema-utils": "^4.2.0", "serialize-javascript": "^7.0.3", "tinyglobby": "^0.2.12" }, "peerDependencies": { "webpack": "^5.1.0" } }, "sha512-3JLW90aBGeaTLpM7mYQKpnVdgsUZRExY55giiZgLuX/xTQRUs1dOCwbBnWnvY6Q6rfZoXMNwzOQJCSZPppfqXA=="],
+
+    "@keewebx/ui-classic/jsqrcode": ["jsqrcode@github:antelle/jsqrcode#f258f9e", {}, "antelle-jsqrcode-f258f9e", "sha512-6fMYlWuxnYIFc+K1yGAyLTuJt7ti2VpTuoPS9IRpP1WFZjDW+zL1uHd3Kv/iMheacdZP+q2UEIuE4OtHHJQPPQ=="],
 
     "@keewebx/ui-classic/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
