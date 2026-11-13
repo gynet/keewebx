@@ -33,6 +33,9 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await page.getByLabel('Vault name', { exact: true }).fill('Renamed vault');
     await page.getByLabel('Default user', { exact: true }).fill('saved-user');
     await page.getByLabel('Enable trash', { exact: true }).uncheck();
+    // A periodic/focus save may run while the settings draft is being edited.
+    // This case tests applying an idle draft; concurrent-save denial is covered separately.
+    await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
     await page.getByRole('button', { name: 'Save database settings', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('Saved in browser storage. Download KDBX to update your external copy.');
     await page.click('#settings-back');
