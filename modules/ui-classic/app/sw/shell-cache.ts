@@ -5,6 +5,11 @@ export const CACHE_PREFIX = 'keewebx-shell-';
 
 // Static files the app needs to boot, relative to the worker scope.
 export const SHELL_ASSETS = [
+    'index.html',
+    'next.html',
+    'js/next.js',
+    'css/next.css',
+    'manifest-new.json',
     'js/app.js',
     'css/app.css',
     'manifest.json',
@@ -23,8 +28,18 @@ export interface ShellDeps {
     scope: string;
 }
 
-export function cacheName(version: string): string {
-    return CACHE_PREFIX + version;
+function scopePrefix(scope: string): string {
+    return CACHE_PREFIX + encodeURIComponent(new URL(scope).pathname) + ':';
+}
+
+export function cacheName(version: string, scope: string): string {
+    return scopePrefix(scope) + version;
+}
+
+function inScope(url: string, scope: string): boolean {
+    const target = new URL(url);
+    const root = new URL(scope);
+    return target.origin === root.origin && target.pathname.startsWith(root.pathname);
 }
 
 export function stripQuery(url: string): string {
@@ -48,38 +63,37 @@ export async function install(deps: ShellDeps, version: string): Promise<void> {
     const assets = assetUrls(deps.scope);
     const pages = new Set<string>();
     for (const name of await deps.caches.keys()) {
-        if (name.startsWith(CACHE_PREFIX) && name !== cacheName(version)) {
+        if ((name.startsWith(scopePrefix(deps.scope)) || /^keewebx-shell-(?:[a-f0-9]{7}|unknown)$/.test(name))
+            && name !== cacheName(version, deps.scope)) {
             const old = await deps.caches.open(name);
             for (const request of await old.keys()) {
-                if (!assets.includes(request.url)) {
+                if (inScope(request.url, deps.scope) && !assets.includes(request.url)) {
                     pages.add(request.url);
                 }
             }
         }
     }
-    const cache = await deps.caches.open(cacheName(version));
-    await Promise.all(
-        assets.map(async (url) => {
+    const name = cacheName(version, deps.scope);
+    const cache = await deps.caches.open(name);
+    try {
+        // A failed page refresh must not activate a build missing a previously
+        // available offline entry point. Complete the new cache before activation.
+        for (const url of new Set([...assets, ...pages])) {
             const response = await fetchFresh(deps, url);
             if (!response.ok) {
                 throw new Error(`Precache failed for ${url}: ${response.status}`);
             }
             await cache.put(url, response);
-        })
-    );
-    await Promise.all(
-        [...pages].map(async (url) => {
-            const response = await fetchFresh(deps, url).catch(() => null);
-            if (response && response.ok) {
-                await cache.put(url, response);
-            }
-        })
-    );
+        }
+    } catch (error) {
+        await deps.caches.delete(name);
+        throw error;
+    }
 }
 
 export async function activate(deps: ShellDeps, version: string): Promise<void> {
     for (const name of await deps.caches.keys()) {
-        if (name.startsWith(CACHE_PREFIX) && name !== cacheName(version)) {
+        if (name.startsWith(scopePrefix(deps.scope)) && name !== cacheName(version, deps.scope)) {
             await deps.caches.delete(name);
         }
     }
@@ -89,13 +103,16 @@ export async function activate(deps: ShellDeps, version: string): Promise<void> 
 // app was opened from (for example /app, /demo or a self-hosted index).
 export async function cachePage(deps: ShellDeps, version: string, url: string): Promise<void> {
     const target = stripQuery(url);
-    if (new URL(target).origin !== new URL(deps.scope).origin) {
+    if (!inScope(target, deps.scope)) {
         return;
     }
+    const cache = await deps.caches.open(cacheName(version, deps.scope));
+    // Registration on a later visit must not replace this build's HTML with
+    // a newer deployment while its worker is still waiting.
+    if (await cache.match(target)) return;
     const response = await fetchFresh(deps, target).catch(() => null);
     const type = response?.headers.get('content-type') || '';
     if (response && response.ok && type.includes('text/html')) {
-        const cache = await deps.caches.open(cacheName(version));
         await cache.put(target, response);
     }
 }
@@ -112,20 +129,19 @@ export function handleFetch(
     if (request.method !== 'GET') {
         return null;
     }
-    const scopeOrigin = new URL(deps.scope).origin;
-    if (new URL(request.url).origin !== scopeOrigin) {
+    if (!inScope(request.url, deps.scope)) {
         return null;
     }
     const key = stripQuery(request.url);
     if (assetUrls(deps.scope).includes(key)) {
         return deps.caches
-            .open(cacheName(version))
+            .open(cacheName(version, deps.scope))
             .then((cache) => cache.match(key))
             .then((cached) => cached || deps.fetch(request));
     }
     if (request.mode === 'navigate') {
         return deps.caches
-            .open(cacheName(version))
+            .open(cacheName(version, deps.scope))
             .then((cache) => cache.match(key))
             .then((cached) => cached || deps.fetch(request));
     }

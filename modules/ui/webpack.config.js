@@ -7,6 +7,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 const rootDir = __dirname;
+const offlineEnabled = !process.env.KEEWEBX_STORAGE_NAMESPACE;
 const vaultDir = path.join(rootDir, '../vault');
 const pkg = require('./package.json');
 
@@ -91,6 +92,7 @@ module.exports = (env, argv) => {
             new MiniCssExtractPlugin({ filename: 'css/[name].css' }),
             new HtmlWebpackPlugin({
                 template: path.join(rootDir, 'src/next.html'),
+                templateParameters: { offlineEnabled },
                 filename: 'next.html',
                 inject: 'body',
                 publicPath: ''

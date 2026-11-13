@@ -7,6 +7,7 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 const rootDir = __dirname;
+const offlineEnabled = !process.env.KEEWEBX_STORAGE_NAMESPACE;
 const pkg = require('./package.json');
 
 process.noDeprecation = true;
@@ -40,7 +41,7 @@ module.exports = (env, argv) => {
         mode,
         entry: {
             app: path.join(rootDir, 'app/scripts/app.ts'),
-            'service-worker': path.join(rootDir, 'app/sw/service-worker.ts')
+            ...(offlineEnabled ? { 'service-worker': path.join(rootDir, 'app/sw/service-worker.ts') } : {})
         },
         output: {
             path: path.resolve(rootDir, '../../dist'),
@@ -301,12 +302,22 @@ module.exports = (env, argv) => {
             }),
             new HtmlWebpackPlugin({
                 template: path.join(rootDir, 'app/index.html'),
+                templateParameters: { offlineEnabled },
                 inject: false
             }),
             new CopyWebpackPlugin({
                 patterns: [
                     { from: path.join(rootDir, 'app/icons'), to: 'icons' },
-                    { from: path.join(rootDir, 'app/manifest'), to: '.' },
+                    { from: path.join(rootDir, 'app/manifest/browserconfig.xml'), to: 'browserconfig.xml' },
+                    ...(offlineEnabled ? [
+                        { from: path.join(rootDir, 'app/manifest/manifest.json'), to: 'manifest.json' },
+                        {
+                            from: path.join(rootDir, 'app/manifest/manifest.json'), to: 'manifest-new.json',
+                            transform: (content) => JSON.stringify({
+                                ...JSON.parse(content.toString()), id: './next.html', start_url: './next.html'
+                            })
+                        }
+                    ] : []),
                     { from: path.join(rootDir, '../../LICENSE'), to: 'LICENSE', toType: 'file' },
                     { from: path.join(rootDir, '../../THIRD-PARTY-LICENSES.md'), to: 'THIRD-PARTY-LICENSES.md' }
                 ]

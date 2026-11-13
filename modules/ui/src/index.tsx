@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Events } from 'framework/events';
 import type { AppModel } from 'models/app-model';
 import { saveAndLock, startVault } from 'boot';
+import { ServiceWorkerClient } from 'comp/browser/service-worker-client';
+import { UpdateNotice } from './update-notice';
 import { Unlock } from './unlock';
 import { Vault } from './vault';
 import { Settings } from './settings';
@@ -152,6 +154,7 @@ function App({ model }: { model: AppModel }) {
         <>
         <NewProtocolUiHost controller={protocolUi} />
         <SaveVerificationWarning model={model} version={version} suspended={!!gate} />
+        <UpdateNotice canReload={!model.files.hasOpenFiles() && !gate} />
         {!model.files.hasOpenFiles() && !gate ? <Unlock model={model}
             onPasskeySetup={(id) => { setPasskeySettingsId(id); setSettingsOpen(true); }}
             extensionRequest={unlockRequest?.unlockRes === 'extensionUnlockMessage'}
@@ -192,6 +195,7 @@ function App({ model }: { model: AppModel }) {
 
 void startVault().then((model) => {
     render(<App model={model} />, document.getElementById('root')!);
+    ServiceWorkerClient.init();
 }).catch(() => {
     render(
         <main class="start__main">

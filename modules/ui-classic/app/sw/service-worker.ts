@@ -5,7 +5,9 @@ declare const __KEEWEBX_BUILD_SHA_SHORT__: string;
 
 // Each build gets its own cache; the old one is removed once the new
 // worker takes over.
-const VERSION = __KEEWEBX_BUILD_SHA_SHORT__;
+declare const __KEEWEBX_BUILD_TIME__: string;
+
+const VERSION = __KEEWEBX_BUILD_SHA_SHORT__ + ':' + __KEEWEBX_BUILD_TIME__;
 
 function deps(): ShellDeps {
     return {

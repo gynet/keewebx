@@ -76,7 +76,7 @@ describe('install', () => {
     it('precaches every shell asset, bypassing the HTTP cache', async () => {
         const { caches, deps, fetched } = setup();
         await install(deps, 'v1');
-        const cache = await caches.open(cacheName('v1'));
+        const cache = await caches.open(cacheName('v1', SCOPE));
         expect((await cache.keys()).map((r) => r.url).sort()).toEqual(
             SHELL_ASSETS.map((a) => new URL(a, SCOPE).href).sort()
         );
@@ -85,11 +85,11 @@ describe('install', () => {
 
     it('refreshes pages cached by the previous version from the network', async () => {
         const { caches, deps } = setup();
-        const old = await caches.open(cacheName('v1'));
+        const old = await caches.open(cacheName('v1', SCOPE));
         await old.put(SCOPE + 'app', new Response('old page'));
         await old.put(new URL('js/app.js', SCOPE).href, new Response('old js'));
         await install(deps, 'v2');
-        const cache = await caches.open(cacheName('v2'));
+        const cache = await caches.open(cacheName('v2', SCOPE));
         expect(await text(await cache.match(SCOPE + 'app'))).toBe(`net:${SCOPE}app`);
         expect(await text(await cache.match(new URL('js/app.js', SCOPE).href))).toBe(
             `net:${new URL('js/app.js', SCOPE).href}`
@@ -107,11 +107,11 @@ describe('install', () => {
 describe('activate', () => {
     it('removes older shell caches and leaves unrelated caches alone', async () => {
         const { caches, deps } = setup();
-        await caches.open(cacheName('v1'));
-        await caches.open(cacheName('v2'));
+        await caches.open(cacheName('v1', SCOPE));
+        await caches.open(cacheName('v2', SCOPE));
         await caches.open('something-else');
         await activate(deps, 'v2');
-        expect((await caches.keys()).sort()).toEqual([cacheName('v2'), 'something-else'].sort());
+        expect((await caches.keys()).sort()).toEqual([cacheName('v2', SCOPE), 'something-else'].sort());
     });
 });
 
@@ -119,7 +119,7 @@ describe('cachePage', () => {
     it('stores the page without its query string', async () => {
         const { caches, deps } = setup();
         await cachePage(deps, 'v1', SCOPE + 'app?demo=1#x');
-        const cache = await caches.open(cacheName('v1'));
+        const cache = await caches.open(cacheName('v1', SCOPE));
         expect((await cache.keys()).map((r) => r.url)).toEqual([SCOPE + 'app']);
     });
 
@@ -132,7 +132,7 @@ describe('cachePage', () => {
         await cachePage(deps, 'v1', 'https://elsewhere.test/app');
         await cachePage(deps, 'v1', SCOPE + 'broken');
         await cachePage(deps, 'v1', SCOPE + 'data');
-        const cache = await caches.open(cacheName('v1'));
+        const cache = await caches.open(cacheName('v1', SCOPE));
         expect(await cache.keys()).toEqual([]);
     });
 });
@@ -140,7 +140,7 @@ describe('cachePage', () => {
 describe('handleFetch', () => {
     it('serves shell assets from the cache, ignoring the query string', async () => {
         const { caches, deps, fetched } = setup();
-        const cache = await caches.open(cacheName('v1'));
+        const cache = await caches.open(cacheName('v1', SCOPE));
         await cache.put(new URL('js/app.js', SCOPE).href, new Response('cached js'));
         const response = handleFetch(deps, 'v1', req(SCOPE + 'js/app.js?__inline=true'));
         expect(await text(await response)).toBe('cached js');
@@ -149,7 +149,7 @@ describe('handleFetch', () => {
 
     it('serves a cached app page for navigations and the network otherwise', async () => {
         const { caches, deps } = setup();
-        const cache = await caches.open(cacheName('v1'));
+        const cache = await caches.open(cacheName('v1', SCOPE));
         await cache.put(SCOPE + 'demo', new Response('cached page'));
         expect(await text(await handleFetch(deps, 'v1', req(SCOPE + 'demo?x=1', { mode: 'navigate' })))).toBe(
             'cached page'
@@ -165,5 +165,64 @@ describe('handleFetch', () => {
         expect(handleFetch(deps, 'v1', req('https://elsewhere.test/js/app.js'))).toBeNull();
         expect(handleFetch(deps, 'v1', req(SCOPE + 'some/other/path'))).toBeNull();
         expect(handleFetch(deps, 'v1', req(SCOPE + 'vault.kdbx'))).toBeNull();
+    });
+});
+
+
+describe('scope and update isolation', () => {
+    it('keeps both interface entry points and New assets in the shell', () => {
+        expect(SHELL_ASSETS).toEqual(expect.arrayContaining([
+            'index.html', 'next.html', 'js/app.js', 'css/app.css',
+            'js/next.js', 'css/next.css', 'manifest.json', 'manifest-new.json'
+        ]));
+    });
+
+    it('does not read or delete another deployment scope', async () => {
+        const { deps, caches, fetched } = setup();
+        const other = cacheName('v1', 'https://app.test/other/');
+        await (await caches.open(other)).put('https://app.test/other/next.html', new Response('other'));
+        await install(deps, 'v2');
+        await activate(deps, 'v2');
+        expect(await caches.keys()).toContain(other);
+        expect(fetched.some(({ url }) => url.includes('/other/'))).toBe(false);
+        await cachePage(deps, 'v2', 'https://app.test/outside');
+        expect(fetched.some(({ url }) => url.endsWith('/outside'))).toBe(false);
+        expect(handleFetch(deps, 'v2', req('https://app.test/outside', { mode: 'navigate' }))).toBeNull();
+    });
+
+    it('keeps the old shell and removes a partial update when a cached page cannot refresh', async () => {
+        const { deps, caches } = setup(url => new Response('response', {
+            status: url.endsWith('/app') ? 503 : 200
+        }));
+        const old = await caches.open(cacheName('v1', SCOPE));
+        await old.put(SCOPE + 'app', new Response('old page'));
+        await expect(install(deps, 'v2')).rejects.toThrow('503');
+        expect(await caches.keys()).toEqual([cacheName('v1', SCOPE)]);
+        expect(await text(await old.match(SCOPE + 'app'))).toBe('old page');
+    });
+
+    it('migrates scoped pages from an older unscoped shell without deleting it', async () => {
+        const { deps, caches, fetched } = setup();
+        const old = await caches.open('keewebx-shell-400c956');
+        await old.put(SCOPE + 'app', new Response('old page'));
+        await old.put('https://app.test/other/app', new Response('other page'));
+        await install(deps, 'v2');
+        await activate(deps, 'v2');
+        expect(await text(await (await caches.open(cacheName('v2', SCOPE))).match(SCOPE + 'app')))
+            .toBe(`net:${SCOPE}app`);
+        expect(fetched.some(({ url }) => url.includes('/other/'))).toBe(false);
+        expect(await caches.keys()).toContain('keewebx-shell-400c956');
+    });
+});
+
+
+describe('waiting update page isolation', () => {
+    it('does not replace active HTML when a newer deployment is waiting', async () => {
+        const { deps, caches, fetched } = setup();
+        const cache = await caches.open(cacheName('v1', SCOPE));
+        await cache.put(SCOPE + 'next.html', new Response('active build'));
+        await cachePage(deps, 'v1', SCOPE + 'next.html');
+        expect(await text(await cache.match(SCOPE + 'next.html'))).toBe('active build');
+        expect(fetched).toHaveLength(0);
     });
 });
