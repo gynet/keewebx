@@ -60,7 +60,7 @@
     "typescript": "^5.7.2",
     "wawoff2": "^2.0.1",
     "webpack": "^5.36.2",
-    "webpack-cli": "^5.1.4",
+    "webpack-cli": "^7.2.3",
     "webpack-dev-server": "^4.0.0"
   },
   "browserslist": [
