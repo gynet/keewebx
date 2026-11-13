@@ -3,15 +3,19 @@ import type { AppModel } from 'models/app-model';
 import { canUseLocalPasskeys, forgetLocalPasskey, hasLocalPasskey, hasLocalPasskeyData, localPasskeyError, unlockWithLocalPasskey } from './local-passkeys';
 import { t } from './i18n';
 
-export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage, onAttempt }: {
+export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage, onAttempt, setupAfterUnlock, onSetupChange }: {
     model: AppModel; id?: string; keyFile: { name: string; data: string } | null;
     busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void;
-    onAttempt(): void;
+    onAttempt(): void; setupAfterUnlock: boolean; onSetupChange(value: boolean): void;
 }) {
     const mounted = useRef(true), running = useRef(false);
     useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
     const info = id ? model.fileInfos.get(id) : undefined;
-    if (!hasLocalPasskeyData(info)) return <p class="card__sub">{t('After opening, enable local passkey unlock in Database settings.')}</p>;
+    if (!hasLocalPasskeyData(info)) return <label class="passkey-setup-option">
+        <input type="checkbox" checked={setupAfterUnlock} disabled={busy}
+            onChange={(event) => onSetupChange(event.currentTarget.checked)} />
+        <span>{t('Set up passkey after unlocking')}</span>
+    </label>;
     return <>
         {hasLocalPasskey(info) && <button type="button" class="pill pill--block"
             disabled={busy || !canUseLocalPasskeys()} onClick={async () => {

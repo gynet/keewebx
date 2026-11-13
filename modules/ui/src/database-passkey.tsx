@@ -41,7 +41,7 @@ export function DatabasePasskey({ model, file }: { model: AppModel; file: FileMo
         } catch (error) { if (mounted.current) setMessage(t(localPasskeyError(error))); }
         finally { running.current = false; if (mounted.current) setBusy(false); }
     };
-    return <section class="database-passkey" aria-label={t('Local passkey unlock')}>
+    return <section data-vault-id={file.id} tabIndex={-1} class="database-passkey" aria-label={t('Local passkey unlock')}>
         <h4>{t('Local passkey unlock')}</h4>
         <p>{t('A passkey unlocks this vault in this browser. A configured key file is still required.')}</p>
         {registered && <p>{t('This browser has a passkey registration for this vault.')}</p>}

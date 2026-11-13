@@ -1,5 +1,5 @@
 /** Settings: interface choice and security. Classic keeps its own full settings. */
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { Icon } from 'ui-kit/mark';
 import { t } from './i18n';
@@ -34,8 +34,31 @@ export function switchToClassic(): void {
     location.href = 'index.html';
 }
 
-export function Settings({ onBack, model, extensionSessions }: { onBack: () => void; model: AppModel; extensionSessions?: ExtensionSessionsApi }) {
-    const [section, setSection] = useState<'general' | 'extensions'>('general');
+const SECTIONS = [
+    ['appearance', 'Appearance'], ['security', 'Security'], ['saving', 'Saving and content'],
+    ['database', 'Database'], ['extensions', 'Browser extension']
+] as const;
+export type SettingsSection = typeof SECTIONS[number][0];
+
+export function Settings({ onBack, model, extensionSessions, initialSection = 'appearance', passkeyVaultId }: {
+    onBack: () => void; model: AppModel; extensionSessions?: ExtensionSessionsApi; initialSection?: SettingsSection; passkeyVaultId?: string;
+}) {
+    const [section, setSection] = useState<SettingsSection>(initialSection);
+    const content = useRef<HTMLElement>(null);
+    const select = (next: SettingsSection, focus = false) => {
+        setSection(next);
+        content.current?.scrollTo({ top: 0 });
+        if (focus) document.getElementById(`settings-tab-${next}`)?.focus();
+    };
+    const showPasskey = (id: string) => {
+        select('database');
+        requestAnimationFrame(() => {
+            const target = Array.from(content.current?.querySelectorAll<HTMLElement>('.database-passkey') ?? [])
+                .find((element) => element.dataset.vaultId === id);
+            target?.scrollIntoView({ block: 'start' }); target?.focus({ preventScroll: true });
+        });
+    };
+    useEffect(() => { if (passkeyVaultId) showPasskey(passkeyVaultId); }, [passkeyVaultId]);
     const [, rerender] = useState(0);
     const set = (key: string, value: unknown) => {
         settings[key] = value;
@@ -50,7 +73,7 @@ export function Settings({ onBack, model, extensionSessions }: { onBack: () => v
                     <span class="nav-row__label">{t('Back to vault')}</span>
                 </button>
             </nav>
-            <main class="settings">
+            <main class="settings" ref={content}>
                 <div class="settings__inner">
                     <div class="settings__titlebar">
                         <button class="round settings__phone-back" aria-label={t('Back to vault')} onClick={onBack}>
@@ -60,7 +83,20 @@ export function Settings({ onBack, model, extensionSessions }: { onBack: () => v
                         <ThemeToggle />
                     </div>
 
-                    {section === 'extensions' ? <ExtensionSessions model={model} api={extensionSessions} onBack={() => setSection('general')} /> : <>
+                    <div class="settings__tabs" role="tablist" aria-label={t('Settings categories')}>
+                        {SECTIONS.map(([id, label], index) => <button key={id} type="button" role="tab"
+                            id={`settings-tab-${id}`} aria-controls={`settings-panel-${id}`}
+                            aria-selected={section === id} tabIndex={section === id ? 0 : -1}
+                            onClick={() => select(id)} onKeyDown={(event) => {
+                                const next = event.key === 'ArrowRight' ? (index + 1) % SECTIONS.length
+                                    : event.key === 'ArrowLeft' ? (index + SECTIONS.length - 1) % SECTIONS.length
+                                    : event.key === 'Home' ? 0 : event.key === 'End' ? SECTIONS.length - 1 : -1;
+                                if (next < 0) return;
+                                event.preventDefault(); select(SECTIONS[next][0], true);
+                            }}>{t(label)}</button>)}
+                    </div>
+                    {/* Keep editors mounted across tabs so unsaved drafts and lock guards stay intact. */}
+                    <section id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden={section !== 'appearance'}>
                     <h2 class="group-title">{t('Appearance')}</h2>
                     <section class="cardlist">
                         <div class="cardlist__row">
@@ -82,6 +118,8 @@ export function Settings({ onBack, model, extensionSessions }: { onBack: () => v
                         </div>
                     </section>
 
+                    </section>
+                    <section id="settings-panel-security" role="tabpanel" aria-labelledby="settings-tab-security" hidden={section !== 'security'}>
                     <h2 class="group-title">{t('Security')}</h2>
                     <section class="cardlist">
                         <label class="cardlist__row">
@@ -112,16 +150,25 @@ export function Settings({ onBack, model, extensionSessions }: { onBack: () => v
                         </label>
                         <ClipboardLockSetting value={settings.lockOnCopy === true} onChange={value => set('lockOnCopy', value)} />
                     </section>
-                    <GeneralPreferences model={model} />
-                    <h2 class="group-title">{t('Browser extension')}</h2>
+                    <h2 class="group-title">{t('Local passkey unlock')}</h2>
                     <section class="cardlist">
-                        <button type="button" class="cardlist__row" style={{ width: '100%', border: 0, background: 'var(--kx-bg)', textAlign: 'left' }}
-                            onClick={() => { if (confirmDiscardDrafts('database')) setSection('extensions'); }}><span>{t('Session permissions')}</span><Icon name="globe" size={18} /></button>
+                        {model.files.map((file) => <button key={file.id} type="button" class="cardlist__row settings__shortcut"
+                            onClick={() => showPasskey(file.id)}>
+                            <span>{t('Set up or manage passkey unlock')} · {file.name}</span><Icon name="key" size={18} />
+                        </button>)}
                     </section>
+                    </section>
+                    <section id="settings-panel-saving" role="tabpanel" aria-labelledby="settings-tab-saving" hidden={section !== 'saving'}>
+                        <GeneralPreferences model={model} />
+                    </section>
+                    <section id="settings-panel-extensions" role="tabpanel" aria-labelledby="settings-tab-extensions" hidden={section !== 'extensions'}>
+                        <ExtensionSessions model={model} api={extensionSessions} onBack={() => select('appearance')} />
+                    </section>
+                    <section id="settings-panel-database" role="tabpanel" aria-labelledby="settings-tab-database" hidden={section !== 'database'}>
                     <h2 class="group-title">{t('Database settings')}</h2>
                     {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file}
                         onCancel={() => { discardPendingDrafts('database'); onBack(); }} />)}
-                    </>}
+                    </section>
                 </div>
             </main>
         </div>

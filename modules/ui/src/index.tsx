@@ -27,6 +27,7 @@ declare const __KW_NEW_EXTENSION__: boolean;
 function App({ model }: { model: AppModel }) {
     const version = useVaultVersion(model);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [passkeySettingsId, setPasskeySettingsId] = useState<string>();
     const [unlockRequest, setUnlockRequest] = useState(model.fileUnlockPromise);
     const access = getSessionAccess(model);
     const protocolUi = useMemo(() => createNewProtocolUi(model,
@@ -150,6 +151,7 @@ function App({ model }: { model: AppModel }) {
         <>
         <NewProtocolUiHost controller={protocolUi} />
         {!model.files.hasOpenFiles() && !gate ? <Unlock model={model}
+            onPasskeySetup={(id) => { setPasskeySettingsId(id); setSettingsOpen(true); }}
             extensionRequest={unlockRequest?.unlockRes === 'extensionUnlockMessage'}
             onCancelExtensionRequest={() => {
                 if (unlockRequest && model.fileUnlockPromise === unlockRequest) {
@@ -175,11 +177,11 @@ function App({ model }: { model: AppModel }) {
         <Vault
             model={model}
             version={version}
-            onSettings={() => setSettingsOpen(true)}
+            onSettings={() => { setPasskeySettingsId(undefined); setSettingsOpen(true); }}
             onLock={() => void lock()}
         />
         </div>
-        {settingsOpen && <Settings model={model} extensionSessions={__KW_NEW_EXTENSION__ ? extensionSessions : undefined} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
+        {settingsOpen && <Settings model={model} passkeyVaultId={passkeySettingsId} extensionSessions={__KW_NEW_EXTENSION__ ? extensionSessions : undefined} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
         </div>
         </>}
         </>

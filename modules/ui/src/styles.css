@@ -699,7 +699,41 @@ button {
 }
 
 /* Settings */
+.settings__tabs {
+    display: flex;
+    position: sticky;
+    top: -26px;
+    z-index: 2;
+    gap: 4px;
+    padding: 8px 0;
+    overflow-x: auto;
+    background: var(--kx-side);
+    border-bottom: 1px solid var(--kx-line);
+    scrollbar-width: thin;
+}
+.settings__tabs [role="tab"] {
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: var(--kx-radius-control);
+    padding: 10px 12px;
+    min-height: 44px;
+    background: transparent;
+    color: var(--kx-muted);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.settings__tabs [aria-selected="true"] {
+    color: var(--kx-text);
+    background: var(--kx-bg);
+    box-shadow: inset 0 -2px var(--kx-acc);
+}
+.settings__shortcut { width: 100%; border: 0; background: var(--kx-bg); text-align: left; color: inherit; }
+.settings [role="tabpanel"][hidden] { display: none; }
+.database-passkey { scroll-margin-top: 68px; }
+
 .settings {
+    min-width: 0;
     flex-grow: 1;
     overflow: auto;
     background: var(--kx-side);
@@ -872,3 +906,6 @@ button {
         display: flex !important;
     }
 }
+
+.passkey-setup-option { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; color: var(--kx-muted); }
+.passkey-setup-option input { flex: 0 0 auto; accent-color: var(--kx-acc); }

@@ -43,8 +43,8 @@ function toBase64(buf: ArrayBuffer): string {
     return ByteUtils.bytesToBase64(buf);
 }
 
-export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest }: {
-    model: AppModel; extensionRequest?: boolean; onCancelExtensionRequest?(): void;
+export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest, onPasskeySetup }: {
+    model: AppModel; extensionRequest?: boolean; onCancelExtensionRequest?(): void; onPasskeySetup(id: string): void;
 }) {
     const recent: RecentFile[] = model.fileInfos.map((fi) => ({
         id: fi.id,
@@ -185,18 +185,19 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <p class="card__sub">{t('Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
                     </div>
                 ) : (
-                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} onUnlock={cancelFileRead} />
+                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} onUnlock={cancelFileRead} onPasskeySetup={onPasskeySetup} />
                 )}
             </main>
         </div>
     );
 }
 
-function UnlockCard({ model, pane, onUnlock }: {
+function UnlockCard({ model, pane, onUnlock, onPasskeySetup }: {
     model: AppModel;
     pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }>;
-    onUnlock(): void;
+    onUnlock(): void; onPasskeySetup(id: string): void;
 }) {
+    const [setupAfterUnlock, setSetupAfterUnlock] = useState(false);
     const [password, setPassword] = useState('');
     const [show, setShow] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -226,6 +227,7 @@ function UnlockCard({ model, pane, onUnlock }: {
         setBusy(true);
         setMessage('');
         try {
+            const previousIds = new Set(model.files.map((file) => file.id));
             const key = keyFile ? { keyFileData: keyFile.data, keyFileName: keyFile.name } : {};
             if (pane.kind === 'recent') {
                 await VaultApi.unlock({ id: pane.file.id, password, ...key });
@@ -233,6 +235,11 @@ function UnlockCard({ model, pane, onUnlock }: {
                 await VaultApi.openData({ name: pane.name, data: pane.data, password, ...key });
             } else {
                 await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key });
+            }
+            if (setupAfterUnlock) {
+                const file = pane.kind === 'recent' ? model.files.get(pane.file.id)
+                    : model.files.find((candidate) => !previousIds.has(candidate.id));
+                if (file?.active) onPasskeySetup(file.id);
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -302,6 +309,7 @@ function UnlockCard({ model, pane, onUnlock }: {
                 <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{diagnostic}</pre>
             </details>}
             <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
+                setupAfterUnlock={setupAfterUnlock} onSetupChange={setSetupAfterUnlock}
                 keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setMessage} onAttempt={onUnlock} />
             <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock')}
