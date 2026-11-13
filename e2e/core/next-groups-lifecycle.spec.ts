@@ -122,6 +122,8 @@ async function activate(control: Locator, touch = false) {
 }
 async function showNavigation(page: Page, touch = false) {
     if (!await navigation(page).isVisible()) {
+        const showMenu = page.getByRole('button', { name: 'Show menu', exact: true });
+        if (touch && await showMenu.isVisible()) await activate(showMenu, touch);
         await activate(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
     }
     await expect(navigation(page)).toBeVisible();
@@ -477,6 +479,12 @@ async function trashManager(page: Page, touch = false) {
     await activate(navigation(page).getByRole('button', { name: 'Trash', exact: true }), touch);
     const details = page.locator('details').filter({ has: page.locator('summary', { hasText: /^Manage trash$/ }) });
     if (await details.getAttribute('open') === null) await activate(details.locator('summary'), touch);
+    // The movable phone toolbar can cover lower trash actions. Use its public
+    // collapse control, then reopen it through showNavigation when needed.
+    if (touch) {
+        await activate(page.getByRole('button', { name: 'Move menu', exact: true }), touch);
+        await expect(page.getByRole('button', { name: 'Show menu', exact: true })).toBeVisible();
+    }
     return details;
 }
 async function chooseOptionBySuffix(select: Locator, suffix: string) {

@@ -41,6 +41,8 @@ import { GroupLifecycle, TrashGroups } from './group-lifecycle';
 import { TagActions } from './tag-actions';
 import type { GroupActionResult } from './group-actions';
 import { EntryMove } from './entry-move';
+import { EntryTransfer, type EntryTransferRequest } from './entry-transfer';
+import { prepareEntryTransfer } from 'comp/app/entry-transfer';
 import { EntryHistory } from './entry-history';
 import { EntryClone } from './entry-clone';
 import { EntryDelete } from './entry-delete';
@@ -155,6 +157,12 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const [expandedGroups, setExpandedGroups] = useState(readExpandedGroups);
     const [rootChoice, setRootChoice] = useState('');
     const [groupMessage, setGroupMessage] = useState('');
+    const [transfer, setTransfer] = useState<EntryTransferRequest | null>(null);
+    const [transferMessage, setTransferMessage] = useState('');
+    const beginTransfer = (entry: EntryModel) => {
+        try { setTransfer(prepareEntryTransfer(model, entry)); setTransferMessage(''); }
+        catch (error) { setTransferMessage(error instanceof Error ? error.message : t('Cannot move this entry.')); }
+    };
     const groupManager = useRef<HTMLDetailsElement>(null);
     const groupSummary = useRef<HTMLElement>(null);
     const changeExpandedGroups = (update: (ids: Set<string>) => void) => {
@@ -637,18 +645,33 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         setFilter({ group: groupId });
                         setQuery('');
                         setSelected(entryId);
-                        const group = (entry.file as FileModel).getGroup(groupId);
+                        const group = files.map(file => file.getGroup(groupId)).find(Boolean);
                         changeExpandedGroups((ids) => {
                             for (let parent = group?.parentGroup; parent; parent = parent.parentGroup) ids.add(parent.id);
                         });
                     }}
+                    transferMessage={transferMessage}
+                    onTransfer={() => beginTransfer(entry)}
                     onDeleted={() => setSelected(undefined)}
                     inTrash={!!filter.trash} />
             ) : (
                 <main class="detail">
                     <p class="empty">{t('Select an entry')}</p>
+                    {transferMessage && <p role="status" style={{ overflowWrap: 'anywhere' }}>{t(transferMessage)}</p>}
                 </main>
             )}
+            {transfer && <EntryTransfer model={model} request={transfer} onClose={() => setTransfer(null)} onResult={result => {
+                setTransferMessage(result.message);
+                if (getSessionAccess(model).state !== 'open') return;
+                if (result.entryId && result.groupId) {
+                    setFilter({ group: result.groupId }); setQuery(''); setSelected(result.entryId);
+                    const group = allFiles.map(file => file.getGroup(result.groupId!)).find(Boolean);
+                    if (group && scopeId) setVaultId((group.file as FileModel).id);
+                    changeExpandedGroups(ids => {
+                        for (let parent = group?.parentGroup; parent; parent = parent.parentGroup) ids.add(parent.id);
+                    });
+                }
+            }} />}
         </div>
     );
 }
@@ -713,7 +736,7 @@ function useOtp(entry: EntryModel): { code: string; left: number; counterBased: 
     return otp;
 }
 
-function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDeleted, inTrash, historyFilter }: {
+function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDeleted, onTransfer, transferMessage, inTrash, historyFilter }: {
     model: AppModel;
     entry: EntryModel;
     onBack: () => void;
@@ -721,6 +744,8 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
     onMoved: (entryId: string, groupId: string) => void;
     onCloned: (entryId: string, groupId: string) => void;
     onDeleted: () => void;
+    onTransfer: () => void;
+    transferMessage: string;
     inTrash?: boolean;
     historyFilter?: Parameters<AppModel['prepareFilter']>[0];
 }) {
@@ -805,6 +830,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
 
     return (
         <main ref={detail} class="detail" tabIndex={-1} aria-label={s.title}>
+            {transferMessage && <p role="status" style={{ overflowWrap: 'anywhere' }}>{t(transferMessage)}</p>}
             <div class="detail__head entry-detail__head">
                 <button class="round phone-only" aria-label={t('Back')} onClick={onBack} style={{ display: 'none' }}>
                     <Icon name="back" size={17} />
@@ -822,6 +848,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                     <EntryAppearance model={model} entry={entry} />
                     <FaviconImport model={model} entry={entry} />
                     <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
+                    {!inTrash && <button type="button" class="pill pill--tinted" onClick={onTransfer}>{t('Move to another vault…')}</button>}
                     {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
                     <EntryHistory entry={entry} searchFilter={historyFilter} onRestore={() => setNotesVersion(value => value + 1)} />
                     <EntryDelete model={model} entry={entry} onDeleted={onDeleted} />
