@@ -70,6 +70,7 @@ async function editNew(page: Page) {
 }
 async function verifyDownload(page: Page) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('form', { name: /^Database settings:/ }).getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const download = await pending; expect(await download.failure()).toBeNull();

@@ -909,3 +909,11 @@ button {
 
 .passkey-setup-option { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; color: var(--kx-muted); }
 .passkey-setup-option input { flex: 0 0 auto; accent-color: var(--kx-acc); }
+
+/* Readable settings labels; secondary copy alone uses the muted color. */
+.settings { font-size: 14px; line-height: 1.5; }
+.settings .group-title { font-size: 14px; color: var(--kx-text); }
+.settings .plain-select { font-size: 14px; color: var(--kx-text); }
+.settings__tabs [role="tab"] { font-size: 14px; }
+.settings .general-preferences__help,
+.settings .database-passkey p { line-height: 1.6; max-width: 65ch; }
