@@ -10,6 +10,8 @@ import { ThemeToggle } from './theme';
 import { CreateVault } from './create-vault';
 import { SwipeVaultRow } from './swipe-vault-row';
 import { LocalPasskeyUnlock } from './local-passkey-unlock';
+import { SidebarToggle, useSidebarCollapse } from './sidebar-collapse';
+import { PanelResizer } from 'ui-kit/panel-resizer';
 
 interface RecentFile {
     id: string;
@@ -46,6 +48,7 @@ function toBase64(buf: ArrayBuffer): string {
 export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest, onPasskeySetup }: {
     model: AppModel; extensionRequest?: boolean; onCancelExtensionRequest?(): void; onPasskeySetup(id: string): void;
 }) {
+    const sidebar = useSidebarCollapse('start');
     const recent: RecentFile[] = model.fileInfos.map((fi) => ({
         id: fi.id,
         name: fi.name,
@@ -104,8 +107,14 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     };
 
     return (
-        <div class="start">
+        <div class={`start start--foldable${sidebar.collapsed ? ' sidebar-folded' : ''}`} style={{ '--start-sidebar-width': `${sidebar.width}px` }}>
             <aside class="start__side" aria-label={t('Your vaults')}>
+                <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="start-sidebar-content" label={t('Your vaults')} />
+                <div class="sidebar-rail">
+                    <button type="button" class="round" aria-label={t('Open a file')} title={t('Open a file')} onClick={() => { sidebar.toggle(); fileInput.current?.click(); }}><Icon name="file" size={18} /></button>
+                    <ThemeToggle />
+                </div>
+                <div id="start-sidebar-content" class="start-sidebar-content">
                 <div class="start__tools">
                     <a class="link" href="index.html?ui=classic">{t('Open Classic')}</a>
                     <ThemeToggle />
@@ -173,7 +182,10 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     </span>
                     {t('Try the demo')}
                 </button>
+                </div>
             </aside>
+            <PanelResizer label={t('Resize Your vaults panel')} value={sidebar.width} min={240} max={sidebar.max}
+                onChange={sidebar.setWidth} onReset={() => sidebar.setWidth(360)} />
             <main class="start__main" style={extensionRequest ? { flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' } : undefined}>
                 {extensionRequest && <div class="card" role="status" style={{ marginBottom: '16px' }}>
                     <p>{t('Unlock to connect a browser extension')}</p>

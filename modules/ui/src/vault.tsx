@@ -17,6 +17,7 @@ import { tagColor } from 'ui-kit/tag-color';
 import { storageKey } from 'comp/settings/storage-namespace';
 import { PanelResizer } from 'ui-kit/panel-resizer';
 import { usePanelLayout } from './panel-layout';
+import { SidebarToggle, useSidebarCollapse } from './sidebar-collapse';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { MobileMenu } from './mobile-menu';
@@ -99,6 +100,7 @@ function isWithinGroup(group: GroupModel | null | undefined, id: string): boolea
 export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void }) {
     const { model } = props;
     const layout = usePanelLayout();
+    const sidebar = useSidebarCollapse('vault');
     const [navigationOpen, setNavigationOpen] = useState(false);
     const navigation = useRef<HTMLElement>(null);
     const browse = useRef<HTMLButtonElement>(null);
@@ -245,7 +247,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
 
     return (
         <div
-            class={`${entry || editing ? 'vault vault--detail' : 'vault'}${navigationOpen ? ' vault--navigation' : ''}`}
+            class={`${entry || editing ? 'vault vault--detail' : 'vault'}${navigationOpen ? ' vault--navigation' : ''}${sidebar.collapsed ? ' sidebar-folded' : ''}`}
             style={{ '--sidebar-width': `${layout.sidebar}px`, '--list-width': `${layout.list}px` }}
             onKeyDown={(event) => {
                 IdleTracker.regUserAction();
@@ -272,9 +274,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             {t(SYNC_LABELS[sync] ?? sync)}
                         </span>
                     </span>
+                    <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="vault-sidebar-content" label={t('folders panel')} />
                     <button class="round side__close" aria-label={t('Close navigation')} onClick={closeNavigation}><Icon name="back" /></button>
                 </div>
-                <div class="side__content">
+                <div id="vault-sidebar-content" class="side__content">
                 <NavRow icon="grid" label={t('All items')} on={!filter.group && !filter.tag && !filter.trash} onClick={() => changeFilter({})} />
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 {groups.length > 0 && <h2 class="side__heading">{t('Groups')}</h2>}
@@ -299,6 +302,11 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         </button>
                     ))}
                 </div>
+                </div>
+                <div class="sidebar-rail">
+                    <button type="button" class="round" aria-label={t('All items')} title={t('All items')} onClick={() => changeFilter({})}><Icon name="grid" size={18} /></button>
+                    <button type="button" class="round" aria-label={t('Browse groups')} title={t('Browse groups')} onClick={sidebar.toggle}><Icon name="folder" size={18} /></button>
+                    <button type="button" class="round" aria-label={t('Trash')} title={t('Trash')} onClick={() => changeFilter({ trash: true })}><Icon name="trash" size={18} /></button>
                 </div>
                 <div class="side__foot">
                     <span style={{ flexGrow: 1 }} />
