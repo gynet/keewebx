@@ -29,6 +29,7 @@ import { confirmDiscardDrafts, hasPendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { prepareOtpDraft } from 'comp/app/entry-otp';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
+import { EntryTemplates } from './entry-templates';
 import type { EntryDraft } from './entry-editor';
 import { GroupActions } from './group-actions';
 import { GroupLifecycle, TrashGroups } from './group-lifecycle';
@@ -459,6 +460,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <button class="pill entry-list__create" disabled={!!editing || !canCreate} onClick={newEntry}>
                     {t('New entry')}
                 </button>
+                <EntryTemplates model={model} groupId={filter.group} onCreated={entry => {
+                    setEditing(null); setFilter({ group: (entry.group as GroupModel).id }); setQuery(''); setSelected(entry.id);
+                }} />
                 <details ref={groupManager} style={{ flex: '0 0 auto', margin: '0 14px 6px', minWidth: 0 }}>
                     <summary ref={groupSummary} style={{ cursor: 'pointer', padding: '10px 0', fontWeight: 600 }}>
                         {t('Manage groups')}

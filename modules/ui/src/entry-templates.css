@@ -1,0 +1,13 @@
+.entry-templates { width: min(800px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; border: 1px solid var(--kx-line); border-radius: 12px; padding: 20px; background: var(--kx-bg); color: var(--kx-text); overflow-wrap: anywhere; }
+.entry-templates::backdrop { background: #0007; }
+.entry-templates__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.entry-templates h2 { font-size: 20px; margin: 0; }
+.vault .entry-templates .detail.entry-editor { display: block; padding: 20px 0 0; overflow: visible; width: 100%; }
+.entry-templates .input { width: 100%; min-width: 0; }
+.entry-templates .vault-form__field { margin-bottom: 12px; }
+.entry-templates__list { list-style: none; padding: 0; }
+.entry-templates__list li { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--kx-line); }
+.entry-templates__list li > div { flex: 1 1 220px; min-width: 0; }
+.entry-templates__list small { display: block; color: var(--kx-muted); margin-top: 6px; }
+@media (max-width: 760px) { .entry-templates { padding: 16px; } }
+.entry-templates .entry-editor__head { position: sticky; top: 0; z-index: 1; padding: 10px 0; background: var(--kx-bg); }

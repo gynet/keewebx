@@ -55,7 +55,7 @@ function customName(field: CustomField): string {
     return field.name === field.originalName ? field.name : field.name.trim();
 }
 
-function makeDraft(entry: EntryModel | null, tags: string[], group?: GroupModel): EntryDraft {
+export function makeDraft(entry: EntryModel | null, tags: string[], group?: GroupModel): EntryDraft {
     const fields = entry?.getAllFields() ?? {};
     return {
         fields: Object.fromEntries(FIELDS.map(({ name }) => [name, fieldText(fields[name] ??
@@ -113,15 +113,20 @@ export function applyEntryDraft(entry: EntryModel, draft: EntryDraft): void {
     if (draft.expires !== undefined && draft.expires !== localDate(entry.expires)) entry.setExpires(expires);
 }
 
-export function EntryEditor({ model, entry, group, tags = [], onSave, onCancel }: {
+export function EntryEditor({ model, entry, group, tags = [], draftSource, onSave, onCancel }: {
     model: AppModel;
     entry: EntryModel | null;
     group?: GroupModel;
     tags?: string[];
+    draftSource?: EntryModel;
     onSave: (draft: EntryDraft) => void;
     onCancel: () => void;
 }) {
-    const [draft, setDraft] = useState(() => makeDraft(entry, tags, group));
+    const [draft, setDraft] = useState(() => {
+        const initial = makeDraft(entry ?? draftSource ?? null, tags, group);
+        if (!entry && draftSource) initial.fields.Title = '';
+        return initial;
+    });
     const initialDraft = useRef(JSON.stringify(draft));
     const target = useRef(entry ? { file: entry.file as FileModel, db: (entry.file as FileModel).db, raw: entry.entry } : null);
     const access = getSessionAccess(model);
@@ -239,7 +244,7 @@ export function EntryEditor({ model, entry, group, tags = [], onSave, onCancel }
                     <input class="input" value={draft.tags} placeholder={t('Separate tags with commas')}
                         onInput={(event) => setDraft({ ...draft, tags: event.currentTarget.value })} />
                 </label>
-                <EntryOtpFields model={model} value={draft.otp!} original={readEntryOtp(entry)}
+                <EntryOtpFields model={model} value={draft.otp!} original={readEntryOtp(entry ?? draftSource ?? null)}
                     onChange={(otp) => setDraft((current) => ({ ...current, otp }))} />
                 <fieldset class="entry-editor__custom">
                     <legend class="section-title">{t('Custom fields')}</legend>
