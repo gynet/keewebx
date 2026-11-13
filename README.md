@@ -26,7 +26,7 @@ Forked from [KeeWeb](https://github.com/keeweb/keeweb) (stalled since 2021), reb
 
 ## Pure Local Mode — the killer feature
 
-Download `keewebx-web-<version>.zip`, extract, **double-click `index.html`**. Done.
+Download `keewebx-web-<version>.zip` or `.tar.gz`, extract, and **double-click `index.html`** to open New. Open `classic.html` for Classic. Both interfaces use the same vault format.
 
 - ✅ No web server. No Python. No Node. No Docker. No nginx.
 - ✅ All KDBX encryption/decryption runs in your browser (WebCrypto).
@@ -112,7 +112,9 @@ Both interfaces use the same vault and database implementations. Shared code
 must not import either interface. UI-specific changes belong in `ui-classic/`
 or `ui/`; reusable presentation code belongs in `ui-kit/`. `bun run build`
 emits both entry points into the root `dist/` directory: `index.html` for
-Classic and `next.html` for the new interface. Classic remains the default.
+the New interface, `classic.html` for Classic, and compatibility aliases
+`next.html` (New) and `classic/index.html` (Classic). New is the default.
+The legacy `?ui=classic` selector still opens Classic.
 
 ## Storage
 
@@ -144,3 +146,16 @@ OAuth cloud providers (Google Drive / Dropbox / OneDrive) return in Phase 2 via 
 ## Credits
 
 Built on [KeeWeb](https://github.com/keeweb/keeweb) by Antelle and [kdbxweb](https://github.com/keeweb/kdbxweb). Original work MIT-licensed.
+
+### Build extensions
+
+Both interface builds accept `KEEWEBX_EXTRA_SOURCE_DIR`, an absolute path searched
+before their own source and the shared vault source for module imports. An
+extension can provide `hooks/init.ts` and register shared data hooks there. Use a
+separate source directory for each interface if initialization imports UI code;
+Classic views cannot run in New. Keep secrets out of client-side extensions.
+
+Build the database first, Classic second, and New last. Classic cleans `dist`;
+New writes the default `index.html` and the `next.html` alias into that directory.
+New's browser-extension integration is enabled by default; set
+`KEEWEBX_NEW_EXTENSION=0` only for a build that intentionally omits it.

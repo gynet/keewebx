@@ -20,7 +20,7 @@ async function usableGroups(page: Page) {
 for (const height of [720, 350]) {
     test(`tag pane leaves usable groups at ${height}px, including after resizing and reload`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width: 1280, height });
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.locator('#open__icon-demo').click();
         await expect(page.locator('.list__item').first()).toBeVisible();
         await usableGroups(page);

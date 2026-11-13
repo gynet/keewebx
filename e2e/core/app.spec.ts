@@ -4,7 +4,7 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
 
 test.describe('App E2E', () => {
     test('app loads with dark theme', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
 
         // The body element has class th-dark by default (set in index.html)
@@ -29,7 +29,7 @@ test.describe('App E2E', () => {
     });
 
     test('shows Open, New, Demo, More buttons with correct icons', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
 
         // Wait for UI to be ready
@@ -65,7 +65,7 @@ test.describe('App E2E', () => {
     });
 
     test('click Demo opens demo database with entries', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
 
         const demoBtn = page.locator('#open__icon-demo');
@@ -91,7 +91,7 @@ test.describe('App E2E', () => {
     });
 
     test('click New creates empty database', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
 
         const newBtn = page.locator('#open__icon-new');
@@ -114,7 +114,7 @@ test.describe('App E2E', () => {
     });
 
     test('password input is readonly until file is selected', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
 
         await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
@@ -144,7 +144,7 @@ test.describe('App E2E', () => {
             }
         });
 
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
 
         // Verify the app actually loaded (not just a blank page)

@@ -188,7 +188,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                 </div>
                 <div id="start-sidebar-content" class="start-sidebar-content">
                 <div class="start__tools">
-                    {!additional && <a class="link" href="index.html?ui=classic">{t('Open Classic')}</a>}
+                    {!additional && <a class="link" href="classic.html">{t('Open Classic')}</a>}
                     {!additional && onSettings && model.settings.canOpenSettings && <button type="button" class="link" onClick={() => { if (model.settings.canOpenSettings) onSettings(); }}>{t('Settings')}</button>}
                     <ThemeToggle />
                 </div>

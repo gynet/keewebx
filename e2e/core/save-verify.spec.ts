@@ -85,7 +85,7 @@ test.describe('save-verify regression guard', () => {
         // Clean slate: drop any residual fileInfos / FilesCache so the
         // recent-files list can't feed a stale state into the unlock path.
         // Same pattern as crud-persistence.spec.ts.
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         await page.evaluate(async () => {
             try {

@@ -83,50 +83,34 @@ test.describe('New interface', () => {
 });
 
 test.describe('Switching between Classic and New', () => {
-    test('Classic settings open the new interface, and New settings go back', async ({ page }) => {
-        await page.goto('/');
+    test('Classic settings open New, and a safe switch returns to the explicit Classic entry', async ({ page }) => {
+        await page.goto('/classic.html');
         await page.click('#open__icon-demo');
         await expect(page.locator('.list__item').first()).toBeVisible({ timeout: 30000 });
         await page.locator('.footer__btn-settings').click();
         await page.selectOption('#settings__general-ui', 'new');
-        await page.waitForURL(/next\.html/);
-
-        // Classic now forwards to the new interface.
-        await page.goto('/');
-        await page.waitForURL(/next\.html/);
-
+        await page.waitForURL(/index\.html/);
         await page.click('#open-demo');
         await page.click('#open-settings');
         await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
         await page.click('#use-classic');
         await page.getByRole('dialog', { name: 'Switch to Classic' })
             .getByRole('button', { name: 'Save and switch' }).click();
-        await page.waitForURL(/index\.html/);
+        await page.waitForURL(/classic\.html/);
         await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15000 });
-
-        // And stays Classic.
+        await page.reload();
+        await expect(page.locator('#open__icon-open')).toBeVisible();
         await page.goto('/');
-        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15000 });
-        expect(page.url()).not.toContain('next.html');
+        await expect(page.locator('#open-demo')).toBeVisible();
     });
 
-    test('index.html?ui=classic always shows Classic and makes it the choice again', async ({ page }) => {
-        await page.goto('/next.html');
-        await page.click('#open-demo');
-        await page.click('#open-settings');
-        await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
-        await page.evaluate(() => {
-            // Choose New the way its settings store it.
-            const raw = localStorage.getItem('appSettings');
-            const s = raw ? JSON.parse(raw) : {};
-            s.ui = 'new';
-            localStorage.setItem('appSettings', JSON.stringify(s));
-        });
-        await page.goto('/');
-        await page.waitForURL(/next\.html/);
+    test('legacy Classic selector works while root remains New', async ({ page }) => {
         await page.goto('/?ui=classic');
         await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15000 });
+        await expect(page).toHaveURL(/classic\.html\?ui=classic/);
         await page.goto('/');
-        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15000 });
+        await expect(page.locator('#open-demo')).toBeVisible();
+        await page.goto('/classic/index.html');
+        await expect(page.locator('#open__icon-open')).toBeVisible();
     });
 });

@@ -6,7 +6,7 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
  * Helper: open the Demo database and wait for entries to load.
  */
 async function openDemoDatabase(page: import('@playwright/test').Page) {
-    await page.goto('/');
+    await page.goto('/classic.html');
     await page.waitForLoadState('networkidle');
 
     const demoBtn = page.locator('#open__icon-demo');
@@ -23,7 +23,7 @@ async function openDemoDatabase(page: import('@playwright/test').Page) {
  * Helper: create a new empty database.
  */
 async function createNewDatabase(page: import('@playwright/test').Page) {
-    await page.goto('/');
+    await page.goto('/classic.html');
     await page.waitForLoadState('networkidle');
 
     const newBtn = page.locator('#open__icon-new');

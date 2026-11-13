@@ -31,8 +31,13 @@ import { CloseVault } from './close-vault';
 import type { FileModel } from 'models/file-model';
 import { MultiVaultOpen } from './multi-vault-open';
 import { useVaultCommands } from './vault-commands';
+import { legacyClassicEntry } from 'comp/browser/ui-entry';
 
 declare const __KW_NEW_EXTENSION__: boolean;
+declare const __KEEWEBX_BUILD_SHA__: string;
+declare const __KEEWEBX_BUILD_SHA_SHORT__: string;
+declare const __KEEWEBX_BUILD_TIME__: string;
+Object.assign(window, { __KEEWEBX_BUILD_SHA__, __KEEWEBX_BUILD_SHA_SHORT__, __KEEWEBX_BUILD_TIME__ });
 
 function App({ model }: { model: AppModel }) {
     const version = useVaultVersion(model);
@@ -225,16 +230,19 @@ function App({ model }: { model: AppModel }) {
     );
 }
 
-void startVault().then((model) => {
+const classicEntry = legacyClassicEntry(location.href, document.baseURI);
+if (classicEntry) location.replace(classicEntry);
+else void startVault().then((model) => {
     render(<App model={model} />, document.getElementById('root')!);
     ServiceWorkerClient.init();
+    if (new URLSearchParams(location.search).get('demo') === '1') model.createDemoFile();
 }).catch(() => {
     render(
         <main class="start__main">
             <div class="card" role="alert">
                 <h1>{t('Unable to open the vault')}</h1>
                 <p>{t('Try opening the app directly or return to Classic.')}</p>
-                <a href="index.html?ui=classic">{t('Open Classic')}</a>
+                <a href="classic.html">{t('Open Classic')}</a>
             </div>
         </main>,
         document.getElementById('root')!

@@ -131,7 +131,7 @@ async function overridePasskeyCapability(page: Page): Promise<void> {
  */
 async function resetPersistence(page: Page): Promise<void> {
     await overridePasskeyCapability(page);
-    await page.goto('/');
+    await page.goto('/classic.html');
     await page.waitForLoadState('networkidle');
     await page.evaluate(async () => {
         try {

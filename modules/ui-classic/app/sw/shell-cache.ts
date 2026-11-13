@@ -6,6 +6,9 @@ export const CACHE_PREFIX = 'keewebx-shell-';
 // Static files the app needs to boot, relative to the worker scope.
 export const SHELL_ASSETS = [
     'index.html',
+    'classic.html',
+    'classic/index.html',
+    'manifest-classic.json',
     'next.html',
     'js/next.js',
     'css/next.css',

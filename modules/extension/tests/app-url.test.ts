@@ -9,6 +9,12 @@ describe('configured app tab identity', () => {
         expect(matchesAppUrl('https://vault.example:8443/keewebx/index.html?ui=classic#app/open', configured)).toBe(true);
         expect(matchesAppUrl('https://vault.example/app?b=2&a=1#hash', 'https://vault.example/app?a=1&b=2')).toBe(true);
     });
+    test('legacy Classic selectors follow only the explicit Classic redirect', () => {
+        expect(matchesAppUrl('https://vault.example:8443/keewebx/classic.html?ui=classic', configured)).toBe(true);
+        expect(matchesAppUrl('https://vault.example:8443/keewebx/classic/index.html?ui=classic', configured)).toBe(true);
+        expect(matchesAppUrl('https://vault.example:8443/keewebx/classic.html', configured)).toBe(false);
+        expect(matchesAppUrl('https://vault.example:8443/other/classic.html?ui=classic', configured)).toBe(false);
+    });
     test('query-free settings retain hash and query routing at the same app path', () => {
         expect(matchesAppUrl(configured, 'https://vault.example:8443/keewebx/')).toBe(true);
         expect(matchesAppUrl('https://vault.example/keewebx', 'https://vault.example/keewebx/')).toBe(true);

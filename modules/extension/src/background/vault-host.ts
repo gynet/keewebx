@@ -41,7 +41,7 @@ function isAppUrl(value?: string): boolean {
     try {
         const url = new URL(value);
         return url.protocol === 'chrome-extension:' && url.hostname === chrome.runtime.id &&
-            ['/app/index.html', '/app/next.html'].includes(url.pathname);
+            ['/app/index.html', '/app/next.html', '/app/classic.html', '/app/classic/index.html'].includes(url.pathname);
     } catch { return false; }
 }
 

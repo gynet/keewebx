@@ -25,7 +25,7 @@ const ServiceWorkerClient = {
             return;
         }
         navigator.serviceWorker
-            .register('service-worker.js', { updateViaCache: 'none' })
+            .register(new URL('service-worker.js', document.baseURI).href, { updateViaCache: 'none' })
             .then((registration) => {
                 this.registration = registration;
                 void navigator.serviceWorker.ready.then((ready) =>

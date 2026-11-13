@@ -6,7 +6,7 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
 test.describe('Database Open Operations', () => {
     test.describe('Open screen UI', () => {
         test('open screen shows Open, New, Demo, and More buttons', async ({ page }) => {
-            await page.goto('/');
+            await page.goto('/classic.html');
             await page.waitForLoadState('networkidle');
 
             await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
@@ -23,7 +23,7 @@ test.describe('Database Open Operations', () => {
 
     test.describe('Demo database', () => {
         test('clicking Demo opens the built-in demo database with entries', async ({ page }) => {
-            await page.goto('/');
+            await page.goto('/classic.html');
             await page.waitForLoadState('networkidle');
 
             // Wait for the Demo button to appear
@@ -99,7 +99,7 @@ test.describe('Database Open Operations', () => {
 
         test('opens KDBX4.1 file with correct password', async ({ page }) => {
             test.setTimeout(30_000);
-            await page.goto('/');
+            await page.goto('/classic.html');
             await page.waitForLoadState('networkidle');
             await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
 
@@ -137,7 +137,7 @@ test.describe('Database Open Operations', () => {
 
         test('rejects KDBX4 file with wrong password', async ({ page }) => {
             test.setTimeout(30_000);
-            await page.goto('/');
+            await page.goto('/classic.html');
             await page.waitForLoadState('networkidle');
             await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
 
@@ -160,7 +160,7 @@ test.describe('Database Open Operations', () => {
 
     test.describe('Create new database', () => {
         test('creates a new empty database', async ({ page }) => {
-            await page.goto('/');
+            await page.goto('/classic.html');
             await page.waitForLoadState('networkidle');
 
             // Wait for New button

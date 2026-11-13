@@ -156,8 +156,8 @@ for (const prefix of ['', '/nested']) {
 }
 
 test('Classic opens and unlocks its demo with the app origin blocked', async ({ page, context }) => {
-    await page.goto(origin + '/app');
-    await shell(page, '/app');
+    await page.goto(origin + '/classic.html');
+    await shell(page, '/classic.html');
     await denyOrigin();
     await context.setOffline(true);
     const response = await page.reload();
@@ -168,7 +168,7 @@ test('Classic opens and unlocks its demo with the app origin blocked', async ({ 
 
 for (const classic of [false, true]) {
     test(`${classic ? 'Classic' : 'New'} update retains encrypted data and unlocks offline`, async ({ page, context }) => {
-        const entryPoint = classic ? '/app' : '/next.html';
+        const entryPoint = classic ? '/classic.html' : '/next.html';
         await page.goto(origin + entryPoint);
         await shell(page, entryPoint);
         await page.reload();

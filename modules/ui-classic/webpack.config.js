@@ -8,6 +8,7 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 const rootDir = __dirname;
 const offlineEnabled = !process.env.KEEWEBX_STORAGE_NAMESPACE;
+const extraSource = process.env.KEEWEBX_EXTRA_SOURCE_DIR;
 const pkg = require('./package.json');
 
 process.noDeprecation = true;
@@ -57,6 +58,7 @@ module.exports = (env, argv) => {
         resolve: {
             extensions: ['.ts', '.js', '.json', '.hbs'],
             modules: [
+                ...(extraSource ? [path.resolve(extraSource)] : []),
                 path.join(rootDir, 'app/scripts'),
                 path.join(rootDir, '../vault/src'),
                 path.join(rootDir, 'app/styles'),
@@ -300,17 +302,21 @@ module.exports = (env, argv) => {
             new MiniCssExtractPlugin({
                 filename: 'css/[name].css'
             }),
-            new HtmlWebpackPlugin({
+            ...['index.html', 'classic.html', 'classic/index.html'].map(filename => new HtmlWebpackPlugin({
                 template: path.join(rootDir, 'app/index.html'),
-                templateParameters: { offlineEnabled },
+                filename,
+                templateParameters: { offlineEnabled, nested: filename.startsWith('classic/') },
                 inject: false
-            }),
+            })),
             new CopyWebpackPlugin({
                 patterns: [
                     { from: path.join(rootDir, 'app/icons'), to: 'icons' },
                     { from: path.join(rootDir, 'app/manifest/browserconfig.xml'), to: 'browserconfig.xml' },
                     ...(offlineEnabled ? [
-                        { from: path.join(rootDir, 'app/manifest/manifest.json'), to: 'manifest.json' },
+                        { from: path.join(rootDir, 'app/manifest/manifest.json'), to: 'manifest.json',
+                            transform: content => JSON.stringify({ ...JSON.parse(content.toString()), id: './', start_url: './index.html' }) },
+                        { from: path.join(rootDir, 'app/manifest/manifest.json'), to: 'manifest-classic.json',
+                            transform: content => JSON.stringify({ ...JSON.parse(content.toString()), name: 'KeeWebX Classic', id: './classic.html', start_url: './classic.html' }) },
                         {
                             from: path.join(rootDir, 'app/manifest/manifest.json'), to: 'manifest-new.json',
                             transform: (content) => JSON.stringify({

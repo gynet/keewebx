@@ -161,7 +161,7 @@ test.describe('CRUD persistence across reload (IndexedDB cache path)', () => {
         // Same clean-slate setup as persistence.spec.ts — clear
         // localStorage (fileInfos) and FilesCache so residual state
         // from prior runs can't mask a regression.
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         await page.evaluate(async () => {
             try {

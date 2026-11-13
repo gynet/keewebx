@@ -30,7 +30,7 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
 const MASTER_PASSWORD = 'e2e-roundtrip-pass';
 
 async function openDemoDatabase(page: Page) {
-    await page.goto('/');
+    await page.goto('/classic.html');
     await page.waitForLoadState('networkidle');
     const demoBtn = page.locator('#open__icon-demo');
     await expect(demoBtn).toBeVisible({ timeout: 15_000 });

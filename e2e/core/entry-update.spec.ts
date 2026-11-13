@@ -31,7 +31,7 @@ import { test, expect, Page } from '@playwright/test';
 const SCREENSHOT_DIR = 'e2e/screenshots';
 
 async function openDemoDatabase(page: Page): Promise<void> {
-    await page.goto('/');
+    await page.goto('/classic.html');
     await page.waitForLoadState('networkidle');
     await page.locator('#open__icon-demo').click();
     await page.waitForSelector('.list__item', { timeout: 20_000 });

@@ -332,7 +332,7 @@ test('Classic switch waits for an attachment and cancels navigation without drop
     expect(page.url()).toContain('next.html');
     await page.locator('#use-classic').click();
     await page.getByRole('dialog', { name: 'Switch to Classic' }).getByRole('button', { name: 'Save and switch' }).click();
-    await expect(page).toHaveURL(/index.html\?ui=classic/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/classic\.html/, { timeout: 30_000 });
     const entry = [...(await decrypt(dav.files.get('/saved.kdbx')!.data, f)).groups[0].allEntries()][0];
     expect(Buffer.from((entry.binaries.get('switch.bin') as kdbx.KdbxBinaryWithHash).value as ArrayBuffer)).toEqual(binary);
 });
@@ -343,7 +343,7 @@ test('Classic switch commits a local draft to independently readable encrypted b
     await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await page.locator('#use-classic').click();
     await page.getByRole('dialog', { name: 'Switch to Classic' }).getByRole('button', { name: 'Save and switch' }).click();
-    await expect(page).toHaveURL(/index.html\?ui=classic/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/classic\.html/, { timeout: 30_000 });
     const bytes = await page.evaluate(async () => {
         const info = JSON.parse(localStorage.getItem('fileInfo') || '[]').find((item: { name: string }) => item.name === 'Migration');
         return new Promise<number[]>((resolve, reject) => {
@@ -378,7 +378,7 @@ for (const width of [1280, 320]) test.describe(`Classic switch at ${width}px`, (
         await expect.poll(() => dav.requests.some(req => req.method === 'PUT' && req.status === 0)).toBe(true);
         expect(page.url()).toContain('next.html');
         release();
-        await expect(page).toHaveURL(/index.html\?ui=classic/, { timeout: 30_000 });
+        await expect(page).toHaveURL(/classic\.html/, { timeout: 30_000 });
         expect((await decrypt(dav.files.get('/saved.kdbx')!.data, f)).meta.defaultUser).toBe('before Classic');
         await expect(page.locator('.open')).toBeVisible();
         await page.locator('.open__last-item').filter({ hasText: 'Migration' }).click();
@@ -403,7 +403,7 @@ for (const width of [1280, 320]) test.describe(`Classic switch at ${width}px`, (
         await expect(modal.getByRole('alert')).toContainText('Not switched');
         expect(page.url()).toContain('next.html');
         dav.fail(false); await modal.getByRole('button', { name: 'Save and switch' }).click();
-        await expect(page).toHaveURL(/index.html\?ui=classic/, { timeout: 30_000 });
+        await expect(page).toHaveURL(/classic\.html/, { timeout: 30_000 });
         expect((await decrypt(dav.files.get('/saved.kdbx')!.data, f)).meta.defaultUser).toBe('retry Classic');
     });
 });

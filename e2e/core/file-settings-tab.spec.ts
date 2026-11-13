@@ -26,7 +26,7 @@ test.describe('File settings sidebar entry', () => {
     test('appears above filename after opening a DB, hides when closed', async ({
         page
     }) => {
-        await page.goto('/', { waitUntil: 'networkidle' });
+        await page.goto('/classic.html', { waitUntil: 'networkidle' });
 
         // Open demo DB.
         const demoBtn = page.locator('#open__icon-demo');

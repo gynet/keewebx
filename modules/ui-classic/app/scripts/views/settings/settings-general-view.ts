@@ -314,7 +314,7 @@ class SettingsGeneralView extends View {
     changeInterface(e: any): void {
         if (e.target.value === 'new') {
             this.appModel.settings.ui = 'new';
-            location.href = 'next.html';
+            location.href = new URL('index.html', document.baseURI).href;
         }
     }
 

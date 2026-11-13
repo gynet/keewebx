@@ -73,7 +73,7 @@ test.describe('Persistence across reload (SettingsStore regression guard)', () =
         // from prior runs doesn't mask a regression. `localStorage`
         // is where fileInfos lives now, and IndexedDB `FilesCache`
         // holds the bytes; both must be cleared.
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         await page.evaluate(async () => {
             try {

@@ -23,14 +23,14 @@ test.describe('Theme + persistence', () => {
     test.beforeEach(async ({ page }) => {
         // Cold start: clear any leftover settings from previous tests so
         // each case has deterministic state.
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.evaluate(() => {
             localStorage.clear();
         });
     });
 
     test('body has a theme class after SettingsManager boots', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
 
         const bodyClass = await page.evaluate(() => document.body.className);
@@ -47,7 +47,7 @@ test.describe('Theme + persistence', () => {
         // → localStorage[StringFormat.camelCase('app-settings')]).
         // The key MUST be 'appSettings' (camelCase of 'app-settings'),
         // matching upstream KeeWeb's web-mode SettingsStore behavior.
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.evaluate(() => {
             localStorage.setItem('appSettings', JSON.stringify({ theme: 'fb' }));
         });
@@ -71,7 +71,7 @@ test.describe('Theme + persistence', () => {
         // Regression check: setTheme() must STRIP previous /^th-/ classes
         // before adding the new one. If it just appends, body ends up
         // with `th-dark th-fb` and CSS specificity gets weird.
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.evaluate(() => {
             localStorage.setItem('appSettings', JSON.stringify({ theme: 'fb' }));
         });

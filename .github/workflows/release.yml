@@ -3,7 +3,7 @@ name: Release self-host bundle
 # Produces a static-site tarball + zip users can drop onto any HTTP server
 # (nginx, Caddy, S3+CF, GitHub Pages, `python3 -m http.server`, ...). This is
 # the "I don't want to use keewebx.app, I want to host it myself"
-# artifact. Same bytes the CF Worker deploy publishes — just repackaged.
+# artifact. Contains both interfaces without hosted-service overlays.
 #
 # Triggers:
 #   - push of a tag `v*`   -> attach archives to the matching GitHub Release
@@ -44,18 +44,26 @@ jobs:
       - name: Install (frozen lockfile)
         run: bun install --frozen-lockfile
 
+      - name: Check build source resolution
+        run: bun test scripts/tests/build-entries.test.ts
+
       - name: Build database and both interfaces
         run: bun run build
         env:
           # Pin the build's embedded commit SHA to the CI commit so the
           # live-demo drift check in deploy-pages.yml stays consistent.
           GITHUB_SHA: ${{ github.sha }}
+          KEEWEBX_NEW_EXTENSION: "1"
 
       - name: Verify static assets present in dist
         run: |
           set -e
           cd dist
           test -f index.html
+          test -f classic.html
+          test -f classic/index.html
+          test -f manifest-classic.json
+          test -f manifest-new.json
           test -f js/app.js
           test -f css/app.css
           test -f next.html
@@ -74,9 +82,10 @@ jobs:
         run: |
           set -e
           cd dist
-          grep -q "${GITHUB_SHA}" js/app.js \
-            || { echo "::error::build SHA ${GITHUB_SHA} not found in js/app.js — DefinePlugin/webpack injection broken"; exit 1; }
-          echo "Build SHA ${GITHUB_SHA} confirmed in bundle."
+          for bundle in js/app.js js/next.js; do
+            grep -q "${GITHUB_SHA}" "$bundle" \
+              || { echo "::error::build SHA missing from $bundle"; exit 1; }
+          done
         env:
           GITHUB_SHA: ${{ github.sha }}
 
@@ -92,71 +101,13 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Release version label: ${VERSION}"
 
-      - name: Stage release folder (dist + DEPLOY.md)
-        run: |
-          set -e
-          VERSION="${{ steps.version.outputs.version }}"
-          STAGE="staging/keewebx-web-${VERSION}"
-          rm -rf staging
-          mkdir -p "${STAGE}"
-          cp -r dist/. "${STAGE}/"
-          cat > "${STAGE}/DEPLOY.md" <<'DEPLOYEOF'
-          # KeeWebX — Self-Host Deploy
-
-          ## Option A: Zero dependency — just open the HTML file
-
-          Extract this archive anywhere, then **double-click `index.html`** (or
-          drag it into your browser). The app loads from `file://` and opens
-          KDBX databases directly via browser WebCrypto — no Python, Node,
-          Docker, or web server needed.
-
-          Caveats on `file://`:
-          - PWA offline cache (service worker) does not register — refreshes
-            go through the local file every time (which is fine for self-host).
-          - Passkey quick unlock works on Firefox but is blocked by Chrome/Edge/Safari
-            (WebAuthn requires HTTPS or localhost). Use Option B if you need passkey.
-          - For Chromium extension autofill, enable "Allow access to file URLs"
-            on the extension's details page.
-
-          ## Option B: Any static HTTP server
-
-          Serve the extracted folder from any static host — nginx, Caddy,
-          Apache, GitHub Pages, S3+CloudFront, Netlify, Vercel static, etc.
-          For a one-liner local test:
-
-              python3 -m http.server 8080
-              # or: bunx serve .
-              # or: npx serve .
-
-          Then open the printed URL. HTTPS and localhost allow service-worker
-          offline caching and passkey APIs. Other plain HTTP origins do not
-          provide those browser capabilities and display a connection warning.
-
-          Source and documentation: https://github.com/gynet/keewebx
-
-          Automated archive checks cover Chromium on localhost HTTP and
-          `file://`, with Classic and New entry pages. Other browsers, nested
-          hosting paths and server-specific configuration need separate checks.
-          DEPLOYEOF
-          ls -la "${STAGE}"
-
-      - name: Create zip + tar.gz + sha256
+      - name: Package both interfaces as zip and tar.gz
         id: pack
         run: |
-          set -e
+          set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
-          BASE="keewebx-web-${VERSION}"
-          mkdir -p artifacts
-          cd staging
-          # Archives contain the top-level `${BASE}/` folder so extracting doesn't
-          # spray files into the user's CWD.
-          zip -rq "../artifacts/${BASE}.zip" "${BASE}"
-          tar -czf "../artifacts/${BASE}.tar.gz" "${BASE}"
-          cd ../artifacts
-          sha256sum "${BASE}.zip" > "${BASE}.zip.sha256"
-          sha256sum "${BASE}.tar.gz" > "${BASE}.tar.gz.sha256"
-          ls -la
-          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+          node scripts/package-web.mjs "$VERSION" artifacts
+          echo "base=keewebx-web-${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Verify and smoke the actual extracted archive
         run: |
@@ -169,13 +120,18 @@ jobs:
           tar -xzf "artifacts/${BASE}.tar.gz" -C unpacked/tar
           diff -qr "unpacked/zip/${BASE}" "unpacked/tar/${BASE}"
           bunx playwright install --with-deps chromium
-          node scripts/smoke-artifact.mjs "unpacked/zip/${BASE}" > artifacts/smoke.json
+          node scripts/smoke-artifact.mjs "unpacked/zip/${BASE}" > artifacts/smoke-zip.json
+          node scripts/smoke-artifact.mjs "unpacked/tar/${BASE}" > artifacts/smoke-tar.json
 
       - name: Upload as workflow artifact (always)
         uses: actions/upload-artifact@v7
         with:
           name: keewebx-web-${{ steps.version.outputs.version }}
-          path: artifacts/*
+          path: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.sha256
+            artifacts/smoke-*.json
           if-no-files-found: error
           retention-days: 30
 

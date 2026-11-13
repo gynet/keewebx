@@ -51,7 +51,7 @@ fs.writeFileSync(appJsPath, appJs.replace(evalCall, 'globalThis'));
 
 // The page talks to the extension through the same bridge script that gets
 // injected into website tabs.
-for (const [entry, bundle] of [['index.html', 'app'], ['next.html', 'next']]) {
+for (const [entry, bundle] of [['index.html', 'next'], ['next.html', 'next'], ['classic.html', 'app'], ['classic/index.html', 'app']]) {
     const entryPath = path.join(appDir, entry);
     const html = fs.readFileSync(entryPath, 'utf8');
     const script = new RegExp(`<script[^>]*src="js/${bundle}\\.js[^\"]*"[^>]*><\\/script>`);

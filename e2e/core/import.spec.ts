@@ -89,7 +89,7 @@ test.describe('Import KDBX4 file via fileChooser', () => {
     test('imports a valid KDBX4 file with correct password', async ({ page }) => {
         test.setTimeout(45_000);
 
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
 
@@ -124,7 +124,7 @@ test.describe('Import KDBX4 file via fileChooser', () => {
     }) => {
         test.setTimeout(45_000);
 
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
 
@@ -155,7 +155,7 @@ test.describe('Import KDBX4 file via fileChooser', () => {
     test('handles a corrupted file gracefully without crashing', async ({ page }) => {
         test.setTimeout(45_000);
 
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
 

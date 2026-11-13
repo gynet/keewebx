@@ -9,7 +9,13 @@ export function matchesAppUrl(candidate: string | undefined, configured: string 
         if (!supportedSchemes.has(target.protocol) || tab.protocol !== target.protocol ||
             tab.hostname !== target.hostname || tab.port !== target.port ||
             tab.username || tab.password || target.username || target.password) return false;
-        const documentPath = (url: URL) => url.pathname.replace(/\/index\.html$/, '/').replace(/\/$/, '');
+        const documentPath = (url: URL) => {
+            // The explicit legacy selector redirects to the Classic document.
+            // Keep its exact query/origin checks, including storage namespaces.
+            const pathname = url.searchParams.get('ui') === 'classic'
+                ? url.pathname.replace(/\/classic(?:\/index)?\.html$/, '/index.html') : url.pathname;
+            return pathname.replace(/\/index\.html$/, '/').replace(/\/$/, '');
+        };
         if (documentPath(tab) !== documentPath(target)) return false;
         // Query-free settings retain the existing hash/query routing behavior.
         // Explicit selectors (such as ?ui=classic) must not select another UI.

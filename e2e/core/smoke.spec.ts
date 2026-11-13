@@ -5,7 +5,7 @@ test.describe('Smoke Tests', () => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
-    await page.goto('/');
+    await page.goto('/classic.html');
     await page.waitForLoadState('networkidle');
 
     expect(errors).toEqual([]);
@@ -19,7 +19,7 @@ test.describe('Smoke Tests', () => {
       }
     });
 
-    await page.goto('/');
+    await page.goto('/classic.html');
     await page.waitForLoadState('networkidle');
 
     expect(consoleErrors).toEqual([]);

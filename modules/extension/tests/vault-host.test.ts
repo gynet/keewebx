@@ -44,7 +44,7 @@ test('failed or incomplete lock retains the hidden vault without opening another
 
 test('reuses either existing interface with query strings and does not match a foreign origin', async () => {
     hidden = false;
-    for (const entry of ['index.html?ui=classic', 'next.html?tab=security']) {
+    for (const entry of ['index.html?ui=classic', 'next.html?tab=security', 'classic.html', 'classic/index.html']) {
         tabs = [{ id: 1, url: 'chrome-extension://foreign/app/next.html' },
             { id: 2, windowId: 10, url: `chrome-extension://test-extension/app/${entry}` }];
         await openFullApp();

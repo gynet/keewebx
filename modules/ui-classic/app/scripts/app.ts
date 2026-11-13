@@ -80,14 +80,14 @@ $(() => {
         });
 
     /**
-     * Opens next.html when the new interface is the chosen one. index.html?ui=classic
+     * Opens the default interface when selected. Explicit Classic HTML and ?ui=classic
      * always shows Classic and makes it the choice again.
      */
     function openChosenInterface(): Promise<void> {
         const embeddedConfig = document.querySelector('meta[name=kw-config]')?.getAttribute('content');
         const configured = new URLSearchParams(location.search).has('config') ||
             !!(embeddedConfig && embeddedConfig !== '(no-config)');
-        if (/[?&]ui=classic\b/.test(location.search)) {
+        if (/(?:^|\/)classic(?:\/index)?\.html$/.test(location.pathname) || /[?&]ui=classic\b/.test(location.search)) {
             appModel.settings.ui = 'classic';
         } else if (!configured && appModel.settings.ui === 'new' && /^https?:$/.test(location.protocol)) {
             location.replace('next.html' + location.hash);

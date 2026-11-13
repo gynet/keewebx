@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Database Lifecycle', () => {
   test('app loads and renders main UI', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/classic.html');
 
     // Wait for the page to be fully loaded
     await page.waitForLoadState('networkidle');

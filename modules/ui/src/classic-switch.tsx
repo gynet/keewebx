@@ -76,7 +76,7 @@ function SwitchDialog({ model, close }: { model: AppModel; close(): void }) {
                 AppSettingsModel.ui = 'classic';
                 SettingsStore.saveRequired('app-settings', AppSettingsModel);
             } catch (failure) { AppSettingsModel.ui = previous; throw failure; }
-            location.href = 'index.html?ui=classic';
+            location.href = 'classic.html';
         } catch (failure) {
             if (mounted.current && access.state === 'open' && access.epoch === epoch.current) {
                 setError(`${t('Not switched. Your vaults and edits remain open.')} ${failure instanceof Error ? t(failure.message) : String(failure)}`);

@@ -1,7 +1,8 @@
-// Builds the new interface into the app's dist folder as next.html, next to
-// the Classic app (index.html), so both share one site and one storage.
+// Builds the default New interface and its next.html compatibility entry.
+// Classic has explicit HTML entries and shares the same site and storage.
 // Run after the Classic build, which empties dist first.
 const path = require('path');
+const { execSync } = require('child_process');
 const webpack = require('webpack');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
@@ -10,6 +11,12 @@ const rootDir = __dirname;
 const offlineEnabled = !process.env.KEEWEBX_STORAGE_NAMESPACE;
 const vaultDir = path.join(rootDir, '../vault');
 const pkg = require('./package.json');
+const extraSource = process.env.KEEWEBX_EXTRA_SOURCE_DIR;
+const gitSha = process.env.GITHUB_SHA || process.env.GIT_SHA || (() => {
+    try { return execSync('git rev-parse HEAD', { cwd: rootDir }).toString().trim(); }
+    catch { return 'unknown'; }
+})();
+const buildTime = new Date().toISOString();
 
 module.exports = (env, argv) => {
     const mode = argv.mode || 'development';
@@ -28,6 +35,7 @@ module.exports = (env, argv) => {
             extensions: ['.tsx', '.ts', '.js', '.json'],
             // This package's own folders first, then the vault package.
             modules: [
+                ...(extraSource ? [path.resolve(extraSource)] : []),
                 path.join(rootDir, 'src'),
                 path.join(rootDir, '../vault/src'),
                 path.join(rootDir, 'node_modules'),
@@ -67,7 +75,7 @@ module.exports = (env, argv) => {
                             { search: /@@VERSION/g, replace: pkg.version },
                             { search: /@@BETA/g, replace: '' },
                             { search: /@@DATE/g, replace: new Date().toISOString().replace(/T.*/, '') },
-                            { search: /@@COMMIT/g, replace: '' },
+                            { search: /@@COMMIT/g, replace: gitSha.slice(0, 7) },
                             { search: /@@DEVMODE/g, replace: devMode ? '1' : '' },
                             { search: /@@APPLE_TEAM_ID/g, replace: '' }
                         ]
@@ -87,16 +95,19 @@ module.exports = (env, argv) => {
         plugins: [
             new webpack.DefinePlugin({
                 __KW_STORAGE_NAMESPACE__: JSON.stringify(process.env.KEEWEBX_STORAGE_NAMESPACE || ''),
-                __KW_NEW_EXTENSION__: process.env.KEEWEBX_NEW_EXTENSION === '1'
+                __KW_NEW_EXTENSION__: process.env.KEEWEBX_NEW_EXTENSION !== '0',
+                __KEEWEBX_BUILD_SHA__: JSON.stringify(gitSha),
+                __KEEWEBX_BUILD_SHA_SHORT__: JSON.stringify(gitSha.slice(0, 7)),
+                __KEEWEBX_BUILD_TIME__: JSON.stringify(buildTime)
             }),
             new MiniCssExtractPlugin({ filename: 'css/[name].css' }),
-            new HtmlWebpackPlugin({
+            ...['index.html', 'next.html'].map(filename => new HtmlWebpackPlugin({
                 template: path.join(rootDir, 'src/next.html'),
-                templateParameters: { offlineEnabled },
-                filename: 'next.html',
+                templateParameters: { offlineEnabled, manifest: filename === 'index.html' ? 'manifest.json' : 'manifest-new.json' },
+                filename,
                 inject: 'body',
                 publicPath: ''
-            }),
+            })),
         ],
         externals: { xmldom: 'null', '@xmldom/xmldom': 'null', crypto: 'null', fs: 'null', path: 'null' },
         devtool: devMode ? 'source-map' : undefined

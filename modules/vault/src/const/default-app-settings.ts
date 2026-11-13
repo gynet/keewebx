@@ -86,7 +86,7 @@ interface AppSettings {
 
 const DefaultAppSettings: AppSettings = {
     theme: null, // UI theme
-    ui: 'classic', // interface: "classic" (index.html) or "new" (next.html)
+    ui: 'new', // interface: "new" (index.html) or "classic" (classic.html)
     autoSwitchTheme: false, // automatically switch between light and dark theme
     locale: null, // user interface language
     expandGroups: true, // show entries from all subgroups

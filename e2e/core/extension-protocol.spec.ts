@@ -36,7 +36,7 @@ test.describe('Extension protocol', () => {
                 consoleLogs.push(msg.text());
             }
         });
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         // postInit() runs the connector init in setTimeout(500ms) after
         // showApp completes. Give a generous margin so the listener has
@@ -54,7 +54,7 @@ test.describe('Extension protocol', () => {
     });
 
     test('ping request gets a matching response', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         // Wait long enough for postInit's setTimeout(500ms) to fire and
         // BrowserExtensionConnector.start() to attach the message listener.
@@ -98,7 +98,7 @@ test.describe('Extension protocol', () => {
     });
 
     test('non-kwConnect messages are ignored by the connector', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/classic.html');
         await page.waitForLoadState('networkidle');
         await page.waitForTimeout(2000);
 
