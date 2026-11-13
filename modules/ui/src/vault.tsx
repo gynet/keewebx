@@ -186,7 +186,11 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         if (scopeId !== vaultId) {
             setVaultId(scopeId); setFilter({}); setQuery(''); setRootChoice(''); setGroupMessage('');
         }
-        if (selected && !allFiles.some(file => file.getEntry(selected))) setSelected(undefined);
+        if (selected && !allFiles.some(file => file.getEntry(selected))) {
+            const retained = retainedEntry.current;
+            const draftFile = retained?.file as FileModel | undefined;
+            if (!retained || retained.id !== selected || !draftFile?.active || !hasPendingDrafts(draftFile.id)) setSelected(undefined);
+        }
         if (storedEditing && !('entry' in storedEditing ? storedEditing.entry.file as FileModel : storedEditing.group.file as FileModel).active) setEditing(null);
     }, [scopeId, props.version]);
     let searchError = '';
