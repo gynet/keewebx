@@ -6,6 +6,7 @@ import { t } from './i18n';
 import { ThemeToggle, ThemeSelect } from './theme';
 import { ClipboardLockSetting } from './clipboard-lock-setting';
 import type { AppModel } from 'models/app-model';
+import { ImportVault } from './import-vault';
 import { DatabaseSettingsEditor } from './database-settings';
 import { ExtensionSessions, type ExtensionSessionsApi } from './extension-sessions';
 import { discardPendingDrafts } from './pending-drafts';
@@ -158,6 +159,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                     </section>
                     <section id="settings-panel-database" role="tabpanel" aria-labelledby="settings-tab-database" hidden={section !== 'database'}>
                     <h2 class="group-title">{t('Database settings')}</h2>
+                    <ImportVault model={model} />
                     {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file}
                         onCancel={() => { discardPendingDrafts('database'); onBack(); }} />)}
                     </section>

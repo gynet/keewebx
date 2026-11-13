@@ -9,6 +9,7 @@ import { DatabaseCredentialsEditor } from './database-credentials';
 import { runCredentialOperation } from './credential-operations';
 import { savePendingDrafts, usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
+import { PlaintextExport } from './plaintext-export';
 import { DatabasePasskey } from './database-passkey';
 import { WebDavSaveAs } from './webdav-save-as';
 
@@ -107,6 +108,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
                 <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
             </div>
         </fieldset>
+        <PlaintextExport model={model} file={file} disabled={busy || credentialBusy} />
         <DatabasePasskey key={file.id} model={model} file={file} />
         {message && <p role="status">{message}</p>}
     </form><WebDavSaveAs model={model} file={file} /></>;

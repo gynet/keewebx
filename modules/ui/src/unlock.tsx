@@ -7,6 +7,7 @@ import { Locale } from 'util/locale';
 import { Icon, Mark } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
+import { ImportVault } from './import-vault';
 import { CreateVault } from './create-vault';
 import { SwipeVaultRow } from './swipe-vault-row';
 import { LocalPasskeyUnlock } from './local-passkey-unlock';
@@ -22,6 +23,7 @@ interface RecentFile {
 
 type Pane =
     | { kind: 'create' }
+    | { kind: 'import' }
     | { kind: 'recent'; file: RecentFile }
     | { kind: 'file'; name: string; data: string }
     | { kind: 'webdav' }
@@ -159,6 +161,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                 {model.settings.canCreate && <button class="add-row" id="create-vault" disabled={creating} onClick={() => selectPane({ kind: 'create' })}>
                     <span class="add-row__icon"><Icon name="plus" /></span>{t('Create a vault')}
                 </button>}
+                {(model.settings.canImportXml || model.settings.canImportCsv) && <button class="add-row" disabled={creating} onClick={() => selectPane({ kind: 'import' })}>{t('Import XML or CSV')}</button>}
                 <input ref={fileInput} type="file" accept=".kdbx,.kdb" disabled={creating} hidden onChange={chooseFile} id="open-file-input" />
                 <button class="add-row" id="open-file" disabled={creating} onClick={() => fileInput.current?.click()}>
                     <span class="add-row__icon">
@@ -195,7 +198,8 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     <p>{t('Unlock to connect a browser extension')}</p>
                     <button class="pill" type="button" onClick={onCancelExtensionRequest}>{t('Cancel extension request')}</button>
                 </div>}
-                {pane.kind === 'create' ? <CreateVault model={model} onCreated={onOpened} onBusyChange={busy => { setCreating(busy); onCreating?.(busy); }} /> : pane.kind === 'webdav' ? (
+                {pane.kind === 'import' ? <div class="card"><ImportVault model={model} onDone={onOpened} canImport={canOpen} /></div>
+                    : pane.kind === 'create' ? <CreateVault model={model} onCreated={onOpened} onBusyChange={busy => { setCreating(busy); onCreating?.(busy); }} /> : pane.kind === 'webdav' ? (
                     <WebDavForm onNext={(url, user, pass) => selectPane({ kind: 'webdav-unlock', url, user, pass })} />
                 ) : pane.kind === 'none' ? (
                     <div class="card">
@@ -216,7 +220,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
 
 function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpened }: {
     model: AppModel;
-    pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }>;
+    pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' } | { kind: 'import' }>;
     onUnlock(): void; capturePasskeySetup(): (id: string) => void;
     canOpen?(): boolean; onOpened?(): void;
 }) {
