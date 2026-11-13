@@ -27,6 +27,53 @@ async function recovery(model: AppModel) {
     return { gate, securing, epoch, files };
 }
 
+describe('verified destructive close', () => {
+    test('requires every current vault and never grants access between verification and close', async () => {
+        const a = await file('a', 'first'), b = await file('b', 'second', 'required-key');
+        const model = app(a, b), { gate, epoch } = await recovery(model);
+        const phases: string[] = [];
+        gate.subscribeInvalidation(() => phases.push(gate.state));
+        expect(() => gate.beginVerifiedClose(epoch)).toThrow('incomplete-recovery');
+        await gate.verifyVault(epoch, 'a', { password: 'first' });
+        expect(() => gate.beginVerifiedClose(epoch)).toThrow('incomplete-recovery');
+        await expect(gate.verifyVault(epoch, 'b', { password: 'second' })).rejects.toThrow('invalid-credentials');
+        expect(() => gate.beginVerifiedClose(epoch)).toThrow('incomplete-recovery');
+        await gate.verifyVault(epoch, 'b', { password: 'second', keyFile: key('required-key') });
+        const closing = gate.beginVerifiedClose(epoch);
+        expect(gate.state).toBe('securing'); expect(() => gate.assertOpen()).toThrow('access-denied');
+        expect(() => gate.completeClose(closing)).toThrow('invalid-state');
+        expect(a.active).toBe(true); expect(b.active).toBe(true);
+        a.active = b.active = false; model.files.length = 0;
+        gate.completeClose(closing);
+        expect(phases).toEqual(['securing', 'closed']);
+        gate.resetClosedSession(); expect(gate.state).toBe('open');
+    });
+
+    test('database replacement after verification cannot authorize discard', async () => {
+        const target = await file('a'), { gate, epoch } = await recovery(app(target));
+        await gate.verifyVault(epoch, 'a', { password: 'master' });
+        target.db = Kdbx.create(new Credentials(pw('replacement')), 'Replacement');
+        expect(() => gate.beginVerifiedClose(epoch)).toThrow('session-changed');
+        expect(target.active).toBe(true); expect(gate.state).toBe('recovery-required');
+    });
+
+    test('credential changes after verification cannot authorize discard', async () => {
+        const target = await file('a'), { gate, epoch } = await recovery(app(target));
+        await gate.verifyVault(epoch, 'a', { password: 'master' });
+        await target.db.credentials.setPassword(pw('replacement'));
+        expect(() => gate.beginVerifiedClose(epoch)).toThrow('session-changed');
+        expect(target.active).toBe(true); expect(() => gate.assertOpen()).toThrow('access-denied');
+    });
+
+    test('returning to editing revokes a previously verified discard intent', async () => {
+        const target = await file('a'), { gate, epoch } = await recovery(app(target));
+        await gate.verifyVault(epoch, 'a', { password: 'master' });
+        gate.resumeRecovery(epoch); gate.beginSecuring();
+        expect(() => gate.beginVerifiedClose(epoch)).toThrow('stale-session');
+        expect(target.active).toBe(true);
+    });
+});
+
 describe('per-app session access', () => {
     test('defaults open for Classic and isolates different AppModels', async () => {
         const first = app(await file('first'));

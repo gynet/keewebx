@@ -227,18 +227,15 @@ test.describe('New suspended-session recovery', () => {
                 await recovery(page);
                 await verify(page, source);
                 const restored = page.getByRole('region', { name: 'Notes', exact: true });
-                if (alreadySaving) await expect(restored.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(draftNotes);
-                else await expect(restored).toContainText(draftNotes);
+                await expect(restored.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(draftNotes);
                 await gate.release();
                 await gate.completed();
                 await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
                 await page.clock.runFor(1000);
                 await expect(page.locator('#password')).toHaveCount(0);
                 await expect(restored).toBeVisible();
-                if (alreadySaving) {
-                    await expect(restored.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(draftNotes);
-                    await restored.getByRole('button', { name: 'Save', exact: true }).click();
-                }
+                await expect(restored.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(draftNotes);
+                await restored.getByRole('button', { name: 'Save', exact: true }).click();
                 await page.locator('#lock').click();
                 await expect(page.locator('#password')).toBeVisible({ timeout });
                 await page.reload();

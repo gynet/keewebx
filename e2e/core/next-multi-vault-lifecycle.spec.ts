@@ -460,6 +460,7 @@ test('idle lock cancels pending per-vault close; late upload cannot close a reop
         await expect(closeDialog(page)).toHaveCount(0);
         await expect(page.getByRole('heading', { name: 'Securing your vaults', exact: true })).toBeVisible();
         held.release();
+        await page.getByRole('button', { name: 'Save and lock', exact: true }).click();
         await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible({ timeout: 30_000 });
         await page.locator('.vault-row[data-vault="A"]').click(); await unlock(page, a);
         await reopen(page, b); await settings(page);
@@ -524,13 +525,14 @@ test('per-vault close retains B passkey registration and required key file while
     await expect(card(page, 'B')).toBeVisible();
 });
 
-test('manual Lock explicitly saves all vault drafts even with automatic saving disabled', async ({ page }) => {
+test('manual Lock offers explicit saving for all vault drafts with automatic saving disabled', async ({ page }) => {
     const { a, b } = await openBoth(page);
     await edit(page, 'B', 'B saved by explicit Lock');
     await edit(page, 'A', 'A saved by explicit Lock');
     const lock = page.getByRole('button', { name: 'Lock', exact: true });
-    await expect(lock).toHaveAttribute('title', 'Save all vaults and lock');
+    await expect(lock).toHaveAttribute('title', 'Lock vaults');
     await lock.click();
+    await page.getByRole('button', { name: 'Save and lock', exact: true }).click();
     await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible();
     await page.locator('.vault-row[data-vault="A"]').click(); await unlock(page, a);
     await reopen(page, b); await settings(page);

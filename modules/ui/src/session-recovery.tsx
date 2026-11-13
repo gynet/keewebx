@@ -4,13 +4,15 @@ import { t } from './i18n';
 export interface RecoveryVault { id: string; name: string; }
 
 /** This surface protects access while unsaved models and editor drafts remain in memory. */
-export function SessionRecovery({ files, ready, error, verify, resume, retry }: {
+export function SessionRecovery({ files, ready, error, verify, resume, retry, discard = false, cancelDiscard }: {
     files: RecoveryVault[];
     ready: boolean;
     error: string;
     verify: (id: string, password: string, keyFile?: ArrayBuffer) => Promise<void>;
     resume: () => void;
     retry: () => void;
+    discard?: boolean;
+    cancelDiscard?: () => void;
 }) {
     const root = useRef<HTMLElement>(null);
     const returnButton = useRef<HTMLButtonElement>(null);
@@ -24,18 +26,21 @@ export function SessionRecovery({ files, ready, error, verify, resume, retry }: 
     return <main ref={root} tabIndex={-1} class="start__main" aria-labelledby="recovery-title"
         style={{ minHeight: '100dvh', overflow: 'auto' }}>
         <section class="card" style={{ margin: 'auto', width: 'min(100%, 440px)' }}>
-            <h1 id="recovery-title">{t(ready ? 'Verify to recover editing' : 'Securing your vaults')}</h1>
+            <h1 id="recovery-title">{t(ready ? discard ? 'Verify to discard unsaved changes' : 'Verify to recover editing' : 'Securing your vaults')}</h1>
             <p>{t('Access is suspended. Unsaved changes remain in this tab’s memory.')}</p>
+            {discard && <p>{t('After verifying every vault, confirm discarding changes still in memory. Saved copies and recent records are kept. An unsaved new vault may be lost.')}</p>}
             {error && <p role="alert" class="error">{error}</p>}
             {ready && !files.length && <button class="pill" type="button" onClick={retry}>{t('Retry verification setup')}</button>}
             {!ready && <p role="status">{t('Waiting for the current save to finish…')}</p>}
-            {ready && files.map((file) => <RecoveryForm key={file.id} file={file}
+            {ready && files.map((file, index) => <RecoveryForm key={file.id} file={{ ...file, name: files.filter(item => item.name === file.name).length > 1
+                ? t('{} (vault {})', file.name, String(index + 1)) : file.name }}
                 verified={verified.includes(file.id)} verify={verify}
                 onVerified={() => setVerified((current) => [...current, file.id])} />)}
             {ready && <button ref={returnButton} type="button" class="pill pill--primary"
                 disabled={!files.length || files.some((file) => !verified.includes(file.id))} onClick={resume}>
-                {t('Return to unsaved changes')}
+                {t(discard ? 'Discard changes and lock' : 'Return to unsaved changes')}
             </button>}
+            {ready && discard && cancelDiscard && <button type="button" class="pill" onClick={cancelDiscard}>{t('Keep changes')}</button>}
         </section>
     </main>;
 }

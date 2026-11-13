@@ -189,16 +189,30 @@ export class SessionAccess {
 
     /** Never trusts UI completion flags. A successful recovery invalidates every older callback. */
     resumeRecovery(epoch: number): void {
-        this.#expectRecovery(epoch);
-        this.#checkReferences();
-        if (!this.#references?.length || this.#references.some((reference) => !this.#approved.has(reference.id))) {
-            throw new SessionAccessError('incomplete-recovery');
-        }
+        this.#expectVerifiedRecovery(epoch);
         ++this.#generation;
         this.#phase = 'open';
         this.#notifyInvalidation();
         this.#clearReferences();
         this.#targets = [];
+    }
+
+    /** Authorize a destructive close without briefly granting access to retained secrets. */
+    beginVerifiedClose(epoch: number): number {
+        this.#expectVerifiedRecovery(epoch);
+        ++this.#generation;
+        this.#phase = 'securing';
+        this.#notifyInvalidation();
+        this.#clearReferences();
+        return this.#generation;
+    }
+
+    #expectVerifiedRecovery(epoch: number): void {
+        this.#expectRecovery(epoch);
+        this.#checkReferences();
+        if (!this.#references?.length || this.#references.some((reference) => !this.#approved.has(reference.id))) {
+            throw new SessionAccessError('incomplete-recovery');
+        }
     }
 
     /** Called after the parent has guarded and committed a true close. Does not close models itself. */

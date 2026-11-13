@@ -17,6 +17,7 @@ import { waitForSync } from 'comp/app/vault-files';
 import { getSessionAccess, type RecoveryVault } from 'comp/app/session-access';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { SessionRecovery } from './session-recovery';
+import { LockDecision } from './lock-decision';
 import { SaveVerificationWarning } from './save-verification-warning';
 import { createNewProtocolUi } from './extension-ui';
 import { NewProtocolUiHost } from './extension-prompts';
@@ -25,7 +26,7 @@ import { BrowserExtensionConnector } from 'comp/extension/browser-extension-conn
 import { EmbeddedVault } from 'comp/extension/embedded-vault';
 import { createSessionProtocolAccess } from 'comp/extension/protocol-access';
 import { waitForPendingOperations } from './pending-operations';
-import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
+import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts, discardPendingDrafts } from './pending-drafts';
 import { RemoteKeyRecovery } from './remote-key-recovery';
 import { CloseVault } from './close-vault';
 import type { FileModel } from 'models/file-model';
@@ -51,16 +52,16 @@ function App({ model }: { model: AppModel }) {
     const protocolUi = useMemo(() => createNewProtocolUi(model,
         () => !!document.querySelector('dialog[open]')), [model]);
     const extensionSessions = useMemo(() => createExtensionSessionsApi(model), [model]);
-    const [gate, setGate] = useState<{ epoch: number; ready: boolean; files: readonly RecoveryVault[]; error: string } | null>(null);
+    const [gate, setGate] = useState<{ epoch: number; ready: boolean; files: readonly RecoveryVault[]; error: string; action?: 'choose' | 'discard' } | null>(null);
     const operation = useRef<AbortController | null>(null);
     const surface = useRef<HTMLDivElement>(null);
     const previousFocus = useRef<HTMLElement | null>(null);
     const dialogs = useRef<HTMLDialogElement[]>([]);
     const preparation = useRef(0);
-    const prepareRecovery = async (epoch: number) => {
+    const prepareRecovery = async (epoch: number, action?: 'discard') => {
         const attempt = ++preparation.current;
         let timeout: ReturnType<typeof setTimeout> | undefined;
-        setGate({ epoch, ready: false, files: [], error: '' });
+        setGate({ epoch, ready: false, files: [], error: '', action });
         try {
             const files = await Promise.race([
                 access.prepareRecovery(epoch),
@@ -69,11 +70,11 @@ function App({ model }: { model: AppModel }) {
                 })
             ]);
             if (attempt === preparation.current && access.isCurrent(epoch)) {
-                setGate({ epoch, ready: true, files, error: '' });
+                setGate({ epoch, ready: true, files, error: '', action });
             }
         } catch {
             if (attempt === preparation.current) setGate((current) => current?.epoch === epoch ? {
-                epoch: access.epoch, ready: true, files: [],
+                epoch: access.epoch, ready: true, files: [], action,
                 error: t('Recovery is not ready or requires an unsupported authentication factor. Access remains suspended. Keep this tab open; retry when the current operation finishes.')
             } : current);
         } finally { clearTimeout(timeout); }
@@ -90,36 +91,31 @@ function App({ model }: { model: AppModel }) {
             if (previousFocus.current?.isConnected) previousFocus.current.focus();
         });
     };
-    const lock = async () => {
-        if (access.state !== 'open' || operation.current || !model.files.hasOpenFiles()) return;
-        protocolUi.cancel();
+    const finishClosed = (epoch: number) => {
+        access.completeClose(epoch);
+        access.resetClosedSession();
+        setSettingsOpen(false); setPasskeySettingsId(undefined);
+        dialogs.current = [];
+        reveal();
+    };
+    const performLock = async (epoch: number, offerChoice: boolean) => {
+        if (operation.current || access.state !== 'securing' || !access.isCurrent(epoch)) return;
         const controller = new AbortController();
         operation.current = controller;
-        previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        dialogs.current = Array.from(surface.current?.querySelectorAll<HTMLDialogElement>('dialog[open]') ?? []);
-        for (const dialog of dialogs.current) dialog.close();
-        surface.current?.setAttribute('inert', '');
-        if (surface.current) surface.current.hidden = true;
-        let epoch: number;
-        try { epoch = access.beginSecuring(); }
-        catch {
-            operation.current = null;
-            setGate({ epoch: access.epoch, ready: true, files: [], error: t('This session changed unexpectedly. Access remains suspended.') });
-            return;
-        }
         setGate({ epoch, ready: false, files: [], error: '' });
         const timeout = window.setTimeout(() => controller.abort(), 15_000);
         try {
             await Promise.all(model.files.map((file) => waitForSync(file, controller.signal)));
             await waitForPendingOperations(model, controller.signal);
             if (controller.signal.aborted || !access.isCurrent(epoch)) throw new Error('Lock canceled');
-            savePendingDrafts();
+            if (offerChoice && !model.settings.autoSave && model.files.some(file => file.active && !file.demo) &&
+                (hasPendingDrafts() || model.files.some(file => file.active && !file.demo && (file.dirty || file.modified)))) {
+                setGate({ epoch, ready: true, files: [], error: '', action: 'choose' });
+                return;
+            }
+            savePendingDrafts(undefined, true);
             await saveAndLock(model, controller.signal);
-            access.completeClose(epoch);
-            access.resetClosedSession();
-            setSettingsOpen(false);
-            dialogs.current = [];
-            reveal();
+            finishClosed(epoch);
         } catch {
             controller.abort();
             if (!access.isCurrent(epoch)) return;
@@ -128,6 +124,40 @@ function App({ model }: { model: AppModel }) {
         } finally {
             clearTimeout(timeout);
             if (operation.current === controller) operation.current = null;
+        }
+    };
+    const lock = async () => {
+        if (access.state !== 'open' || operation.current || !model.files.hasOpenFiles()) return;
+        protocolUi.cancel();
+        previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        dialogs.current = Array.from(surface.current?.querySelectorAll<HTMLDialogElement>('dialog[open]') ?? []);
+        for (const dialog of dialogs.current) dialog.close();
+        surface.current?.setAttribute('inert', '');
+        if (surface.current) surface.current.hidden = true;
+        let epoch: number;
+        try { epoch = access.beginSecuring(); }
+        catch {
+            setGate({ epoch: access.epoch, ready: true, files: [], error: t('This session changed unexpectedly. Access remains suspended.') });
+            return;
+        }
+        await performLock(epoch, true);
+    };
+    const verifyLockChoice = (epoch: number, discard: boolean) => {
+        if (operation.current || !access.isCurrent(epoch) || access.state !== 'securing') return;
+        const recoveryEpoch = access.requireRecovery(epoch);
+        void prepareRecovery(recoveryEpoch, discard ? 'discard' : undefined);
+    };
+    const discardVerified = (epoch: number) => {
+        let closingEpoch: number | undefined;
+        try {
+            closingEpoch = access.beginVerifiedClose(epoch);
+            discardPendingDrafts();
+            model.closeAllFiles();
+            finishClosed(closingEpoch);
+        } catch {
+            if (closingEpoch !== undefined && access.isCurrent(closingEpoch) && access.state === 'securing') {
+                void prepareRecovery(access.requireRecovery(closingEpoch), 'discard');
+            } else setGate(current => current && { ...current, error: t('The session changed. Access remains suspended.') });
         }
     };
 
@@ -188,10 +218,14 @@ function App({ model }: { model: AppModel }) {
                     model.rejectPendingFileUnlockPromise('Extension unlock canceled');
                 }
             }} /> : <>
-        {gate && <SessionRecovery key={gate.epoch} files={[...gate.files]} ready={gate.ready} error={gate.error}
-            retry={() => void prepareRecovery(gate.epoch)}
+        {gate?.action === 'choose' && <LockDecision save={() => void performLock(gate.epoch, false)}
+            discard={() => verifyLockChoice(gate.epoch, true)} cancel={() => verifyLockChoice(gate.epoch, false)} />}
+        {gate && gate.action !== 'choose' && <SessionRecovery key={gate.epoch} files={[...gate.files]} ready={gate.ready} error={gate.error}
+            discard={gate.action === 'discard'} cancelDiscard={() => setGate(current => current && { ...current, action: undefined })}
+            retry={() => void prepareRecovery(gate.epoch, gate.action === 'discard' ? 'discard' : undefined)}
             verify={(id, password, keyFile) => access.verifyVault(gate.epoch, id, { password, keyFile })}
             resume={() => {
+                if (gate.action === 'discard') { discardVerified(gate.epoch); return; }
                 try {
                     operation.current?.abort();
                     access.resumeRecovery(gate.epoch);

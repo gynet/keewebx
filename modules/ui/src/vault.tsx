@@ -490,7 +490,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={() => { setNavigationOpen(false); props.onSettings(); }}>
                         <Icon name="gear" size={17} />
                     </button>
-                    <button class="round" aria-label={t('Lock')} title={t('Save all vaults and lock')} id="lock" onClick={props.onLock}>
+                    <button class="round" aria-label={t('Lock')} title={t(model.settings.autoSave ? 'Save all vaults and lock' : 'Lock vaults')} id="lock" onClick={props.onLock}>
                         <Icon name="lock" size={17} />
                     </button>
                 </div>
@@ -626,7 +626,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} onClick={props.onSettings}>
                     <Icon name="gear" size={18} />
                 </button>
-                <button class="round" aria-label={t('Lock')} title={t('Save all vaults and lock')} onClick={props.onLock}>
+                <button class="round" aria-label={t('Lock')} title={t(model.settings.autoSave ? 'Save all vaults and lock' : 'Lock vaults')} onClick={props.onLock}>
                     <Icon name="lock" size={18} />
                 </button>
             </MobileMenu>
