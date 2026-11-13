@@ -12,14 +12,14 @@ const timeout = 30_000;
 const section = (page: Page) => page.getByRole('region', { name: 'Local passkey unlock', exact: true });
 const settings = (page: Page) => page.getByRole('form', { name: /^Database settings: / });
 const payload = (buffer: Uint8Array, name: string) => ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(buffer) });
-async function fixture(name = 'passkey-one', withKey = false) {
+async function fixture(name = 'passkey-one', withKey = false, entryTitle = title) {
     kdbx.CryptoEngine.setArgon2Impl(argon2);
     const key = withKey ? await kdbx.Credentials.createRandomKeyFile(2) : undefined;
     const db = kdbx.Kdbx.create(new kdbx.Credentials(kdbx.ProtectedValue.fromString(password), key), name);
     db.header.kdfParameters!.set('M', kdbx.VarDictionary.ValueType.UInt64, kdbx.Int64.from(32 * 1024));
     db.header.kdfParameters!.set('I', kdbx.VarDictionary.ValueType.UInt64, kdbx.Int64.from(2));
     const entry = db.createEntry(db.getDefaultGroup());
-    entry.fields.set('Title', title);
+    entry.fields.set('Title', entryTitle);
     entry.fields.set('Password', kdbx.ProtectedValue.fromString('Preserved disposable entry secret'));
     return { name, key, bytes: new Uint8Array(await db.save()), entryId: entry.uuid.id };
 }
@@ -158,6 +158,61 @@ test('password unlock setup choice opens the selected passkey region without enr
     await lock(page); await page.reload();
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
+});
+
+for (const unlockSecond of [false, true]) test(`late setup-requested decrypt cannot open Settings after ${unlockSecond ? 'ordinary unlock of B' : 'selection of B without unlocking'}`, async ({ page, context }) => {
+    const auth = await authenticator(context, page);
+    const first = await fixture('setup-race-a', false, 'Setup race entry A');
+    const second = await fixture('setup-race-b', false, 'Setup race entry B');
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.locator('#open-file-input').setInputFiles(payload(first.bytes, `${first.name}.kdbx`));
+    await page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true }).check();
+    // Delay only A's first real AES-CBC decrypt result; B uses the original crypto path.
+    await page.evaluate(() => {
+        const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+        crypto.subtle.decrypt = async (...args) => {
+            const result = await decrypt(...args);
+            const algorithm = typeof args[0] === 'string' ? args[0] : args[0].name;
+            if (algorithm !== 'AES-CBC') return result;
+            crypto.subtle.decrypt = decrypt;
+            (window as any).__setupRaceHeld = true;
+            await new Promise<void>(resolve => { (window as any).__releaseSetupRace = resolve; });
+            return result;
+        };
+    });
+    await page.locator('#password').fill(password); await page.locator('#unlock').click();
+    await expect.poll(() => page.evaluate(() => !!(window as any).__setupRaceHeld)).toBe(true);
+    try {
+        await page.locator('#open-file-input').setInputFiles(payload(second.bytes, `${second.name}.kdbx`));
+        await expect(page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true })).not.toBeChecked();
+        if (unlockSecond) {
+            await page.locator('#password').fill(password); await page.locator('#unlock').click();
+            await page.locator('.entry-row[data-entry="Setup race entry B"]').click();
+            await expect(page.locator('#entry-title')).toHaveText('Setup race entry B');
+        } else {
+            await expect(page.getByRole('heading', { name: `${second.name}.kdbx`, exact: true })).toBeVisible();
+        }
+        await expect(page.getByRole('tablist', { name: 'Settings categories', exact: true })).toHaveCount(0);
+        await page.evaluate(() => (window as any).__releaseSetupRace());
+        // Waiting for A's durable recent-file record proves its open continued past decrypt.
+        await expect.poll(async () => (await record(page, first.name))?.name, { timeout }).toBe(first.name);
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await expect(page.getByRole('tablist', { name: 'Settings categories', exact: true })).toHaveCount(0);
+        await expect(section(page)).toHaveCount(0);
+        if (unlockSecond) {
+            await expect(page.locator('#entry-title')).toHaveText('Setup race entry B');
+            await expect(page.locator('.entry-row[data-entry="Setup race entry B"]')).toBeVisible();
+            expect((await record(page, second.name)).passkeyCredentialId).toBeFalsy();
+        } else {
+            expect(await record(page, second.name)).toBeUndefined();
+        }
+        expect((await auth.credentials()).credentials).toHaveLength(0);
+        expect((await record(page, first.name)).passkeyCredentialId).toBeFalsy();
+        expect(errors).toEqual([]);
+    } finally {
+        await page.evaluate(() => (window as any).__releaseSetupRace?.());
+    }
 });
 
 test('simulated cancellation preserves registration and password fallback', async ({ page, context }) => {
