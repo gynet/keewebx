@@ -294,7 +294,8 @@ test.describe('Core Features', () => {
         });
     });
 
-    test('copy password to clipboard via keyboard shortcut', async ({ page, context }) => {
+    test('copy password to clipboard via keyboard shortcut', async ({ page, context, browserName }) => {
+        test.skip(browserName !== 'chromium', 'Native clipboard read/write permissions are supported only by Chromium.');
         // Grant clipboard permissions
         await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 

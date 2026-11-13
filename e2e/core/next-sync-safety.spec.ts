@@ -162,7 +162,7 @@ test.describe('Sync and draft data safety', () => {
             await form.getByLabel('Iterations', { exact: true }).fill('7');
             await form.getByRole('button', { name: 'Save database settings', exact: true }).click();
             await expect(form.getByRole('status')).toContainText('A save is in progress');
-            await expect(form.getByRole('heading', { level: 3 })).toHaveText('vault');
+            await expect(form.getByRole('heading', { level: 3, name: 'vault', exact: true })).toHaveText('vault');
             await form.getByRole('button', { name: 'Cancel', exact: true }).click();
             await expect(form).toHaveCount(0);
             await expect(page.locator('#settings-back')).toHaveCount(0);
@@ -253,7 +253,11 @@ test.describe('Sync and draft data safety', () => {
             await expect(editor).toBeVisible();
             const save = editor.getByRole('button', { name: isSettings ? 'Save database settings' : 'Save', exact: true });
             await save.click();
-            await expect(editor.getByRole(isSettings ? 'status' : 'alert')).toContainText('changed while you were editing');
+            // EntryEditor rejects the replaced database identity before checking field changes.
+            // Notes/settings retain their specific conflict message; all byte/draft oracles below stay strict.
+            const rejection = !isSettings && !isNotes
+                ? 'This entry is no longer available for editing.' : 'changed while you were editing';
+            await expect(editor.getByRole(isSettings ? 'status' : 'alert')).toContainText(rejection);
             if (isNotes) await expect(editor.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue('Local unsaved notes');
             else await expect(editor.getByLabel(isSettings ? 'Vault name' : 'Title', { exact: true })).toHaveValue(draftTitle);
             expect(dav.remote().equals(beforeRejectedSave)).toBe(true);

@@ -42,13 +42,8 @@ const KDBX4_FILE = path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.k
 const KDBX4_PASSWORD = 'test';
 const KDBX4_BASENAME = 'KDBX4.1';
 
-// Gate the passkey specs to chromium — CDP WebAuthn domain is a
-// Chromium devtools protocol, Firefox and WebKit do not implement it.
-test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'Passkey E2E uses CDP WebAuthn.addVirtualAuthenticator, Chromium-only'
-);
-
+// Only virtual-authenticator ceremonies require Chromium CDP.
+// The no-WebAuthn fallback below also runs in Firefox.
 interface VirtualAuthenticator {
     cdp: CDPSession;
     authenticatorId: string;
@@ -231,8 +226,10 @@ test.describe('Passkey Quick Unlock (#9)', () => {
 
     test('register on second open → reload → unlock with passkey', async ({
         context,
-        page
+        page,
+        browserName
     }) => {
+        test.skip(browserName !== 'chromium', 'Virtual authenticator requires Chromium CDP WebAuthn.addVirtualAuthenticator.');
         test.setTimeout(180_000);
 
         const auth = await addVirtualAuthenticator(context, page, { hasPrf: true });
@@ -407,8 +404,10 @@ test.describe('Passkey Quick Unlock (#9)', () => {
 
     test('PRF-incapable authenticator → unlock fails cleanly, password still works', async ({
         context,
-        page
+        page,
+        browserName
     }) => {
+        test.skip(browserName !== 'chromium', 'Virtual authenticator requires Chromium CDP WebAuthn.addVirtualAuthenticator.');
         test.setTimeout(120_000);
 
         // Step 1: register a credential normally with a PRF-capable
@@ -622,8 +621,10 @@ test.describe('Passkey Quick Unlock (#9)', () => {
 
     test('PRF-incapable authenticator at register → toast + nothing persisted', async ({
         context,
-        page
+        page,
+        browserName
     }) => {
+        test.skip(browserName !== 'chromium', 'Virtual authenticator requires Chromium CDP WebAuthn.addVirtualAuthenticator.');
         // Round-5 regression guard for the strict `prf.enabled === true`
         // check in passkey-prf.ts. Reproduces the Chrome bug the user
         // hit in real testing: an authenticator (or a hooking

@@ -227,3 +227,77 @@ jobs:
             playwright-report/new-interface-connect/
             .cache/new-interface-connect-server.log
           retention-days: 7
+
+  e2e-new-interface-core:
+    # Full New core coverage, including database/CRUD/save regressions.
+    # The matching config serves built files only and remains fully headless.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    env:
+      KEEWEBX_NEW_EXTENSION: '1'
+      KEEWEBX_E2E_PORT: '8112'
+      PLAYWRIGHT_HTML_OPEN: never
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2.2.0
+      - run: bun install --frozen-lockfile
+      - name: Build both app interfaces once
+        run: bun run build
+      - name: Install headless browser dependencies
+        run: bunx playwright install ${{ matrix.browser }} --with-deps
+      - name: Run New core suite
+        run: bunx playwright test --config e2e/core-ci.playwright.config.ts --project=new-${{ matrix.browser }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-new-core-${{ matrix.browser }}
+          path: |
+            e2e/test-results-core-ci/
+            playwright-report/core-ci/
+          retention-days: 7
+
+  e2e-classic-interface-core:
+    # Full Classic core coverage, including database/CRUD/save regressions.
+    # The matching config serves built files only and remains fully headless.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    env:
+      KEEWEBX_NEW_EXTENSION: '1'
+      KEEWEBX_E2E_PORT: '8112'
+      PLAYWRIGHT_HTML_OPEN: never
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2.2.0
+      - run: bun install --frozen-lockfile
+      - name: Build both app interfaces once
+        run: bun run build
+      - name: Install headless browser dependencies
+        run: bunx playwright install ${{ matrix.browser }} --with-deps
+      - name: Run Classic core suite
+        run: bunx playwright test --config e2e/core-ci.playwright.config.ts --project=classic-${{ matrix.browser }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-classic-core-${{ matrix.browser }}
+          path: |
+            e2e/test-results-core-ci/
+            playwright-report/core-ci/
+          retention-days: 7

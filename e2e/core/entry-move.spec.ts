@@ -45,7 +45,7 @@ async function getGroupFieldValue(page: Page): Promise<string> {
 }
 
 test.describe('Entry move between groups', () => {
-    test('move entry to Email group via drag-and-drop', async ({ page }) => {
+    test('move entry to Work group via drag-and-drop', async ({ page }) => {
         await openDemoDatabase(page);
 
         // Create a new entry with a unique title
@@ -76,16 +76,17 @@ test.describe('Entry move between groups', () => {
         const entryInList = page.locator('.list__item').filter({ hasText: entryTitle }).first();
         await expect(entryInList).toBeVisible({ timeout: 5_000 });
 
-        // Find the "Email" group title in the menu sidebar
-        const emailGroupTitle = page
+        // Find the "Work" group title in the menu sidebar
+        const workGroupTitle = page
             .locator('.menu__item-title')
-            .filter({ hasText: 'Email' })
+            .filter({ hasText: /^Work$/ })
             .first();
-        await expect(emailGroupTitle).toBeVisible({ timeout: 5_000 });
+        await expect(workGroupTitle).toBeVisible({ timeout: 5_000 });
 
+        // Match the actual group, not the similarly named work tag.
+        await workGroupTitle.scrollIntoViewIfNeeded();
         // Perform the drag-and-drop
-        await entryInList.dragTo(emailGroupTitle, {
-            force: true,
+        await entryInList.dragTo(workGroupTitle, {
             sourcePosition: { x: 10, y: 10 },
             targetPosition: { x: 10, y: 10 }
         });
@@ -110,60 +111,44 @@ test.describe('Entry move between groups', () => {
 
             const newGroup = await getGroupFieldValue(page);
 
-            if (newGroup === initialGroup) {
-                // DnD did not trigger — known Playwright limitation
-                test.info().annotations.push({
-                    type: 'limitation',
-                    description:
-                        'Playwright dragTo() did not trigger the jQuery-bound DnD ' +
-                        'handlers. The entry remained in its original group. This is a ' +
-                        'known limitation with jQuery event delegation + HTML5 DnD ' +
-                        'in headless Chromium. Manual QA or Selenium WebDriver is ' +
-                        'needed for this path.'
-                });
-                await page.screenshot({
-                    path: `${SCREENSHOT_DIR}/entry-move-01-dnd-limitation.png`,
-                    fullPage: true
-                });
-                test.skip();
-                return;
-            }
+            // An unchanged group is a failed move, never a runtime skip.
+            expect(newGroup).not.toBe(initialGroup);
 
-            // DnD worked! Verify the group changed to Email
-            expect(newGroup).toContain('Email');
+            // DnD worked! Verify the group changed to Work
+            expect(newGroup).toContain('Work');
 
             await page.screenshot({
                 path: `${SCREENSHOT_DIR}/entry-move-01-after-move.png`,
                 fullPage: true
             });
 
-            // Navigate to the Email group to verify the entry is there
-            await emailGroupTitle.click();
+            // Navigate to the Work group to verify the entry is there
+            await workGroupTitle.click();
             await page.waitForTimeout(500);
 
             await expect(
                 page.locator('.list__item').filter({ hasText: entryTitle }),
-                `Entry "${entryTitle}" should appear under Email group`
+                `Entry "${entryTitle}" should appear under Work group`
             ).toBeVisible({ timeout: 10_000 });
 
             await page.screenshot({
-                path: `${SCREENSHOT_DIR}/entry-move-02-in-email-group.png`,
+                path: `${SCREENSHOT_DIR}/entry-move-02-in-work-group.png`,
                 fullPage: true
             });
         } else {
             // Entry disappeared from the root list view — it was moved
             // to a sub-group that is not in the current view. Navigate
-            // to Email and find it there.
-            await emailGroupTitle.click();
+            // to Work and find it there.
+            await workGroupTitle.click();
             await page.waitForTimeout(500);
 
             await expect(
                 page.locator('.list__item').filter({ hasText: entryTitle }),
-                `Entry "${entryTitle}" should appear under Email group`
+                `Entry "${entryTitle}" should appear under Work group`
             ).toBeVisible({ timeout: 10_000 });
 
             await page.screenshot({
-                path: `${SCREENSHOT_DIR}/entry-move-01-in-email-group.png`,
+                path: `${SCREENSHOT_DIR}/entry-move-01-in-work-group.png`,
                 fullPage: true
             });
         }

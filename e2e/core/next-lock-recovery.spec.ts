@@ -187,7 +187,7 @@ test.describe('New suspended-session recovery', () => {
         await page.locator('#open-settings').click();
         await page.getByRole('tab', { name: 'Database', exact: true }).click();
         const form = page.getByRole('form', { name: `Database settings: ${name}`, exact: true });
-        const heading = form.getByRole('heading', { level: 3 });
+        const heading = form.getByRole('heading', { level: 3, name, exact: true });
         await expect(heading).toHaveText(name);
         for (const viewport of [{ width: 1280, height: 800 }, { width: 320, height: 350 }]) {
             await page.setViewportSize(viewport);

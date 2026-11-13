@@ -169,7 +169,8 @@ test.describe('New general preferences', () => {
         await settings(page); await expect(page.locator('#setting-auto-save')).toHaveValue('-1');
         await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('0'); await back(page);
-        await page.clock.pauseAt(new Date());
+        // Pause relative to the browser clock: reload can put it ahead of the host clock.
+        await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
         const before = dav.writes();
         await editNotes(page, 'Pending queued change');
         await settings(page); await page.locator('#setting-auto-save').selectOption('0');
@@ -191,7 +192,8 @@ test.describe('New general preferences', () => {
         await page.clock.install(); await connect(page, dav); await mode(page, String(minutes));
         await lockReload(page); await unlock(page); await settings(page);
         await expect(page.locator('#setting-auto-save')).toHaveValue(String(minutes)); await back(page);
-        await page.clock.pauseAt(new Date());
+        // Pause relative to the browser clock: reload can put it ahead of the host clock.
+        await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
         const before = dav.writes();
         await editNotes(page, `Timed ${minutes}`);
         await page.clock.fastForward(2000); expect(dav.writes()).toBe(before);

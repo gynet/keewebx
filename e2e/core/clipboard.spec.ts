@@ -2,70 +2,14 @@ import { test, expect, Page } from '@playwright/test';
 
 const SCREENSHOT_DIR = 'e2e/screenshots';
 
-/**
- * Clipboard copy E2E (issue #29).
- *
- * Strategy
- * --------
- *  1. Grant clipboard-read / clipboard-write permissions in
- *     `playwright.config.ts` so the Chromium-backed `navigator.clipboard.*`
- *     calls in `comp/browser/copy-paste.ts` succeed without prompts.
- *  2. After triggering a copy, read the clipboard back via
- *     `page.evaluate(() => navigator.clipboard.readText())`.
- *  3. Fallback (CI environments that block the clipboard entirely): we
- *     instrument `navigator.clipboard.writeText` from a Playwright init
- *     script BEFORE the app boots, recording the last value passed to it
- *     on `window.__lastClipboardWrite`. If `readText()` returns empty we
- *     assert against the spy instead. Either path proves the copy
- *     handler ran with the right value.
- *
- * What we exercise (real handlers, no mocks)
- * ------------------------------------------
- *  - `DetailsView.copyUserName` -> `FieldView.copyValue` ->
- *    `CopyPaste.copy` -> `navigator.clipboard.writeText` (or
- *    `document.execCommand` fallback).
- *  - The same path for `$Password` (which is a decrypted
- *    `kdbxweb.ProtectedValue`) and the OTP field (live TOTP code).
- *
- * Demo database content (see `modules/ui-classic/scripts/create-demo-db.ts`):
- *  - First entry "Sample Entry": UserName "User Name", Password "Password".
- *
- * The clipboard tests are gated to chromium because the
- * `clipboard-read` / `clipboard-write` permission names in
- * `BrowserContext.grantPermissions` are Chromium-only. On firefox
- * `navigator.clipboard.readText` rejects with NotAllowedError, which
- * would force every test into the fallback path even when the user
- * hasn't blocked the clipboard.
+/** Native clipboard copy, including protected passwords and a live TOTP code.
+ * The current demo's AWS Console entry has no OTP; the OTP case adds one via UI.
+ * No spy fallback: a rejected or empty native read must fail the test.
  */
-
+const DEMO_ENTRY_TITLE = 'AWS Console';
+const DEMO_USER = 'iam-demouser';
+const DEMO_PASSWORD = 'aws.demo.K3y!';
 const DEMO_OTP_SECRET = 'JBSWY3DPEHPK3PXP';
-
-async function installClipboardSpy(page: Page): Promise<void> {
-    // Runs in *every* document loaded by the page, before any other script.
-    // We wrap navigator.clipboard.writeText so we can recover the last
-    // copied value even if readText is blocked.
-    await page.addInitScript(() => {
-        const w = window as unknown as {
-            __lastClipboardWrite?: string;
-            __clipboardWrites?: string[];
-        };
-        w.__lastClipboardWrite = undefined;
-        w.__clipboardWrites = [];
-        try {
-            const clip = navigator.clipboard;
-            if (clip && typeof clip.writeText === 'function') {
-                const orig = clip.writeText.bind(clip);
-                clip.writeText = (text: string) => {
-                    w.__lastClipboardWrite = text;
-                    (w.__clipboardWrites as string[]).push(text);
-                    return orig(text);
-                };
-            }
-        } catch {
-            /* ignore — we still try the readText path */
-        }
-    });
-}
 
 async function openDemoDatabase(page: Page) {
     await page.goto('/');
@@ -75,16 +19,11 @@ async function openDemoDatabase(page: Page) {
     await demoBtn.click();
     const listItems = page.locator('.list__item');
     await expect(listItems.first()).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(() => navigator.clipboard.writeText(''));
     return listItems;
 }
 
-/**
- * Click an entry by exact title in the entry list. The demo DB lists
- * entries alphabetically, so blindly grabbing `.list__item:first` lands
- * on "Demo Bank", not the "Sample Entry" we want for known
- * UserName/Password values. `modules/ui-classic/scripts/create-demo-db.ts`
- * is the source of truth for entry contents.
- */
+// Select by exact title so row usernames cannot affect the match.
 async function selectEntryByTitle(page: Page, title: string) {
     // List items concatenate the entry title and the visible UserName,
     // so e.g. the "Sample Entry" item contains text "Sample EntryUser Name".
@@ -114,64 +53,29 @@ function fieldLabel(page: Page, label: RegExp) {
         .first();
 }
 
-/**
- * Read the clipboard with a fallback to the writeText spy.
- * Returns the resolved string and the source used so the test can
- * report which path it took if it ever flakes.
- */
-async function readClipboard(
-    page: Page
-): Promise<{ value: string; source: 'navigator' | 'spy' | 'none' }> {
-    // Primary: navigator.clipboard.readText (gated by clipboard-read perm).
-    const direct = await page
-        .evaluate(async () => {
-            try {
-                return await navigator.clipboard.readText();
-            } catch {
-                return null;
-            }
-        })
-        .catch(() => null);
-    if (direct && direct.length > 0) {
-        return { value: direct, source: 'navigator' };
-    }
-    // Fallback: spy installed via addInitScript before navigation.
-    const spied = await page.evaluate(() => {
-        const w = window as unknown as { __lastClipboardWrite?: string };
-        return w.__lastClipboardWrite ?? null;
-    });
-    if (spied && spied.length > 0) {
-        return { value: spied, source: 'spy' };
-    }
-    return { value: '', source: 'none' };
+async function readClipboard(page: Page): Promise<string> {
+    return page.evaluate(() => navigator.clipboard.readText());
 }
 
 test.describe('Clipboard copy', () => {
     // Permission name strings are Chromium-only; firefox has no equivalent
-    // and would always fall through to the spy path, which would mask real
-    // regressions in the navigator.clipboard code path.
+    // Native readback has no portable Playwright permission grant on Firefox.
     test.skip(
         ({ browserName }) => browserName !== 'chromium',
         'clipboard-read/write permissions are chromium-only'
     );
 
-    test.beforeEach(async ({ page }) => {
-        await installClipboardSpy(page);
-    });
-
     test('copy username writes the entry UserName to the clipboard', async ({ page }) => {
         await openDemoDatabase(page);
-        // "Sample Entry" has the canonical literal UserName "User Name"
-        // (see modules/ui-classic/scripts/create-demo-db.ts).
-        await selectEntryByTitle(page, 'Sample Entry');
+        await selectEntryByTitle(page, DEMO_ENTRY_TITLE);
 
         const userLabel = fieldLabel(page, /^user$/i);
         await expect(userLabel).toBeVisible({ timeout: 5_000 });
         await userLabel.click();
 
         await expect
-            .poll(async () => (await readClipboard(page)).value, { timeout: 5_000 })
-            .toBe('User Name');
+            .poll(async () => await readClipboard(page), { timeout: 5_000 })
+            .toBe(DEMO_USER);
 
         await page.screenshot({
             path: `${SCREENSHOT_DIR}/clipboard-username.png`,
@@ -183,8 +87,7 @@ test.describe('Clipboard copy', () => {
         page,
     }) => {
         await openDemoDatabase(page);
-        // "Sample Entry" Password is ProtectedValue("Password").
-        await selectEntryByTitle(page, 'Sample Entry');
+        await selectEntryByTitle(page, DEMO_ENTRY_TITLE);
 
         const passLabel = fieldLabel(page, /^password$/i);
         await expect(passLabel).toBeVisible({ timeout: 5_000 });
@@ -194,8 +97,8 @@ test.describe('Clipboard copy', () => {
         // model.password.getText() — if it ever regresses we'll see
         // raw bytes or an empty string here.
         await expect
-            .poll(async () => (await readClipboard(page)).value, { timeout: 5_000 })
-            .toBe('Password');
+            .poll(async () => await readClipboard(page), { timeout: 5_000 })
+            .toBe(DEMO_PASSWORD);
 
         await page.screenshot({
             path: `${SCREENSHOT_DIR}/clipboard-password.png`,
@@ -207,7 +110,7 @@ test.describe('Clipboard copy', () => {
         test.setTimeout(45_000);
 
         await openDemoDatabase(page);
-        await selectEntryByTitle(page, 'Sample Entry');
+        await selectEntryByTitle(page, DEMO_ENTRY_TITLE);
 
         // Add a TOTP secret to the entry first (mirrors otp.spec.ts pattern).
         const moreLabel = page
@@ -264,7 +167,7 @@ test.describe('Clipboard copy', () => {
                 .poll(
                     async () => {
                         const r = await readClipboard(page);
-                        value = r.value.replace(/\s+/g, '');
+                        value = r.replace(/\s+/g, '');
                         return value;
                     },
                     { timeout: 5_000 }

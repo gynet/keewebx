@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import path from 'node:path';
 
 test.use({ hasTouch: true });
-test('touch swipe reveals and hides local deletion without opening or deleting a vault', async ({ page, context }) => {
+test('touch swipe reveals and hides local deletion without opening or deleting a vault', async ({ page, context, browserName }) => {
+    test.skip(browserName !== 'chromium', 'Native touch injection requires Chromium CDP Input.dispatchTouchEvent.');
     await page.goto('/next.html');
     await page.setInputFiles('#open-file-input', path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx'));
     await page.fill('#password', 'test');

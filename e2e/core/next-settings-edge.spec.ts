@@ -155,8 +155,8 @@ test.describe('Next database settings edge cases', () => {
             } else {
                 await expect(form.getByRole('status')).toContainText('Invalid Argon2 parameters');
             }
-            await expect(form.getByRole('status').filter({ hasText: 'Database settings saved.' })).toHaveCount(0);
-            await expect(form.getByRole('heading', { level: 3 })).toHaveText(vaultName);
+            await expect(form.getByRole('status').filter({ hasText: 'Saved in browser storage. Download KDBX to update your external copy.' })).toHaveCount(0);
+            await expect(form.getByRole('heading', { level: 3, name: vaultName, exact: true })).toHaveText(vaultName);
             await expect(field).toHaveValue(invalid.value);
 
             // Reopening after Cancel must not expose a partially applied submission
@@ -216,7 +216,7 @@ test.describe('Next database settings edge cases', () => {
         await expect(form.getByLabel('Iterations', { exact: true })).toHaveCount(0);
         await form.getByLabel('Default user', { exact: true }).fill('AES retained');
         await form.getByRole('button', { name: 'Save database settings', exact: true }).click();
-        await expect(form.getByRole('status')).toHaveText('Database settings saved.');
+        await expect(form.getByRole('status')).toHaveText('Saved in browser storage. Download KDBX to update your external copy.');
         await page.locator('#settings-back').click();
         await lock(page);
         await reloadAndUnlock(page, 'demopass');
@@ -242,7 +242,7 @@ test.describe('Next database settings edge cases', () => {
             await expect(form.getByLabel('Parallelism', { exact: true })).toHaveValue('2');
             if (invalid) await form.getByLabel('Memory, KiB', { exact: true }).fill('8192');
             await form.getByRole('button', { name: 'Save database settings', exact: true }).click();
-            await expect(form.getByRole('status')).toHaveText('Database settings saved.');
+            await expect(form.getByRole('status')).toHaveText('Saved in browser storage. Download KDBX to update your external copy.');
             await page.locator('#settings-back').click();
             await lock(page);
             await reloadAndUnlock(page);
