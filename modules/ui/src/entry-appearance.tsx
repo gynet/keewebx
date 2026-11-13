@@ -6,7 +6,8 @@ import { ENTRY_ICONS } from 'const/icon-registry';
 import { Colors, type ColorName } from 'const/colors';
 import { Events } from 'framework/events';
 import { getSessionAccess } from 'comp/app/session-access';
-import { EntryIcon } from 'ui-kit/icons';
+import { IconChoices } from './icon-choices';
+import { normalizeIcon } from './icon-image';
 import { confirmDiscardDrafts } from './pending-drafts';
 import { t } from './i18n';
 import './entry-appearance.css';
@@ -77,26 +78,14 @@ function AppearanceDialog({ model, entry, selection, close, trigger }: {
     const readImage = async (image: File) => {
         const version = ++reading.current;
         setLoading(true); setError('');
-        let bitmap: ImageBitmap | undefined;
         try {
-            if (!['image/png', 'image/jpeg', 'image/webp'].includes(image.type) || image.size > 1024 * 1024)
-                throw new Error('Choose a PNG, JPEG, or WebP image up to 1 MB.');
-            bitmap = await createImageBitmap(image);
-            if (!bitmap.width || !bitmap.height || bitmap.width > 8192 || bitmap.height > 8192)
-                throw new Error('This image is too large or invalid.');
-            const canvas = document.createElement('canvas');
-            const scale = Math.min(1, 128 / Math.max(bitmap.width, bitmap.height));
-            canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-            const context = canvas.getContext('2d');
-            if (!context) throw new Error('Image processing is unavailable.');
-            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-            const data = canvas.toDataURL('image/png').split(',')[1];
+            const data = await normalizeIcon(image);
             if (version !== reading.current) return;
             const changed = unavailable(model, entry, selection);
             if (changed) throw new Error(changed);
             setUpload(data); setIcon('upload');
         } catch (error) { if (version === reading.current) setError(error instanceof Error ? t(error.message) : t('Could not read the image.')); }
-        finally { bitmap?.close(); if (version === reading.current) setLoading(false); }
+        finally { if (version === reading.current) setLoading(false); }
     };
     const apply = () => {
         if (loading || applied.current) return;
@@ -123,20 +112,7 @@ function AppearanceDialog({ model, entry, selection, close, trigger }: {
             {file.supportsColors && <label class="vault-form__field">{t('Color flag')}<select class="input" value={color} disabled={loading || !!reason} onChange={event => setColor(event.currentTarget.value)}>
                 <option value="">{t('None')}</option>{Colors.AllColors.map(color => <option key={color} value={color}>{t(names(color))}</option>)}
             </select></label>}
-            <fieldset disabled={loading || !!reason}><legend>{t('Built-in icon')}</legend>
-                <div class="entry-appearance__icons">{ENTRY_ICONS.map((name, index) => <label key={name} title={names(name)}>
-                    <input type="radio" name="entry-icon" aria-label={t('Icon: {}', names(name))} checked={icon === `builtin:${index}`} onChange={() => setIcon(`builtin:${index}`)} />
-                    <EntryIcon name={name} size={24} />
-                </label>)}</div>
-            </fieldset>
-            {Object.keys(customIcons).length > 0 && <fieldset disabled={loading || !!reason}><legend>{t('Custom icons in this vault')}</legend>
-                <div class="entry-appearance__icons">{Object.entries(customIcons).map(([id, data], index) => <label key={id}>
-                    <input type="radio" name="entry-icon" aria-label={t('Custom icon {}', String(index + 1))} checked={icon === `custom:${id}`} onChange={() => setIcon(`custom:${id}`)} />
-                    <img src={data} alt="" width="28" height="28" />
-                </label>)}</div>
-            </fieldset>}
-            <label class="vault-form__field">{t('Upload icon')}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={loading || !!reason}
-                onChange={event => { const image = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (image) void readImage(image); }} /></label>
+            <IconChoices value={icon} customIcons={customIcons} disabled={loading || !!reason} onChange={setIcon} onUpload={image => void readImage(image)} />
             <p class="muted">{t('PNG, JPEG, or WebP up to 1 MB. Stored locally in the vault as PNG, up to 128 pixels. Choose a built-in icon to remove the custom icon from this entry.')}</p>
             {upload && icon === 'upload' && <img class="entry-appearance__preview" src={`data:image/png;base64,${upload}`} alt={t('New icon preview')} />}
 

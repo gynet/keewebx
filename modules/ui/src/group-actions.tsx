@@ -8,6 +8,7 @@ import { confirmDiscardDrafts, usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
 import { getSessionAccess } from 'comp/app/session-access';
 import { lifecycleSnapshot } from './lifecycle-guard';
+import { GroupAppearance, GroupIcon } from './group-appearance';
 
 export type GroupActionResult =
     | { action: 'create' | 'rename'; fileId: string; groupId: string; parentId: string }
@@ -125,6 +126,7 @@ export function GroupActions({ model, file, group, disabled = false, onComplete,
     };
     return <div ref={toolbar} role="group" aria-label={t('Group actions: {}', group.title)} tabIndex={-1}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            <GroupIcon group={group} /><GroupAppearance model={model} file={file} group={group} disabled={disabled || !!selection} />
             {(['create', 'rename', 'delete'] as const).map((action) => {
                 const reason = unavailable(model, file, group, action);
                 return <button key={action} type="button"

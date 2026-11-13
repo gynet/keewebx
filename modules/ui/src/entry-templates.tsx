@@ -9,6 +9,7 @@ import { EntryEditor, applyEntryDraft, makeDraft, type EntryDraft } from './entr
 import { confirmDiscardDrafts } from './pending-drafts';
 import { t } from './i18n';
 import './entry-templates.css';
+import { TemplateDelete } from './template-delete';
 
 interface Target {
     file: FileModel; db: FileModel['db']; epoch: number; editSeq: number;
@@ -131,6 +132,7 @@ function TemplatesDialog({ model, groupId, close, onCreated, trigger }: {
                 <div><strong>{entry.title || t('Untitled')}</strong><small>{file.name}</small></div>
                 <button type="button" class="pill" disabled={file.syncing} onClick={() => choose('use', file, entry)}>{t('Use template')}</button>
                 <button type="button" class="pill" disabled={file.syncing} onClick={() => choose('edit', file, entry)}>{t('Edit template')}</button>
+                <TemplateDelete model={model} entry={entry} onDeleted={() => setMessage(t('Template deleted. Check the database sync status.'))} />
             </li>)}</ul>
             {!templates.length && <p>{t('No entry templates yet.')}</p>}
             {message && <p role="status">{message}</p>}

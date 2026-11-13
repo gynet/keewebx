@@ -35,6 +35,8 @@ import { EntryEditor, applyEntryDraft } from './entry-editor';
 import { EntryTemplates } from './entry-templates';
 import type { EntryDraft } from './entry-editor';
 import { GroupActions } from './group-actions';
+import { GroupIcon } from './group-appearance';
+import { FaviconImport } from './favicon-import';
 import { GroupLifecycle, TrashGroups } from './group-lifecycle';
 import { TagActions } from './tag-actions';
 import type { GroupActionResult } from './group-actions';
@@ -78,6 +80,8 @@ function safeWebsiteUrl(text: string): string | undefined {
 }
 
 interface GroupLike {
+    iconId?: number | null;
+    customIcon?: string | null;
     id: string;
     title: string;
     items?: GroupLike[] | null;
@@ -665,7 +669,7 @@ function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle }: {
                     <path d="m4 2 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" />
                 </svg>
             </button> : <span class="group-branch__spacer" />}
-            <NavRow icon="folder" label={group.title} on={selected === group.id} onClick={() => onSelect(group.id)} />
+            <button class={selected === group.id ? 'nav-row nav-row--on' : 'nav-row'} onClick={() => onSelect(group.id)}><GroupIcon group={group} /><span class="nav-row__label">{group.title}</span></button>
         </div>
         {expanded && children.length > 0 && <div class="group-branch__children">
             {children.map((child) => <GroupBranch key={child.id} group={child} selected={selected} onSelect={onSelect}
@@ -816,6 +820,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
                     <EntryAppearance model={model} entry={entry} />
+                    <FaviconImport model={model} entry={entry} />
                     <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
                     {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
                     <EntryHistory entry={entry} searchFilter={historyFilter} onRestore={() => setNotesVersion(value => value + 1)} />
