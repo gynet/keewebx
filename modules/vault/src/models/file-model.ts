@@ -53,6 +53,8 @@ interface RemoteKey {
     password?: kdbxweb.ProtectedValue;
     keyFileName?: string;
     keyFileData?: ArrayBuffer;
+    /** Optional caller snapshot guard, checked before remote credentials or content are adopted. */
+    canMerge?: () => boolean;
 }
 
 // chalResp on FileModel can be either:
@@ -468,6 +470,7 @@ class FileModel extends Model {
         const originalVersion = credentialChangeVersion(originalCredentials);
         const canMerge = () => this.active && this.db === originalDb &&
             this.db.credentials === originalCredentials && credentialChangeVersion(originalCredentials) === originalVersion &&
+            (!remoteKey?.canMerge || remoteKey.canMerge()) &&
             (!canContinue || canContinue());
         let credentials: kdbxweb.Credentials;
         let credentialsPromise: Promise<unknown> = Promise.resolve();
@@ -482,7 +485,9 @@ class FileModel extends Model {
                 }
                 if (remoteKey.keyFileName) {
                     if (remoteKey.keyFileData) {
-                        promises.push(credentials.setKeyFile(remoteKey.keyFileData));
+                        // A raw 32-byte key becomes ProtectedValue backing storage. Own that
+                        // buffer so the caller can erase its temporary upload after syncing.
+                        promises.push(credentials.setKeyFile(remoteKey.keyFileData.slice(0)));
                     } else {
                         credentials.keyFileHash = this.db.credentials.keyFileHash;
                     }
@@ -515,18 +520,15 @@ class FileModel extends Model {
             loadRemote()
                 .then((remoteDb) => {
                     if (!canMerge()) throw new Error('The database changed before merging. Retry syncing.');
+                    const adoptRemoteKey = remoteKey && (!this.modified ||
+                        // A verified remote key must survive a slower remote clock unless this
+                        // device also has an intentional, unsaved credential change.
+                        !(this.passwordChanged || this.keyFileChanged) ||
+                        (remoteDb.meta.keyChanged as Date) > (this.db.meta.keyChanged as Date));
                     if (this.modified) {
                         try {
-                            if (
-                                remoteKey &&
-                                (remoteDb.meta.keyChanged as Date) >
-                                    (this.db.meta.keyChanged as Date)
-                            ) {
+                            if (adoptRemoteKey) {
                                 this.db.credentials = remoteDb.credentials;
-                                this.keyFileName = remoteKey.keyFileName || '';
-                                if (remoteKey.password) {
-                                    this.passwordLength = remoteKey.password.textLength;
-                                }
                             }
                             this.db.merge(remoteDb);
                         } catch (e) {
@@ -535,6 +537,10 @@ class FileModel extends Model {
                         }
                     } else {
                         this.db = remoteDb;
+                    }
+                    if (adoptRemoteKey) {
+                        this.keyFileName = remoteKey.keyFileName || '';
+                        if (remoteKey.password) this.passwordLength = remoteKey.password.textLength;
                     }
                     this.dirty = true;
                     this.reload();

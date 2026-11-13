@@ -1,0 +1,10 @@
+.remote-key-notices { position: fixed; z-index: 40; right: 16px; bottom: 76px; width: min(380px, calc(100vw - 32px)); max-height: 35dvh; overflow: auto; }
+.remote-key-notice { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; margin-top: 8px; background: var(--kx-bg); color: var(--kx-text); border: 1px solid var(--kx-line); border-radius: var(--kx-radius-card); font-size: 13px; overflow-wrap: anywhere; }
+.remote-key-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; box-sizing: border-box; padding: 20px; border: 1px solid var(--kx-line); border-radius: var(--kx-radius-card); background: var(--kx-bg); color: var(--kx-text); }
+.remote-key-dialog::backdrop { background: #0008; }
+.remote-key-dialog h2 { font-size: 21px; margin-top: 0; }
+.remote-key-dialog p { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.remote-key-dialog__name { font-weight: 600; }
+.remote-key-dialog fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.remote-key-dialog input, .remote-key-dialog select { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.remote-key-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }

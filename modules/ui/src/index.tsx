@@ -24,6 +24,7 @@ import { BrowserExtensionConnector } from 'comp/extension/browser-extension-conn
 import { createSessionProtocolAccess } from 'comp/extension/protocol-access';
 import { waitForPendingOperations } from './pending-operations';
 import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
+import { RemoteKeyRecovery } from './remote-key-recovery';
 
 declare const __KW_NEW_EXTENSION__: boolean;
 
@@ -178,6 +179,7 @@ function App({ model }: { model: AppModel }) {
                 }
             }} />}
         <div ref={surface} hidden={!!gate} style={{ height: '100%' }}>
+        <RemoteKeyRecovery model={model} />
         <div hidden={settingsOpen} style={{ height: '100%' }}>
         <Vault
             model={model}
