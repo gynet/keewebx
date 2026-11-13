@@ -1,161 +1,82 @@
 # <img src="modules/ui-classic/graphics/keewebx-logo.svg" width="36" height="36" alt="" align="top"> KeeWebX
 
-**Open a KeePass vault in your browser. No install, no signup, nothing to host.**
+**Open and edit a KeePass vault in your browser.**
 
 [![Try the demo](https://img.shields.io/badge/demo-keewebx.app%2Fdemo-f5b324?style=flat-square)](https://keewebx.app/demo)
 [![Latest release](https://img.shields.io/github/v/release/gynet/keewebx?style=flat-square)](https://github.com/gynet/keewebx/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/gynet/keewebx?style=flat-square)](LICENSE)
 
-### → **Try it in 10 seconds: [keewebx.app/demo](https://keewebx.app/demo)** (master password: `demo`)
+[Open the app](https://keewebx.app/app) · [Try the demo](https://keewebx.app/demo) · [Download](https://github.com/gynet/keewebx/releases/latest)
 
 <p align="center">
-  <img src="screenshots/colorful-tags.png" alt="KeeWebX on desktop with the demo vault open" width="72%">
+  <img src="screenshots/colorful-tags.png" alt="KeeWebX New interface with the demo vault open on desktop" width="72%">
   &nbsp;
-  <img src="screenshots/phone-demo.png" alt="KeeWebX on a phone with the demo vault open" width="22%">
+  <img src="screenshots/phone-demo.png" alt="KeeWebX New interface showing the same demo entry on a phone" width="22%">
 </p>
 
----
+New is the default interface. Classic remains available, and both use the same vault, encryption and synchronization implementations. KeeWebX is a web-only fork of [KeeWeb](https://github.com/keeweb/keeweb), built with TypeScript, Preact and Bun.
 
-**The only KeePass client you can run by double-clicking a `.html` file.**
+## Use it locally
 
-Modern, web-only KeePass client: KDBX4, strict TypeScript, no backend, about 20 production dependencies. Browser extension autofill included.
+Download `keewebx-web-<version>.zip` or `.tar.gz` from [Releases](https://github.com/gynet/keewebx/releases/latest), verify its accompanying SHA-256 checksum, and extract the complete archive.
 
-**Self-host:** [Releases](https://github.com/gynet/keewebx/releases)
+| Entry point | Interface |
+| --- | --- |
+| `index.html` | New, the default |
+| `next.html` | New compatibility entry |
+| `classic.html` | Classic |
+| `classic/index.html` or `?ui=classic` | Classic compatibility routes |
 
-Forked from [KeeWeb](https://github.com/keeweb/keeweb) (stalled since 2021), rebuilt for simplicity, security, and maintainability.
+Double-click `index.html`, or serve the extracted directory with any static HTTP server:
 
-## Pure Local Mode — the killer feature
-
-Download `keewebx-web-<version>.zip` or `.tar.gz`, extract, and **double-click `index.html`** to open New. Open `classic.html` for Classic. Both interfaces use the same vault format.
-
-- ✅ No web server. No Python. No Node. No Docker. No nginx.
-- ✅ All KDBX encryption/decryption runs in your browser (WebCrypto).
-- ✅ **Browser extension autofill works on `file://`** — open your KDBX at `file:///.../index.html`, install [`keewebx-connect`](https://github.com/gynet/keewebx/releases), autofill works. No HTTPS setup, no localhost tunnel. (Firefox + Chrome + Edge.)
-- ✅ Zero network calls — verify with your browser's network tab.
-- ✅ Source-auditable: 1 monorepo, ~20 prod deps, TypeScript strict.
-
-Your encrypted KDBX file never leaves your disk. The app loads from disk. The extension talks to the app over `window.postMessage`. Nothing phones home.
-
-## What Changed from KeeWeb
-
-| | KeeWeb | KeeWebX |
-|---|---|---|
-| Platform | Electron + Web | **Web only** |
-| Language | JavaScript (Babel) | **TypeScript (strict)** |
-| DB Format | KDBX3 + KDBX4 | **KDBX4 only** (ChaCha20 + Argon2id) |
-| Build | Grunt + Webpack | **Bun + Webpack** |
-| Repos | 3 separate | **1 monorepo** |
-| Dependencies | ~80 packages | **~20 packages** |
-| Desktop | Electron v13 | **Removed** |
-| Storage | Dropbox, GDrive, OneDrive, WebDAV | **WebDAV + IndexedDB** |
-| Unlock | Master password | Master password **+ WebAuthn passkey quick unlock** (Touch ID / Face ID / Windows Hello / YubiKey) |
-
-## What's new since the fork
-
-- **Colorful tag chips.** Tags render as colored pills instead of comma-separated text. Color is derived from the tag string, so the same tag is the same color everywhere.
-- **Tag cloud in the sidebar.** Tags flow-wrap as pills, or as a dot list — toggle in Settings → Appearance.
-- **Bigger site icons.** Favicon picker reads Apple touch icons and web manifest icons (up to 128 px) instead of just `/favicon.ico`. Pick the size in Settings → Appearance. Needs a favicon service, which keewebx.app provides; self-hosted copies make no such requests.
-- **AES-GCM WebDAV credentials.** Stored credentials are AES-256-GCM with a key derived from the master password. Upstream used XOR.
-- **Passkey quick unlock.** Touch ID, Face ID, Windows Hello, YubiKey — after you've unlocked once on the device with your master password.
-- **Browser extension works on `file://`.** Open the app by double-clicking `index.html`, autofill still works (Firefox, Chrome, Edge).
-- **One icon registry.** Every Font Awesome glyph the app uses is listed in one TS file. The webpack build generates the font subset and CSS from it. Adding an icon is a one-line edit.
-- **New logo and PWA splash screens.**
-
-## Self-hosting
-
-Grab the static self-host bundle from the
-[Releases page](https://github.com/gynet/keewebx/releases) —
-`keewebx-web-<version>.zip` / `.tar.gz` + `.sha256`. Same build as the
-hosted demo; all KDBX handling runs 100% in the browser (WebCrypto).
-
-### Option A — Pure local (`file://`, zero-dep)
-
-Extract the zip, **double-click `index.html`**. See [Pure Local Mode](#pure-local-mode--the-killer-feature) above.
-
-**Passkey quick unlock on `file://`** works on Firefox, not on Chrome / Edge / Safari. This is a spec-level restriction ([W3C WebAuthn #474](https://github.com/w3c/webauthn/issues/474)) — `file://` origins have no effective domain, so Chromium and Safari reject them. No browser flag or origin trial bypasses it. If you want passkey unlock on Chrome, use Option B (localhost or HTTPS). Master password unlock works everywhere on `file://`.
-
-### Option B — Any static HTTP server
-
-```bash
+```sh
 python3 -m http.server 8080
-# or: bunx serve .
 ```
 
-Serve from nginx, Caddy, GitHub Pages, S3+CloudFront, Netlify, etc. Under
-HTTP(S) the PWA service worker registers and passkey quick unlock works in all browsers.
+Keep the HTML files and bundled assets together. HTTPS or localhost enables features that require a secure context; passkeys also depend on browser and authenticator support. Direct `file://` use does not install the offline service worker.
 
-## Quick Start (development)
+KDBX encryption and decryption run in your browser. A browser-cache save does not update the external file you originally selected: download KDBX to save an external copy. Keep an independent encrypted backup. WebDAV synchronization and optional network features make requests only when configured or used.
 
-```bash
+See [the self-host guide](docs/self-host.md) for deployment details.
+
+## New interface
+
+- Open local KDBX files, use password and key-file combinations, configure supported passkeys, and work with multiple vaults.
+- Edit entries, protected and multiline fields, groups, tags, expiry dates, icons and templates. Inspect and restore history; preview and manage attachments.
+- Search selected fields, protected values and history with explicit options; use keyboard shortcuts, sorting, color filters and mobile navigation.
+- Generate passwords, manage OTP credentials, review password warnings, and import or export supported formats.
+- Save to WebDAV, see per-vault synchronization state, recover from offline or failed saves, and explicitly save or discard when closing a vault.
+- Use browser autofill with KeeWebX Connect, with explicit access approval and session controls.
+
+Switching interfaces checks pending edits and saves before navigating. A failed save keeps the vault available for recovery.
+
+## Browser extension
+
+[KeeWebX Connect releases](https://github.com/gynet/keewebx/releases) provide browser autofill. Choose the app location in the extension, open and unlock a vault, then approve the connection in KeeWebX. Access can be limited to selected vaults and revoked from the app's extension settings.
+
+## Development
+
+```sh
 git clone https://github.com/gynet/keewebx.git
 cd keewebx
 bun install
-bun test
-bun run dev     # http://localhost:8085
+bun run test
+bun run build
 ```
 
-## Monorepo
+The build writes both interfaces into `dist/`. Serve that directory to use New. `bun run dev` starts the Classic development server.
 
-```
-modules/
-  ui-classic/   Classic interface: views, templates, styles and browser shell
-  ui/           New interface (Preact), alongside Classic
-  ui-kit/       Shared icons, design tokens and presentation helpers
-  vault/        Shared vault models, storage, sync and application services
-  db/           KDBX4 database library (@xmldom/xmldom, fflate — that's it)
-  extension/    Browser autofill extension (Manifest V3, Chrome/Firefox/Edge)
-```
+| Package | Purpose |
+| --- | --- |
+| `modules/ui` | New interface, built with Preact |
+| `modules/ui-classic` | Classic interface and browser shell |
+| `modules/ui-kit` | Shared presentation helpers |
+| `modules/vault` | Vault models, storage, synchronization and application services |
+| `modules/db` | KDBX database library |
+| `modules/extension` | Browser autofill extension |
 
-Package deep-dives and API examples: see each package's own README.
+Shared vault code does not import either interface. Browser acceptance covers New and Classic in Chromium and Firefox; individual tests identify browser-specific capability limits.
 
-Both interfaces use the same vault and database implementations. Shared code
-must not import either interface. UI-specific changes belong in `ui-classic/`
-or `ui/`; reusable presentation code belongs in `ui-kit/`. `bun run build`
-emits both entry points into the root `dist/` directory: `index.html` for
-the New interface, `classic.html` for Classic, and compatibility aliases
-`next.html` (New) and `classic/index.html` (Classic). New is the default.
-The legacy `?ui=classic` selector still opens Classic.
+## License and credits
 
-## Storage
-
-| Backend | Protocol | Use Case |
-|---------|----------|----------|
-| **WebDAV** | HTTPS + Basic Auth | Nextcloud, Synology, ownCloud, any WebDAV server |
-| **IndexedDB** | Browser API | Local-only, offline access |
-
-OAuth cloud providers (Google Drive / Dropbox / OneDrive) return in Phase 2 via BYOK — see [#36](https://github.com/gynet/keewebx/issues/36).
-
-## Security
-
-- KDBX4 only — no legacy crypto (Salsa20, AES-KDF removed)
-- ChaCha20 + Argon2id, WebCrypto API
-- Passwords as `ProtectedValue` (XOR-encrypted in memory)
-- DOMPurify for XSS prevention
-- tweetnacl for extension ↔ app encrypted protocol
-
-## Roadmap
-
-- **Phase 1** — foundation (TypeScript, Bun, KDBX4-only, tests + E2E). See [milestone 1](https://github.com/gynet/keewebx/milestone/1).
-- **Phase 2** — passkey quick unlock (#9 shipped), BYOK OAuth (#36), iOS share workflow (#35). Passkey PRF compatibility matrix: [#9 comment](https://github.com/gynet/keewebx/issues/9). See [milestone 2](https://github.com/gynet/keewebx/milestone/2).
-- **Phase 3** — per-field hardware encryption (YubiKey PRF, #25), quick autofill (#39), P2P device sync (WebRTC + KDBX native merge, #26).
-
-## License
-
-[MIT](LICENSE)
-
-## Credits
-
-Built on [KeeWeb](https://github.com/keeweb/keeweb) by Antelle and [kdbxweb](https://github.com/keeweb/kdbxweb). Original work MIT-licensed.
-
-### Build extensions
-
-Both interface builds accept `KEEWEBX_EXTRA_SOURCE_DIR`, an absolute path searched
-before their own source and the shared vault source for module imports. An
-extension can provide `hooks/init.ts` and register shared data hooks there. Use a
-separate source directory for each interface if initialization imports UI code;
-Classic views cannot run in New. Keep secrets out of client-side extensions.
-
-Build the database first, Classic second, and New last. Classic cleans `dist`;
-New writes the default `index.html` and the `next.html` alias into that directory.
-New's browser-extension integration is enabled by default; set
-`KEEWEBX_NEW_EXTENSION=0` only for a build that intentionally omits it.
+[MIT](LICENSE). Built on [KeeWeb](https://github.com/keeweb/keeweb) by Antelle and [kdbxweb](https://github.com/keeweb/kdbxweb). See [third-party notices](THIRD-PARTY-LICENSES.md) for bundled dependencies.
