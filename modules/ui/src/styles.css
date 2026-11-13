@@ -842,6 +842,8 @@ button {
     .vault .phone-bar[data-side="left"] { left: 16px; right: auto; }
     .vault .phone-bar {
         display: flex;
+        flex-wrap: wrap;
+        max-width: calc(100vw - 12px);
         gap: 6px;
         position: fixed;
         right: 16px;
@@ -852,6 +854,7 @@ button {
         border: 1px solid var(--kx-line);
     }
     .phone-bar .round {
+        flex-shrink: 0;
         width: 44px;
         height: 44px;
         border: 0;
@@ -905,6 +908,12 @@ button {
     .detail__head .round {
         display: flex !important;
     }
+}
+@media (max-width: 350px) {
+    .vault .phone-bar { gap: 2px; right: 6px; }
+    .vault .phone-bar[data-side="left"] { left: 6px; }
+    .vault .phone-bar[data-collapsed="true"] { right: 0; }
+    .vault .phone-bar[data-collapsed="true"][data-side="left"] { left: 0; right: auto; }
 }
 
 .passkey-setup-option { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; color: var(--kx-muted); }

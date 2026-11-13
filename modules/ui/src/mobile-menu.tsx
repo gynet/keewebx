@@ -1,9 +1,18 @@
 import type { ComponentChildren } from 'preact';
-import { useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { storageKey } from 'comp/settings/storage-namespace';
 import { t } from './i18n';
 
 export function MobileMenu({ children }: { children: ComponentChildren }) {
+    const bar = useRef<HTMLDivElement>(null);
+    const [reservedHeight, setReservedHeight] = useState(72);
+    useLayoutEffect(() => {
+        const element = bar.current!;
+        const measure = () => setReservedHeight(Math.max(72, element.getBoundingClientRect().height + 12));
+        const observer = new ResizeObserver(measure);
+        observer.observe(element); measure();
+        return () => observer.disconnect();
+    }, []);
     const [side, setSide] = useState(() => {
         try { return localStorage.getItem(storageKey('menuSide')) === 'left' ? 'left' : 'right'; }
         catch { return 'right'; }
@@ -18,7 +27,7 @@ export function MobileMenu({ children }: { children: ComponentChildren }) {
     const [offset, setOffset] = useState(0);
     const [offsetY, setOffsetY] = useState(0);
     const moveHeight = (value: number) => {
-        const next = Math.max(12, Math.min(window.innerHeight - 72, value));
+        const next = Math.max(12, Math.min(window.innerHeight - reservedHeight, value));
         setBottom(next);
         try { localStorage.setItem(storageKey('menuBottom'), String(next)); } catch { /* Optional preference. */ }
     };
@@ -28,8 +37,8 @@ export function MobileMenu({ children }: { children: ComponentChildren }) {
         setOffsetY(0);
         try { localStorage.setItem(storageKey('menuSide'), next); } catch { /* Storage is optional. */ }
     };
-    return <div class="phone-bar" data-side={side} data-collapsed={collapsed} style={{
-        bottom: `clamp(12px, ${bottom}px, calc(100dvh - 72px))`,
+    return <div ref={bar} class="phone-bar" data-side={side} data-collapsed={collapsed} style={{
+        bottom: `clamp(12px, ${bottom}px, calc(100dvh - ${reservedHeight}px))`,
         transform: offset || offsetY ? `translate(${offset}px, ${offsetY}px)` : undefined
     }}>
         <button class="round phone-bar__handle" aria-label={t(collapsed ? 'Show menu' : 'Move menu')} aria-expanded={!collapsed}
