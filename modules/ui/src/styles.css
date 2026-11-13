@@ -904,7 +904,15 @@ button {
     .list {
         width: 100%;
         border-right: 0;
+        overflow-y: auto;
+        box-sizing: border-box;
+        padding-bottom: calc(160px + env(safe-area-inset-bottom));
+        scroll-padding-block: 12px 160px;
     }
+    /* The complete header and rows share one mobile scroll surface. A tall
+       header must not squeeze the entries beneath the floating toolbar. */
+    .list > * { flex-shrink: 0; }
+    .list > .list__items { flex: 0 0 auto; overflow: visible; min-height: 120px; }
     .detail__head .round {
         display: flex !important;
     }
