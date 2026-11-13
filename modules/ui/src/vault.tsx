@@ -1,3 +1,4 @@
+import { EntryAppearance, EntryFlag, EntryColorFilter } from './entry-appearance';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { PasswordAudit } from './password-audit';
 import { PreferenceTile } from './preference-tile';
@@ -495,6 +496,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 {filter.tag && <TagActions key={filter.tag} model={model} tag={filter.tag} onChanged={tag => {
                     setEditing(null); setSelected(undefined); setFilter(tag ? { tag } : {}); setQuery('');
                 }} />}
+                <EntryColorFilter value={filter.color === true ? 'any' : filter.color || undefined} onChange={color => changeFilter({ ...filter, color: color === 'any' ? true : color || undefined })} />
                 <p class="list__meta">{t('{} items', String(entries.length))}</p>
                 <div class="list__items">
                     {entries.map((e) => {
@@ -508,6 +510,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                                 aria-current={e.id === selected ? 'true' : undefined}
                                 onClick={() => chooseEntry(e.id)}
                             >
+                                <EntryFlag color={e.color} />
                                 <PreferenceTile title={s.title} icon={s.icon} customIcon={e.customIcon} url={s.url} list />
                                 <span class="entry-row__text">
                                     <span class="entry-row__title" title={s.title || t('(no title)')}>{s.title || t('(no title)')}</span>
@@ -731,10 +734,12 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                     <h1 class="detail__title" id="entry-title">
                         {s.title || t('(no title)')}
                     </h1>
+                    <EntryFlag color={entry.color} />
                     <span class="detail__where" style={{ overflowWrap: 'anywhere' }}>{entry.groupName}</span>
                 </div>
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
+                    <EntryAppearance model={model} entry={entry} />
                     <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
                     {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
                     <EntryHistory entry={entry} searchFilter={historyFilter} onRestore={() => setNotesVersion(value => value + 1)} />
