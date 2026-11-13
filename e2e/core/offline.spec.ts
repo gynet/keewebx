@@ -76,10 +76,15 @@ async function unlock(page: Page, classic = false) {
 }
 
 async function openFile(page: Page, classic = false) {
-    if (classic) await page.locator('#open__icon-open').click();
-    await page.locator(classic ? '.open__file-ctrl' : '#open-file-input').setInputFiles({
-        name: 'offline.kdbx', mimeType: 'application/octet-stream', buffer: vault
-    });
+    const file = { name: 'offline.kdbx', mimeType: 'application/octet-stream', buffer: vault };
+    if (classic) {
+        // Intercept before opening the native picker, including in headless Firefox.
+        const chooser = page.waitForEvent('filechooser');
+        await page.locator('#open__icon-open').click();
+        await (await chooser).setFiles(file);
+    } else {
+        await page.locator('#open-file-input').setInputFiles(file);
+    }
     if (classic) await page.locator('.modal button[data-result=ok]').click();
     await unlock(page, classic);
 }

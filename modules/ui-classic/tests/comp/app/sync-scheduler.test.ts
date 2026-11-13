@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { afterEach, beforeEach, describe, test, expect, jest } from 'bun:test';
 import { EventEmitter } from 'events';
 import { fileSyncState, SyncScheduler, type SyncStateSummary } from '../../../../vault/src/comp/app/sync-scheduler';
 import type { FileModel } from '../../../../vault/src/models/file-model';
@@ -30,7 +30,16 @@ class FakeFile extends EventEmitter {
     }
 }
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => { jest.clearAllTimers(); jest.useRealTimers(); });
+
+// Flush afterSync's microtask between timer ticks, independent of machine load.
+async function wait(ms: number): Promise<void> {
+    for (let tick = 0; tick < ms; tick++) {
+        jest.advanceTimersByTime(1);
+        await Promise.resolve();
+    }
+}
 
 function setup(results: Array<string | null>, { enabled = true, editDuringSync = false } = {}) {
     const file = new FakeFile();
