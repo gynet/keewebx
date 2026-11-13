@@ -27,6 +27,8 @@ import { prepareOtpDraft } from 'comp/app/entry-otp';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
 import type { EntryDraft } from './entry-editor';
 import { GroupActions } from './group-actions';
+import { GroupLifecycle, TrashGroups } from './group-lifecycle';
+import { TagActions } from './tag-actions';
 import type { GroupActionResult } from './group-actions';
 import { EntryMove } from './entry-move';
 import { EntryHistory } from './entry-history';
@@ -223,6 +225,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             setGroupMessage(t('Group renamed: {}', file?.getGroup(result.groupId)?.title ?? ''));
         }
     };
+    const lifecycleChanged = (group?: GroupModel) => {
+        setEditing(null); setSelected(undefined); setQuery('');
+        if (group) {
+            setFilter({ group: group.id });
+            changeExpandedGroups(ids => {
+                for (let parent = group.parentGroup; parent; parent = parent.parentGroup) ids.add(parent.id);
+            });
+        }
+    };
     const newEntry = () => {
         if (!confirmDiscardDrafts()) return;
         const groupId = filter.group;
@@ -377,11 +388,17 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             </p>
                             <GroupActions key={groupTarget.group.id} model={model} file={groupTarget.file} group={groupTarget.group}
                                 onComplete={groupChanged} getReturnFocus={() => groupSummary.current} />
+                            <GroupLifecycle key={`organize-${groupTarget.group.id}`} model={model} file={groupTarget.file} group={groupTarget.group}
+                                onChanged={lifecycleChanged} />
                         </>}
                         {!filter.group && <p class="muted">{t('Choose a root to create a top-level group. Select a group in Browse vault to rename, delete or create a subgroup.')}</p>}
                         {groupMessage && <p role="status">{groupMessage}</p>}
                     </div>
                 </details>
+                {filter.trash && <TrashGroups model={model} onChanged={lifecycleChanged} />}
+                {filter.tag && <TagActions key={filter.tag} model={model} tag={filter.tag} onChanged={tag => {
+                    setEditing(null); setSelected(undefined); setFilter(tag ? { tag } : {}); setQuery('');
+                }} />}
                 <p class="list__meta">{t('{} items', String(entries.length))}</p>
                 <div class="list__items">
                     {entries.map((e) => {

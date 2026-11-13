@@ -440,7 +440,7 @@ class EntryModel extends Model {
             return;
         }
         this._entryModified();
-        this.entry.tags.splice(ix, 1);
+        this.entry.tags = this.entry.tags.filter(tag => tag.toLowerCase() !== from.toLowerCase());
         if (to) {
             this.entry.tags.push(to);
         }

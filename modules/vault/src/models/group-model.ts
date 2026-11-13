@@ -144,11 +144,13 @@ class GroupModel extends MenuItemModel {
     forEachGroup(callback: (group: GroupModel) => boolean | void, filter?: GroupFilter): boolean {
         let result = true;
         (this.items as GroupModel[]).forEach((group) => {
-            if (group.matches(filter)) {
-                result =
-                    callback(group) !== false &&
-                    group.forEachGroup(callback, filter) !== false;
-            }
+            if (!filter?.includeDisabled && (group.isEntryTemplatesGroup()
+                || group.group.uuid.equals(this.file.db.meta.recycleBinUuid!))) return;
+            if (filter?.autoType && !group.getEffectiveEnableAutoType()) return;
+            const matched = group.matches(filter);
+            if (!matched || callback(group) !== false) {
+                result = group.forEachGroup(callback, filter) !== false && result;
+            } else result = false;
         });
         return result;
     }
@@ -164,7 +166,7 @@ class GroupModel extends MenuItemModel {
     matches(filter?: GroupFilter): boolean {
         return (
             ((filter && filter.includeDisabled) ||
-                (this.group.enableSearching !== false &&
+                (this.getEffectiveEnableSearching() &&
                     !this.group.uuid.equals(
                         this.file.db.meta.entryTemplatesGroup as kdbxweb.KdbxUuid
                     ))) &&
@@ -209,7 +211,7 @@ class GroupModel extends MenuItemModel {
         this.expanded = expanded;
     }
 
-    setEnableSearching(enabled: boolean | null): void {
+    setEnableSearching(enabled: boolean | null, inheritMatchingParent = true): void {
         this._groupModified();
         let parentEnableSearching = true;
         let parentGroup = this.parentGroup as GroupModel | null;
@@ -220,7 +222,7 @@ class GroupModel extends MenuItemModel {
             }
             parentGroup = parentGroup.parentGroup;
         }
-        if (enabled === parentEnableSearching) {
+        if (inheritMatchingParent && enabled === parentEnableSearching) {
             enabled = null;
         }
         this.group.enableSearching = enabled;
@@ -310,6 +312,7 @@ class GroupModel extends MenuItemModel {
     }
 
     deleteFromTrash(): void {
+        this.file.setModified();
         this.file.db.move(this.group, null);
         this.file.reload();
     }
@@ -363,6 +366,18 @@ class GroupModel extends MenuItemModel {
             }
             // moving groups between files is not supported for now
         }
+    }
+
+    /** Append a group, including reordering a child already in this parent. */
+    moveToEnd(object: GroupModel): void {
+        if (object.file !== this.file || !object.parentGroup || object === this) return;
+        for (let parent: GroupModel | null = this; parent; parent = parent.parentGroup) {
+            if (parent === object) return;
+        }
+        if (this.group.groups[this.group.groups.length - 1] === object.group) return;
+        this.file.setModified();
+        this.file.db.move(object.group, this.group);
+        this.file.reload();
     }
 
     moveToTop(object: GroupModel | null): void {

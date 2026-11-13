@@ -617,7 +617,7 @@ class FileModel extends Model {
                     (group: GroupModel) => {
                         group.forEachOwnEntry(filter, callback);
                     },
-                    filter as GroupFilter
+                    (filter.trash ? { ...filter, includeDisabled: true } : filter) as GroupFilter
                 );
             }
         }
@@ -1083,7 +1083,7 @@ class FileModel extends Model {
     }
 
     renameTag(from: string, to: string): void {
-        this.forEachEntry({}, (entry) => entry.renameTag(from, to));
+        this.forEachEntry({ includeDisabled: true }, (entry) => entry.renameTag(from, to));
     }
 
     setFormatVersion(version: 4): void {

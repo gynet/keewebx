@@ -6,6 +6,8 @@ import type { FileModel } from 'models/file-model';
 import type { GroupModel } from 'models/group-model';
 import { confirmDiscardDrafts, usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
+import { getSessionAccess } from 'comp/app/session-access';
+import { lifecycleSnapshot } from './lifecycle-guard';
 
 export type GroupActionResult =
     | { action: 'create' | 'rename'; fileId: string; groupId: string; parentId: string }
@@ -26,6 +28,7 @@ export interface GroupActionsProps {
 type Action = 'create' | 'rename' | 'delete';
 interface Selection {
     action: Action;
+    check: () => string;
     file: FileModel;
     group: GroupModel;
     object: GroupModel['group'];
@@ -102,13 +105,14 @@ export function GroupActions({ model, file, group, disabled = false, onComplete,
     const [message, setMessage] = useState('');
     const toolbar = useRef<HTMLDivElement>(null);
     const begin = (action: Action) => {
-        if (disabled || selection) return;
+        if (disabled || selection || getSessionAccess(model).state !== 'open') return;
         const reason = unavailable(model, file, group, action);
         if (reason) { setMessage(reason); return; }
         if (!confirmDiscardDrafts()) return;
+        if (getSessionAccess(model).state !== 'open' || unavailable(model, file, group, action)) return;
         setMessage('');
         setSelection({
-            action, file, group, object: group.group, title: group.title,
+            action, check: lifecycleSnapshot(model, [file]), file, group, object: group.group, title: group.title,
             parentId: group.parentGroup?.id ?? null,
             trashed: usesTrash(file), contents: action === 'delete' ? contents(group.group) : '',
             trigger: document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -154,6 +158,7 @@ function GroupActionDialog({ model, selection, disabled, onCancel, onComplete, g
     const input = useRef<HTMLInputElement>(null);
     const cancel = useRef<HTMLButtonElement>(null);
     const applied = useRef(false);
+    const failed = useRef(false);
     const returnFocus = useRef(getReturnFocus);
     returnFocus.current = getReturnFocus;
     const title = t(action === 'create' ? 'New group' : action === 'rename' ? 'Rename group'
@@ -179,12 +184,14 @@ function GroupActionDialog({ model, selection, disabled, onCancel, onComplete, g
         };
     }, []);
 
-    const apply = (): boolean => {
-        if (applied.current) return true;
-        if (disabled || !available) return false;
+    const apply = (savingDraft = false): boolean => {
+        if (applied.current) return false;
+        const securingDraft = savingDraft && action !== 'delete' && getSessionAccess(model).state === 'securing';
+        if (disabled || !available || (!securingDraft && (getSessionAccess(model).state !== 'open'
+            || !dialog.current?.isConnected || !dialog.current.open || dialog.current.closest('[hidden], [inert]')))) return false;
         let result: GroupActionResult;
         try {
-            const reason = unavailable(model, file, group, action);
+            const reason = (action === 'delete' ? selection.check() : '') || unavailable(model, file, group, action);
             if (reason) throw new Error(reason);
             if (group.group !== selection.object || group.title !== selection.title
                 || (group.parentGroup?.id ?? null) !== selection.parentId
@@ -197,6 +204,7 @@ function GroupActionDialog({ model, selection, disabled, onCancel, onComplete, g
                 input.current?.focus();
                 return false;
             }
+            applied.current = true;
             if (action === 'create') {
                 const created = model.createNewGroupWithName(group, file, trimmed);
                 result = { action, fileId: file.id, groupId: created.id, parentId: group.id };
@@ -207,8 +215,8 @@ function GroupActionDialog({ model, selection, disabled, onCancel, onComplete, g
                 group.moveToTrash();
                 result = { action, fileId: file.id, groupId: group.id, parentId: selection.parentId!, trashed: selection.trashed };
             }
-            applied.current = true;
         } catch (error) {
+            failed.current = applied.current;
             setError(error instanceof Error ? error.message : t('The group could not be changed.'));
             return false;
         }
@@ -218,8 +226,8 @@ function GroupActionDialog({ model, selection, disabled, onCancel, onComplete, g
         return true;
     };
 
-    usePendingDraft(action !== 'delete' && !applied.current
-        && name !== (action === 'rename' ? selection.title : ''), apply, onCancel, 'group');
+    usePendingDraft(action !== 'delete' && (!applied.current || failed.current)
+        && name !== (action === 'rename' ? selection.title : ''), () => apply(true), onCancel, 'group');
 
     if (!available) return <div role="alert">
         <p class="error">{error}</p>

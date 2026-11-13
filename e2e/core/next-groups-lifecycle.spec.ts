@@ -1,4 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import * as kdbxweb from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
 
@@ -115,8 +117,8 @@ function expectSeedEntries(db: kdbxweb.Kdbx, source: Fixture) {
 async function activate(control: Locator, touch = false) {
     await expect(control).toBeVisible();
     await expect(control).toBeEnabled();
-    if (touch) await control.tap();
-    else await control.click();
+    if (touch) await control.tap({ timeout: 10_000 });
+    else await control.click({ timeout: 10_000 });
 }
 async function showNavigation(page: Page, touch = false) {
     if (!await navigation(page).isVisible()) {
@@ -194,6 +196,7 @@ async function downloadVault(page: Page, source: Fixture, touch = false) {
     const chunks: Buffer[] = [];
     for await (const chunk of stream) chunks.push(Buffer.from(chunk));
     const bytes = Buffer.concat(chunks);
+    await test.info().attach('downloaded-kdbx', { body: bytes, contentType: 'application/octet-stream' });
     expect(bytes.subarray(0, 8)).toEqual(Buffer.from([3, 217, 162, 154, 103, 251, 75, 181]));
     expect(bytes.includes(Buffer.from('Current leaf secret'))).toBe(false);
     const db = await kdbxweb.Kdbx.load(new Uint8Array(bytes).buffer,
@@ -457,4 +460,413 @@ test.describe('New interface group lifecycle', () => {
         expectSeedEntries(saved, first);
         await screenshot(page, 'group-selected-database-fidelity');
     });
+});
+
+async function organize(page: Page, group: string, action: string, touch = false) {
+    await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+    await openManager(page, touch);
+    await activate(page.getByRole('group', { name: `Organize group: ${group}`, exact: true })
+        .getByRole('button', { name: action, exact: true }), touch);
+    const dialog = page.getByRole('dialog', { name: action, exact: true });
+    await expect(dialog).toBeVisible();
+    return dialog;
+}
+async function trashManager(page: Page, touch = false) {
+    await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+    await showNavigation(page, touch);
+    await activate(navigation(page).getByRole('button', { name: 'Trash', exact: true }), touch);
+    const details = page.locator('details').filter({ has: page.locator('summary', { hasText: /^Manage trash$/ }) });
+    if (await details.getAttribute('open') === null) await activate(details.locator('summary'), touch);
+    return details;
+}
+async function chooseOptionBySuffix(select: Locator, suffix: string) {
+    const values = await select.locator('option').evaluateAll((options, suffix) => options
+        .filter(option => option.textContent?.trim().endsWith(suffix)).map(option => (option as HTMLOptionElement).value), suffix);
+    expect(values).toHaveLength(1);
+    await select.selectOption(values[0]);
+}
+
+test.describe('New group organization and trash recovery', () => {
+    test.setTimeout(120_000);
+    for (const touch of [false, true]) {
+        test.describe(touch ? '320px touch' : 'desktop', () => {
+            test.use(touch ? { hasTouch: true, viewport: { width: 320, height: 740 } } : { viewport: { width: 1280, height: 800 } });
+
+            test('moves a populated subtree, rejects cycle choices, reorders and preserves encrypted identity', async ({ page }) => {
+                const source = await fixture(); await openFixture(page, source);
+                await chooseGroup(page, ['Parent'], touch);
+                let dialog = await organize(page, 'Parent', 'Move group', touch);
+                const options = await dialog.getByRole('combobox', { name: 'Destination group', exact: true }).locator('option').allTextContents();
+                expect(options.some(value => /Parent|Child|Leaf|Recycle Bin/.test(value))).toBe(false);
+                await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+                await activate(dialog.getByRole('button', { name: 'Cancel', exact: true }), touch);
+                expect(requireGroup(await downloadVault(page, source, touch), source.ids.parent).parentGroup?.uuid.id).toBe(source.ids.root);
+                dialog = await organize(page, 'Parent', 'Move group', touch);
+                await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+                await screenshot(page, 'move-group-destination');
+                await activate(dialog.getByRole('button', { name: 'Move', exact: true }), touch);
+                await reopen(page, source, touch);
+                let saved = await downloadVault(page, source, touch);
+                expect(requireGroup(saved, source.ids.parent).parentGroup?.uuid.id).toBe(source.ids.sibling);
+                expectSeedEntries(saved, source);
+                await chooseGroup(page, ['Sibling', 'Parent'], touch);
+                dialog = await organize(page, 'Parent', 'Move group', touch);
+                await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), source.name);
+                await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Position', exact: true }), 'Sibling');
+                await activate(dialog.getByRole('button', { name: 'Move', exact: true }), touch);
+                saved = await downloadVault(page, source, touch);
+                expect(saved.groups[0].groups.filter(group => group.uuid.id !== source.ids.bin).map(group => group.uuid.id))
+                    .toEqual([source.ids.parent, source.ids.sibling]);
+                dialog = await organize(page, 'Parent', 'Move group', touch);
+                await activate(dialog.getByRole('button', { name: 'Move', exact: true }), touch);
+                await reopen(page, source, touch);
+                saved = await downloadVault(page, source, touch);
+                expect(saved.groups[0].groups.filter(group => group.uuid.id !== source.ids.bin).map(group => group.uuid.id))
+                    .toEqual([source.ids.sibling, source.ids.parent]);
+                expectSeedEntries(saved, source);
+                expect(saved.deletedObjects).toHaveLength(0);
+            });
+
+            test('search exclusion inherits and explicit child inclusion survives encrypted reopen', async ({ page }) => {
+                const source = await fixture(); await openFixture(page, source);
+                await chooseGroup(page, ['Parent', 'Child'], touch);
+                let dialog = await organize(page, 'Child', 'Group search settings', touch);
+                await dialog.getByRole('combobox', { name: 'Global search', exact: true }).selectOption('true');
+                await activate(dialog.getByRole('button', { name: 'Save search settings', exact: true }), touch);
+                await expect(dialog).toHaveCount(0);
+                await chooseGroup(page, ['Parent'], touch);
+                dialog = await organize(page, 'Parent', 'Group search settings', touch);
+                await dialog.getByRole('combobox', { name: 'Global search', exact: true }).selectOption('false');
+                await activate(dialog.getByRole('button', { name: 'Save search settings', exact: true }), touch);
+                await expect(dialog).toHaveCount(0);
+                // Explicitly selected excluded groups still expose their own entries.
+                await expect(entryRow(page, 'Parent account')).toBeVisible();
+                await showNavigation(page, touch);
+                await activate(navigation(page).getByRole('button', { name: 'All items', exact: true }), touch);
+                await expect(entryRow(page, 'Parent account')).toHaveCount(0);
+                // Seed Child explicitly overrides its excluded parent.
+                await expect(entryRow(page, 'Leaf account')).toBeVisible();
+                await chooseGroup(page, ['Parent', 'Child'], touch);
+                dialog = await organize(page, 'Child', 'Group search settings', touch);
+                await dialog.getByRole('combobox', { name: 'Global search', exact: true }).selectOption('inherit');
+                await activate(dialog.getByRole('button', { name: 'Save search settings', exact: true }), touch);
+                await expect(dialog).toHaveCount(0);
+                await showNavigation(page, touch);
+                await activate(navigation(page).getByRole('button', { name: 'All items', exact: true }), touch);
+                await page.locator('#search').fill('Leaf');
+                await expect(page.locator('.entry-row')).toHaveCount(0);
+                await page.locator('#search').fill('');
+                await chooseGroup(page, ['Parent', 'Child', 'Leaf'], touch);
+                await expect(entryRow(page, 'Leaf account')).toBeVisible();
+                await chooseGroup(page, ['Parent', 'Child'], touch);
+                dialog = await organize(page, 'Child', 'Group search settings', touch);
+                await dialog.getByRole('combobox', { name: 'Global search', exact: true }).selectOption('true');
+                await activate(dialog.getByRole('button', { name: 'Save search settings', exact: true }), touch);
+                await expect(dialog).toHaveCount(0);
+                await reopen(page, source, touch);
+                await page.locator('#search').fill('account');
+                await expect(entryRow(page, 'Parent account')).toHaveCount(0);
+                await expect(entryRow(page, 'Leaf account')).toBeVisible();
+                const saved = await downloadVault(page, source, touch);
+                expect(requireGroup(saved, source.ids.parent).enableSearching).toBe(false);
+                expectSeedEntries(saved, source);
+            });
+
+            test('restores whole trash hierarchy and an empty group; purge and empty trash require confirmation', async ({ page }) => {
+                const source = await fixture(); await openFixture(page, source);
+                await chooseGroup(page, ['Parent'], touch);
+                await createGroup(page, source, 'Parent', 'Empty recoverable', touch);
+                await chooseGroup(page, ['Parent'], touch);
+                let dialog = await begin(page, source, 'Parent', 'Delete group', touch);
+                await activate(dialog.getByRole('button', { name: 'Move to trash', exact: true }), touch);
+                let manager = await trashManager(page, touch);
+                await chooseOptionBySuffix(manager.getByRole('combobox', { name: 'Trashed group', exact: true }), 'Parent');
+                await activate(manager.getByRole('button', { name: 'Restore group', exact: true }), touch);
+                dialog = page.getByRole('dialog', { name: 'Restore group', exact: true });
+                await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+                await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+                await activate(dialog.getByRole('button', { name: 'Cancel', exact: true }), touch);
+                await activate(manager.getByRole('button', { name: 'Restore group', exact: true }), touch);
+                await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+                await screenshot(page, 'restore-group-hierarchy');
+                await activate(dialog.getByRole('button', { name: 'Restore', exact: true }), touch);
+                await reopen(page, source, touch);
+                let saved = await downloadVault(page, source, touch);
+                expect(requireGroup(saved, source.ids.parent).parentGroup?.uuid.id).toBe(source.ids.sibling);
+                expectSeedEntries(saved, source);
+                await chooseGroup(page, ['Sibling', 'Parent'], touch);
+                dialog = await begin(page, source, 'Parent', 'Delete group', touch);
+                await activate(dialog.getByRole('button', { name: 'Move to trash', exact: true }), touch);
+                manager = await trashManager(page, touch);
+                await chooseOptionBySuffix(manager.getByRole('combobox', { name: 'Trashed group', exact: true }), 'Empty recoverable');
+                await activate(manager.getByRole('button', { name: 'Restore group', exact: true }), touch);
+                dialog = page.getByRole('dialog', { name: 'Restore group', exact: true });
+                await expect(dialog).toContainText('vault root is suggested');
+                await activate(dialog.getByRole('button', { name: 'Restore', exact: true }), touch);
+                await showNavigation(page, touch);
+                await expect(navigation(page).getByRole('button', { name: 'Empty recoverable', exact: true })).toHaveCount(1);
+                manager = await trashManager(page, touch);
+                await chooseOptionBySuffix(manager.getByRole('combobox', { name: 'Trashed group', exact: true }), 'Child');
+                await activate(manager.getByRole('button', { name: 'Permanently delete group', exact: true }), touch);
+                dialog = page.getByRole('dialog', { name: 'Permanently delete group', exact: true });
+                await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+                await activate(dialog.getByRole('button', { name: 'Cancel', exact: true }), touch);
+                await activate(manager.getByRole('button', { name: 'Permanently delete group', exact: true }), touch);
+                await activate(dialog.getByRole('button', { name: 'Delete permanently', exact: true }), touch);
+                saved = await downloadVault(page, source, touch);
+                for (const id of [source.ids.child, source.ids.leaf, source.ids.leafEntry]) {
+                    expect(saved.deletedObjects.some(item => item.uuid.id === id)).toBe(true);
+                }
+                expect(requireGroup(saved, source.ids.parent).entries).toHaveLength(1);
+                manager = await trashManager(page, touch);
+                await activate(manager.getByRole('button', { name: 'Empty trash…', exact: true }), touch);
+                dialog = page.getByRole('dialog', { name: 'Empty trash', exact: true });
+                await expect(dialog).toContainText(`${source.name}: 1 groups, 1 entries`);
+                await activate(dialog.getByRole('button', { name: 'Cancel', exact: true }), touch);
+                await activate(manager.getByRole('button', { name: 'Empty trash…', exact: true }), touch);
+                await screenshot(page, 'empty-trash-confirmation');
+                await activate(dialog.getByRole('button', { name: 'Empty trash', exact: true }), touch);
+                await reopen(page, source, touch);
+                saved = await downloadVault(page, source, touch);
+                expect(requireGroup(saved, source.ids.bin).groups).toHaveLength(0);
+                expect(requireGroup(saved, source.ids.bin).entries).toHaveLength(0);
+                expect(saved.deletedObjects.map(item => item.uuid.id).sort()).toEqual([
+                    source.ids.parent, source.ids.parentEntry, source.ids.child, source.ids.leaf, source.ids.leafEntry
+                ].sort());
+                expect(allEntries(saved).map(entry => entry.uuid.id)).toEqual([source.ids.siblingEntry]);
+                expect(groups(saved).some(group => group.name === 'Empty recoverable')).toBe(true);
+                manager = await trashManager(page, touch);
+                await expect(manager.getByRole('button', { name: 'Empty trash…', exact: true })).toBeDisabled();
+            });
+
+            test('global tag rename validates collisions and removal retains entries after reopen', async ({ page }) => {
+                const source = await fixture(); await openFixture(page, source);
+                await showNavigation(page, touch);
+                await activate(navigation(page).getByRole('button', { name: 'group-fidelity', exact: true }), touch);
+                let bar = page.getByRole('group', { name: 'Tag actions: group-fidelity', exact: true });
+                await activate(bar.getByRole('button', { name: 'Rename tag', exact: true }), touch);
+                let dialog = page.getByRole('dialog', { name: 'Rename tag', exact: true });
+                await dialog.getByLabel('Tag name', { exact: true }).fill('bad;tag');
+                await activate(dialog.getByRole('button', { name: 'Rename tag', exact: true }), touch);
+                await expect(dialog.getByRole('alert')).toContainText('without commas');
+                await dialog.getByLabel('Tag name', { exact: true }).fill('GROUP-FIDELITY');
+                await activate(dialog.getByRole('button', { name: 'Rename tag', exact: true }), touch);
+                await expect(dialog.getByRole('alert')).toContainText('already exists');
+                await dialog.getByLabel('Tag name', { exact: true }).fill('Renamed tag');
+                await activate(dialog.getByRole('button', { name: 'Rename tag', exact: true }), touch);
+                await reopen(page, source, touch);
+                let saved = await downloadVault(page, source, touch);
+                expect(allEntries(saved).every(entry => entry.tags.join() === 'Renamed tag')).toBe(true);
+                await showNavigation(page, touch);
+                await activate(navigation(page).getByRole('button', { name: 'Renamed tag', exact: true }), touch);
+                bar = page.getByRole('group', { name: 'Tag actions: Renamed tag', exact: true });
+                await activate(bar.getByRole('button', { name: 'Remove tag', exact: true }), touch);
+                dialog = page.getByRole('dialog', { name: 'Remove tag', exact: true });
+                await activate(dialog.getByRole('button', { name: 'Cancel', exact: true }), touch);
+                await expect(page.locator('.entry-row')).toHaveCount(3);
+                await activate(bar.getByRole('button', { name: 'Remove tag', exact: true }), touch);
+                await activate(dialog.getByRole('button', { name: 'Remove tag', exact: true }), touch);
+                await reopen(page, source, touch);
+                saved = await downloadVault(page, source, touch);
+                expect(allEntries(saved).every(entry => entry.tags.length === 0)).toBe(true);
+                expect(allEntries(saved).map(entry => entry.uuid.id).sort()).toEqual([source.ids.parentEntry, source.ids.leafEntry, source.ids.siblingEntry].sort());
+                expect(saved.deletedObjects).toHaveLength(0);
+            });
+        });
+    }
+});
+
+async function groupPeer(source: Fixture) {
+    let data = source.data;
+    let revision = Date.UTC(2026, 10, 13);
+    let writes = 0;
+    const replace = (bytes: Buffer) => { data = Buffer.from(bytes); revision += 1000; };
+    const server = createServer(async (req, res) => {
+        res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+        res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, HEAD, PUT');
+        res.setHeader('Access-Control-Allow-Headers', 'Authorization, Cache-Control, Content-Type, If-Match, If-None-Match');
+        res.setHeader('Access-Control-Expose-Headers', 'Last-Modified, ETag');
+        res.setHeader('Cache-Control', 'no-store');
+        if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
+        if (req.method === 'PUT') {
+            const chunks: Buffer[] = [];
+            for await (const chunk of req) chunks.push(Buffer.from(chunk));
+            replace(Buffer.concat(chunks)); ++writes;
+            res.writeHead(200).end(); return;
+        }
+        res.setHeader('Last-Modified', new Date(revision).toUTCString());
+        res.setHeader('ETag', `"${revision}"`);
+        res.writeHead(200).end(req.method === 'GET' ? data : undefined);
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    return {
+        url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/groups.kdbx`,
+        replace, bytes: () => data, writes: () => writes,
+        async close() { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+    };
+}
+
+for (const action of ['Move group', 'Restore group', 'Permanently delete group', 'Empty trash']) {
+    test(`group lifecycle rejects stale ${action} after encrypted remote revision`, async ({ page }) => {
+        test.setTimeout(120_000);
+        const source = await fixture();
+        if (action !== 'Move group') {
+            const db = await kdbxweb.Kdbx.load(new Uint8Array(source.data).buffer, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password)));
+            db.remove(db.getGroup(source.ids.parent)!);
+            source.data = Buffer.from(await db.save());
+        }
+        const dav = await groupPeer(source);
+        try {
+            await page.clock.install();
+            await page.goto('/index.html?ui=classic');
+            await page.locator('#open__icon-more').click();
+            await page.locator('#open__icon-settings').click();
+            await page.locator('#settings__general-auto-save-interval').selectOption('1');
+            await page.clock.runFor(100);
+            await page.goto('/next.html');
+            await page.locator('#open-webdav').click();
+            await page.locator('#webdav-url').fill(dav.url);
+            await page.locator('#webdav-user').fill('tester');
+            await page.locator('#webdav-pass').fill('disposable');
+            await page.locator('#webdav-next').click();
+            await page.locator('#password').fill(password); await page.locator('#unlock').click();
+            await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+            if (action === 'Move group') {
+                await chooseGroup(page, ['Parent']);
+                const dialog = await organize(page, 'Parent', action);
+                await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+            } else {
+                const manager = await trashManager(page);
+                if (action === 'Empty trash') await manager.getByRole('button', { name: 'Empty trash…', exact: true }).click();
+                else {
+                    await chooseOptionBySuffix(manager.getByRole('combobox', { name: 'Trashed group', exact: true }), 'Parent');
+                    await manager.getByRole('button', { name: action, exact: true }).click();
+                }
+            }
+            const remote = await kdbxweb.Kdbx.load(new Uint8Array(dav.bytes()).buffer, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password)));
+            if (action === 'Move group') remote.move(remote.getGroup(source.ids.sibling)!, null);
+            else if (action === 'Empty trash') remote.createEntry(remote.getGroup(source.ids.bin)!).fields.set('Title', 'New remote trash');
+            else remote.move(remote.getGroup(source.ids.parent)!, remote.groups[0]);
+            dav.replace(Buffer.from(await remote.save()));
+            await page.clock.fastForward(61_000);
+            if (action === 'Move group') await expect(navigation(page).getByRole('button', { name: 'Sibling', exact: true })).toHaveCount(0, { timeout });
+            else if (action === 'Empty trash') await expect(entryRow(page, 'New remote trash')).toHaveCount(1, { timeout });
+            else await expect(navigation(page).getByRole('button', { name: 'Parent', exact: true })).toHaveCount(1, { timeout });
+            await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+            const dialog = page.getByRole('dialog', { name: action, exact: true });
+            if (action === 'Move group' || action === 'Empty trash') {
+                await dialog.getByRole('button', { name: action === 'Move group' ? 'Move' : 'Empty trash', exact: true }).click();
+                await expect(dialog.getByRole('alert')).toContainText('changed');
+            } else await expect(dialog).toHaveCount(0);
+            await screenshot(page, `stale-${action.replaceAll(' ', '-')}`);
+            const latest = await kdbxweb.Kdbx.load(new Uint8Array(dav.bytes()).buffer, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password)));
+            expect(latest.getGroup(source.ids.parent)).toBeDefined();
+            if (action === 'Move group' || action === 'Restore group' || action === 'Permanently delete group') {
+                expect(latest.getGroup(source.ids.parent)?.parentGroup?.uuid.id).toBe(source.ids.root);
+            } else expect(allEntries(latest).some(entry => text(entry, 'Title') === 'New remote trash')).toBe(true);
+        } finally { await dav.close(); }
+    });
+}
+
+test('group move preserves drafts on cancel and declined discard; closed confirmation cannot mutate', async ({ page }) => {
+    test.setTimeout(120_000);
+    const source = await fixture(); await openFixture(page, source);
+    await chooseGroup(page, ['Parent']); await openManager(page);
+    await entryRow(page, 'Parent account').click();
+    const notes = page.getByRole('region', { name: 'Notes', exact: true });
+    await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
+    await notes.getByRole('textbox').fill('Unapplied group draft');
+    const trigger = page.getByRole('group', { name: 'Organize group: Parent', exact: true }).getByRole('button', { name: 'Move group', exact: true });
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Move group', exact: true });
+    await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+    const move = dialog.getByRole('button', { name: 'Move', exact: true });
+    await move.evaluate(button => { button.closest('dialog')!.close(); (button as HTMLButtonElement).click(); });
+    const retained = page.locator('dialog[aria-label="Move group"]');
+    await retained.evaluate(element => (element as HTMLDialogElement).showModal());
+    page.once('dialog', prompt => prompt.dismiss()); await move.click();
+    await expect(notes.getByRole('textbox')).toHaveValue('Unapplied group draft');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(notes.getByRole('textbox')).toHaveValue('Unapplied group draft');
+    await trigger.click();
+    await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+    page.once('dialog', prompt => prompt.accept()); await move.click();
+    const saved = await downloadVault(page, source);
+    expect(saved.getGroup(source.ids.parent)?.parentGroup?.uuid.id).toBe(source.ids.sibling);
+    expect(text(allEntries(saved).find(entry => entry.uuid.id === source.ids.parentEntry)!, 'Notes')).not.toBe('Unapplied group draft');
+    expectSeedEntries(saved, source);
+});
+
+test('group action cannot cross lock recovery or apply a retained hidden confirmation', async ({ page }) => {
+    test.setTimeout(120_000);
+    const source = await fixture();
+    await page.clock.install();
+    await page.goto('/index.html?ui=classic');
+    await page.locator('#open__icon-more').click(); await page.locator('#open__icon-settings').click();
+    await page.locator('#settings__general-auto-save-interval').selectOption('0'); await page.clock.runFor(100);
+    await openFixture(page, source);
+    await page.locator('#open-settings').click(); await page.getByRole('tab', { name: 'Security', exact: true }).click();
+    await page.locator('#setting-auto-lock').selectOption('5'); await page.locator('#settings-back').click();
+    await chooseGroup(page, ['Parent']); await openManager(page); await entryRow(page, 'Parent account').click();
+    const notes = page.getByRole('region', { name: 'Notes', exact: true });
+    await notes.getByRole('button', { name: 'Edit notes', exact: true }).click(); await notes.getByRole('textbox').fill('Saved during lock');
+    await page.getByRole('group', { name: 'Organize group: Parent', exact: true }).getByRole('button', { name: 'Move group', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Move group', exact: true });
+    await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
+    await page.evaluate(() => {
+        const encrypt = SubtleCrypto.prototype.encrypt;
+        (window as any).groupGate = { entered: false, completed: false };
+        SubtleCrypto.prototype.encrypt = async function (...args) {
+            SubtleCrypto.prototype.encrypt = encrypt;
+            const released = new Promise<void>(resolve => window.addEventListener('release-group-save', () => resolve(), { once: true }));
+            (window as any).groupGate.entered = true; await released;
+            const bytes = await encrypt.apply(this, args); (window as any).groupGate.completed = true; return bytes;
+        };
+    });
+    await page.clock.fastForward(6 * 60_000);
+    await expect.poll(() => page.evaluate(() => (window as any).groupGate.entered), { timeout }).toBe(true);
+    const retained = page.locator('dialog[aria-label="Move group"]');
+    await expect(retained).toBeHidden(); await expect(retained).toHaveJSProperty('open', false);
+    await retained.getByText('Move', { exact: true }).evaluate(button => (button as HTMLButtonElement).click());
+    await page.clock.fastForward(16_000);
+    const recovery = page.getByRole('form', { name: `Verify database: ${source.name}`, exact: true });
+    await recovery.getByLabel('Master password', { exact: true }).fill(password);
+    await recovery.getByLabel('Master password', { exact: true }).press('Enter');
+    await page.getByRole('button', { name: 'Return to unsaved changes', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('session changed');
+    await page.evaluate(() => window.dispatchEvent(new Event('release-group-save')));
+    await expect.poll(() => page.evaluate(() => (window as any).groupGate.completed), { timeout }).toBe(true);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    // Autosave is disabled and the interrupted lock save failed. Explicitly retry
+    // saving by locking again, then verify the persisted cache after reload.
+    await navigation(page).getByRole('button', { name: 'Lock', exact: true }).click();
+    await expect(page.locator('#password')).toBeVisible({ timeout });
+    await page.reload(); await openRecent(page, source);
+    const saved = await downloadVault(page, source);
+    expect(saved.getGroup(source.ids.parent)?.parentGroup?.uuid.id).toBe(source.ids.root);
+    expect(text(allEntries(saved).find(entry => entry.uuid.id === source.ids.parentEntry)!, 'Notes')).toBe('Saved during lock');
+    expectSeedEntries(saved, source);
+    expect(saved.deletedObjects).toHaveLength(0);
+});
+
+test('group destination duplicate paths select the exact UUID through encrypted reopen', async ({ page }) => {
+    test.setTimeout(120_000);
+    const source = await fixture();
+    const db = await kdbxweb.Kdbx.load(new Uint8Array(source.data).buffer, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password)));
+    const first = db.createGroup(db.groups[0], 'Twin');
+    const second = db.createGroup(db.groups[0], 'Twin');
+    source.data = Buffer.from(await db.save());
+    await openFixture(page, source); await chooseGroup(page, ['Parent']);
+    const dialog = await organize(page, 'Parent', 'Move group');
+    const select = dialog.getByRole('combobox', { name: 'Destination group', exact: true });
+    await expect(select.locator('option')).toContainText(['Choose a group', source.name, `${source.name} / Sibling`, `${source.name} / Twin (1)`, `${source.name} / Twin (2)`]);
+    await chooseOptionBySuffix(select, 'Twin (2)');
+    await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await reopen(page, source);
+    const saved = await downloadVault(page, source);
+    expect(saved.getGroup(source.ids.parent)?.parentGroup?.uuid.id).toBe(second.uuid.id);
+    expect(saved.getGroup(first.uuid)?.groups).toHaveLength(0);
+    expectSeedEntries(saved, source);
 });
