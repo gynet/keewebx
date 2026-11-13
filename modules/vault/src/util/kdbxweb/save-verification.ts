@@ -40,6 +40,15 @@ export function releaseSaveCredentials(credentials: Credentials): void {
 
 /** Reopen the exact serialized bytes with their detached factors before any durable write. */
 export async function verifySavedData(data: ArrayBuffer, credentials: Credentials): Promise<void> {
-    try { await Kdbx.load(data, credentials); }
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await Promise.race([
+            Kdbx.load(data, credentials),
+            new Promise<never>((_resolve, reject) => {
+                timeout = setTimeout(() => reject(new SaveVerificationError()), 30_000);
+            })
+        ]);
+    }
     catch { throw new SaveVerificationError(); }
+    finally { clearTimeout(timeout); }
 }

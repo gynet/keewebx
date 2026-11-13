@@ -14,6 +14,7 @@ import { waitForSync } from 'comp/app/vault-files';
 import { getSessionAccess, type RecoveryVault } from 'comp/app/session-access';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { SessionRecovery } from './session-recovery';
+import { SaveVerificationWarning } from './save-verification-warning';
 import { createNewProtocolUi } from './extension-ui';
 import { NewProtocolUiHost } from './extension-prompts';
 import { createExtensionSessionsApi } from './extension-sessions';
@@ -150,6 +151,7 @@ function App({ model }: { model: AppModel }) {
     return (
         <>
         <NewProtocolUiHost controller={protocolUi} />
+        <SaveVerificationWarning model={model} version={version} suspended={!!gate} />
         {!model.files.hasOpenFiles() && !gate ? <Unlock model={model}
             onPasskeySetup={(id) => { setPasskeySettingsId(id); setSettingsOpen(true); }}
             extensionRequest={unlockRequest?.unlockRes === 'extensionUnlockMessage'}

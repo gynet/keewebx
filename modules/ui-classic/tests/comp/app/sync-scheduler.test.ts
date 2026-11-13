@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { EventEmitter } from 'events';
-import { SyncScheduler, type SyncStateSummary } from '../../../../vault/src/comp/app/sync-scheduler';
+import { fileSyncState, SyncScheduler, type SyncStateSummary } from '../../../../vault/src/comp/app/sync-scheduler';
 import type { FileModel } from '../../../../vault/src/models/file-model';
 
 /** Just enough of FileModel: attributes that emit change events like the real one. */
@@ -9,6 +9,7 @@ class FakeFile extends EventEmitter {
     name = 'vault';
     active = true;
     modified = false;
+    dirty = false;
     syncing = false;
     syncError: string | null = null;
     editSeq = 0;
@@ -127,6 +128,22 @@ describe('SyncScheduler', () => {
 });
 
 describe('SyncScheduler error kinds', () => {
+    test('unsaved verification and cache failures never claim a saved device copy', () => {
+        const file = new FakeFile();
+        for (const error of ['Save verification failed', 'Cache write failed', 'Sync request expired']) {
+            file.syncError = error;
+            file.dirty = true;
+            for (const modified of [true, false]) {
+                file.modified = modified;
+                expect(fileSyncState(file as unknown as FileModel)).toBe('error');
+            }
+        }
+        file.syncError = null;
+        expect(fileSyncState(file as unknown as FileModel)).toBe('pending');
+        file.modified = true; file.dirty = false; file.syncError = 'Network error';
+        expect(fileSyncState(file as unknown as FileModel)).toBe('offline');
+    });
+
     test('retries a CORS error, which is what an unreachable server looks like', async () => {
         const { file, calls, published } = setup(['CORS error']);
         file.edit();

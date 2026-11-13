@@ -34,11 +34,13 @@ export function fileSyncState(file: FileModel): SyncState {
     if (file.syncing) {
         return 'syncing';
     }
-    if (!file.modified) {
+    if (!file.modified && !file.dirty) {
         return 'saved';
     }
     if (file.syncError) {
-        return needsUser(file.syncError) ? 'error' : 'offline';
+        // Offline is safe only when the latest changes reached the local cache.
+        // Verification and cache failures leave dirty data solely in memory.
+        return file.dirty || needsUser(file.syncError) ? 'error' : 'offline';
     }
     return 'pending';
 }
@@ -95,7 +97,7 @@ class SyncScheduler {
             return;
         }
         for (const entry of this.tracked.values()) {
-            if (entry.file.modified) {
+            if (entry.file.modified || entry.file.dirty) {
                 entry.failures = 0;
                 this.schedule(entry, 0);
             }
@@ -106,7 +108,7 @@ class SyncScheduler {
         const files = [...this.tracked.values()].map(({ file }) => ({
             name: file.name,
             state: fileSyncState(file),
-            error: file.modified ? file.syncError : null
+            error: file.modified || file.dirty ? file.syncError : null
         }));
         const state = files.reduce<SyncState>(
             (worst, f) => (PRIORITY.indexOf(f.state) > PRIORITY.indexOf(worst) ? f.state : worst),
@@ -117,7 +119,7 @@ class SyncScheduler {
 
     private afterSync(entry: Tracked): void {
         const { file } = entry;
-        if (!this.enabled() || !file.active || !file.modified) {
+        if (!this.enabled() || !file.active || (!file.modified && !file.dirty)) {
             entry.failures = 0;
             return;
         }

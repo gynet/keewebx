@@ -1304,6 +1304,7 @@ class AppModel {
                 ((access.isCurrent(syncEpoch) && (access.state === 'open' || access.state === 'securing')) ||
                     (access.state === 'securing' && access.epoch === syncEpoch + 1));
             let completed = false;
+            let verified = false;
             const complete = (err?: unknown): void => {
                 if (completed) return;
                 completed = true;
@@ -1321,6 +1322,7 @@ class AppModel {
                     callback?.('The database changed before saving completed.');
                     return;
                 }
+                if (!err && verified && !file.dirty) Events.emit('save-verify-passed', { file });
                 this.getStoreOpts(file).then((storeOpts) => {
                     resolvedFileInfo.set({
                         name: file.name,
@@ -1364,7 +1366,7 @@ class AppModel {
                         Events.emit('save-verify-failed', { file, error: error.message });
                     }
                     if (!error && !continueOrFail()) return;
-                    if (!error && data && verify) Events.emit('save-verify-passed', { file });
+                    if (!error && data && verify) verified = true;
                     done(data, error);
                 }, verify);
             };

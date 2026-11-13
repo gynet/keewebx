@@ -2,6 +2,7 @@
 import { View } from 'framework/views/view';
 import { Events } from 'framework/events';
 import { IdleTracker } from 'comp/browser/idle-tracker';
+import { waitForSync } from 'comp/app/vault-files';
 import { SettingsManager } from 'comp/settings/settings-manager';
 import { Alerts } from 'comp/ui/alerts';
 import { Keys } from 'const/keys';
@@ -466,7 +467,8 @@ class AppView extends View {
         if (alerts.alertDisplayed) {
             return;
         }
-        if (this.model.files.hasUnsavedFiles()) {
+        if (this.model.files.hasUnsavedFiles() || this.model.files.hasDirtyFiles() ||
+            this.model.files.some((file: any) => file.syncing)) {
             if (this.model.settings.autoSave) {
                 this.saveAndLock();
             } else {
@@ -499,25 +501,38 @@ class AppView extends View {
     }
 
     saveAndLock(complete?: (ok: boolean) => void, options?: any): void {
-        let pendingCallbacks = 0;
+        const pending = this.model.files.filter((file: any) => file.dirty || file.syncing);
+        let pendingCallbacks = pending.length;
         const errorFiles: string[] = [];
         const self = this;
-        this.model.files.forEach(function (this: AppView, file: any) {
-            if (!file.dirty) {
-                return;
-            }
-            this.model.syncFile(file, null, fileSaved.bind(this, file));
-            pendingCallbacks++;
-        }, this);
         if (!pendingCallbacks) {
             this.closeAllFilesAndShowFirst();
+            complete?.(true);
+            return;
         }
+        pending.forEach((file: any) => {
+            const wasSyncing = file.syncing;
+            const done = fileSaved.bind(this, file);
+            // Verification is part of the current sync. Do not turn its synchronous
+            // "Sync in progress" rejection into an empty callback count and close.
+            void waitForSync(file).then(() => {
+                if (!file.active) return done('File is closed');
+                if (wasSyncing && file.dirty && file.syncError) return done(file.syncError);
+                if (!file.dirty) return done(undefined);
+                this.model.syncFile(file, null, done);
+            }).catch(done);
+        });
         function fileSaved(this: AppView, file: any, err: any) {
             if (err) {
                 errorFiles.push(file.name);
             }
             if (--pendingCallbacks === 0) {
-                if (errorFiles.length && self.model.files.hasDirtyFiles()) {
+                // A successful write may still leave newer edits dirty. Never close
+                // those edits merely because every save callback reported success.
+                if (self.model.files.hasDirtyFiles()) {
+                    for (const dirtyFile of self.model.files.filter((item: any) => item.dirty)) {
+                        if (!errorFiles.includes(dirtyFile.name)) errorFiles.push(dirtyFile.name);
+                    }
                     if (!alerts.alertDisplayed) {
                         const buttons: any[] = [alerts.buttons.ok];
                         const errorStr =

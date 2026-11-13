@@ -4,6 +4,7 @@ import { ByteUtils, Credentials, CryptoEngine, Int64, Kdbx, ProtectedValue, VarD
 import { argon2d, argon2id } from 'hash-wasm';
 import { saveAndLock } from '../src/comp/app/vault-lifecycle';
 import { getSessionAccess } from '../src/comp/app/session-access';
+import { fileSyncState } from '../src/comp/app/sync-scheduler';
 import { captureSaveCredentials, releaseSaveCredentials } from '../src/util/kdbxweb/save-verification';
 
 // Real AppModel, FileModel, serialization and verification. Only platform I/O and
@@ -103,6 +104,7 @@ for (const mode of ['local', 'remote-cache', 'remote-no-cache', 'stat-error'] as
         expect(h.done).toHaveBeenCalledTimes(1);
         expect(h.done.mock.calls[0][0]).toMatchObject({ code: 'SaveVerificationFailed' });
         expect(h.file.dirty).toBe(true); expect(h.file.modified).toBe(true); expect(h.file.active).toBe(true);
+        expect(fileSyncState(h.file)).toBe('error');
         expect(warning).toHaveBeenCalledTimes(1);
         expect(cache.save).not.toHaveBeenCalled(); expect(remote.save).not.toHaveBeenCalled();
         expect(h.app.scheduleBackupFile).not.toHaveBeenCalled();
@@ -124,6 +126,35 @@ test('successful verification runs once before cache and remote callbacks; downl
     const data = remote.save.mock.calls[0][2];
     const reopened = await load(data, new Credentials(pw()));
     expect(reopened.getDefaultGroup().entries[0].fields.get('Title')).toBe('Recoverable change');
+});
+
+test('verification warning clears only after the verified bytes are saved successfully', async () => {
+    const h = await setup(), gate = holdVerification();
+    const passed = mock(); events.on('save-verify-passed', passed);
+    let finish!: (error?: unknown) => void;
+    cache.save.mockImplementationOnce((_id, _opts, _data, done) => { finish = done; });
+    h.app.syncFile(h.file, undefined, h.done); await gate.started.promise;
+    gate.release.resolve(); await settle();
+    expect(cache.save).toHaveBeenCalledTimes(1); expect(passed).not.toHaveBeenCalled();
+    finish(new Error('Cache write failed')); await settle();
+    expect(h.file.dirty).toBe(true); expect(passed).not.toHaveBeenCalled();
+    h.app.syncFile(h.file, undefined, h.done);
+    for (let i = 0; i < 100 && h.done.mock.calls.length < 2; i++) await settle();
+    expect(h.file.dirty).toBe(false); expect(passed).toHaveBeenCalledTimes(1);
+});
+
+test('edits during verification remain dirty after the verified snapshot is saved', async () => {
+    const h = await setup(), gate = holdVerification();
+    const passed = mock(); events.on('save-verify-passed', passed);
+    h.app.syncFile(h.file, undefined, h.done); await gate.started.promise;
+    h.entry.fields.set('Title', 'Newer unsaved edit'); h.file.setModified();
+    gate.release.resolve(); await settle();
+    expect(h.done).toHaveBeenCalledTimes(1); expect(h.done.mock.calls[0][0]).toBeUndefined();
+    expect(h.file.dirty).toBe(true); expect(h.file.modified).toBe(true);
+    expect(passed).not.toHaveBeenCalled();
+    const reopened = await load(cache.save.mock.calls[0][2], new Credentials(pw()));
+    expect(reopened.getDefaultGroup().entries[0].fields.get('Title')).toBe('Recoverable change');
+    expect(h.entry.fields.get('Title')).toBe('Newer unsaved edit');
 });
 
 test('lock waits for verification failure and keeps recoverable live data open; retry can close', async () => {
@@ -149,6 +180,29 @@ test('timeout/recovery during verification rejects late publication and closure'
     expect(h.file.dirty).toBe(true); expect(h.file.syncError).toContain('expired');
 });
 
+test('stalled verification times out without publication; late completion cannot change its result', async () => {
+    const h = await setup(), gate = holdVerification();
+    const setTimer = globalThis.setTimeout;
+    let expire!: () => void;
+    spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, delay?: number) => {
+        if (delay === 30_000) expire = fn;
+        return setTimer(fn, delay);
+    }) as typeof setTimeout);
+    const failed = mock(), passed = mock();
+    events.on('save-verify-failed', failed); events.on('save-verify-passed', passed);
+    h.app.syncFile(h.file, undefined, h.done); await gate.started.promise;
+    expire(); await settle();
+    expect(h.done).toHaveBeenCalledTimes(1);
+    expect(h.done.mock.calls[0][0]).toMatchObject({ code: 'SaveVerificationFailed' });
+    expect(h.file.syncing).toBe(false); expect(h.file.dirty).toBe(true);
+    expect(cache.save).not.toHaveBeenCalled(); expect(failed).toHaveBeenCalledTimes(1);
+    gate.release.resolve(); await settle();
+    expect(h.done).toHaveBeenCalledTimes(1); expect(passed).not.toHaveBeenCalled();
+    expect(cache.save).not.toHaveBeenCalled(); expect(h.file.dirty).toBe(true);
+    const credentials = gate.spy.mock.calls[0][1];
+    expect(credentials.passwordHash!.value.every((byte) => byte === 0)).toBe(true);
+});
+
 test('Classic opt-out retains its callback behavior without verification', async () => {
     const h = await setup(); h.app.settings.saveVerify = false;
     const spy = spyOn(Kdbx, 'load'); h.app.syncFile(h.file, undefined, h.done);
@@ -165,6 +219,37 @@ test('detached credential factors survive live mutation; temporary buffers do no
     releaseSaveCredentials(snapshot);
     expect(snapshot.passwordHash!.value.every((byte) => byte === 0)).toBe(true);
     expect(original.value.some((byte) => byte !== 0)).toBe(true);
+});
+
+for (const factors of ['password-key', 'key-only', 'challenge'] as const) {
+    test(`verified saves preserve ${factors} credentials and Classic callbacks`, async () => {
+        const h = await setup();
+        const key = new Uint8Array(32).fill(19);
+        const challenge = mock((bytes: ArrayBuffer) => CryptoEngine.sha256(bytes));
+        const credentials = () => new Credentials(factors === 'key-only' ? null : pw(),
+            factors === 'challenge' ? null : key.slice(), factors === 'challenge' ? challenge : undefined);
+        h.db.credentials = credentials(); await h.db.credentials.ready;
+        const passwordHash = h.db.credentials.passwordHash, keyHash = h.db.credentials.keyFileHash;
+        h.app.syncFile(h.file, undefined, h.done);
+        for (let i = 0; i < 100 && !h.done.mock.calls.length; i++) await settle();
+        expect(h.done).toHaveBeenCalledTimes(1); expect(h.done.mock.calls[0][0]).toBeUndefined();
+        expect(h.file.dirty).toBe(false);
+        expect(h.db.credentials.passwordHash).toBe(passwordHash); expect(h.db.credentials.keyFileHash).toBe(keyHash);
+        const reopened = await load(cache.save.mock.calls[0][2], credentials());
+        expect(reopened.getDefaultGroup().entries[0].fields.get('Title')).toBe('Recoverable change');
+        if (factors === 'challenge') expect(challenge).toHaveBeenCalledTimes(3);
+    });
+}
+
+test('credential changes during verification cannot publish stale bytes or saved state', async () => {
+    const h = await setup(), gate = holdVerification();
+    h.app.syncFile(h.file, undefined, h.done); await gate.started.promise;
+    h.file.setPassword(ProtectedValue.fromString('Replacement password'));
+    gate.release.resolve(); await settle();
+    expect(h.done).toHaveBeenCalledTimes(1);
+    expect(h.done.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect((h.done.mock.calls[0][0] as Error).message).toContain('database changed');
+    expect(cache.save).not.toHaveBeenCalled(); expect(h.file.dirty).toBe(true);
 });
 
 test('database replacement during verification cannot publish or become the replacement reset baseline', async () => {
