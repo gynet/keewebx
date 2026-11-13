@@ -251,7 +251,7 @@ test('active save blocks deletion until it finishes without changing the selecte
     await notes.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as any).deleteSaveEntered), { timeout }).toBe(true);
     await trigger(page).click(); await expect(dialog(page)).toHaveCount(0);
-    await expect(page.getByRole('status')).toContainText('A save is in progress.');
+    await expect(page.getByRole('status').filter({ hasText: 'A save is in progress.' })).toBeVisible();
     await page.evaluate(() => window.dispatchEvent(new Event('release-delete-save')));
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await trigger(page).click(); await expect(dialog(page)).toBeVisible();

@@ -61,7 +61,7 @@ for (const width of [320, 390]) {
             await expect(browse).toHaveAttribute('aria-expanded', 'true');
             await expect(navigation).toBeVisible();
             expect(await search.evaluate((element) => !!element.closest('[inert]'))).toBe(true);
-            expect(await page.locator('.entry-list__create').evaluate((element) => !!element.closest('[inert]'))).toBe(true);
+            expect(await page.getByRole('button', { name: 'New entry', exact: true, includeHidden: true }).evaluate((element) => !!element.closest('[inert]'))).toBe(true);
             await expectNativeSearchExposed(false);
             await search.focus();
             await expect(navigation.getByRole('button', { name: 'Close navigation', exact: true })).toBeFocused();
