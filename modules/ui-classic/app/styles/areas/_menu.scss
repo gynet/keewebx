@@ -16,18 +16,26 @@
 
         &--grow {
             flex: 1;
+            min-height: 55px;
             display: flex;
             flex-direction: column;
             > .scroller {
                 flex: 1;
+                min-height: 0;
             }
         }
 
         &--drag {
-            flex: 0 0 auto;
-            max-height: calc(100vh - 200px);
+            // Tags must scroll within their share instead of consuming the
+            // whole sidebar and collapsing the group drop targets to zero.
+            flex: 0 1 auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            max-height: 50%;
             > .scroller {
-                max-height: calc(100vh - 200px);
+                flex: 1 1 auto;
+                min-height: 0;
             }
         }
 
@@ -42,6 +50,8 @@
 
     &__drag-section {
         @include drag-handle;
+        // Keep the full resize hit area above the adjacent scroll panes.
+        z-index: 4;
         flex: 0 0 auto;
         height: 1px;
         cursor: row-resize;

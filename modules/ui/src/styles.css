@@ -818,10 +818,10 @@ button {
 .vault-row-wrap .vault-row { flex: 1; min-width: 0; }
 .vault-row__remove { opacity: 0; pointer-events: none; }
 .vault-row-wrap:focus-within .vault-row__remove { opacity: 1; pointer-events: auto; }
-@media (hover: hover) and (pointer: fine) {
+@media (min-width: 701px), (hover: hover) and (pointer: fine) {
     .vault-row-wrap:hover .vault-row__remove { opacity: 1; pointer-events: auto; }
 }
-@media (hover: none), (pointer: coarse) {
+@media (max-width: 700px) and (hover: none), (max-width: 700px) and (pointer: coarse) {
     .vault-row-wrap .vault-row__remove { display: none; }
     .vault-row-wrap[data-revealed="true"] .vault-row__remove {
         display: flex; opacity: 1; pointer-events: auto; width: 44px; height: 44px;

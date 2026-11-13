@@ -411,3 +411,30 @@ test('forgetting a remote vault removes only this browser record and preserves t
     await connect(page, dav);
     await expect(page.locator('.entry-row').first()).toBeVisible();
 });
+
+
+test('going offline during an upload releases the writer and retries encrypted data on reconnect', async ({ page, context, dav }) => {
+    test.setTimeout(120_000);
+    await connect(page, dav);
+    const original = Buffer.from(dav.remote().data);
+    const release = dav.holdNextPut();
+    const title = 'Interrupted upload account';
+    await createEntry(page, title);
+    await expect.poll(() => dav.requests.some(request => request.method === 'PUT' && request.status === 0)).toBe(true);
+    await expect(page.locator('#sync-state')).toHaveText('Saving…');
+    await context.setOffline(true);
+    await cached(page);
+    expect(dav.remote().data.equals(original)).toBe(true);
+    release();
+    await expect.poll(() => dav.requests.some(request => request.method === 'PUT' && request.status === 201)).toBe(true);
+    // A late response from the aborted temporary upload cannot publish the original path.
+    expect(dav.remote().data.equals(original)).toBe(true);
+    await context.setOffline(false);
+    await synced(page);
+    const saved = entries(await decrypt(dav.remote().data)).filter(entry => fieldText(entry, 'Title') === title);
+    expect(saved).toHaveLength(1);
+    expect(fieldText(saved[0], 'Password')).toBe('Remote protected password !42');
+    await lockAndReload(page);
+    await reopen(page);
+    await expect(row(page, title)).toBeVisible();
+});

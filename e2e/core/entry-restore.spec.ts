@@ -131,16 +131,12 @@ test.describe('Entry restore from trash', () => {
         await expect(trashedEntry).toBeVisible({ timeout: 5_000 });
 
         // Find a target group (Work) to drag the entry to.
-        // Using .menu__item-title to find the group label, then
-        // its parent .menu__item as the drop target.
+        // Use the exact label for both dropping and selecting the destination.
         const workGroupTitle = page
             .locator('.menu__item-title')
             .filter({ hasText: /^Work$/ })
             .first();
         await expect(workGroupTitle).toBeVisible({ timeout: 5_000 });
-        const workMenuItem = workGroupTitle
-            .locator('xpath=ancestor::div[contains(@class,"menu__item")]')
-            .first();
 
         // Drag the trashed entry from the list to the Work group
         await workGroupTitle.scrollIntoViewIfNeeded();
@@ -162,7 +158,7 @@ test.describe('Entry restore from trash', () => {
         });
 
         // Navigate to Work group to verify the entry is there
-        await workMenuItem.click();
+        await workGroupTitle.click();
         await page.waitForTimeout(500);
 
         await expect(

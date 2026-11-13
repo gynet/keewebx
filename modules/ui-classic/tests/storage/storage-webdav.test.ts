@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, afterEach, afterAll } from 'bun:test';
 import {
     installMockedModule,
     restoreAllMockedModules,
@@ -293,4 +293,103 @@ describe('StorageWebDav', () => {
             expect(storage._isCrossOrigin('')).toBe(false);
         });
     });
+});
+
+
+describe('WebDAV browser connectivity', () => {
+    let storage: InstanceType<typeof StorageWebDav>;
+    let connectivity: EventTarget;
+    let network: { onLine: boolean };
+    let globals: Map<string, PropertyDescriptor | undefined>;
+
+    class Request extends EventTarget {
+        static instances: Request[] = [];
+        status = 200;
+        responseType = '';
+        sends = 0;
+        aborts = 0;
+        constructor() { super(); Request.instances.push(this); }
+        open() {}
+        setRequestHeader() {}
+        getResponseHeader() { return 'Mon, 01 Jan 2024 00:00:00 GMT'; }
+        send() { this.sends++; }
+        abort() {
+            this.aborts++;
+            this.dispatchEvent(new Event('abort'));
+            this.dispatchEvent(new Event('loadend'));
+        }
+        complete(type = 'load') {
+            this.dispatchEvent(new Event(type));
+            this.dispatchEvent(new Event('loadend'));
+        }
+    }
+
+    beforeEach(() => {
+        globals = new Map(['window', 'navigator', 'XMLHttpRequest'].map(key =>
+            [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+        connectivity = Object.assign(new EventTarget(), { location: { href: 'https://app.example/' } });
+        network = { onLine: true };
+        for (const [key, value] of Object.entries({ window: connectivity, navigator: network, XMLHttpRequest: Request })) {
+            Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+        }
+        Request.instances = [];
+        storage = new StorageWebDav(); storage.init();
+    });
+    afterEach(() => {
+        for (const [key, descriptor] of globals) {
+            if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+            else delete (globalThis as Record<string, unknown>)[key];
+        }
+    });
+
+    test('already offline completes asynchronously without opening a request; reconnect can retry', async () => {
+        network.onLine = false;
+        const offline = mock();
+        storage._request({ op: 'stat', method: 'HEAD', path: 'https://dav.example/vault.kdbx' }, offline);
+        expect(offline).not.toHaveBeenCalled();
+        await Promise.resolve();
+        expect(offline).toHaveBeenCalledTimes(1);
+        expect(offline).toHaveBeenCalledWith('offline');
+        expect(Request.instances).toHaveLength(0);
+
+        network.onLine = true;
+        const retry = mock();
+        storage._request({ op: 'stat', method: 'HEAD', path: 'https://dav.example/vault.kdbx' }, retry);
+        expect(Request.instances[0].sends).toBe(1);
+        Request.instances[0].complete();
+        expect(retry).toHaveBeenCalledTimes(1);
+        expect(retry.mock.calls[0][0]).toBeNull();
+    });
+
+    for (const method of ['HEAD', 'GET', 'PUT', 'MOVE']) {
+        test(`${method} in flight is aborted once on offline, ignoring late completion`, () => {
+            const callback = mock();
+            storage._request({ op: 'request', method, path: 'https://dav.example/vault.kdbx' }, callback);
+            const request = Request.instances[0];
+            network.onLine = false;
+            connectivity.dispatchEvent(new Event('offline'));
+            expect(request.aborts).toBe(1);
+            expect(callback).toHaveBeenCalledTimes(1);
+            expect(callback.mock.calls[0][0]).toBe('aborted');
+            request.complete();
+            connectivity.dispatchEvent(new Event('offline'));
+            expect(request.aborts).toBe(1);
+            expect(callback).toHaveBeenCalledTimes(1);
+        });
+    }
+
+    for (const event of ['load', 'error']) {
+        test(`${event} releases the connectivity listener without changing its result`, () => {
+            const callback = mock();
+            storage._request({ op: 'load', method: 'GET', path: 'https://dav.example/vault.kdbx' }, callback);
+            const request = Request.instances[0];
+            if (event === 'error') request.status = 0;
+            request.complete(event);
+            connectivity.dispatchEvent(new Event('offline'));
+            expect(request.aborts).toBe(0);
+            expect(callback).toHaveBeenCalledTimes(1);
+            if (event === 'load') expect(callback.mock.calls[0][0]).toBeNull();
+            else expect(callback.mock.calls[0][0].cors).toBe(true);
+        });
+    }
 });

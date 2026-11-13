@@ -241,6 +241,9 @@ test.describe('Next database settings edge cases', () => {
             await expect(form.getByLabel('Memory, KiB', { exact: true })).toHaveValue(invalid ? '8' : '8192');
             await expect(form.getByLabel('Parallelism', { exact: true })).toHaveValue('2');
             if (invalid) await form.getByLabel('Memory, KiB', { exact: true }).fill('8192');
+            // Dismissing the native dialog can trigger the focus-sync scheduler.
+            // This case tests retained drafts; active-writer rejection has its own coverage.
+            await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
             await form.getByRole('button', { name: 'Save database settings', exact: true }).click();
             await expect(form.getByRole('status')).toHaveText('Saved in browser storage. Download KDBX to update your external copy.');
             await page.locator('#settings-back').click();

@@ -456,6 +456,13 @@ class StorageWebDav extends StorageBase {
     }
 
     _request(config: WebDavRequestConfig, callback?: WebDavCallback | null): void {
+        // Firefox can leave an XHR pending indefinitely in browser offline mode.
+        // Complete asynchronously so the caller can finish caching and publish
+        // its offline state; the sync scheduler retries when connectivity returns.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            queueMicrotask(() => callback?.('offline'));
+            return;
+        }
         if (config.rev) {
             this.logger!.debug(config.op, config.path, config.rev);
         } else {
@@ -570,6 +577,12 @@ class StorageWebDav extends StorageBase {
             }
         });
         xhr.open(config.method, config.path);
+        // Also release an existing writer if connectivity disappears mid-request.
+        const onOffline = () => xhr.abort();
+        if (typeof window !== 'undefined') {
+            window.addEventListener('offline', onOffline);
+            xhr.addEventListener('loadend', () => window.removeEventListener('offline', onOffline), { once: true });
+        }
         xhr.responseType = 'arraybuffer';
         if (config.user) {
             xhr.setRequestHeader(

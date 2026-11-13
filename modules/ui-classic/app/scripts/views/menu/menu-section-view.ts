@@ -66,8 +66,7 @@ class MenuSectionView extends View {
         if (this.model.drag) {
             const height = settings.tagsViewHeight;
             if (typeof height === 'number') {
-                this.$el.height();
-                this.$el.css('flex', '0 0 ' + height + 'px');
+                this.$el.css('flex-basis', height + 'px');
             }
         }
         // Honor section-level visibility. Used for the static "File" settings
@@ -104,7 +103,7 @@ class MenuSectionView extends View {
     }
 
     viewResized(size: number): void {
-        this.$el.css('flex', '0 0 ' + (size ? size + 'px' : 'auto'));
+        this.$el.css('flex-basis', size ? size + 'px' : 'auto');
         this.saveViewHeight(size);
     }
 

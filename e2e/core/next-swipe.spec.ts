@@ -23,6 +23,7 @@ test('touch swipe reveals and hides local deletion without opening or deleting a
         await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from, y }] });
         for (let i = 1; i <= 8; i++) {
             await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from + (to - from) * i / 8, y }] });
+            await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
         }
         await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     };
@@ -32,10 +33,22 @@ test('touch swipe reveals and hides local deletion without opening or deleting a
     await swipe(false);
     await expect(remove).toBeHidden();
     await swipe(true);
-    page.once('dialog', (dialog) => dialog.dismiss());
+    // Chromium suppresses taps briefly after a native scroll gesture. Let that
+    // gesture finish before testing the separate destructive-button interaction.
+    await page.waitForTimeout(500);
+    const dismissed = page.waitForEvent('dialog').then(async dialog => {
+        expect(dialog.type()).toBe('confirm');
+        expect(dialog.message()).toContain('Remove KDBX4.1.kdbx from this browser?');
+        await dialog.dismiss();
+    });
     await remove.tap();
+    await dismissed;
     await expect(row).toBeVisible();
-    page.once('dialog', (dialog) => dialog.accept());
+    const accepted = page.waitForEvent('dialog').then(async dialog => {
+        expect(dialog.type()).toBe('confirm');
+        await dialog.accept();
+    });
     await remove.tap();
+    await accepted;
     await expect(row).toHaveCount(0);
 });
