@@ -548,7 +548,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <button class="pill entry-list__create" disabled={!!editing || !canCreate} onClick={newEntry}>
                     {t('New entry')}
                 </button>
-                <EntryTemplates model={model} groupId={filter.group} onCreated={entry => {
+                <EntryTemplates model={model} groupId={filter.group || creationGroup?.id} fileId={scopeId || filter.file} onCloseVault={props.onCloseVault} onCreated={entry => {
                     setEditing(null); setFilter({ group: (entry.group as GroupModel).id }); setQuery(''); setSelected(entry.id);
                 }} />
                 <details ref={groupManager} style={{ flex: '0 0 auto', margin: '0 14px 6px', minWidth: 0 }}>

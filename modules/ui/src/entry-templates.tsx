@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { AppModel } from 'models/app-model';
 import type { FileModel } from 'models/file-model';
 import type { EntryModel } from 'models/entry-model';
@@ -10,10 +10,11 @@ import { confirmDiscardDrafts } from './pending-drafts';
 import { t } from './i18n';
 import './entry-templates.css';
 import { TemplateDelete } from './template-delete';
+import { TemplatePersistence } from './template-persistence';
 
 interface Target {
     file: FileModel; db: FileModel['db']; epoch: number; editSeq: number;
-    source?: EntryModel; raw?: EntryModel['entry']; baseline?: string;
+    key: string; entry?: EntryModel; source?: EntryModel; raw?: EntryModel['entry']; baseline?: string;
     mode: 'new' | 'edit' | 'use'; groups: GroupModel[];
 }
 const writable = (file: FileModel) => file.active && !(file as FileModel & { readOnly?: boolean }).readOnly;
@@ -39,24 +40,32 @@ function path(group: GroupModel): string {
     return parts.join(' / ');
 }
 
-export function EntryTemplates({ model, groupId, onCreated }: {
-    model: AppModel; groupId?: string; onCreated(entry: EntryModel): void;
+export function EntryTemplates({ model, groupId, fileId, onCreated, onCloseVault }: {
+    model: AppModel; groupId?: string; fileId?: string; onCreated(entry: EntryModel): void; onCloseVault?(file: FileModel): void;
 }) {
     const [open, setOpen] = useState(false);
     const trigger = useRef<HTMLButtonElement>(null);
     return <>
         <button ref={trigger} type="button" class="pill entry-list__create" disabled={!model.canCreateEntries()}
             onClick={() => { if (getSessionAccess(model).state === 'open' && confirmDiscardDrafts()) setOpen(true); }}>{t('Entry templates…')}</button>
-        {open && <TemplatesDialog model={model} groupId={groupId} close={() => setOpen(false)} onCreated={onCreated} trigger={trigger} />}
+        {open && <TemplatesDialog model={model} groupId={groupId} scopeId={fileId} onCloseVault={onCloseVault} close={() => setOpen(false)} onCreated={onCreated} trigger={trigger} />}
     </>;
 }
-function TemplatesDialog({ model, groupId, close, onCreated, trigger }: {
-    model: AppModel; groupId?: string; close(): void; onCreated(entry: EntryModel): void;
+function TemplatesDialog({ model, groupId, scopeId, close, onCreated, trigger, onCloseVault }: {
+    model: AppModel; groupId?: string; scopeId?: string; close(): void; onCreated(entry: EntryModel): void; onCloseVault?(file: FileModel): void;
     trigger: { current: HTMLButtonElement | null };
 }) {
     const files = [...model.files].filter(writable);
-    const [fileId, setFileId] = useState(files.find(file => groupId && file.getGroup(groupId))?.id ?? files[0]?.id ?? '');
+    const [fileId, setFileId] = useState(() => groupId
+        ? files.find(file => file.getGroup(groupId))?.id ?? ''
+        : scopeId ? files.find(file => file.id === scopeId)?.id ?? ''
+        : files.length === 1 ? files[0].id : '');
+    const fileLabel = (file: FileModel) => t('{} (vault {})', file.name, String(model.files.indexOf(file) + 1));
     const [target, setTarget] = useState<Target | null>(null);
+    const targetRef = useRef(target); targetRef.current = target;
+    const available = (!fileId || !!model.files.get(fileId)?.active)
+        && (!target || (target.file.active && model.files.get(target.file.id) === target.file));
+    useEffect(() => { if (!available) close(); }, [available]);
     const [destination, setDestination] = useState('');
     const [message, setMessage] = useState('');
     const dialog = useRef<HTMLDialogElement>(null);
@@ -74,38 +83,49 @@ function TemplatesDialog({ model, groupId, close, onCreated, trigger }: {
         const groups = destinationGroups(file);
         const selected = groups.find(group => group.id === groupId) ?? groups[0];
         setDestination(selected?.id ?? ''); applied.current = false; setMessage('');
-        setTarget({ mode, file, db: file.db, epoch: getSessionAccess(model).epoch, editSeq: file.editSeq, source, raw: source?.entry,
+        setTarget({ mode, key: `${mode}:${source?.id ?? file.id}`, entry: mode === 'edit' ? source : undefined, file, db: file.db, epoch: getSessionAccess(model).epoch, editSeq: file.editSeq, source, raw: source?.entry,
             baseline: source ? JSON.stringify(makeDraft(source, [])) : undefined, groups });
     };
-    const save = (draft: EntryDraft) => {
+    const save = (draft: EntryDraft, retain = false): EntryModel => {
+        const target = targetRef.current;
         if (!target || applied.current) throw new Error('Template editor closed');
         const { file, source, mode } = target;
+        const original = target.entry ?? source;
         const access = getSessionAccess(model);
         const allowed = (access.state === 'open' && access.epoch === target.epoch)
             || (access.state === 'securing' && access.epoch === target.epoch + 1);
         const group = target.groups.find(group => group.id === destination);
         if (!allowed || !writable(file) || model.files.get(file.id) !== file || file.db !== target.db || file.editSeq !== target.editSeq || file.syncing
-            || (source && (file.getEntry(source.id) !== source || source.entry !== target.raw
-                || source.group !== file.getEntryTemplatesGroup() || JSON.stringify(makeDraft(source, [])) !== target.baseline))
+            || (original && (file.getEntry(original.id) !== original || original.entry !== target.raw
+                || (target.entry && mode === 'use' ? original.group !== group : original.group !== file.getEntryTemplatesGroup())
+                || JSON.stringify(makeDraft(original, [])) !== target.baseline))
             || (mode === 'use' && (!group || file.getGroup(group.id) !== group || !destinationGroups(file).includes(group)))) {
             setMessage(t('This template or destination changed. Cancel and reopen templates after saving finishes.'));
             throw new Error('Template or destination changed');
         }
         let entry: EntryModel;
-        if (mode === 'edit') entry = source!;
+        if (target.entry) entry = target.entry;
         else {
             const destinationGroup = mode === 'new' ? file.getEntryTemplatesGroup() ?? file.createEntryTemplatesGroup() : group!;
             entry = model.createNewEntryWithFields(destinationGroup, {});
             if (source) entry.copyFromTemplate(source);
         }
         applyEntryDraft(entry, draft);
-        applied.current = true;
+        applied.current = !retain;
+        if (retain) {
+            const next = { ...target, entry, raw: entry.entry, baseline: JSON.stringify(makeDraft(entry, [])), editSeq: file.editSeq };
+            targetRef.current = next; setTarget(next);
+        }
         model.updateTags(); Events.emit('entry-updated', { entry }); Events.emit('refresh');
-        if (mode === 'use') { close(); onCreated(entry); }
-        else { setTarget(null); setMessage(t('Template saved.')); }
+        if (!retain) {
+            if (mode === 'use') { close(); onCreated(entry); }
+            else { setTarget(null); setMessage(t('Template saved.')); }
+        }
         return entry;
     };
-    const templates = model.getEntryTemplates().filter(({ file }) => writable(file));
+    // Closing clears FileModel.groups synchronously, before the effect can dismiss us.
+    if (!available) return null;
+    const templates = model.getEntryTemplates().filter(({ file }) => writable(file) && file.id === fileId);
     return <dialog ref={dialog} class="entry-templates" aria-label={t('Entry templates')}
         onCancel={event => { event.preventDefault(); if (confirmDiscardDrafts()) close(); }}>
         <div class="entry-templates__head"><h2>{t('Entry templates')}</h2>
@@ -113,18 +133,20 @@ function TemplatesDialog({ model, groupId, close, onCreated, trigger }: {
         {target ? <>
             <p>{t(target.mode === 'use' ? 'Create an entry from this template in {}.' : target.mode === 'edit' ? 'Edit this template in {}.' : 'Create a template in {}.', target.file.name)}</p>
             {target.mode === 'use' && <label class="vault-form__field">{t('Destination group')}
-                <select class="input" value={destination} onChange={event => setDestination(event.currentTarget.value)}>
+                <select class="input" value={destination} disabled={!!target.entry} onChange={event => setDestination(event.currentTarget.value)}>
                     {target.groups.map(group => <option key={group.id} value={group.id}>{path(group)}</option>)}
                 </select></label>}
             {message && <p role="alert">{message}</p>}
-            <EntryEditor key={`${target.mode}:${target.source?.id ?? target.file.id}`} model={model}
-                group={target.file.groups[0]}
-                entry={target.mode === 'edit' ? target.source! : null} draftSource={target.mode === 'use' ? target.source : undefined}
+            <EntryEditor key={target.key} model={model}
+                group={target.mode === 'use' ? target.groups.find(group => group.id === destination) : target.file.groups[0]}
+                entry={target.entry ?? null} draftSource={!target.entry && target.mode === 'use' ? target.source : undefined}
                 onSave={save} onCancel={() => { setTarget(null); setMessage(''); }} />
+            <TemplatePersistence model={model} file={target.file} onCloseVault={onCloseVault} />
         </> : <>
             <p>{t('Templates keep reusable fields, including empty and protected fields. Creating an entry leaves the template unchanged.')}</p>
             <label class="vault-form__field">{t('Template vault')}<select class="input" value={fileId} onChange={event => setFileId(event.currentTarget.value)}>
-                {files.map(file => <option key={file.id} value={file.id}>{file.name}</option>)}
+                <option value="">{t('Choose a vault')}</option>
+                {files.map(file => <option key={file.id} value={file.id}>{fileLabel(file)}</option>)}
             </select></label>
             <button type="button" class="pill" disabled={!files.some(file => file.id === fileId) || !!model.files.get(fileId)?.syncing}
                 onClick={() => { const file = model.files.get(fileId); if (file) choose('new', file); }}>{t('New template')}</button>
@@ -134,7 +156,7 @@ function TemplatesDialog({ model, groupId, close, onCreated, trigger }: {
                 <button type="button" class="pill" disabled={file.syncing} onClick={() => choose('edit', file, entry)}>{t('Edit template')}</button>
                 <TemplateDelete model={model} entry={entry} onDeleted={() => setMessage(t('Template deleted. Check the database sync status.'))} />
             </li>)}</ul>
-            {!templates.length && <p>{t('No entry templates yet.')}</p>}
+            {!templates.length && <p>{t(fileId ? 'No entry templates yet.' : 'Choose a vault to view or create templates.')}</p>}
             {message && <p role="status">{message}</p>}
         </>}
     </dialog>;
