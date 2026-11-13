@@ -52,6 +52,8 @@ test('visible literal UI strings, preference labels and palette names have trans
     Object.values(palettes).forEach(palette => keys.add(palette.name));
     Object.values(palettePairs).forEach(pair => keys.add(pair.name));
     keyboardShortcuts.forEach(shortcut => { keys.add(shortcut.label); keys.add(shortcut.when); });
+    // Database details select these labels dynamically from synchronization state.
+    ['No pending changes', 'Unsaved changes', 'Saving…', 'Remote save pending', 'Save failed'].forEach(key => keys.add(key));
     keys.add('Ignore password issues for this entry'); keys.add('Resume password checks for this entry');
     for (const lang of ['de-DE', 'fr-FR'] as const) {
         const missing = [...keys].filter(key => !Object.prototype.hasOwnProperty.call(uiDictionaries[lang], key));
