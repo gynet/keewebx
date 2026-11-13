@@ -1142,5 +1142,12 @@
   "No pending changes": "Keine ausstehenden Änderungen",
   "Unsaved changes": "Ungespeicherte Änderungen",
   "Remote save pending": "Entferntes Speichern ausstehend",
-  "Save failed": "Speichern fehlgeschlagen"
+  "Save failed": "Speichern fehlgeschlagen",
+  "Standalone app": "Eigenständige App",
+  "To reload the standalone app, save and lock all vaults first.": "Speichern und sperren Sie zuerst alle Tresore, um die eigenständige App neu zu laden.",
+  "Reload the app now?": "App jetzt neu laden?",
+  "Reload app": "App neu laden",
+  "License text": "Lizenztext",
+  "Credits and dependency notices": "Danksagungen und Hinweise zu Abhängigkeiten",
+  "KeeWebX is based on KeeWeb by Antelle. The notices below identify dependencies used by each interface and the browser extension.": "KeeWebX basiert auf KeeWeb von Antelle. Die folgenden Hinweise nennen die Abhängigkeiten der einzelnen Oberflächen und der Browser-Erweiterung."
 }

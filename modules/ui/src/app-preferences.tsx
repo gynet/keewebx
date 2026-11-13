@@ -1,3 +1,4 @@
+import { LicenseCredits } from './license-credits';
 import { useEffect, useState } from 'preact/hooks';
 import { AppSettingsModel as settings } from 'models/app-settings-model';
 import { Events } from 'framework/events';
@@ -113,6 +114,7 @@ export function PreferencesHelp() {
         <p><a href="https://keepass.info/help/base/" target="_blank" rel="noopener noreferrer">{t('KeePass format and help')}</a></p>
         <p>{t('Version')}: {RuntimeInfo.version} · {RuntimeInfo.buildDate}{RuntimeInfo.commit && <> · {RuntimeInfo.commit}</>}</p>
         <p><a href={Links.Releases} target="_blank" rel="noopener noreferrer">{t('Release history')}</a> · <a href={Links.Repo} target="_blank" rel="noopener noreferrer">{t('Source code')}</a> · <a href={Links.License} target="_blank" rel="noopener noreferrer">{t('MIT license')}</a> · <a href={`${Links.Repo}/blob/master/THIRD-PARTY-LICENSES.md`} target="_blank" rel="noopener noreferrer">{t('Third-party licenses')}</a></p>
+        <LicenseCredits />
         <p>{t('Keyboard: Tab and Shift+Tab move between controls. Enter or Space activates buttons. Use Left/Right, Home and End to navigate settings tabs. Escape closes dialogs.')}</p>
     </details>;
 }

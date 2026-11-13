@@ -18,6 +18,7 @@ import { IdlePreference, AppearancePreferences, SaveVerificationPreference, Audi
 import { LanguagePreference } from './language-preference';
 import { FaviconQuality } from './favicon-import';
 import { TablePreference } from './entry-listing';
+import { StandaloneReload } from './standalone-reload';
 import { DiagnosticsHelp } from './diagnostics-help';
 import { ExtensionPreferences } from './extension-preferences';
 import { ProviderPreferences } from './provider-preferences';
@@ -129,6 +130,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                     <FaviconQuality />
                     <PreferencesHelp />
                     <DiagnosticsHelp />
+                    <StandaloneReload model={model} />
                     </section>
                     <section id="settings-panel-security" role="tabpanel" aria-labelledby="settings-tab-security" hidden={section !== 'security'}>
                     <h2 class="group-title">{t('Security')}</h2>
