@@ -49,7 +49,7 @@ interface Source {
     field(id: string, field: string): Promise<string>;
     entry(summary: EntrySummary): Promise<EntrySummary>;
     lock(): Promise<void>;
-    copied(): void;
+    copied(text: string): void;
     activity(): void;
 }
 
@@ -59,7 +59,7 @@ const fullSource: Source = {
     field: async (id, field) => (await vault<{ text: string }>('field', { id, field })).text,
     entry: (summary) => vault<EntrySummary>('entry', { id: summary.id }),
     lock: () => vault('lock'),
-    copied: () => void vault('copied'),
+    copied: (text) => void vault('copied', { text }),
     activity: () => void vault('activity')
 };
 
@@ -708,7 +708,7 @@ function Detail(props: {
     const copy = async (field: string) => {
         const text = await source.field(entry.id, field);
         await navigator.clipboard.writeText(text);
-        source.copied();
+        source.copied(text);
         setCopied(field);
         setTimeout(() => setCopied(''), 1500);
     };

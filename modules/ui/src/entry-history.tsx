@@ -154,9 +154,10 @@ function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged }: {
     const copy = async (name: string) => {
         if (unavailable(snapshot)) return;
         try {
-            await navigator.clipboard.writeText(rawText(fields[name]));
+            const text = rawText(fields[name]);
+            await navigator.clipboard.writeText(text);
             // Cleanup of an authorized write must be scheduled even if it finishes after lock.
-            VaultApi.copied({ password: name === 'Password', sessionEpoch: snapshot.epoch });
+            VaultApi.copied({ text, password: name === 'Password', sessionEpoch: snapshot.epoch });
             if (unavailable(snapshot)) return;
             setCopied(name);
         } catch { if (!unavailable(snapshot)) setError(t('Could not copy. Reveal the value and copy it manually.')); }

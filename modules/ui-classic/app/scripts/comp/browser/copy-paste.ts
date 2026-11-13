@@ -1,4 +1,5 @@
 import { AppSettingsModel } from 'models/app-settings-model';
+import { clipboardExpiry } from 'comp/browser/clipboard-expiry';
 
 interface CopyResult {
     success: boolean;
@@ -11,17 +12,8 @@ const CopyPaste = {
     copy(text: string): CopyResult | false {
         try {
             navigator.clipboard.writeText(text).then(() => {
-                const clipboardSeconds = AppSettingsModel.clipboardSeconds;
-                if (clipboardSeconds > 0) {
-                    setTimeout(() => {
-                        navigator.clipboard.readText().then((current) => {
-                            if (current === text) {
-                                navigator.clipboard.writeText('');
-                            }
-                        });
-                    }, clipboardSeconds * 1000);
-                }
-            });
+                clipboardExpiry.schedule(text, AppSettingsModel.clipboardSeconds);
+            }).catch(() => { /* Clipboard permission can be revoked after the user action. */ });
             return { success: true, seconds: AppSettingsModel.clipboardSeconds };
         } catch (e) {
             try {

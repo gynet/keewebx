@@ -15,12 +15,12 @@ import { IdleTracker } from 'comp/browser/idle-tracker';
 import { UrlFormat } from 'util/formatting/url-format';
 import { getSessionAccess } from './session-access';
 import { Timeouts } from 'const/timeouts';
+import { clipboardExpiry } from 'comp/browser/clipboard-expiry';
 
 export type VaultRequest = Record<string, unknown>;
 
 const SETTINGS = ['idleMinutes', 'clipboardSeconds', 'lockOnOsLock'] as const;
 
-let clipboardTimer: ReturnType<typeof setTimeout> | undefined;
 let copyLockTimer: ReturnType<typeof setTimeout> | undefined;
 
 function app(): AppModel {
@@ -83,27 +83,6 @@ function list(req: VaultRequest) {
         query: String(req.query || '')
     });
     return { suggested: suggested.map(entrySummary), items: items.map(entrySummary) };
-}
-
-/** Clears the clipboard later if it still holds what was copied. */
-function scheduleClipboardClear(): void {
-    clearTimeout(clipboardTimer);
-    const seconds = AppSettingsModel.clipboardSeconds;
-    if (!(seconds > 0)) {
-        return;
-    }
-    clipboardTimer = setTimeout(() => {
-        const blank = (e: ClipboardEvent) => {
-            e.clipboardData?.setData('text/plain', '');
-            e.preventDefault();
-        };
-        document.addEventListener('copy', blank);
-        try {
-            document.execCommand('copy');
-        } finally {
-            document.removeEventListener('copy', blank);
-        }
-    }, seconds * 1000);
 }
 
 function schedulePasswordCopyLock(request: VaultRequest): void {
@@ -197,7 +176,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
     },
 
     copied(request) {
-        scheduleClipboardClear();
+        if (typeof request.text === 'string') clipboardExpiry.schedule(request.text, AppSettingsModel.clipboardSeconds);
         schedulePasswordCopyLock(request);
         return {};
     },

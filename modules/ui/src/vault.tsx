@@ -539,7 +539,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
             const text = await read();
             access.assertOpen(epoch);
             await navigator.clipboard.writeText(text);
-            VaultApi.copied({ password: key === 'password', sessionEpoch: epoch });
+            VaultApi.copied({ text, password: key === 'password', sessionEpoch: epoch });
             access.assertOpen(epoch);
             setCopied(key);
             setTimeout(() => setCopied(''), 1500);
