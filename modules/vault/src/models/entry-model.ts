@@ -479,20 +479,31 @@ class EntryModel extends Model {
 
     /** Hash privately; an optional caller guard controls publication into the current entry. */
     async addAttachment(name: string, data: ArrayBuffer, canPublish?: () => boolean): Promise<void> {
+        return this.addAttachments([{ name, data }], canPublish, true);
+    }
+
+    /** Stage a whole batch before one history mutation; a failed read/hash publishes nothing. */
+    async addAttachments(items: { name: string; data: ArrayBuffer }[], canPublish?: () => boolean, replaceExisting = false): Promise<void> {
+        if (!items.length) return;
+        if (new Set(items.map(item => item.name)).size !== items.length) throw new Error('Duplicate attachment name.');
         const file = this.file as FileModel;
         const db = file.db;
         const entry = this.entry;
         const id = this.id;
         // createBinary would register in the live database before the async guard can run.
-        const binary = await new kdbxweb.KdbxBinaries().add(data.slice(0));
+        const staged = await Promise.all(items.map(async item => ({ name: item.name,
+            binary: await new kdbxweb.KdbxBinaries().add(item.data.slice(0)) })));
         if (canPublish && canPublish() !== true) throw new Error('Attachment upload canceled.');
         if (!file.active || this.file !== file || file.db !== db || this.entry !== entry ||
             this.id !== id || file.getEntry(id) !== this) {
             throw new Error('The attachment target changed or closed.');
         }
+        if (!replaceExisting && staged.some(item => entry.binaries.has(item.name))) throw new Error('An attachment with this name already exists.');
         this._entryModified();
-        db.binaries.addWithHash(binary);
-        entry.binaries.set(name, binary);
+        for (const { name, binary } of staged) {
+            db.binaries.addWithHash(binary);
+            entry.binaries.set(name, binary);
+        }
         this._fillByEntry();
     }
 

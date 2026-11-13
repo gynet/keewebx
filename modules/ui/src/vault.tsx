@@ -40,7 +40,7 @@ import { EntryDelete } from './entry-delete';
 import { EntrySort, sortEntries } from './entry-sort';
 import { SearchControls, searchDefaults, type SearchOptions, type SearchScope } from './search-options';
 import { commandKey, editingText, keyboardAvailable } from './keyboard';
-
+import { AttachmentPreview, attachmentBytes } from './attachment-preview';
 
 
 const SYNC_LABELS: Record<string, string> = {
@@ -819,6 +819,7 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
     const working = useRef(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const [preview, setPreview] = useState<AttachmentModel | null>(null);
     const file = entry.file as FileModel;
     const writable = file.active && !(file as unknown as { readOnly?: boolean }).readOnly;
     useEffect(() => {
@@ -831,12 +832,13 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
         file.setModified();
         Events.emit('entry-updated', { entry });
     };
-    const upload = async (attachment: File) => {
-        if (working.current || !writable) {
+    const upload = async (attachments: File[]) => {
+        if (!attachments.length || working.current || !writable) {
             return;
         }
         setError('');
-        if (entry.attachments.some((item) => item.title === attachment.name)) {
+        const names = new Set(attachments.map((item) => item.name));
+        if (names.size !== attachments.length || entry.attachments.some((item) => names.has(item.title || ''))) {
             setError(t('An attachment with this name already exists. Remove it before uploading a replacement.'));
             return;
         }
@@ -852,7 +854,7 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
         let message = t('Could not read the attachment. Try selecting the file again.');
         try {
             access.assertOpen(epoch);
-            const data = await attachment.arrayBuffer();
+            const items = await Promise.all(attachments.map(async (attachment) => ({ name: attachment.name, data: await attachment.arrayBuffer() })));
             // Lock waits for this registered operation before saving/closing. Let an
             // already requested upload finish, but not after timeout or recovery.
             if (!canPublish()) {
@@ -862,7 +864,7 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
                 return;
             }
             message = t('Could not save the attachment. Try again.');
-            await entry.addAttachment(attachment.name, data, canPublish);
+            await entry.addAttachments(items, canPublish);
             if (file.active) {
                 updated();
             }
@@ -896,18 +898,8 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
         const link = document.createElement('a');
         try {
             getSessionAccess(model).assertOpen();
-            let data = attachment.getBinary();
-            if (!data) {
-                // getBinary does not convert an empty ArrayBuffer in older vault models.
-                const stored = attachment.data as { value?: unknown } | ArrayBuffer | undefined;
-                const value = stored instanceof ArrayBuffer ? stored : stored?.value;
-                if (value instanceof ArrayBuffer && value.byteLength === 0) {
-                    data = new Uint8Array(value);
-                }
-            }
-            if (!data) {
-                throw new Error('Missing attachment data');
-            }
+            if (!file.active || file.getEntry(entry.id) !== entry || !entry.attachments.includes(attachment)) throw new Error('Attachment expired');
+            const data = attachmentBytes(attachment);
             url = URL.createObjectURL(new Blob([new Uint8Array(data).buffer], {
                 type: attachment.mimeType ?? 'application/octet-stream'
             }));
@@ -927,19 +919,19 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
     };
 
     return (
-        <section class="entry-attachments" aria-label={t('Attachments')} aria-busy={busy}>
+        <section class="entry-attachments" aria-label={t('Attachments')} aria-busy={busy}
+            onDragOver={(event) => { if (event.dataTransfer?.types.includes('Files')) event.preventDefault(); }}
+            onDrop={(event) => { event.preventDefault(); event.stopPropagation(); void upload(Array.from(event.dataTransfer?.files || [])); }}>
             <div class="entry-attachments__head">
                 <h2 class="section-title">{t('Attachments')}</h2>
                 <button class="pill" type="button" disabled={busy || !writable} onClick={() => input.current?.click()}>
                     {busy ? t('Adding attachment…') : t('Add attachment')}
                 </button>
-                <input ref={input} type="file" hidden aria-label={t('Attachment file')} disabled={busy || !writable}
+                <input ref={input} type="file" multiple hidden aria-label={t('Attachment file')} disabled={busy || !writable}
                     onChange={(event) => {
-                        const attachment = event.currentTarget.files?.[0];
+                        const attachments = Array.from(event.currentTarget.files || []);
                         event.currentTarget.value = '';
-                        if (attachment) {
-                            void upload(attachment);
-                        }
+                        void upload(attachments);
                     }} />
             </div>
             {entry.attachments.length === 0 && <p class="muted">{t('No attachments')}</p>}
@@ -947,12 +939,15 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
                 <div class="attachment entry-attachments__row" key={attachment.title} data-attachment={attachment.title}>
                     <Icon name="paperclip" size={16} />
                     <span class="entry-attachments__name">{attachment.title}</span>
+                    <button class="link" type="button" disabled={busy} onClick={() => setPreview(attachment)}>{t('Preview')}</button>
                     <button class="link" type="button" disabled={busy} onClick={() => download(attachment)}>{t('Download')}</button>
                     <button class="link" type="button" disabled={busy || !writable}
                         onClick={() => remove(attachment.title ?? '')}>{t('Remove attachment')}</button>
                 </div>
             ))}
             {error && <p class="error" role="alert">{error}</p>}
+            {preview && <AttachmentPreview key={preview.title} model={model} entry={entry} attachment={preview}
+                close={() => setPreview(null)} download={() => download(preview)} />}
         </section>
     );
 }

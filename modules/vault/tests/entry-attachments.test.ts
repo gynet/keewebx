@@ -80,6 +80,29 @@ if (process.env.KEEWEBX_ATTACHMENT_TEST_WORKER !== '1') {
     afterEach(() => { CryptoEngine.sha256 = realSha256; });
 
     describe('attachment publication after hashing', () => {
+        test('a batch publishes once, preserving both binaries and a single history snapshot', async () => {
+            const target = await fixture();
+            await target.entry.addAttachments([{ name: 'one', data: new Uint8Array([1]).buffer }, { name: 'two', data: new Uint8Array([2]).buffer }]);
+            expect([...target.raw.binaries.keys()]).toEqual(['one', 'two']);
+            expect(target.db.binaries.getAllWithHashes()).toHaveLength(2);
+            expect(target.raw.history).toHaveLength(1);
+            expect(target.file.editSeq).toBe(1);
+        });
+
+        test('one failed hash discards the whole batch without orphan binaries', async () => {
+            const target = await fixture();
+            CryptoEngine.sha256 = data => ByteUtils.bytesToHex(data) === '02'
+                ? Promise.reject(new Error('Batch hash failed')) : realSha256(data);
+            await expect(target.entry.addAttachments([{ name: 'one', data: new Uint8Array([1]).buffer }, { name: 'two', data: new Uint8Array([2]).buffer }])).rejects.toThrow('Batch hash failed');
+            expectUntouched(target);
+        });
+
+        test('duplicate batch names cannot replace each other', async () => {
+            const target = await fixture();
+            await expect(target.entry.addAttachments([{ name: 'same', data: new ArrayBuffer(1) }, { name: 'same', data: new ArrayBuffer(2) }])).rejects.toThrow('Duplicate');
+            expectUntouched(target);
+        });
+
         for (const reason of ['cancel', 'reauthenticated', 'db-replaced', 'entry-deleted', 'entry-replaced', 'raw-entry-replaced', 'file-replaced', 'file-closed']) {
             test(`${reason} while hashing leaves no binary registration, history or dirty mutation`, async () => {
                 const target = await fixture();
