@@ -1,3 +1,4 @@
+import { PreferenceEffects } from './app-preferences';
 import 'ui-kit/tokens.css';
 import './styles.css';
 import { render } from 'preact';
@@ -158,11 +159,13 @@ function App({ model }: { model: AppModel }) {
 
     return (
         <>
+        <PreferenceEffects />
         <NewProtocolUiHost controller={protocolUi} />
         <SaveVerificationWarning model={model} version={version} suspended={!!gate} />
         <UpdateNotice canReload={!model.files.hasOpenFiles() && !gate} />
-        {!model.files.hasOpenFiles() && !gate ? <Unlock model={model}
-            onPasskeySetup={(id) => { setPasskeySettingsId(id); setSettingsOpen(true); }}
+        {!model.files.hasOpenFiles() && !gate ? settingsOpen && model.settings.canOpenSettings ? <Settings model={model} onBack={() => setSettingsOpen(false)} /> : <Unlock model={model}
+            onSettings={() => { if (model.settings.canOpenSettings) setSettingsOpen(true); }}
+            onPasskeySetup={(id) => { if (model.settings.canOpenSettings) { setPasskeySettingsId(id); setSettingsOpen(true); } }}
             extensionRequest={unlockRequest?.unlockRes === 'extensionUnlockMessage'}
             onCancelExtensionRequest={() => {
                 if (unlockRequest && model.fileUnlockPromise === unlockRequest) {
@@ -187,16 +190,16 @@ function App({ model }: { model: AppModel }) {
         <RemoteKeyRecovery model={model} />
         {openingAnother && <MultiVaultOpen model={model} close={() => setOpeningAnother(false)}
             setupPasskey={id => { setPasskeySettingsId(id); setSettingsOpen(true); }} />}
-        <div hidden={settingsOpen || openingAnother} style={{ height: '100%' }}>
+        <div hidden={(settingsOpen && model.settings.canOpenSettings) || openingAnother} style={{ height: '100%' }}>
         <Vault
             model={model}
             version={version}
-            onSettings={() => { setPasskeySettingsId(undefined); setSettingsOpen(true); }}
+            onSettings={() => { if (model.settings.canOpenSettings) { setPasskeySettingsId(undefined); setSettingsOpen(true); } }}
             onLock={() => void lock()}
             onOpenAnother={() => { if (access.state === 'open') setOpeningAnother(true); }}
         />
         </div>
-        {settingsOpen && <Settings model={model} passkeyVaultId={passkeySettingsId} extensionSessions={__KW_NEW_EXTENSION__ ? extensionSessions : undefined} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
+        {settingsOpen && model.settings.canOpenSettings && <Settings model={model} passkeyVaultId={passkeySettingsId} extensionSessions={__KW_NEW_EXTENSION__ ? extensionSessions : undefined} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
         </div>
         </>}
         </>

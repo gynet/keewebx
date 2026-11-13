@@ -13,16 +13,11 @@ import { discardPendingDrafts } from './pending-drafts';
 import { GeneralPreferences } from './general-preferences';
 import { ClassicSwitch } from './classic-switch';
 import { StoragePreferences } from './storage-preferences';
+import { IdlePreference, AppearancePreferences, SaveVerificationPreference, AuditPreferences, PreferencesHelp } from './app-preferences';
+import { ProviderPreferences } from './provider-preferences';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
-const AUTO_LOCK: [number, string][] = [
-    [5, '5 minutes'],
-    [15, '15 minutes'],
-    [30, '30 minutes'],
-    [60, '1 hour'],
-    [0, 'Never']
-];
 const CLEAR_CLIPBOARD: [number, string][] = [
     [0, 'Never'],
     [10, '10 seconds'],
@@ -111,24 +106,13 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                             <ThemeSelect />
                         </div>
                     </section>
-
+                    <AppearancePreferences />
+                    <PreferencesHelp />
                     </section>
                     <section id="settings-panel-security" role="tabpanel" aria-labelledby="settings-tab-security" hidden={section !== 'security'}>
                     <h2 class="group-title">{t('Security')}</h2>
                     <section class="cardlist">
-                        <label class="cardlist__row">
-                            <span title={t('Locks after this long without use')}>{t('Auto-lock')}</span>
-                            <select
-                                class="plain-select"
-                                id="setting-auto-lock"
-                                value={String(settings.idleMinutes)}
-                                onChange={(e) => set('idleMinutes', Number(e.currentTarget.value))}
-                            >
-                                {AUTO_LOCK.map(([v, label]) => (
-                                    <option value={v}>{t(label)}</option>
-                                ))}
-                            </select>
-                        </label>
+                        <IdlePreference />
                         <label class="cardlist__row">
                             <span title={t('Empties the clipboard after you copy a field')}>{t('Clear clipboard')}</span>
                             <select
@@ -144,6 +128,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                         </label>
                         <ClipboardLockSetting value={settings.lockOnCopy === true} onChange={value => set('lockOnCopy', value)} />
                     </section>
+                    <AuditPreferences />
                     <h2 class="group-title">{t('Local passkey unlock')}</h2>
                     <section class="cardlist">
                         {model.files.map((file) => <button key={file.id} type="button" class="cardlist__row settings__shortcut"
@@ -155,6 +140,8 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                     <section id="settings-panel-saving" role="tabpanel" aria-labelledby="settings-tab-saving" hidden={section !== 'saving'}>
                         <GeneralPreferences model={model} />
                         <StoragePreferences model={model} />
+                        <SaveVerificationPreference />
+                        <ProviderPreferences model={model} />
                     </section>
                     <section id="settings-panel-extensions" role="tabpanel" aria-labelledby="settings-tab-extensions" hidden={section !== 'extensions'}>
                         <ExtensionSessions model={model} api={extensionSessions} onBack={() => select('appearance')} />

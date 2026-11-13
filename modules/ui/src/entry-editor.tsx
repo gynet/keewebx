@@ -208,11 +208,12 @@ export function EntryEditor({ model, entry, group, tags = [], onSave, onCancel }
                                     <button class="link" type="button" onClick={() => setReveal(!reveal)}>
                                         {reveal ? t('Hide password') : t('Show password')}
                                     </button>
-                                    <button class="link" type="button" aria-expanded={generatorOpen}
-                                        onClick={() => setGeneratorOpen(!generatorOpen)}>{t('Generate password')}</button>
+                                    <button hidden={!model.settings.canOpenGenerator} class="link" type="button" aria-expanded={generatorOpen}
+                                        onClick={() => { if (model.settings.canOpenGenerator) setGeneratorOpen(!generatorOpen); }}>{t('Generate password')}</button>
                                 </div>
-                                {generatorOpen && <PasswordGeneratorPanel onClose={() => setGeneratorOpen(false)}
+                                {generatorOpen && model.settings.canOpenGenerator && <PasswordGeneratorPanel onClose={() => setGeneratorOpen(false)}
                                     onUse={(password) => {
+                                        if (!model.settings.canOpenGenerator) return;
                                         setDraft((current) => ({ ...current, fields: { ...current.fields, Password: password } }));
                                         setGeneratorOpen(false);
                                     }} />}

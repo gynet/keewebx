@@ -1,3 +1,6 @@
+import { AppSettingsModel } from 'models/app-settings-model';
+import { PasswordAudit } from './password-audit';
+import { PreferenceTile } from './preference-tile';
 /** A vault is open: groups and tags, the entry list, and the selected entry. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { AppModel } from 'models/app-model';
@@ -12,7 +15,7 @@ import { getSessionAccess } from 'comp/app/session-access';
 import { beginPendingOperation } from './pending-operations';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { DateFormat } from 'comp/i18n/date-format';
-import { Icon, Mark, Tile } from 'ui-kit/mark';
+import { Icon, Mark } from 'ui-kit/mark';
 import { tagColor } from 'ui-kit/tag-color';
 import { storageKey } from 'comp/settings/storage-namespace';
 import { PanelResizer } from 'ui-kit/panel-resizer';
@@ -153,7 +156,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
 
     const files = model.files as unknown as FileModel[];
     const entries = useMemo(() => {
-        const prepared = model.prepareFilter({ text: query, group: filter.group, tag: filter.tag, trash: filter.trash, subGroups: true });
+        const prepared = model.prepareFilter({ text: query, group: filter.group, tag: filter.tag, trash: filter.trash, subGroups: AppSettingsModel.expandGroups });
         const result = model.getEntriesByFilter(prepared, model.files);
         sortEntries(result, sort, prepared);
         return [...(result as unknown as EntryModel[])];
@@ -301,7 +304,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <span class="nav-row__label">{t('Manage groups')}</span>
                 </button>
                 {tags.length > 0 && <h2 class="side__heading">{t('Tags')}</h2>}
-                <div class="tags">
+                <div class={AppSettingsModel.tagStyle === 'dot' ? 'tags tags--dots' : 'tags'}>
                     {tags.map((tag) => (
                         <button
                             class={filter.tag === tag ? 'tag tag--on' : 'tag'}
@@ -324,7 +327,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     {props.onOpenAnother && <button class="round" aria-label={t('Open another vault')} title={t('Open another vault')}
                         onClick={() => { setNavigationOpen(false); props.onOpenAnother?.(); }}><Icon name="plus" size={17} /></button>}
                     <ThemeToggle />
-                    <button class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={() => { setNavigationOpen(false); props.onSettings(); }}>
+                    <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={() => { setNavigationOpen(false); props.onSettings(); }}>
                         <Icon name="gear" size={17} />
                     </button>
                     <button class="round" aria-label={t('Lock')} title={t('Lock')} id="lock" onClick={props.onLock}>
@@ -413,7 +416,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                                     setEditing(null); setSelected(e.id);
                                 }}
                             >
-                                <Tile title={s.title} icon={s.icon} customIcon={s.customIcon} />
+                                <PreferenceTile title={s.title} icon={s.icon} customIcon={e.customIcon} url={s.url} list />
                                 <span class="entry-row__text">
                                     <span class="entry-row__title" title={s.title || t('(no title)')}>{s.title || t('(no title)')}</span>
                                     <span class="entry-row__sub">{s.user || s.url}</span>
@@ -433,7 +436,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </button>
                 {props.onOpenAnother && <button class="round" aria-label={t('Open another vault')} onClick={props.onOpenAnother}><Icon name="plus" size={18} /></button>}
                 <ThemeToggle />
-                <button class="round" aria-label={t('Settings')} onClick={props.onSettings}>
+                <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} onClick={props.onSettings}>
                     <Icon name="gear" size={18} />
                 </button>
                 <button class="round" aria-label={t('Lock')} onClick={props.onLock}>
@@ -607,7 +610,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 <button class="round phone-only" aria-label={t('Back')} onClick={onBack} style={{ display: 'none' }}>
                     <Icon name="back" size={17} />
                 </button>
-                <Tile title={s.title} icon={s.icon} customIcon={s.customIcon} large />
+                <PreferenceTile title={s.title} icon={s.icon} customIcon={entry.customIcon} url={s.url} large />
                 <div style={{ flexGrow: 1, minWidth: 0 }}>
                     <h1 class="detail__title" id="entry-title">
                         {s.title || t('(no title)')}
@@ -623,6 +626,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 </div>
             </div>
 
+            <PasswordAudit model={model} entry={entry} />
             {(rows.length > 0 || entry.url) && (
                 <div class="fields">
                     {rows.map((r) => (

@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { ByteUtils, Consts } from 'kdbxweb';
 import type { AppModel } from 'models/app-model';
+import { canOpenProvider } from 'comp/app/vault-policy';
 import { VaultApi } from 'comp/app/vault-api';
 import { Locale } from 'util/locale';
 import { Icon, Mark } from 'ui-kit/mark';
@@ -47,14 +48,14 @@ function toBase64(buf: ArrayBuffer): string {
     return ByteUtils.bytesToBase64(buf);
 }
 
-export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest, onPasskeySetup, canOpen, onOpened, onCreating }: {
+export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest, onPasskeySetup, canOpen, onOpened, onCreating, onSettings }: {
     model: AppModel; extensionRequest?: boolean; onCancelExtensionRequest?(): void; onPasskeySetup(id: string): void;
-    canOpen?(): boolean; onOpened?(): void; onCreating?(busy: boolean): void;
+    canOpen?(): boolean; onOpened?(): void; onCreating?(busy: boolean): void; onSettings?(): void;
 }) {
     const sidebar = useSidebarCollapse('start');
     const additional = !!onOpened;
     const [creating, setCreating] = useState(false);
-    const recent: RecentFile[] = model.fileInfos.filter(fi => !additional || !model.files.get(fi.id)?.active).map((fi) => ({
+    const recent: RecentFile[] = model.fileInfos.filter(fi => (!additional || !model.files.get(fi.id)?.active) && (!fi.storage || canOpenProvider(fi.storage))).map((fi) => ({
         id: fi.id,
         name: fi.name,
         storage: fi.storage,
@@ -75,16 +76,20 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
         setFileError(null);
     };
     const selectPane = (next: Pane) => {
+        if (next.kind === 'create' && !model.settings.canCreate) return;
+        if ((next.kind === 'webdav' || next.kind === 'webdav-unlock') && !canOpenProvider('webdav')) return;
+        if (next.kind === 'recent' && next.file.storage && !canOpenProvider(next.file.storage)) return;
         cancelFileRead();
         setPane(next);
     };
     const readFile = async (file: File) => {
+        if (!model.settings.canOpen) return;
         const version = ++readVersion.current;
         setReadingFile(true);
         setFileError(null);
         try {
             const data = await file.arrayBuffer();
-            if (version !== readVersion.current) return;
+            if (version !== readVersion.current || !model.settings.canOpen) return;
             // Match Classic's signature check before replacing the selected vault.
             const signature = data.byteLength >= 8 ? new DataView(data) : null;
             const magic = signature?.getUint32(0, true);
@@ -105,6 +110,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
         }
     };
     const chooseFile = () => {
+        if (!model.settings.canOpen) return;
         const input = fileInput.current;
         const file = input?.files?.[0];
         if (input) input.value = '';
@@ -116,12 +122,13 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
             <aside class="start__side" aria-label={t('Your vaults')}>
                 <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="start-sidebar-content" label={t('Your vaults')} />
                 <div class="sidebar-rail">
-                    <button type="button" class="round" disabled={creating} aria-label={t('Open a file')} title={t('Open a file')} onClick={() => { sidebar.toggle(); fileInput.current?.click(); }}><Icon name="file" size={18} /></button>
+                    <button hidden={!model.settings.canOpen} type="button" class="round" disabled={creating} aria-label={t('Open a file')} title={t('Open a file')} onClick={() => { sidebar.toggle(); if (model.settings.canOpen) fileInput.current?.click(); }}><Icon name="file" size={18} /></button>
                     <ThemeToggle />
                 </div>
                 <div id="start-sidebar-content" class="start-sidebar-content">
                 <div class="start__tools">
                     {!additional && <a class="link" href="index.html?ui=classic">{t('Open Classic')}</a>}
+                    {!additional && onSettings && model.settings.canOpenSettings && <button type="button" class="link" onClick={() => { if (model.settings.canOpenSettings) onSettings(); }}>{t('Settings')}</button>}
                     <ThemeToggle />
                 </div>
                 {recent.length > 0 && <h2 class="start__heading">{t('Your vaults')}</h2>}
@@ -147,10 +154,12 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                             aria-label={t('Remove {} from this browser', kdbxName(file.name))}
                             title={t(file.storage ? 'Forget this vault' : 'Remove local copy')}
                             onClick={() => {
+                                if (!model.settings.canRemoveLatest) return;
                                 const message = file.storage
                                     ? 'Forget {} on this browser? Its cached copy and saved connection details will be removed. The remote database will not be deleted.'
                                     : 'Remove {} from this browser? Its encrypted local copy and recent entry will be deleted. Download a backup first if this is your only copy. Original files on disk are not deleted.';
                                 if (!window.confirm(t(message, kdbxName(file.name)))) return;
+                                if (!model.settings.canRemoveLatest) return;
                                 model.removeFileInfo(file.id);
                                 selectPane({ kind: 'none' });
                             }}><Icon name="trash" size={16} /></button>}
@@ -163,7 +172,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                 </button>}
                 {(model.settings.canImportXml || model.settings.canImportCsv) && <button class="add-row" disabled={creating} onClick={() => selectPane({ kind: 'import' })}>{t('Import XML or CSV')}</button>}
                 <input ref={fileInput} type="file" accept=".kdbx,.kdb" disabled={creating} hidden onChange={chooseFile} id="open-file-input" />
-                <button class="add-row" id="open-file" disabled={creating} onClick={() => fileInput.current?.click()}>
+                <button hidden={!model.settings.canOpen} class="add-row" id="open-file" disabled={creating} onClick={() => { if (model.settings.canOpen) fileInput.current?.click(); }}>
                     <span class="add-row__icon">
                         <Icon name="file" />
                     </span>
@@ -174,16 +183,16 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     <p class="error">{fileError.message}</p>
                     <button type="button" class="link" onClick={() => {
                         if (fileError.retry) void readFile(fileError.retry);
-                        else fileInput.current?.click();
+                        else if (model.settings.canOpen) fileInput.current?.click();
                     }}>{fileError.retry ? t('Retry reading file') : t('Choose another file')}</button>
                 </div>}
-                <button class="add-row" id="open-webdav" disabled={creating} onClick={() => selectPane({ kind: 'webdav' })}>
+                <button hidden={!canOpenProvider('webdav')} class="add-row" id="open-webdav" disabled={creating} onClick={() => selectPane({ kind: 'webdav' })}>
                     <span class="add-row__icon">
                         <Icon name="cloud" />
                     </span>
                     {t('Connect to WebDAV')}
                 </button>
-                {!additional && <button class="add-row" id="open-demo" onClick={() => { cancelFileRead(); VaultApi.openDemo({}); }}>
+                {!additional && <button hidden={!model.settings.canOpenDemo} class="add-row" id="open-demo" onClick={() => { if (!model.settings.canOpenDemo) return; cancelFileRead(); VaultApi.openDemo({}); }}>
                     <span class="add-row__icon">
                         <Icon name="play" />
                     </span>
@@ -198,7 +207,10 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     <p>{t('Unlock to connect a browser extension')}</p>
                     <button class="pill" type="button" onClick={onCancelExtensionRequest}>{t('Cancel extension request')}</button>
                 </div>}
-                {pane.kind === 'import' ? <div class="card"><ImportVault model={model} onDone={onOpened} canImport={canOpen} /></div>
+                {((pane.kind === 'file' && !model.settings.canOpen) || (pane.kind === 'create' && !model.settings.canCreate) ||
+                    ((pane.kind === 'webdav' || pane.kind === 'webdav-unlock') && !canOpenProvider('webdav')) ||
+                    (pane.kind === 'recent' && pane.file.storage && !canOpenProvider(pane.file.storage))) ? <p role="status">{t('This action is disabled by the host.')}</p>
+                    : pane.kind === 'import' ? <div class="card"><ImportVault model={model} onDone={onOpened} canImport={canOpen} /></div>
                     : pane.kind === 'create' ? <CreateVault model={model} onCreated={onOpened} onBusyChange={busy => { setCreating(busy); onCreating?.(busy); }} /> : pane.kind === 'webdav' ? (
                     <WebDavForm onNext={(url, user, pass) => selectPane({ kind: 'webdav-unlock', url, user, pass })} />
                 ) : pane.kind === 'none' ? (

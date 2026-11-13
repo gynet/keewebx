@@ -5,6 +5,7 @@
  * Results are plain objects without secrets, except field reads.
  */
 import * as kdbxweb from 'kdbxweb';
+import { assertVaultPolicy } from './vault-policy';
 import { Events } from 'framework/events';
 import { AppModel } from 'models/app-model';
 import { AppSettingsModel } from 'models/app-settings-model';
@@ -111,6 +112,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
         if (!fileInfo) {
             throw new Error('Unknown vault');
         }
+        if (fileInfo.storage) assertVaultPolicy('provider', fileInfo.storage);
         const openedFileId = await openFile({
             id: fileInfo.id,
             canOpen: typeof req.canOpen === 'function' ? req.canOpen as () => boolean : undefined,
@@ -126,6 +128,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
     },
 
     async openWebDav(req) {
+        assertVaultPolicy('provider', 'webdav');
         const url = String(req.url);
         const openedFileId = await openFile({
             name: UrlFormat.getDataFileName(url),
@@ -140,6 +143,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
     },
 
     async openData(req) {
+        assertVaultPolicy('open');
         const bytes = kdbxweb.ByteUtils.base64ToBytes(String(req.data));
         const openedFileId = await openFile({
             name: String(req.name || 'vault').replace(/\.kdbx$/i, ''),
@@ -154,6 +158,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
     },
 
     openDemo() {
+        assertVaultPolicy('demo');
         app().createDemoFile();
         return status();
     },

@@ -43,7 +43,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
     };
     usePendingDraft(JSON.stringify(draft) !== baseline, apply, reset, 'database');
     const download = async () => {
-        if (busy || credentialBusy) return;
+        if (busy || credentialBusy || !model.settings.canSaveTo) return;
         if (!available() || getSessionAccess(model).state !== 'open') return;
         if (credentialDraft.current) {
             setMessage(t('Apply or discard credential edits before downloading.')); return;
@@ -62,6 +62,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             access.assertOpen(epoch);
             const data = await exportVault(file);
             access.assertOpen(epoch);
+            if (!model.settings.canSaveTo) throw new Error('Export is disabled by the host.');
             const url = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
             const link = document.createElement('a');
             link.href = url;
@@ -103,8 +104,8 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
                 runOperation={(operation) => runCredentialOperation(model, file, () => mounted.current, operation)} />
             <DatabaseSettingsFields value={draft} onChange={setDraft} />
             <div class="database-settings__actions">
-                <button type="submit" class="pill pill--primary">{t('Save database settings')}</button>
-                <button type="button" class="pill" onClick={download}>{t('Download KDBX')}</button>
+                <button type="submit" class="pill pill--primary" disabled={file.syncing}>{t('Save database settings')}</button>
+                <button hidden={!model.settings.canSaveTo} type="button" class="pill" onClick={download}>{t('Download KDBX')}</button>
                 <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
             </div>
         </fieldset>
