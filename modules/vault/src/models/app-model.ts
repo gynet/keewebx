@@ -23,6 +23,7 @@ import { debounce, noop } from 'util/fn';
 import { runBeforeOpen, runBeforeSync } from 'hooks/storage-guards';
 import { SyncScheduler } from 'comp/app/sync-scheduler';
 import { getSessionAccess } from 'comp/app/session-access';
+import { SettingsStore } from 'comp/settings/settings-store';
 import 'util/kdbxweb/protected-value-ex';
 
 interface StorageStat {
@@ -172,6 +173,8 @@ interface SyncOptions {
     path?: string;
     opts?: Record<string, unknown>;
     remoteKey?: RemoteKey | null;
+    /** Explicit local-to-WebDAV migration; never use remote merge on a destination conflict. */
+    saveAs?: { etag: string | null; signal: AbortSignal };
 }
 
 interface ConfigFileEntry {
@@ -1295,6 +1298,13 @@ class AppModel {
         }
         logger.info('Sync started', storageName, path, optionsForLogging);
         const existingFileInfo = this.getFileInfo(file);
+        if (syncOptions.saveAs && (file.storage || file.demo || !existingFileInfo ||
+            !this.settings.canSaveTo || !this.settings.webdav || !Storage.webdav.enabled ||
+            this.settings.disableOfflineStorage || !Storage.cache.enabled ||
+            storageName !== 'webdav' || !path || (file as FileModel & { readOnly?: boolean }).readOnly)) {
+            callback?.('This vault cannot be saved to WebDAV.');
+            return;
+        }
         const startSync = (resolvedFileInfo: FileInfoModel): void => {
             if (!canStart()) { callback?.('Sync request expired'); return; }
             file.setSyncProgress();
@@ -1318,6 +1328,11 @@ class AppModel {
                         ? err
                         : (err as { toString?: () => string }).toString?.() ?? String(err)
                     : null;
+                if (syncOptions.saveAs) {
+                    file.setSyncComplete(file.path, file.storage, errStr || 'Save destination request expired');
+                    callback?.(err || 'Save destination request expired');
+                    return;
+                }
                 if (file.setSyncComplete(path ?? null, storageName, errStr) === false) {
                     callback?.('The database changed before saving completed.');
                     return;
@@ -1358,7 +1373,7 @@ class AppModel {
             };
             const getVerifiedData = (done: (data?: ArrayBuffer, error?: unknown) => void): void => {
                 if (!continueOrFail()) return;
-                const verify = this.settings.saveVerify;
+                const verify = !!syncOptions.saveAs || this.settings.saveVerify;
                 file.getDataForSync((data, error) => {
                     if (error instanceof SaveVerificationError) {
                         // No unverified bytes were written; retain the recoverable live model.
@@ -1370,6 +1385,54 @@ class AppModel {
                     done(data, error);
                 }, verify);
             };
+            if (syncOptions.saveAs) {
+                const destination = syncOptions.saveAs;
+                // Keep the local recent record and recovery bytes until the remote write AND
+                // checked metadata persistence succeed. No failure arms automatic remote retries.
+                const fail = (error: unknown) => {
+                    if (completed) return;
+                    completed = true;
+                    file.setSyncComplete(file.path, file.storage, String(error));
+                    callback?.(error);
+                };
+                const current = () => canContinue() && file.db === syncDb && !destination.signal.aborted;
+                const hash = this._getPasswordHash(file);
+                Storage.webdav.fileOptsToStoreOpts(opts ?? {}, file, hash ?? undefined).then((storedOpts) => {
+                    if (hash) kdbxweb.ByteUtils.zeroBuffer(hash);
+                    if (!current()) { fail('Save destination request expired'); return; }
+                    getVerifiedData((data, error) => {
+                        if (error || !data) { fail(error || 'No file data'); return; }
+                        if (!current()) { fail('Save destination request expired'); return; }
+                        const savedEditState = file.getLocalEditState();
+                        Storage.cache.save(resolvedFileInfo.id, null, data, (cacheError) => {
+                            if (cacheError) { fail(cacheError); return; }
+                            if (!current()) { fail('Save destination request expired'); return; }
+                            Storage.webdav.saveAs(path!, opts ?? {}, data, destination.etag, destination.signal, (saveError, rev) => {
+                                if (saveError) { fail(saveError); return; }
+                                if (!current()) { fail('Save destination request expired; a remote copy may exist'); return; }
+                                const syncDate = new Date();
+                                const changed = file.editSeq !== file.syncStartEditSeq;
+                                const properties = { storage: 'webdav', path, opts: storedOpts, rev: rev ?? null,
+                                    syncDate, modified: changed, editState: savedEditState };
+                                try {
+                                    SettingsStore.saveRequired('file-info', this.fileInfos.map((info) => info === resolvedFileInfo
+                                        ? { ...JSON.parse(JSON.stringify(info)), ...properties } : info));
+                                } catch {
+                                    fail('The remote copy was written, but its connection could not be saved. The local vault is retained.');
+                                    return;
+                                }
+                                completed = true;
+                                file.opts = opts ?? null;
+                                file.syncDate = syncDate;
+                                file.setSyncComplete(path!, 'webdav', null);
+                                resolvedFileInfo.set(properties);
+                                callback?.();
+                            });
+                        });
+                    });
+                }, (error) => { if (hash) kdbxweb.ByteUtils.zeroBuffer(hash); fail(error); });
+                return;
+            }
             if (!storageName || !storageProvider) {
                 if (!file.modified && resolvedFileInfo.id === file.id) {
                     logger.info('Local, not modified');

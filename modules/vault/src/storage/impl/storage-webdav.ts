@@ -30,6 +30,8 @@ interface WebDavRequestConfig {
     nostat?: boolean;
     rev?: string;
     headers?: Record<string, string>;
+    signal?: AbortSignal;
+    timeout?: number;
 }
 
 type WebDavCallback = (
@@ -49,6 +51,33 @@ class StorageWebDav extends StorageBase {
     icon = 'server';
     enabled = true;
     uipos = 10;
+
+    /** A strong ETag binds explicit replacement consent to the inspected destination. */
+    inspectSaveDestination(path: string, opts: FileOpts, signal: AbortSignal): Promise<string | null> {
+        return new Promise((resolve, reject) => this._request({
+            op: 'SaveAs:inspect', method: 'HEAD', path, ...opts, nostat: true, signal, timeout: 30_000
+        }, (error, xhr) => {
+            if (error && (error as WebDavError).notFound) { resolve(null); return; }
+            if (error) { reject(error); return; }
+            const etag = xhr?.getResponseHeader('ETag');
+            if (!etag || !/^"[^\r\n]*"$/.test(etag)) {
+                reject(new Error('This server does not expose a strong ETag. Choose a new filename to avoid an unsafe overwrite.'));
+                return;
+            }
+            resolve(etag);
+        }));
+    }
+
+    /** Conditional PUT is atomic at the destination; a changed file is never merged or overwritten blindly. */
+    saveAs(path: string, opts: FileOpts, data: ArrayBuffer, etag: string | null, signal: AbortSignal,
+        callback: (error?: unknown, rev?: string) => void): void {
+        try {
+            this._request({
+                op: 'SaveAs:put', method: 'PUT', path, ...opts, data, nostat: true, signal, timeout: 30_000,
+                headers: etag === null ? { 'If-None-Match': '*' } : { 'If-Match': etag }
+            }, (error, xhr) => callback(error, xhr?.getResponseHeader('Last-Modified') ?? undefined));
+        } catch (error) { callback(error); }
+    }
 
     needShowOpenConfig(): boolean {
         return true;
@@ -456,6 +485,7 @@ class StorageWebDav extends StorageBase {
     }
 
     _request(config: WebDavRequestConfig, callback?: WebDavCallback | null): void {
+        if (config.signal?.aborted) { queueMicrotask(() => callback?.('aborted')); return; }
         // Firefox can leave an XHR pending indefinitely in browser offline mode.
         // Complete asynchronously so the caller can finish caching and publish
         // its offline state; the sync scheduler retries when connectivity returns.
@@ -582,6 +612,15 @@ class StorageWebDav extends StorageBase {
         if (typeof window !== 'undefined') {
             window.addEventListener('offline', onOffline);
             xhr.addEventListener('loadend', () => window.removeEventListener('offline', onOffline), { once: true });
+        }
+        if (config.signal) {
+            const abort = () => xhr.abort();
+            config.signal.addEventListener('abort', abort, { once: true });
+            xhr.addEventListener('loadend', () => config.signal?.removeEventListener('abort', abort), { once: true });
+        }
+        if (config.timeout) {
+            xhr.timeout = config.timeout;
+            xhr.addEventListener('timeout', () => { const done = callback; callback = null; done?.('Request timed out'); });
         }
         xhr.responseType = 'arraybuffer';
         if (config.user) {

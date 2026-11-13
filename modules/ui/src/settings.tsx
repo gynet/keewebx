@@ -8,8 +8,9 @@ import { ClipboardLockSetting } from './clipboard-lock-setting';
 import type { AppModel } from 'models/app-model';
 import { DatabaseSettingsEditor } from './database-settings';
 import { ExtensionSessions, type ExtensionSessionsApi } from './extension-sessions';
-import { confirmDiscardDrafts, discardPendingDrafts } from './pending-drafts';
+import { discardPendingDrafts } from './pending-drafts';
 import { GeneralPreferences } from './general-preferences';
+import { ClassicSwitch } from './classic-switch';
 
 const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
@@ -26,13 +27,6 @@ const CLEAR_CLIPBOARD: [number, string][] = [
     [30, '30 seconds'],
     [60, '1 minute']
 ];
-
-/** Switches to the Classic interface; it opens the same vaults. */
-export function switchToClassic(): void {
-    if (!confirmDiscardDrafts()) return;
-    settings.ui = 'classic';
-    location.href = 'index.html';
-}
 
 const SECTIONS = [
     ['appearance', 'Appearance'], ['security', 'Security'], ['saving', 'Saving and content'],
@@ -107,9 +101,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                                 <button class="segmented--on" role="radio" aria-checked="true">
                                     {t('New')}
                                 </button>
-                                <button role="radio" aria-checked="false" id="use-classic" onClick={switchToClassic}>
-                                    {t('Classic')}
-                                </button>
+                                <ClassicSwitch model={model} />
                             </div>
                         </div>
                         <div class="cardlist__row">

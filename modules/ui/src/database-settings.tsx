@@ -10,6 +10,7 @@ import { runCredentialOperation } from './credential-operations';
 import { savePendingDrafts, usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
 import { DatabasePasskey } from './database-passkey';
+import { WebDavSaveAs } from './webdav-save-as';
 
 export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppModel; file: FileModel; onCancel: () => void }) {
     const [draft, setDraft] = useState(() => readDatabaseSettings(file));
@@ -72,7 +73,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             setMessage(t('Could not export the database. Keep the vault open and retry.'));
         } finally { setBusy(false); }
     };
-    return <form ref={form} class="database-settings cardlist" aria-label={t('Database settings: {}', file.name)}
+    return <><form ref={form} class="database-settings cardlist" aria-label={t('Database settings: {}', file.name)}
         onSubmit={async (event) => {
             event.preventDefault();
             if (busy || credentialBusy) return;
@@ -108,5 +109,5 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
         </fieldset>
         <DatabasePasskey key={file.id} model={model} file={file} />
         {message && <p role="status">{message}</p>}
-    </form>;
+    </form><WebDavSaveAs model={model} file={file} /></>;
 }
