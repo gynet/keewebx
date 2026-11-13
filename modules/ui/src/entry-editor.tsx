@@ -5,7 +5,7 @@ import type { AppModel } from 'models/app-model';
 import { getSessionAccess } from 'comp/app/session-access';
 import { OtpFieldNames, otpSnapshot, readEntryOtp, prepareOtpDraft, applyEntryOtp, type OtpDraft } from 'comp/app/entry-otp';
 import { EntryOtpFields } from './entry-otp-fields';
-import type { EntryModel } from 'models/entry-model';
+import { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
 import type { GroupModel } from 'models/group-model';
 import { PasswordGeneratorPanel } from './password-generator';
@@ -13,6 +13,7 @@ import { t } from './i18n';
 import './entry-editor.css';
 import { usePendingDraft } from './pending-drafts';
 import { EntryHistory } from './entry-history';
+import { UsernameInput } from './username-input';
 import { writableCreationGroup } from './creation-target';
 
 const FIELDS = [
@@ -209,10 +210,13 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                                     readOnly={!!draft.protection?.[name] && !revealedFields.has(name)}
                                     value={draft.protection?.[name] && !revealedFields.has(name) ? (draft.fields[name] ? '••••••••' : '') : draft.fields[name]}
                                     onInput={(event) => { if (!draft.protection?.[name] || revealedFields.has(name)) setDraft({ ...draft, fields: { ...draft.fields, [name]: event.currentTarget.value } }); }} />
+                            ) : name === 'UserName' ? (
+                                <UsernameInput model={model} value={draft.fields.UserName}
+                                    hidden={!!draft.protection?.UserName && !revealedFields.has('UserName')}
+                                    onInput={value => setDraft({ ...draft, fields: { ...draft.fields, UserName: value } })} />
                             ) : (
                                 <input class="input" type={(name === 'Password' ? !reveal : draft.protection?.[name] && !revealedFields.has(name)) ? 'password' : 'text'}
                                     autoFocus={name === 'Title'} autoComplete="off" spellcheck={false}
-                                    list={name === 'UserName' ? 'entry-usernames' : undefined}
                                     value={draft.fields[name]}
                                     onInput={(event) => setDraft({ ...draft, fields: { ...draft.fields, [name]: event.currentTarget.value } })} />
                             )}
@@ -243,13 +247,6 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                         )}
                     </div>
                 ))}
-                <datalist id="entry-usernames">
-                    {[...new Set(model.files.flatMap(file => {
-                        const names: string[] = [];
-                        file.forEachEntry({}, entry => { if (entry.user) names.push(entry.user); });
-                        return names;
-                    }))].map(name => <option value={name} />)}
-                </datalist>
                 <label class="field-label entry-editor__field">
                     <span>{t('Expires')}</span>
                     <input class="input" type="datetime-local" aria-label={t('Expires')} step="1" value={draft.expires}
@@ -304,6 +301,11 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                     <button class="link" type="button" onClick={() => setDraft({
                         ...draft, custom: [...draft.custom, { id: nextId.current++, name: '', value: '', protected: false }]
                     })}>{t('Add field')}</button>
+                    <button class="link" type="button" onClick={() => {
+                        const reserved = draft.custom.map(customName);
+                        const name = entry ? entry.getNextUrlFieldName(reserved) : EntryModel.getNextUrlFieldName(reserved);
+                        setDraft({ ...draft, custom: [...draft.custom, { id: nextId.current++, name, value: '', protected: false }] });
+                    }}>{t('Add website')}</button>
                 </fieldset>
                 {error && <p class="error" role="alert">{error}</p>}
             </form>

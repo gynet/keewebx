@@ -1,5 +1,8 @@
 import { EntryAppearance, EntryFlag, EntryColorFilter } from './entry-appearance';
 import { EntryListing } from './entry-listing';
+import { ProtectedValue } from 'kdbxweb';
+import { EntryExportActions, dragField } from './entry-export-actions';
+import { EntryDiscard } from './entry-discard';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { PasswordAudit } from './password-audit';
 import { PreferenceTile } from './preference-tile';
@@ -756,8 +759,11 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
     const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set());
     const [copied, setCopied] = useState('');
     const [notesVersion, setNotesVersion] = useState(0);
+    const [showEmpty, setShowEmpty] = useState(!AppSettingsModel.hideEmptyFields);
     const password = entry.password?.getText?.() ?? '';
     const website = safeWebsiteUrl(entry.url);
+    const urlSecret = entry.entry.fields.get('URL') instanceof ProtectedValue;
+    const urlVisible = !urlSecret || revealedFields.has('url');
 
     const copy = async (key: string, read: () => Promise<string>) => {
         const access = getSessionAccess(model);
@@ -797,15 +803,18 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
     });
 
     const custom = Object.entries(entry.fields ?? {}).filter(([k]) => k !== 'otp' && k !== 'TOTP Seed' && k !== 'TOTP Settings');
-    const rows: { key: string; label: string; value: string; text: () => Promise<string>; mono?: boolean; secret?: boolean }[] = [];
-    if (entry.user) {
-        rows.push({ key: 'user', label: t('Username'), value: entry.user, text: () => entryFieldText(entry, 'user') });
+    const rows: { key: string; label: string; value: string; raw: string; text: () => Promise<string>; mono?: boolean; secret?: boolean; website?: string }[] = [];
+    if (entry.user || showEmpty) {
+        const secret = entry.entry.fields.get('UserName') instanceof ProtectedValue;
+        rows.push({ key: 'user', label: t('Username'), raw: entry.user, secret,
+            value: !entry.user ? t('(empty)') : secret && !revealedFields.has('user') ? '••••••••' : entry.user,
+            text: () => entryFieldText(entry, 'user') });
     }
-    if (password) {
+    if (password || showEmpty) {
         rows.push({
             key: 'password',
             label: t('Password'),
-            value: reveal ? password : '••••••••••••',
+            value: !password ? t('(empty)') : reveal ? password : '••••••••••••', raw: password,
             text: () => entryFieldText(entry, 'password'),
             mono: true,
             secret: true
@@ -816,6 +825,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
             key: 'otp',
             label: t('One-time code'),
             value: `${otp.code.slice(0, 3)} ${otp.code.slice(3)}`,
+            raw: otp.code,
             text: () => Promise.resolve(otp.code),
             mono: true
         });
@@ -824,7 +834,11 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
         const protectedValue = value as { getText?: () => string };
         const text = typeof protectedValue?.getText === 'function' ? protectedValue.getText() : String(value ?? '');
         const secret = typeof protectedValue?.getText === 'function';
-        rows.push({ key: `field:${name}`, label: name, value: secret && !revealedFields.has(`field:${name}`) ? '••••••••' : text,
+        if (!text && !showEmpty) continue;
+        const visible = !secret || revealedFields.has(`field:${name}`);
+        rows.push({ key: `field:${name}`, label: name, raw: text,
+            value: !text ? t('(empty)') : !visible ? '••••••••' : text,
+            website: name.startsWith('KP2A_URL') && visible ? safeWebsiteUrl(text) : undefined,
             secret, text: () => Promise.resolve(text) });
     }
 
@@ -852,16 +866,22 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                     {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
                     <EntryHistory entry={entry} searchFilter={historyFilter} onRestore={() => setNotesVersion(value => value + 1)} />
                     <EntryDelete model={model} entry={entry} onDeleted={onDeleted} />
+                    <EntryExportActions model={model} entry={entry} />
+                    <EntryDiscard model={model} entry={entry} onDeleted={onDeleted} onChanged={() => setNotesVersion(value => value + 1)} />
                 </div>
             </div>
 
             <PasswordAudit model={model} entry={entry} />
-            {(rows.length > 0 || entry.url) && (
+            <button type="button" class="link" onClick={() => {
+                AppSettingsModel.hideEmptyFields = showEmpty; setShowEmpty(!showEmpty);
+            }}>{t(showEmpty ? 'Hide empty fields' : 'Show empty fields')}</button>
+            {(rows.length > 0 || entry.url || showEmpty) && (
                 <div class="fields">
                     {rows.map((r) => (
                         <div class="field" data-field={r.key}>
                             <span class="field__text">
-                                <span class="field__label">{r.label}</span>
+                                <span class="field__label" draggable={!!r.raw} title={t('Drag to copy {} as plain text', r.label)}
+                                    onDragStart={event => dragField(model, entry, r.raw, event)}>{r.label}</span>
                                 <span class={r.mono ? 'field__value field__value--mono' : 'field__value'}>{r.value}</span>
                             </span>
                             {r.key === 'otp' && otp && <span class="muted" style={{ fontSize: '12px' }}>{otp.counterBased
@@ -877,21 +897,27 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                                     <Icon name="eye" size={17} />
                                 </button>
                             )}
-                            <button class="field__action" onClick={() => void copy(r.key, r.text)}>
+                            {r.website && <a class="field__action" href={r.website} target="_blank" rel="noopener noreferrer">{t('Open')}</a>}
+                            <button class="field__action" disabled={!r.raw} onClick={() => void copy(r.key, r.text)}>
                                 {copied === r.key ? t('Copied') : t('Copy')}
                             </button>
                         </div>
                     ))}
-                    {entry.url && (
+                    {(entry.url || showEmpty) && (
                         <div class="field" data-field="url">
                             <span class="field__text">
-                                <span class="field__label">{t('Website')}</span>
-                                <span class="field__value">{entry.url}</span>
+                                <span class="field__label" draggable={!!entry.url} title={t('Drag to copy {} as plain text', t('Website'))}
+                                    onDragStart={event => dragField(model, entry, entry.url, event)}>{t('Website')}</span>
+                                <span class="field__value">{!entry.url ? t('(empty)') : urlVisible ? entry.url : '••••••••'}</span>
                             </span>
-                            {website && <a class="field__action" href={website} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+                            {urlSecret && <button class="icon-btn" aria-label={t(urlVisible ? 'Hide Website' : 'Show Website')}
+                                onClick={() => setRevealedFields(current => {
+                                    const next = new Set(current); if (next.has('url')) next.delete('url'); else next.add('url'); return next;
+                                })}><Icon name="eye" size={17} /></button>}
+                            {website && urlVisible && <a class="field__action" href={website} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
                                 {t('Open')}
                             </a>}
-                            <button class="field__action" onClick={() => void copy('url', () => entryFieldText(entry, 'url'))}>
+                            <button class="field__action" disabled={!entry.url} onClick={() => void copy('url', () => entryFieldText(entry, 'url'))}>
                                 {copied === 'url' ? t('Copied') : t('Copy')}
                             </button>
                         </div>

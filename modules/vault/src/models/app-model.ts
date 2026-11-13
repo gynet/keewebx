@@ -629,19 +629,19 @@ class AppModel {
     }
 
     completeUserNames(part: string): string[] {
-        const userNames: Record<string, number> = {};
+        const userNames = new Map<string, number>();
         this.files.forEach((file) => {
             file.forEachEntry(
                 { text: part, textLower: part.toLowerCase(), advanced: { user: true } },
                 (entry) => {
                     const userName = entry.user;
                     if (userName) {
-                        userNames[userName] = (userNames[userName] || 0) + 1;
+                        userNames.set(userName, (userNames.get(userName) || 0) + 1);
                     }
                 }
             );
         });
-        const matches = Object.entries(userNames);
+        const matches = [...userNames];
         matches.sort((x, y) => y[1] - x[1]);
         const maxResults = 5;
         if (matches.length > maxResults) {

@@ -13,6 +13,13 @@ import { omit } from 'util/fn';
 import { EntrySearch } from 'util/entry-search';
 import type { EntryModel as SearchableEntryModel, SearchFilter } from 'util/entry-search';
 import type { ColorName } from 'const/colors';
+import { createEntrySnapshot } from 'util/kdbxweb/export-snapshot';
+
+// A saved-content baseline must not depend on the user's history retention limit.
+// Weak ownership also releases protected buffers when an entry/session is closed.
+const editBaselines = new WeakMap<EntryModel, {
+    raw: kdbxweb.KdbxEntry; db: kdbxweb.Kdbx; saved: kdbxweb.KdbxEntry | null;
+}>();
 
 const UrlRegex = /^https?:\/\//i;
 const FieldRefRegex = /^\{REF:([TNPAU])@I:(\w{32})}$/;
@@ -119,6 +126,8 @@ class EntryModel extends Model {
     }
 
     setEntry(entry: kdbxweb.KdbxEntry, group: unknown, file: unknown): void {
+        const baseline = editBaselines.get(this);
+        if (baseline && (baseline.raw !== entry || baseline.db !== (file as FileModel).db)) editBaselines.delete(this);
         this.entry = entry;
         this.group = group;
         this.file = file;
@@ -197,7 +206,7 @@ class EntryModel extends Model {
         if (this.canBeDeleted) {
             this.canBeDeleted = false;
         }
-        if (this.unsaved && +this.updated !== +(this.entry.times.lastModTime as Date)) {
+        if (this.unsaved && !editBaselines.has(this) && +this.updated !== +(this.entry.times.lastModTime as Date)) {
             this.unsaved = false;
         }
     }
@@ -290,6 +299,7 @@ class EntryModel extends Model {
     }
 
     _entryModified(): void {
+        this._captureEditBaseline();
         if (!this.unsaved) {
             this.unsaved = true;
             const file = this.file as { historyMaxItems: number; setModified(): void; reload(): void };
@@ -308,6 +318,7 @@ class EntryModel extends Model {
     }
 
     setSaved(): void {
+        editBaselines.delete(this);
         if (this.unsaved) {
             this.unsaved = false;
         }
@@ -525,6 +536,8 @@ class EntryModel extends Model {
     deleteHistory(historyEntry: kdbxweb.KdbxEntry): void {
         const ix = this.entry.history.indexOf(historyEntry);
         if (ix >= 0) {
+            this._captureEditBaseline();
+            this.unsaved = true;
             this.entry.removeHistory(ix);
             (this.file as { setModified(): void }).setModified();
         }
@@ -536,6 +549,7 @@ class EntryModel extends Model {
         if (ix < 0) {
             return;
         }
+        this._captureEditBaseline();
         this.entry.pushHistory();
         this.unsaved = true;
         (this.file as { setModified(): void }).setModified();
@@ -546,16 +560,61 @@ class EntryModel extends Model {
         this._fillByEntry();
     }
 
+    _captureEditBaseline(): void {
+        if (!editBaselines.has(this)) editBaselines.set(this, {
+            raw: this.entry, db: (this.file as FileModel).db, saved: createEntrySnapshot(this.entry)
+        });
+    }
+
+    get canDiscardUnsaved(): boolean {
+        const baseline = editBaselines.get(this);
+        return !!baseline && baseline.raw === this.entry && baseline.db === (this.file as FileModel).db;
+    }
+
+    get discardRemovesEntry(): boolean { return this.canDiscardUnsaved && editBaselines.get(this)!.saved === null; }
+
+    /** Restore applied content only; the vault stays dirty until this undo is saved. */
     discardUnsaved(): void {
-        if (this.unsaved && this.entry.history.length) {
-            this.unsaved = false;
-            const historyEntry = this.entry.history[this.entry.history.length - 1];
-            this.entry.removeHistory(this.entry.history.length - 1);
-            this.entry.fields = new Map();
-            this.entry.binaries = new Map();
-            this.entry.copyFrom(historyEntry);
-            this._fillByEntry();
+        const file = this.file as FileModel & { readOnly?: boolean };
+        if (!this.canDiscardUnsaved || file.syncing || file.readOnly) throw new Error('The entry cannot be discarded now.');
+        const saved = editBaselines.get(this)!.saved;
+        if (!saved) {
+            // A failed save may already have reached storage: retain a deletion tombstone.
+            file.db.move(this.entry, null);
+            editBaselines.delete(this);
+            file.setModified(); file.reload();
+            return;
         }
+        const restored = createEntrySnapshot(saved);
+        const records = [restored, ...restored.history];
+        // Do not silently resurrect an icon explicitly deleted by another operation.
+        for (const record of records) {
+            if (record.customIcon && (!file.db.meta.customIcons.has(record.customIcon.id)
+                || file.db.deletedObjects.some(item => item.uuid?.equals(record.customIcon!)))) {
+                throw new Error('A saved icon is no longer available. Restore the icon before discarding this entry.');
+            }
+        }
+        for (const record of records) for (const binary of record.binaries.values()) {
+            if (kdbxweb.KdbxBinaries.isKdbxBinaryWithHash(binary)) file.db.binaries.addWithHash(binary);
+        }
+        const desired = restored.history.map(item => item.times.lastModTime!.getTime());
+        const state = this.entry._editState;
+        const deleted = [...(state?.deleted ?? []), ...this.entry.history.map(item => item.times.lastModTime!.getTime())]
+            .filter(time => !desired.includes(time));
+        restored._editState = { added: [...new Set([...(state?.added ?? []), ...desired])], deleted: [...new Set(deleted)] };
+        const { parentGroup, previousParentGroup } = this.entry;
+        const locationChanged = this.entry.times.locationChanged;
+        for (const key of Object.keys(this.entry)) {
+            if (!(key in restored) && key !== 'parentGroup' && key !== 'previousParentGroup') {
+                Reflect.deleteProperty(this.entry, key);
+            }
+        }
+        Object.assign(this.entry, restored, { parentGroup, previousParentGroup });
+        this.entry.times.locationChanged = locationChanged;
+        this.entry.times.update();
+        editBaselines.delete(this);
+        this.unsaved = false;
+        file.setModified(); this._fillByEntry();
     }
 
     moveToTrash(): void {
@@ -825,13 +884,17 @@ class EntryModel extends Model {
         this.entry.customData.set('IgnorePwIssues', { value: '1' });
     }
 
-    getNextUrlFieldName(): string {
+    getNextUrlFieldName(reserved: Iterable<string> = []): string {
+        return EntryModel.getNextUrlFieldName([...this.entry.fields.keys(), ...reserved]);
+    }
+
+    static getNextUrlFieldName(names: Iterable<string>): string {
         const takenFields = new Set(
-            [...this.entry.fields.keys()].filter((f) => f.startsWith(ExtraUrlFieldName))
+            [...names].map(name => name.toLowerCase())
         );
         for (let i = 0; ; i++) {
             const fieldName = i ? `${ExtraUrlFieldName}_${i}` : ExtraUrlFieldName;
-            if (!takenFields.has(fieldName)) {
+            if (!takenFields.has(fieldName.toLowerCase())) {
                 return fieldName;
             }
         }
@@ -878,6 +941,7 @@ class EntryModel extends Model {
         model.unsaved = true;
         model.isJustCreated = true;
         model.canBeDeleted = true;
+        editBaselines.set(model, { raw: entry, db: file.db, saved: null });
         group.addEntry(model);
         file.setModified();
         return model;

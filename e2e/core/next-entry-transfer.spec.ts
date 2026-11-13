@@ -154,6 +154,8 @@ for (const touch of [false, true]) test.describe(touch ? '320px touch' : 'deskto
     test.use(touch ? { viewport: { width: 320, height: 568 }, hasTouch: true } : {});
     test('cross-vault move confirms destination, preserves drafts on cancel, identity and bytes through encrypted cached reopen', async ({ page }) => {
         const a = await fixture('Source'), b = await fixture('Destination'); await openPair(page, a, b);
+        await navigation(page, touch);
+        await click(nav(page).locator('.open-vaults__select').filter({ hasText: 'Source.kdbx' }), touch);
         await click(row(page, 'Portable account').first(), touch);
         const notes = page.getByRole('region', { name: 'Notes', exact: true });
         await click(notes.getByRole('button', { name: 'Edit notes', exact: true }), touch);
@@ -172,9 +174,16 @@ for (const touch of [false, true]) test.describe(touch ? '320px touch' : 'deskto
         page.once('dialog', async prompt => { prompts++; await prompt.accept(); });
         await apply(page, touch);
         expect(prompts).toBe(2);
+        if (!touch) await expect(page.getByRole('combobox', { name: 'Vault filter', exact: true }).locator('option:checked')).toHaveText('Destination.kdbx (vault 2)');
+        await expect(page.locator('#entry-title')).toHaveText('Portable account');
         await expect(page.getByRole('status').filter({ hasText: 'Entry moved. Both vaults saved.' })).toBeInViewport({ timeout });
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
         await test.info().attach('move-result', { body: await page.screenshot(), contentType: 'image/png' });
+        if (touch) {
+            await navigation(page, touch);
+            await expect(nav(page).locator('.open-vaults__select').filter({ hasText: 'Destination.kdbx' })).toHaveAttribute('aria-pressed', 'true');
+            await expect(nav(page).locator('.open-vaults__select').filter({ hasText: 'Source.kdbx' })).toHaveAttribute('aria-pressed', 'false');
+        }
         await reopenPair(page, a, b, touch);
         const [savedA, savedB] = await downloads(page, [a, b], touch);
         expect(all(savedA).some(item => item.uuid.id === a.id)).toBe(false);

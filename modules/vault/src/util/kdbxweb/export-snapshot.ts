@@ -20,6 +20,15 @@ const dataPrototypes = new Set([
 export function createExportSnapshot(db: Kdbx): Kdbx {
     const copies = new Map<object, unknown>();
     copies.set(db.credentials.ready, Promise.resolve());
+    return copyData(db, copies, (owner, key) => owner === db && key === 'xml');
+}
+
+/** A detached edit baseline owns its history, protected values and attachment bytes. */
+export function createEntrySnapshot(entry: KdbxEntry): KdbxEntry {
+    return copyData(entry, new Map(), (owner, key) => owner instanceof KdbxEntry && key === 'parentGroup');
+}
+
+function copyData<T>(source: T, copies: Map<object, unknown>, skip: (owner: object, key: string) => boolean): T {
     const copy = (value: unknown): unknown => {
         if (!value || typeof value !== 'object') return value;
         if (copies.has(value)) return copies.get(value);
@@ -46,8 +55,7 @@ export function createExportSnapshot(db: Kdbx): Kdbx {
             result = Object.create(prototype);
             copies.set(value, result);
             for (const key of Object.keys(value)) {
-                // XML is transient serializer state, rebuilt from the copied data.
-                if (value === db && key === 'xml') continue;
+                if (skip(value, key)) continue;
                 Object.defineProperty(result, key, {
                     value: copy((value as Record<string, unknown>)[key]),
                     writable: true, enumerable: true, configurable: true
@@ -58,5 +66,5 @@ export function createExportSnapshot(db: Kdbx): Kdbx {
         copies.set(value, result);
         return result;
     };
-    return copy(db) as Kdbx;
+    return copy(source) as T;
 }
