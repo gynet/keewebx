@@ -6,7 +6,7 @@
   "license": "MIT",
   "dependencies": {
     "@phosphor-icons/core": "2.1.1",
-    "preact": "^10.5.13",
+    "preact": "^11.0.1",
     "dompurify": "^2.2.8",
     "marked": "^2.1.3"
   },
