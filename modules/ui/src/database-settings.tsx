@@ -14,6 +14,7 @@ import { DatabasePasskey } from './database-passkey';
 import { WebDavSaveAs } from './webdav-save-as';
 import { RegisteredStorageSettings } from './storage-extensions';
 import { DatabaseBackup } from './database-backup';
+import { DatabaseDetails } from './database-details';
 
 export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { model: AppModel; file: FileModel; onCancel: () => void; onClose?: () => void }) {
     const name = model.files.filter(candidate => candidate.name === file.name).length > 1
@@ -41,7 +42,8 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
                 throw new Error('This database changed while you were editing. Cancel to reload its settings before editing again.');
             }
             applyDatabaseSettings(file, draft);
-            setBaseline(JSON.stringify(draft));
+            const saved = readDatabaseSettings(file);
+            setDraft(saved); setBaseline(JSON.stringify(saved));
             return true;
         } catch (error) { setMessage((error as Error).message); return false; }
     };
@@ -100,6 +102,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
             finally { setBusy(false); }
         }}>
         <h3 style={{ overflowWrap: 'anywhere' }}>{name}</h3>
+        <DatabaseDetails model={model} file={file} />
         <fieldset disabled={busy || credentialBusy}>
             <DatabaseCredentialsEditor file={file} onBusyChange={setCredentialBusy}
                 onDraftChange={(dirty) => { credentialDraft.current = dirty; }}

@@ -33,6 +33,7 @@ import type { FileModel } from 'models/file-model';
 import { MultiVaultOpen } from './multi-vault-open';
 import { useVaultCommands } from './vault-commands';
 import { legacyClassicEntry } from 'comp/browser/ui-entry';
+import { KeyChangeReminder } from './key-change-reminder';
 
 declare const __KW_NEW_EXTENSION__: boolean;
 declare const __KEEWEBX_BUILD_SHA__: string;
@@ -47,6 +48,7 @@ function App({ model }: { model: AppModel }) {
     const [closingFile, setClosingFile] = useState<FileModel | null>(null);
     const closeFile = (file: FileModel) => { if (access.state === 'open' && file.active) setClosingFile(file); };
     const [passkeySettingsId, setPasskeySettingsId] = useState<string>();
+    const [credentialSettingsId, setCredentialSettingsId] = useState<string>();
     const [unlockRequest, setUnlockRequest] = useState(model.fileUnlockPromise);
     const access = getSessionAccess(model);
     const protocolUi = useMemo(() => createNewProtocolUi(model,
@@ -94,7 +96,7 @@ function App({ model }: { model: AppModel }) {
     const finishClosed = (epoch: number) => {
         access.completeClose(epoch);
         access.resetClosedSession();
-        setSettingsOpen(false); setPasskeySettingsId(undefined);
+        setSettingsOpen(false); setPasskeySettingsId(undefined); setCredentialSettingsId(undefined);
         dialogs.current = [];
         reveal();
     };
@@ -211,7 +213,7 @@ function App({ model }: { model: AppModel }) {
         <UpdateNotice canReload={!model.files.hasOpenFiles() && !gate} />
         {!model.files.hasOpenFiles() && !gate ? settingsOpen && model.settings.canOpenSettings ? <Settings model={model} onBack={() => setSettingsOpen(false)} /> : <Unlock model={model}
             onSettings={() => { if (model.settings.canOpenSettings) setSettingsOpen(true); }}
-            onPasskeySetup={(id) => { if (model.settings.canOpenSettings) { setPasskeySettingsId(id); setSettingsOpen(true); } }}
+            onPasskeySetup={(id) => { if (model.settings.canOpenSettings) { setCredentialSettingsId(undefined); setPasskeySettingsId(id); setSettingsOpen(true); } }}
             extensionRequest={unlockRequest?.unlockRes === 'extensionUnlockMessage'}
             onCancelExtensionRequest={() => {
                 if (unlockRequest && model.fileUnlockPromise === unlockRequest) {
@@ -239,25 +241,30 @@ function App({ model }: { model: AppModel }) {
         <div ref={surface} hidden={!!gate} style={{ height: '100%' }}>
         {commands.content}
         <RemoteKeyRecovery model={model} />
+        <KeyChangeReminder model={model} version={version} enabled={!gate && !openingAnother && !closingFile && !settingsOpen}
+            change={file => {
+                if (access.state !== 'open' || model.files.get(file.id) !== file || !file.active) return;
+                setPasskeySettingsId(undefined); setCredentialSettingsId(file.id); setSettingsOpen(true);
+            }} />
         {closingFile && <CloseVault key={closingFile.id} model={model} file={closingFile} close={() => {
             setClosingFile(null);
-            if (!model.files.hasOpenFiles()) { setSettingsOpen(false); setPasskeySettingsId(undefined); }
+            if (!model.files.hasOpenFiles()) { setSettingsOpen(false); setPasskeySettingsId(undefined); setCredentialSettingsId(undefined); }
         }} />}
         {openingAnother && <MultiVaultOpen model={model} close={() => setOpeningAnother(false)}
-            setupPasskey={id => { setPasskeySettingsId(id); setSettingsOpen(true); }} />}
+            setupPasskey={id => { setCredentialSettingsId(undefined); setPasskeySettingsId(id); setSettingsOpen(true); }} />}
         <div hidden={(settingsOpen && model.settings.canOpenSettings) || openingAnother} style={{ height: '100%' }}>
         <Vault
             model={model}
             version={version}
             onSave={commands.save}
             onGenerator={commands.generator}
-            onSettings={() => { if (model.settings.canOpenSettings) { setPasskeySettingsId(undefined); setSettingsOpen(true); } }}
+            onSettings={() => { if (model.settings.canOpenSettings) { setCredentialSettingsId(undefined); setPasskeySettingsId(undefined); setSettingsOpen(true); } }}
             onLock={() => void lock()}
             onCloseVault={closeFile}
             onOpenAnother={() => { if (access.state === 'open') setOpeningAnother(true); }}
         />
         </div>
-        {settingsOpen && model.settings.canOpenSettings && <Settings model={model} onCloseVault={closeFile} passkeyVaultId={passkeySettingsId} extensionSessions={__KW_NEW_EXTENSION__ ? extensionSessions : undefined} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
+        {settingsOpen && model.settings.canOpenSettings && <Settings model={model} onCloseVault={closeFile} passkeyVaultId={passkeySettingsId} credentialVaultId={credentialSettingsId} extensionSessions={__KW_NEW_EXTENSION__ ? extensionSessions : undefined} onBack={() => { if (confirmDiscardDrafts('database')) setSettingsOpen(false); }} />}
         </div>
         </>}
         </>

@@ -38,8 +38,8 @@ const SECTIONS = [
 ] as const;
 export type SettingsSection = typeof SECTIONS[number][0];
 
-export function Settings({ onBack, model, extensionSessions, initialSection = 'appearance', passkeyVaultId, onCloseVault }: {
-    onBack: () => void; model: AppModel; extensionSessions?: ExtensionSessionsApi; initialSection?: SettingsSection; passkeyVaultId?: string; onCloseVault?(file: FileModel): void;
+export function Settings({ onBack, model, extensionSessions, initialSection = 'appearance', passkeyVaultId, credentialVaultId, onCloseVault }: {
+    onBack: () => void; model: AppModel; extensionSessions?: ExtensionSessionsApi; initialSection?: SettingsSection; passkeyVaultId?: string; credentialVaultId?: string; onCloseVault?(file: FileModel): void;
 }) {
     const [section, setSection] = useState<SettingsSection>(initialSection);
     const content = useRef<HTMLElement>(null);
@@ -57,6 +57,16 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
         });
     };
     useEffect(() => { if (passkeyVaultId) showPasskey(passkeyVaultId); }, [passkeyVaultId]);
+    useEffect(() => {
+        if (!credentialVaultId) return;
+        select('database');
+        requestAnimationFrame(() => {
+            const form = Array.from(content.current?.querySelectorAll<HTMLElement>('.database-settings') ?? [])
+                .find(element => element.dataset.vaultId === credentialVaultId);
+            const input = form?.querySelector<HTMLInputElement>('input[autocomplete="new-password"]');
+            input?.scrollIntoView({ block: 'center' }); input?.focus({ preventScroll: true });
+        });
+    }, [credentialVaultId]);
     const [, rerender] = useState(0);
     const set = (key: string, value: unknown) => {
         settings[key] = value;

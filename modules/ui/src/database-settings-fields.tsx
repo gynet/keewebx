@@ -9,7 +9,7 @@ export function DatabaseSettingsFields({ value, onChange }: {
         <label class="vault-form__field">{t(label)}<input class="input" type="number" required min={min} step="any"
             value={value[key] === -1 ? -1 : value[key] / factor} onInput={(event) => {
                 const raw = event.currentTarget.value;
-                set(key, raw === '' ? NaN : Number(raw) === -1 ? -1 : Number(raw) * factor);
+                set(key, raw === '' ? key === 'keyChangeDays' ? -1 : NaN : Number(raw) === -1 ? -1 : Number(raw) * factor);
             }} /></label>;
     return <>
         <label class="vault-form__field">{t('Vault name')}<input class="input" required value={value.name}
