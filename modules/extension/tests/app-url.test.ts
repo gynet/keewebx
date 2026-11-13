@@ -15,6 +15,20 @@ describe('configured app tab identity', () => {
         expect(matchesAppUrl('https://vault.example:8443/keewebx/classic.html', configured)).toBe(false);
         expect(matchesAppUrl('https://vault.example:8443/other/classic.html?ui=classic', configured)).toBe(false);
     });
+    test('next and rewritten New entries follow the exact Classic destination', () => {
+        for (const entry of ['next.html', 'app']) {
+            const source = `https://vault.example/keewebx/${entry}?ui=classic&namespace=a`;
+            expect(matchesAppUrl('https://vault.example/keewebx/classic.html?namespace=a&ui=classic#open', source)).toBe(true);
+            expect(matchesAppUrl('https://vault.example/keewebx/classic/index.html?namespace=a&ui=classic', source)).toBe(true);
+            for (const candidate of ['other.html', 'other/app', 'other/classic.html']) {
+                expect(matchesAppUrl(`https://vault.example/keewebx/${candidate}?ui=classic&namespace=a`, source)).toBe(false);
+            }
+            expect(matchesAppUrl('https://vault.example/keewebx/classic.html?ui=classic&namespace=b', source)).toBe(false);
+        }
+        expect(matchesAppUrl('https://vault.example/keewebx/classic.html?ui=classic', 'https://vault.example/keewebx?ui=classic')).toBe(true);
+        expect(matchesAppUrl('https://vault.example/classic.html?ui=classic', 'https://vault.example/classic.html')).toBe(true);
+        expect(matchesAppUrl('https://vault.example/classic.html?ui=classic', 'https://vault.example/next.html')).toBe(false);
+    });
     test('query-free settings retain hash and query routing at the same app path', () => {
         expect(matchesAppUrl(configured, 'https://vault.example:8443/keewebx/')).toBe(true);
         expect(matchesAppUrl('https://vault.example/keewebx', 'https://vault.example/keewebx/')).toBe(true);
@@ -63,4 +77,18 @@ describe('configured app tab identity', () => {
             expect(created).toBe(false);
         } finally { if (previous) Object.defineProperty(globalThis, 'chrome', previous); else Reflect.deleteProperty(globalThis, 'chrome'); }
     });
+    test('tab discovery reuses a Classic redirect from configured next.html', async () => {
+        const previous = Object.getOwnPropertyDescriptor(globalThis, 'chrome');
+        Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { tabs: {
+            query(_query: unknown, callback: (tabs: unknown[]) => void) { callback([
+                { id: 8, url: 'https://vault.example/other.html?ui=classic' },
+                { id: 9, url: 'https://vault.example/classic.html?ui=classic' }
+            ]); }, create() { throw new Error('Redirect must reuse the existing tab'); }
+        } } });
+        try {
+            const transport = new TransportBrowserTab('https://vault.example/next.html?ui=classic');
+            expect((await (transport as unknown as { findOrCreateTab(): Promise<{ id: number }> }).findOrCreateTab()).id).toBe(9);
+        } finally { if (previous) Object.defineProperty(globalThis, 'chrome', previous); else Reflect.deleteProperty(globalThis, 'chrome'); }
+    });
+
 });

@@ -40,9 +40,13 @@ try {
         ['next.html', '#open-demo', '.entry-row'],
         ['classic.html', '#open__icon-demo', '.list__item'],
         ['classic/index.html', '#open__icon-demo', '.list__item'],
+        ['classic/', '#open__icon-demo', '.list__item'],
+        ['next.html?ui=classic', '#open__icon-demo', '.list__item'],
         ['index.html?ui=classic', '#open__icon-demo', '.list__item'],
         ['index.html?demo=1', null, '.entry-row']
     ]) for (const mode of ['http', 'nested', 'file']) {
+        // File URLs do not resolve a directory to its index document.
+        if (entry === 'classic/' && mode === 'file') continue;
         const context = await browser.newContext();
         try {
             const page = await context.newPage();
