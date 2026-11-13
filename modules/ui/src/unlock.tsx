@@ -299,7 +299,8 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <p class="card__sub">{t(additional ? 'Open a KeePass file, connect to WebDAV, or create a vault.' : 'Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
                     </div>
                 ) : (
-                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} canOpen={canOpen} onBusyChange={setUnlocking} onOpened={onOpened} onUnlock={cancelFileRead} capturePasskeySetup={() => {
+                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} canOpen={canOpen} onBusyChange={setUnlocking} onOpened={onOpened} onUnlock={cancelFileRead}
+                        onCancel={() => { cancelFileRead(); setUnlocking(false); setPane({ kind: 'none' }); }} capturePasskeySetup={() => {
                         const intent = setupIntent.current;
                         return (id: string) => { if (setupIntent.current === intent) onPasskeySetup(id); };
                     }} />
@@ -309,10 +310,11 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     );
 }
 
-function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpened, onBusyChange }: {
+function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canOpen, onOpened, onBusyChange }: {
     model: AppModel;
     pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' } | { kind: 'import'; file?: File } | { kind: 'provider' }>;
     onBusyChange: (busy: boolean) => void;
+    onCancel(): void;
     onUnlock(): void; capturePasskeySetup(): (id: string) => void;
     canOpen?(): boolean; onOpened?(): void;
 }) {
@@ -457,6 +459,10 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
             <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock')}
             </button>
+            <button type="button" class="pill" onClick={() => {
+                mounted.current = false;
+                onCancel();
+            }}>{t('Cancel unlock')}</button>
         </form>
     );
 }

@@ -224,6 +224,11 @@ for (const width of [1280, 320]) {
                 await expect(reopened.locator('.entry-notes')).toContainText('second line');
                 await key(reopened, 'l'); await expect(reopened.locator('.vault')).toHaveCount(0, { timeout });
                 await key(reopened, 'g'); await key(reopened, 'f'); await reopened.keyboard.press('Alt+n');
+                // The start screen permits a standalone generator without exposing the locked vault.
+                await expect(reopened.getByRole('dialog', { name: 'Generate password', exact: true })).toBeVisible();
+                await expect(reopened.locator('.entry-row')).toHaveCount(0);
+                await expect(editor(reopened)).toHaveCount(0);
+                await reopened.keyboard.press('Escape');
                 await expect(reopened.getByRole('dialog')).toHaveCount(0); await expect(editor(reopened)).toHaveCount(0);
             } finally { await context.close(); }
         });

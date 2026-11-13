@@ -223,6 +223,23 @@ async function releaseDecrypt(page: Page) {
     await expect.poll(() => page.evaluate(() => !!(window as any).__parsed)).toBe(true);
 }
 
+test('cancel initial unlock rejects a late decrypt and recent record, then permits a fresh retry', async ({ page }) => {
+    const file = await fixture('Canceled');
+    await page.goto('/next.html');
+    await page.locator('#open-file-input').setInputFiles(payload(file.buffer, file.name));
+    await holdDecrypt(page);
+    await passwordOpen(page, file.password);
+    await expect.poll(() => page.evaluate(() => !!(window as any).__held)).toBe(true);
+    await page.getByRole('button', { name: 'Cancel unlock', exact: true }).click();
+    await expect(page.locator('#password')).toHaveCount(0);
+    await releaseDecrypt(page);
+    await expect(page.locator('.entry-row')).toHaveCount(0);
+    await expect(page.locator('.vault-row[data-vault="Canceled"]')).toHaveCount(0);
+    await page.locator('#open-file-input').setInputFiles(payload(file.buffer, file.name));
+    await passwordOpen(page, file.password);
+    await expect(row(page, file.name)).toBeVisible();
+});
+
 for (const destination of ['cancel', 'different pane', 'lock'] as const) test(`late second-vault decrypt after ${destination} cannot admit B or navigate to passkey setup`, async ({ page }) => {
     const a = await fixture('A'), b = await fixture('B');
     await openA(page, a);
@@ -232,7 +249,11 @@ for (const destination of ['cancel', 'different pane', 'lock'] as const) test(`l
     await holdDecrypt(page);
     await passwordOpen(page, b.password);
     await expect.poll(() => page.evaluate(() => !!(window as any).__held)).toBe(true);
-    if (destination === 'different pane') await page.locator('#open-webdav').click();
+    if (destination === 'different pane') {
+        await expect(page.locator('#open-webdav')).toBeDisabled();
+        await picker(page).getByRole('button', { name: 'Cancel unlock', exact: true }).click();
+        await page.locator('#open-webdav').click();
+    }
     else {
         await picker(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         await assertDraft(page);
