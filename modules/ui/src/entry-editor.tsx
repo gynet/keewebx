@@ -204,9 +204,11 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                     <div class="entry-editor__field" key={name}>
                         <label class="field-label">
                             <span>{t(label)}</span>
-                            {name === 'Notes' && (!draft.protection?.[name] || revealedFields.has(name)) ? (
-                                <textarea class="input entry-editor__notes" value={draft.fields[name]}
-                                    onInput={(event) => setDraft({ ...draft, fields: { ...draft.fields, [name]: event.currentTarget.value } })} />
+                            {name === 'Notes' ? (
+                                <textarea class="input entry-editor__notes"
+                                    readOnly={!!draft.protection?.[name] && !revealedFields.has(name)}
+                                    value={draft.protection?.[name] && !revealedFields.has(name) ? (draft.fields[name] ? '••••••••' : '') : draft.fields[name]}
+                                    onInput={(event) => { if (!draft.protection?.[name] || revealedFields.has(name)) setDraft({ ...draft, fields: { ...draft.fields, [name]: event.currentTarget.value } }); }} />
                             ) : (
                                 <input class="input" type={(name === 'Password' ? !reveal : draft.protection?.[name] && !revealedFields.has(name)) ? 'password' : 'text'}
                                     autoFocus={name === 'Title'} autoComplete="off" spellcheck={false}
@@ -272,9 +274,11 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                             </label>
                             <label class="field-label">
                                 <span>{t('Field value')}</span>
-                                {field.multiline && (!field.protected || revealedFields.has(`custom:${field.id}`)) ?
-                                <textarea class="input" value={field.value} autoComplete="off" spellcheck={false}
-                                    onInput={event => updateCustom(field.id, { value: event.currentTarget.value })} /> :
+                                {field.multiline ?
+                                <textarea class="input" autoComplete="off" spellcheck={false}
+                                    readOnly={field.protected && !revealedFields.has(`custom:${field.id}`)}
+                                    value={field.protected && !revealedFields.has(`custom:${field.id}`) ? (field.value ? '••••••••' : '') : field.value}
+                                    onInput={event => { if (!field.protected || revealedFields.has(`custom:${field.id}`)) updateCustom(field.id, { value: event.currentTarget.value }); }} /> :
                                 <input class="input" type={field.protected && !revealedFields.has(`custom:${field.id}`) ? 'password' : 'text'}
                                     value={field.value} autoComplete="off" spellcheck={false}
                                     onInput={(event) => updateCustom(field.id, { value: event.currentTarget.value })} />}

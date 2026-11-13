@@ -160,7 +160,9 @@ test.describe('Sync and draft data safety', () => {
             await form.getByLabel('Vault name', { exact: true }).fill('Blocked rename');
             await form.getByLabel('Key derivation function', { exact: true }).selectOption('Argon2id');
             await form.getByLabel('Iterations', { exact: true }).fill('7');
-            await form.getByRole('button', { name: 'Save database settings', exact: true }).click();
+            await expect(form.getByRole('button', { name: 'Save database settings', exact: true })).toBeDisabled();
+            // A synthetic submit must still hit the shared guard, even though the UI disables Save.
+            await form.evaluate(node => node.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
             await expect(form.getByRole('status')).toContainText('A save is in progress');
             await expect(form.getByRole('heading', { level: 3, name: 'vault', exact: true })).toHaveText('vault');
             await form.getByRole('button', { name: 'Cancel', exact: true }).click();

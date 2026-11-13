@@ -70,6 +70,7 @@ async function editEntry(page: Page) {
     await editor.getByLabel('Username', { exact: true }).fill('export-user');
     await editor.getByLabel('Password', { exact: true }).fill(updatedPassword);
     await editor.getByLabel('Website', { exact: true }).fill('https://example.test/export');
+    await editor.getByRole('button', { name: 'Show Notes', exact: true }).click();
     await editor.getByLabel('Notes', { exact: true }).fill(updatedNotes);
     await editor.getByLabel('Tags', { exact: true }).fill('exported, preserved');
     await editor.getByRole('button', { name: 'Save', exact: true }).click();
@@ -141,6 +142,7 @@ async function reopenFresh(browser: Browser, page: Page, source: Fixture, data: 
         await reopened.getByRole('button', { name: 'Edit', exact: true }).click();
         const editor = reopened.locator('.entry-editor');
         await expect(editor.getByLabel('Password', { exact: true })).toHaveValue(updatedPassword);
+        await editor.getByRole('button', { name: 'Show Notes', exact: true }).click();
         await expect(editor.getByLabel('Notes', { exact: true })).toHaveValue(updatedNotes);
     } finally { await fresh.close(); }
 }

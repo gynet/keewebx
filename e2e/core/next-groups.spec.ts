@@ -34,7 +34,7 @@ test('nested groups expand, filter descendants and retain new entries in the sel
     await expect(page.locator('.entry-row')).toHaveCount(1);
     await expect(page.locator('.entry-row')).toContainText('Leaf entry');
     await page.getByRole('button', { name: 'New entry', exact: true }).click();
-    await page.getByLabel('Title', { exact: true }).fill('Created inside leaf');
+    await page.locator('.entry-editor').getByLabel('Title', { exact: true }).fill('Created inside leaf');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.click('#lock');
     await expect(page.locator('#password')).toBeVisible();

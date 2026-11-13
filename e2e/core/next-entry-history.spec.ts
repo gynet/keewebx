@@ -225,6 +225,7 @@ test.describe('New entry history', () => {
         await history(page).getByRole('button', { name: 'Confirm restore', exact: true }).click();
         await expect(editor(page).getByLabel('Title', { exact: true })).toHaveValue(title);
         await expect(editor(page).getByLabel('Password', { exact: true })).toHaveValue('old history secret');
+        await editor(page).getByRole('button', { name: 'Show Notes', exact: true }).click();
         await expect(editor(page).getByLabel('Notes', { exact: true })).toHaveValue('Old protected notes\nsecond line');
         await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
         await expect(editor(page)).toHaveCount(0);

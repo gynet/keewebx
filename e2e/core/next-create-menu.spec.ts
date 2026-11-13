@@ -12,7 +12,7 @@ test('creates an encrypted database and reopens it after reload', async ({ page 
     await page.getByRole('button', { name: 'Create vault', exact: true }).click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
     await page.getByRole('button', { name: 'New entry', exact: true }).click();
-    await page.getByLabel('Title', { exact: true }).fill('First saved entry');
+    await page.locator('.entry-editor').getByLabel('Title', { exact: true }).fill('First saved entry');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await page.click('#lock');
     await expect(page.locator('#password')).toBeVisible();
