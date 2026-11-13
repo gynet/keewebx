@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Compatible command client</title>
+<form>
+<label>App URL <input name="app" type="url" required></label>
+<label>Login URL <input name="url" value="https://example.test/login"></label>
+<label>Username <input name="login" value="new-user"></label>
+<label>Password <input name="password" type="password" value="new-secret"></label>
+<label>Entry UUID <input name="uuid"></label>
+<label>Group path <input name="groupName" value="Browser / Nested"></label>
+<button value="connect">Connect</button><button value="get-logins">Read logins</button>
+<button value="get-totp-by-url">Read OTP</button><button value="get-any-field">Read other field</button>
+<button value="set-login">Save login</button><button value="get-database-groups">Read groups</button>
+<button value="create-new-group">Create group</button><button value="kwx-features">Status</button>
+<button value="lock-database">Lock</button>
+</form><pre role="status" aria-label="Command result"></pre><script src="js/client.js"></script></html>
