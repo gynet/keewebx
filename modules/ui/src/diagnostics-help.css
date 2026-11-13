@@ -5,3 +5,8 @@
 .diagnostics-help__logs [data-level=error] strong { color: var(--kx-error); }
 .diagnostics-help__logs [data-level=warn] strong { color: var(--kx-text); text-decoration: underline; }
 .diagnostics-help__logs time { font-size: 0.85em; }
+.shortcut-reference dl { margin: 0; }
+.shortcut-reference dl > div { padding: 8px 0; border-bottom: 1px solid var(--kx-line); }
+.shortcut-reference dt { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-weight: 600; }
+.shortcut-reference dd { margin: 4px 0; color: var(--kx-muted); }
+.shortcut-reference kbd { font-size: 0.85em; background: var(--kx-sub); padding: 2px 5px; border: 1px solid var(--kx-line); border-radius: 4px; overflow-wrap: anywhere; }

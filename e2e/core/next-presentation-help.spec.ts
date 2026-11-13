@@ -24,6 +24,18 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     const diagnostics = page.getByRole('region', { name: 'Help and diagnostics', exact: true });
     const text = await diagnostics.getByLabel('Diagnostics', { exact: true }).innerText();
     expect(text).toContain('Environment: web'); expect(text).toContain('Browser:');
+    expect(text).toMatch(/^KeeWebX \d+\.\d+\.\d+/); expect(text).toMatch(/Build: \d{4}-\d{2}-\d{2}/);
+    expect(text).toMatch(/Commit: (?:unavailable|[a-f0-9]{7,40})/); expect(text).not.toContain('@@');
+    await diagnostics.getByText('Web app updates', { exact: true }).click();
+    await expect(diagnostics).toContainText('lock your vaults and use Reload to update');
+    await diagnostics.getByText('Keyboard reference', { exact: true }).click();
+    await expect(diagnostics.locator('.shortcut-reference dt')).toHaveCount(27);
+    await expect(diagnostics.locator('.shortcut-reference')).toContainText('Apply valid drafts and save vaults');
+    await expect(diagnostics.locator('.shortcut-reference')).toContainText('Open workspace, including editors');
+    await expect(diagnostics.locator('.shortcut-reference')).toContainText(/(?:Ctrl|Command) \+ S/);
+    await page.getByText('Help and about KeeWebX', { exact: true }).click();
+    await expect(page.getByRole('link', { name: 'Release history', exact: true })).toHaveAttribute('href', 'https://github.com/gynet/keewebx/releases');
+    await expect(page.getByRole('link', { name: 'Source code', exact: true })).toHaveAttribute('href', 'https://github.com/gynet/keewebx');
     expect(text).not.toMatch(/s3cret|Demo\.kdbx|github.com\/login/);
     const issue = new URL((await diagnostics.getByRole('link', { name: 'Open an issue draft', exact: true }).getAttribute('href'))!);
     expect(issue.origin).toBe('https://github.com'); expect(issue.searchParams.get('body')).toContain(text);
@@ -34,7 +46,7 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`help-${width}.png`), fullPage: true });
     await page.reload();
-    await page.locator('#open-demo').click();
+    await page.locator('#open-demo').click(); await expect(page.locator('.entry-row').first()).toBeVisible();
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('tab', { name: 'Browser extension', exact: true }).click();
     await expect(locked).not.toBeChecked(); await expect(empty).not.toBeChecked();
