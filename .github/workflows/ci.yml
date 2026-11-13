@@ -55,11 +55,15 @@ jobs:
         run: ./modules/ui/node_modules/.bin/webpack --config e2e/providers/webpack.config.cjs --mode production
       - name: Verify registered storage browsing and cancellation
         run: bunx playwright test --config e2e/providers/playwright.config.ts --project=${{ matrix.browser }}
+      - name: Verify encrypted provider backups and interrupted writes
+        run: bunx playwright test --config e2e/backup/playwright.config.ts --project=${{ matrix.browser }}
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: e2e-registered-storage-${{ matrix.browser }}
-          path: test-results/
+          path: |
+            test-results/
+            .cache/backup/results/
           retention-days: 7
 
   test:
