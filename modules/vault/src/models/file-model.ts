@@ -55,6 +55,8 @@ interface RemoteKey {
     keyFileData?: ArrayBuffer;
     /** Optional caller snapshot guard, checked before remote credentials or content are adopted. */
     canMerge?: () => boolean;
+    /** Synchronously acknowledge this authorized merge before model change notifications. */
+    onMerged?: (db: kdbxweb.Kdbx) => void;
 }
 
 // chalResp on FileModel can be either:
@@ -538,6 +540,7 @@ class FileModel extends Model {
                     } else {
                         this.db = remoteDb;
                     }
+                    remoteKey?.onMerged?.(this.db);
                     if (adoptRemoteKey) {
                         this.keyFileName = remoteKey.keyFileName || '';
                         if (remoteKey.password) this.passwordLength = remoteKey.password.textLength;

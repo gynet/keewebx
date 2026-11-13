@@ -38,6 +38,7 @@ async function peer() {
     const requests: { method: string; path: string }[] = [];
     let held: { entered: boolean; promise: Promise<void>; release: () => void } | undefined;
     const releases: (() => void)[] = [];
+    let moveFailure: { status: number; replacement?: Buffer } | undefined;
     const server = createServer(async (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
         res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, HEAD, PUT, MOVE, DELETE');
@@ -57,6 +58,11 @@ async function peer() {
             res.setHeader('Last-Modified', new Date(file.rev).toUTCString()); res.setHeader('ETag', `"${file.rev}"`);
             res.writeHead(200).end(req.method === 'GET' ? file.bytes : undefined);
         } else if (req.method === 'MOVE') {
+            if (moveFailure) {
+                const failure = moveFailure; moveFailure = undefined;
+                if (failure.replacement) put('/recovery.kdbx', failure.replacement);
+                res.writeHead(failure.status).end(); return;
+            }
             put(new URL(String(req.headers.destination), 'http://localhost').pathname, file.bytes); files.delete(path); res.writeHead(204).end();
         } else if (req.method === 'DELETE') { files.delete(path); res.writeHead(204).end(); }
         else res.writeHead(405).end();
@@ -66,6 +72,7 @@ async function peer() {
         source, requests, bytes: () => files.get('/recovery.kdbx')!.bytes,
         writes: () => requests.filter(req => req.method === 'PUT').length,
         url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/recovery.kdbx`,
+        failNextMove(status: number, replacement?: Buffer) { moveFailure = { status, replacement }; },
         holdNextGet() { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve; });
             held = { entered: false, promise, release }; releases.push(release); return held; },
         async close() { releases.forEach(release => release()); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
@@ -228,6 +235,37 @@ test.describe('New remote master-key recovery', () => {
         expect(newKey.status, 'Verified remote password must remain valid').toBe('fulfilled');
         expect(oldKey.status, 'Recovery must not restore the obsolete password').toBe('rejected');
         if (newKey.status === 'fulfilled') fidelity(newKey.value, dav);
+    });
+    for (const failure of [412, 503]) test(`authorized merge survives ${failure} and retries without reopening recovery`, async ({ page, browser, dav }) => {
+        await connect(page, dav); await localEdit(page);
+        const remote = await changeOnOtherPeer(browser, page, dav);
+        await detect(page);
+        const boundary = dav.requests.length;
+        // The 412 represents a real competing revision published after our merge.
+        const competitor = await decrypt(remote, remotePassword);
+        competitor.createEntry(competitor.groups[0]).fields.set('Title', 'Concurrent revision');
+        const replacement = failure === 412 ? Buffer.from(await competitor.save()) : undefined;
+        dav.failNextMove(failure, replacement);
+        await retry(page, remotePassword);
+        if (failure === 503) {
+            await expect(dialog(page).getByRole('alert')).toBeVisible({ timeout });
+            expect(dav.bytes().equals(remote)).toBe(true);
+            await retry(page, remotePassword);
+        }
+        await expect(dialog(page)).toHaveCount(0, { timeout });
+        await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+        const requests = dav.requests.slice(boundary);
+        expect(requests.filter(request => request.method === 'MOVE')).toHaveLength(2);
+        if (failure === 412) expect(requests.filter(request => request.method === 'GET')).toHaveLength(2);
+        const saved = await decrypt(dav.bytes(), remotePassword);
+        fidelity(saved, dav);
+        if (failure === 412) expect(all(saved).filter(entry => field(entry, 'Title') === 'Concurrent revision')).toHaveLength(1);
+        await expect(decrypt(dav.bytes(), originalPassword)).rejects.toThrow();
+        const fresh = await browser.newContext({ baseURL: page.url() });
+        try {
+            const reopened = await fresh.newPage(); await connect(reopened, dav, remotePassword);
+            await expect(reopened.locator('.entry-row[data-entry="Added by remote peer"]')).toBeVisible();
+        } finally { await fresh.close(); }
     });
     test('cancel while a remote response is held cannot adopt credentials or write after cancellation', async ({ page, browser, dav }) => {
         await connect(page, dav); await localEdit(page); const remote = await changeOnOtherPeer(browser, page, dav);

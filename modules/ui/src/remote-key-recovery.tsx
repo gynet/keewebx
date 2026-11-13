@@ -121,7 +121,13 @@ function RemoteKeyForm({ model, file, close, resolved }: {
             if (password) secret = ProtectedValue.fromString(password);
             await new Promise<void>((resolve, reject) => model.syncFile(file, {
                 canContinue: current,
-                remoteKey: { canMerge: original, password: secret, keyFileName: keyMode === 'keep' ? file.keyFileName || 'current.key' :
+                remoteKey: { canMerge: original, onMerged: db => {
+                    // Only this attempt's authorized merge may advance the snapshot.
+                    // Later unrelated credential/database changes still fail original().
+                    if (!current() || file.db !== db) return;
+                    snapshot.db = db; snapshot.credentials = db.credentials;
+                    snapshot.version = credentialChangeVersion(db.credentials);
+                }, password: secret, keyFileName: keyMode === 'keep' ? file.keyFileName || 'current.key' :
                     keyMode === 'choose' ? keyFile!.name : undefined, keyFileData: data }
             }, error => error ? reject(error) : resolve()));
             if (!current()) return;
