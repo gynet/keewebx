@@ -183,9 +183,13 @@ jobs:
             echo ""
             echo "→ https://keewebx.app/demo"
             echo ""
-            echo "## What's new"
-            echo ""
-            echo "${CHANGES}"
+            if [ -f "docs/releases/${NEW_TAG}.md" ]; then
+              cat "docs/releases/${NEW_TAG}.md"
+            else
+              echo "## What's new"
+              echo ""
+              echo "${CHANGES}"
+            fi
             echo ""
             echo "## Self-host"
             echo ""
