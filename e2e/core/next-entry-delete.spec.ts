@@ -59,6 +59,7 @@ async function open(page: Page, source: Fixture) {
 async function download(page: Page, saved = true) {
     if (saved) await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await nav(page).getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('form', { name: `Database settings: ${name}`, exact: true })
         .getByRole('button', { name: 'Download KDBX', exact: true }).click();
@@ -262,7 +263,7 @@ test('active save blocks deletion until it finishes without changing the selecte
 
 test('lock recovery invalidates retained delete confirmation after authentication', async ({ page }) => {
     const source = await fixture(); await syncSetting(page, '0'); await open(page, source);
-    await page.locator('#open-settings').click(); await page.locator('#setting-auto-lock').selectOption('5'); await page.locator('#settings-back').click();
+    await page.locator('#open-settings').click(); await page.getByRole('tab', { name: 'Security', exact: true }).click(); await page.locator('#setting-auto-lock').selectOption('5'); await page.locator('#settings-back').click();
     const notes = page.getByRole('region', { name: 'Notes', exact: true });
     await notes.getByRole('button', { name: 'Edit notes', exact: true }).click(); await notes.getByRole('textbox').fill('Saved during lock');
     await trigger(page).click();
