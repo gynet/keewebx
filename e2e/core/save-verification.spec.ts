@@ -32,6 +32,24 @@ async function open(page: Page, classic = false) {
     await page.locator(classic ? '.open__pass-enter-btn' : '#unlock').click();
     await expect(page.locator(classic ? '.list__item' : '.entry-row').first()).toBeVisible({ timeout });
     if (!classic) await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+    // The initial import caches the original encrypted bytes asynchronously.
+    // Observe that committed copy before counting writes from the edited save;
+    // a visible entry alone does not mean its initial IDB transaction finished.
+    await expect.poll(() => page.evaluate(() => new Promise<boolean>((resolve, reject) => {
+        const request = indexedDB.open('FilesCache');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains('files')) { db.close(); resolve(false); return; }
+            const transaction = db.transaction('files', 'readonly');
+            const read = transaction.objectStore('files').getAll();
+            transaction.oncomplete = () => {
+                db.close();
+                resolve(read.result.some(value => value instanceof ArrayBuffer && value.byteLength > 0));
+            };
+            transaction.onabort = () => { db.close(); reject(transaction.error); };
+        };
+    })), { timeout }).toBe(true);
 }
 
 // Delay the real browser AES decrypt and inject its failure. No app/model hooks:
