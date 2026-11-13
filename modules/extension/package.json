@@ -43,7 +43,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "preact": "^10.5.13",
+    "preact": "^11.0.1",
     "tiny-typed-emitter": "^2.1.0",
     "tweetnacl": "^1.0.3"
   }
