@@ -55,11 +55,13 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     const [pane, setPane] = useState<Pane>(recent[0] ? { kind: 'recent', file: recent[0] } : { kind: 'none' });
     const fileInput = useRef<HTMLInputElement>(null);
     const readVersion = useRef(0);
+    const setupIntent = useRef(0);
     const [readingFile, setReadingFile] = useState(false);
     const [fileError, setFileError] = useState<{ message: string; retry?: File } | null>(null);
     useEffect(() => () => { ++readVersion.current; }, []);
 
     const cancelFileRead = () => {
+        ++setupIntent.current;
         ++readVersion.current;
         setReadingFile(false);
         setFileError(null);
@@ -84,6 +86,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     ? Locale.openKdbFileBody : Locale.openWrongFileBody) });
                 return;
             }
+            ++setupIntent.current;
             setPane({ kind: 'file', name: file.name, data: toBase64(data) });
         } catch {
             if (version === readVersion.current) {
@@ -185,17 +188,20 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <p class="card__sub">{t('Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
                     </div>
                 ) : (
-                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} onUnlock={cancelFileRead} onPasskeySetup={onPasskeySetup} />
+                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} onUnlock={cancelFileRead} capturePasskeySetup={() => {
+                        const intent = setupIntent.current;
+                        return (id: string) => { if (setupIntent.current === intent) onPasskeySetup(id); };
+                    }} />
                 )}
             </main>
         </div>
     );
 }
 
-function UnlockCard({ model, pane, onUnlock, onPasskeySetup }: {
+function UnlockCard({ model, pane, onUnlock, capturePasskeySetup }: {
     model: AppModel;
     pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }>;
-    onUnlock(): void; onPasskeySetup(id: string): void;
+    onUnlock(): void; capturePasskeySetup(): (id: string) => void;
 }) {
     const [setupAfterUnlock, setSetupAfterUnlock] = useState(false);
     const [password, setPassword] = useState('');
@@ -227,19 +233,20 @@ function UnlockCard({ model, pane, onUnlock, onPasskeySetup }: {
         setBusy(true);
         setMessage('');
         try {
-            const previousIds = new Set(model.files.map((file) => file.id));
+            const navigateToSetup = capturePasskeySetup();
+            let result: unknown;
             const key = keyFile ? { keyFileData: keyFile.data, keyFileName: keyFile.name } : {};
             if (pane.kind === 'recent') {
-                await VaultApi.unlock({ id: pane.file.id, password, ...key });
+                result = await VaultApi.unlock({ id: pane.file.id, password, ...key });
             } else if (pane.kind === 'file') {
-                await VaultApi.openData({ name: pane.name, data: pane.data, password, ...key });
+                result = await VaultApi.openData({ name: pane.name, data: pane.data, password, ...key });
             } else {
-                await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key });
+                result = await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key });
             }
             if (setupAfterUnlock) {
-                const file = pane.kind === 'recent' ? model.files.get(pane.file.id)
-                    : model.files.find((candidate) => !previousIds.has(candidate.id));
-                if (file?.active) onPasskeySetup(file.id);
+                const id = (result as { openedFileId?: unknown })?.openedFileId;
+                const file = typeof id === 'string' ? model.files.get(id) : undefined;
+                if (file?.active) navigateToSetup(file.id);
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

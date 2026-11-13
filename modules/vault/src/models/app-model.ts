@@ -777,7 +777,7 @@ class AppModel {
                         logger.info('Sync just opened modified file');
                         setTimeout(() => this.syncFile(file), 0);
                     }
-                    callback(err);
+                    callback(err, file);
                 },
                 fileInfo
             );
@@ -848,7 +848,7 @@ class AppModel {
                     if (!err && file) {
                         logger.info('Sync just opened file');
                         setTimeout(() => this.syncFile(file), 0);
-                        callback(err);
+                        callback(err, file);
                     } else {
                         const errObj = err as StorageError | undefined;
                         if (errObj?.name === 'KdbxError' || errObj?.ykError) {

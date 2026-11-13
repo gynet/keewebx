@@ -41,11 +41,11 @@ function findEntry(id: unknown): EntryModel {
     throw new Error('Entry not found');
 }
 
-function openFile(params: Record<string, unknown>): Promise<void> {
+function openFile(params: Record<string, unknown>): Promise<string | undefined> {
     return new Promise((resolve, reject) => {
-        app().openFile(params as unknown as Parameters<AppModel['openFile']>[0], (err) => {
+        app().openFile(params as unknown as Parameters<AppModel['openFile']>[0], (err, file) => {
             if (!err) {
-                return resolve();
+                return resolve(file?.id);
             }
             const code = (err as { code?: string }).code;
             reject(new Error(code === 'InvalidKey' ? 'invalid-password' : String(err)));
@@ -111,7 +111,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
         if (!fileInfo) {
             throw new Error('Unknown vault');
         }
-        await openFile({
+        const openedFileId = await openFile({
             id: fileInfo.id,
             name: fileInfo.name,
             storage: fileInfo.storage,
@@ -121,12 +121,12 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
             ...keyFileParams(req),
             password: kdbxweb.ProtectedValue.fromString(String(req.password ?? ''))
         });
-        return status();
+        return { ...status(), openedFileId };
     },
 
     async openWebDav(req) {
         const url = String(req.url);
-        await openFile({
+        const openedFileId = await openFile({
             name: UrlFormat.getDataFileName(url),
             storage: 'webdav',
             path: url,
@@ -134,12 +134,12 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
             ...keyFileParams(req),
             password: kdbxweb.ProtectedValue.fromString(String(req.password ?? ''))
         });
-        return status();
+        return { ...status(), openedFileId };
     },
 
     async openData(req) {
         const bytes = kdbxweb.ByteUtils.base64ToBytes(String(req.data));
-        await openFile({
+        const openedFileId = await openFile({
             name: String(req.name || 'vault').replace(/\.kdbx$/i, ''),
             storage: null,
             path: null,
@@ -147,7 +147,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
             ...keyFileParams(req),
             password: kdbxweb.ProtectedValue.fromString(String(req.password ?? ''))
         });
-        return status();
+        return { ...status(), openedFileId };
     },
 
     openDemo() {
