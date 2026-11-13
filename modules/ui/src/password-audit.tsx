@@ -4,6 +4,7 @@ import type { FileModel } from 'models/file-model';
 import type { EntryModel } from 'models/entry-model';
 import type { AppModel } from 'models/app-model';
 import { getSessionAccess } from 'comp/app/session-access';
+import { Events } from 'framework/events';
 import { passwordStrength, PasswordStrengthLevel } from 'util/data/password-strength';
 import { usePreferences } from './app-preferences';
 import { t } from './i18n';
@@ -31,7 +32,7 @@ export function PasswordAudit({ model, entry }: { model: AppModel; entry: EntryM
         const controller = new AbortController();
         const unsubscribe = access.subscribeInvalidation(() => { controller.abort(); setOnline(''); });
         const current = () => !controller.signal.aborted && access.state === 'open' && access.isCurrent(epoch) &&
-            settings.auditPasswords && settings.checkPasswordsOnHIBP && entry.password === password && file.active && file.db === db && model.files.get(file.id) === file && file.getEntry(entry.id) === entry;
+            settings.auditPasswords && settings.checkPasswordsOnHIBP && entry.canCheckPasswordIssues() && entry.password === password && file.active && file.db === db && model.files.get(file.id) === file && file.getEntry(entry.id) === entry;
         void (async () => {
             let bytes: Uint8Array | undefined;
             try {
@@ -59,5 +60,21 @@ export function PasswordAudit({ model, entry }: { model: AppModel; entry: EntryM
         return () => { controller.abort(); unsubscribe(); };
     }, [entry, password, checkOnline, model]);
     const message = issue || (checkOnline ? online : '');
-    return message ? <p class="password-audit" role="status">{t(message)}</p> : null;
+    const ignored = !entry.canCheckPasswordIssues();
+    const file = entry.file as FileModel;
+    const writable = file.active && !(file as FileModel & { readOnly?: boolean }).readOnly;
+    const toggle = () => {
+        if (getSessionAccess(model).state !== 'open' || !file.active || model.files.get(file.id) !== file ||
+            file.getEntry(entry.id) !== entry || (file as FileModel & { readOnly?: boolean }).readOnly) return;
+        entry.setIgnorePasswordIssues(!ignored);
+        setOnline('');
+        Events.emit('entry-updated', { entry });
+    };
+    return <>
+        {message && <p class="password-audit" role="status">{t(message)}</p>}
+        {settings.auditPasswords && (ignored || issue || online === 'This password appears in known breaches.') &&
+            <button type="button" class="link" disabled={!writable} onClick={toggle}>
+                {t(ignored ? 'Resume password checks for this entry' : 'Ignore password issues for this entry')}
+            </button>}
+    </>;
 }

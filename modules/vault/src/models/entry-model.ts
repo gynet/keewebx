@@ -800,13 +800,18 @@ class EntryModel extends Model {
         return !this.entry.customData?.has('IgnorePwIssues');
     }
 
-    setIgnorePasswordIssues(): void {
+    setIgnorePasswordIssues(ignore = true): void {
+        if (ignore === !this.canCheckPasswordIssues()) return;
+        this._entryModified();
+        if (!ignore) {
+            this.entry.customData?.delete('IgnorePwIssues');
+            return;
+        }
         if (!this.entry.customData) {
             this.entry.customData = new Map();
         }
         // KdbxCustomDataItem = { value: string | undefined; lastModified?: Date }
         this.entry.customData.set('IgnorePwIssues', { value: '1' });
-        this._entryModified();
     }
 
     getNextUrlFieldName(): string {

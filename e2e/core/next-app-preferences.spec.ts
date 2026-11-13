@@ -57,6 +57,30 @@ async function selectEntry(page: Page, title: string) {
     if (await close.isVisible()) await close.click();
     await page.locator(`.entry-row[data-entry="${title}"]`).click();
 }
+test('per-entry audit exclusion persists in encrypted storage and can be resumed', async ({ page }) => {
+    await open(page); await selectEntry(page, 'Weak record');
+    await expect(page.locator('.password-audit')).toHaveText('This password is weak.');
+    await page.getByRole('button', { name: 'Ignore password issues for this entry', exact: true }).click();
+    await expect(page.locator('.password-audit')).toHaveCount(0);
+    await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+    await settings(page, 'Database');
+    const exported = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
+    const chunks: Buffer[] = [], stream = await (await exported).createReadStream();
+    if (!stream) throw new Error('Missing encrypted download');
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const db = await kdbx.Kdbx.load(new Uint8Array(Buffer.concat(chunks)).buffer, new kdbx.Credentials(kdbx.ProtectedValue.fromString(password)));
+    const entry = [...db.groups[0].allEntries()].find(entry => entry.fields.get('Title') === 'Weak record')!;
+    expect(entry.customData?.get('IgnorePwIssues')?.value).toBe('1');
+    expect(entry.history.some(revision => !revision.customData?.has('IgnorePwIssues'))).toBe(true);
+    await reload(page); await selectEntry(page, 'Weak record');
+    await expect(page.locator('.password-audit')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Resume password checks for this entry', exact: true }).click();
+    await expect(page.locator('.password-audit')).toHaveText('This password is weak.');
+    await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+    await settings(page); await reload(page); await selectEntry(page, 'Weak record');
+    await expect(page.locator('.password-audit')).toHaveText('This password is weak.');
+});
 for (const width of [1280, 390]) {
     test(`preferences persist and subgroup/icon/tag rendering follows them at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 }); await open(page);
