@@ -1,0 +1,8 @@
+.multi-vault-open { position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--kx-bg); color: var(--kx-text); box-sizing: border-box; }
+.multi-vault-open[open] { display: flex; flex-direction: column; }
+.multi-vault-open::backdrop { background: var(--kx-bg); }
+.multi-vault-open__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; padding: 12px 20px; border-bottom: 1px solid var(--kx-line); }
+.multi-vault-open__header h1 { margin: 0; font-size: 20px; }
+.multi-vault-open__header p { margin: 4px 0 0; font-size: 13px; }
+.multi-vault-open > .start { flex: 1; min-height: 0; height: auto; overflow: auto; }
+@media (max-width: 760px) { .multi-vault-open__header { padding: 10px 12px; } .multi-vault-open__header h1 { font-size: 17px; } }

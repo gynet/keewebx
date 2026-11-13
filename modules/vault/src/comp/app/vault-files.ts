@@ -34,7 +34,10 @@ export async function saveVault(model: AppModel, file: FileModel): Promise<void>
         (error) => error ? reject(new Error(String(error))) : resolve()));
 }
 
-export async function createVault(model: AppModel, name: string, password: string, settings?: DatabaseSettings): Promise<FileModel> {
+export async function createVault(
+    model: AppModel, name: string, password: string, settings?: DatabaseSettings,
+    onCreated?: (file: FileModel) => void
+): Promise<FileModel> {
     name = name.trim().replace(/\.kdbx$/i, '');
     if (!name || !password) throw new Error('A name and master password are required.');
     if (!model.settings.canCreate) throw new Error('Creating vaults is disabled.');
@@ -46,6 +49,9 @@ export async function createVault(model: AppModel, name: string, password: strin
             resolve(created);
         }, reject);
     });
+    // Retain the admitted model even if its initial save fails, so UI retries save
+    // this vault instead of creating another database with the same name.
+    onCreated?.(file);
     await saveVault(model, file);
     return file;
 }

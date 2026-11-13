@@ -97,7 +97,7 @@ function isWithinGroup(group: GroupModel | null | undefined, id: string): boolea
     return false;
 }
 
-export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void }) {
+export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void; onOpenAnother?: () => void }) {
     const { model } = props;
     const layout = usePanelLayout();
     const sidebar = useSidebarCollapse('vault');
@@ -310,6 +310,8 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </div>
                 <div class="side__foot">
                     <span style={{ flexGrow: 1 }} />
+                    {props.onOpenAnother && <button class="round" aria-label={t('Open another vault')} title={t('Open another vault')}
+                        onClick={() => { setNavigationOpen(false); props.onOpenAnother?.(); }}><Icon name="plus" size={17} /></button>}
                     <ThemeToggle />
                     <button class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={() => { setNavigationOpen(false); props.onSettings(); }}>
                         <Icon name="gear" size={17} />
@@ -412,6 +414,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <button ref={browse} class="round" aria-label={t('Browse vault')} aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}>
                     <Icon name="folder" size={18} />
                 </button>
+                {props.onOpenAnother && <button class="round" aria-label={t('Open another vault')} onClick={props.onOpenAnother}><Icon name="plus" size={18} /></button>}
                 <ThemeToggle />
                 <button class="round" aria-label={t('Settings')} onClick={props.onSettings}>
                     <Icon name="gear" size={18} />

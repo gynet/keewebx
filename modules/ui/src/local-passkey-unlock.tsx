@@ -3,9 +3,10 @@ import type { AppModel } from 'models/app-model';
 import { canUseLocalPasskeys, forgetLocalPasskey, hasLocalPasskey, hasLocalPasskeyData, localPasskeyError, unlockWithLocalPasskey } from './local-passkeys';
 import { t } from './i18n';
 
-export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage, onAttempt, setupAfterUnlock, onSetupChange }: {
+export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage, onAttempt, setupAfterUnlock, onSetupChange, canOpen, onOpened }: {
     model: AppModel; id?: string; keyFile: { name: string; data: string } | null;
     busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void;
+    canOpen?(): boolean; onOpened?(): void;
     onAttempt(): void; setupAfterUnlock: boolean; onSetupChange(value: boolean): void;
 }) {
     const mounted = useRef(true), running = useRef(false);
@@ -22,7 +23,10 @@ export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessa
                 if (!info || running.current) return;
                 onAttempt();
                 running.current = true; setBusy(true); setMessage('');
-                try { await unlockWithLocalPasskey(model, info.id, keyFile, () => mounted.current); }
+                try {
+                    await unlockWithLocalPasskey(model, info.id, keyFile, () => mounted.current && (!canOpen || canOpen()));
+                    if (mounted.current && (!canOpen || canOpen())) onOpened?.();
+                }
                 catch (error) { if (mounted.current) setMessage(t(localPasskeyError(error))); }
                 finally { running.current = false; if (mounted.current) setBusy(false); }
             }}>{t('Unlock with passkey')}</button>}

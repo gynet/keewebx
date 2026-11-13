@@ -1,5 +1,5 @@
 /** No vault open: recent vaults on the left, an unlock card or a way to add one on the right. */
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { ByteUtils, Consts } from 'kdbxweb';
 import type { AppModel } from 'models/app-model';
 import { VaultApi } from 'comp/app/vault-api';
@@ -45,17 +45,20 @@ function toBase64(buf: ArrayBuffer): string {
     return ByteUtils.bytesToBase64(buf);
 }
 
-export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest, onPasskeySetup }: {
+export function Unlock({ model, extensionRequest = false, onCancelExtensionRequest, onPasskeySetup, canOpen, onOpened, onCreating }: {
     model: AppModel; extensionRequest?: boolean; onCancelExtensionRequest?(): void; onPasskeySetup(id: string): void;
+    canOpen?(): boolean; onOpened?(): void; onCreating?(busy: boolean): void;
 }) {
     const sidebar = useSidebarCollapse('start');
-    const recent: RecentFile[] = model.fileInfos.map((fi) => ({
+    const additional = !!onOpened;
+    const [creating, setCreating] = useState(false);
+    const recent: RecentFile[] = model.fileInfos.filter(fi => !additional || !model.files.get(fi.id)?.active).map((fi) => ({
         id: fi.id,
         name: fi.name,
         storage: fi.storage,
         path: fi.path
     }));
-    const [pane, setPane] = useState<Pane>(recent[0] ? { kind: 'recent', file: recent[0] } : { kind: 'none' });
+    const [pane, setPane] = useState<Pane>(!additional && recent[0] ? { kind: 'recent', file: recent[0] } : { kind: 'none' });
     const fileInput = useRef<HTMLInputElement>(null);
     const readVersion = useRef(0);
     const setupIntent = useRef(0);
@@ -111,12 +114,12 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
             <aside class="start__side" aria-label={t('Your vaults')}>
                 <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="start-sidebar-content" label={t('Your vaults')} />
                 <div class="sidebar-rail">
-                    <button type="button" class="round" aria-label={t('Open a file')} title={t('Open a file')} onClick={() => { sidebar.toggle(); fileInput.current?.click(); }}><Icon name="file" size={18} /></button>
+                    <button type="button" class="round" disabled={creating} aria-label={t('Open a file')} title={t('Open a file')} onClick={() => { sidebar.toggle(); fileInput.current?.click(); }}><Icon name="file" size={18} /></button>
                     <ThemeToggle />
                 </div>
                 <div id="start-sidebar-content" class="start-sidebar-content">
                 <div class="start__tools">
-                    <a class="link" href="index.html?ui=classic">{t('Open Classic')}</a>
+                    {!additional && <a class="link" href="index.html?ui=classic">{t('Open Classic')}</a>}
                     <ThemeToggle />
                 </div>
                 {recent.length > 0 && <h2 class="start__heading">{t('Your vaults')}</h2>}
@@ -126,6 +129,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <SwipeVaultRow key={file.id}>
                         <button
                             class={on ? 'vault-row vault-row--on' : 'vault-row'}
+                            disabled={creating}
                             data-vault={file.name}
                             onClick={() => selectPane({ kind: 'recent', file })}
                         >
@@ -137,7 +141,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                                 <span class="vault-row__where">{where(file)}</span>
                             </span>
                         </button>
-                        {model.settings.canRemoveLatest && <button class="round vault-row__remove"
+                        {!additional && model.settings.canRemoveLatest && <button class="round vault-row__remove"
                             aria-label={t('Remove {} from this browser', kdbxName(file.name))}
                             title={t(file.storage ? 'Forget this vault' : 'Remove local copy')}
                             onClick={() => {
@@ -152,11 +156,11 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     );
                 })}
                 <h2 class={recent.length ? 'start__heading start__gap' : 'start__heading'}>{t('Add a vault')}</h2>
-                {model.settings.canCreate && <button class="add-row" id="create-vault" onClick={() => selectPane({ kind: 'create' })}>
+                {model.settings.canCreate && <button class="add-row" id="create-vault" disabled={creating} onClick={() => selectPane({ kind: 'create' })}>
                     <span class="add-row__icon"><Icon name="plus" /></span>{t('Create a vault')}
                 </button>}
-                <input ref={fileInput} type="file" accept=".kdbx,.kdb" hidden onChange={chooseFile} id="open-file-input" />
-                <button class="add-row" id="open-file" onClick={() => fileInput.current?.click()}>
+                <input ref={fileInput} type="file" accept=".kdbx,.kdb" disabled={creating} hidden onChange={chooseFile} id="open-file-input" />
+                <button class="add-row" id="open-file" disabled={creating} onClick={() => fileInput.current?.click()}>
                     <span class="add-row__icon">
                         <Icon name="file" />
                     </span>
@@ -170,18 +174,18 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         else fileInput.current?.click();
                     }}>{fileError.retry ? t('Retry reading file') : t('Choose another file')}</button>
                 </div>}
-                <button class="add-row" id="open-webdav" onClick={() => selectPane({ kind: 'webdav' })}>
+                <button class="add-row" id="open-webdav" disabled={creating} onClick={() => selectPane({ kind: 'webdav' })}>
                     <span class="add-row__icon">
                         <Icon name="cloud" />
                     </span>
                     {t('Connect to WebDAV')}
                 </button>
-                <button class="add-row" id="open-demo" onClick={() => { cancelFileRead(); VaultApi.openDemo({}); }}>
+                {!additional && <button class="add-row" id="open-demo" onClick={() => { cancelFileRead(); VaultApi.openDemo({}); }}>
                     <span class="add-row__icon">
                         <Icon name="play" />
                     </span>
                     {t('Try the demo')}
-                </button>
+                </button>}
                 </div>
             </aside>
             <PanelResizer label={t('Resize Your vaults panel')} value={sidebar.width} min={240} max={sidebar.max}
@@ -191,16 +195,16 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     <p>{t('Unlock to connect a browser extension')}</p>
                     <button class="pill" type="button" onClick={onCancelExtensionRequest}>{t('Cancel extension request')}</button>
                 </div>}
-                {pane.kind === 'create' ? <CreateVault model={model} /> : pane.kind === 'webdav' ? (
+                {pane.kind === 'create' ? <CreateVault model={model} onCreated={onOpened} onBusyChange={busy => { setCreating(busy); onCreating?.(busy); }} /> : pane.kind === 'webdav' ? (
                     <WebDavForm onNext={(url, user, pass) => selectPane({ kind: 'webdav-unlock', url, user, pass })} />
                 ) : pane.kind === 'none' ? (
                     <div class="card">
                         <Mark size={76} />
                         <h1 class="card__title">{t('Open a vault')}</h1>
-                        <p class="card__sub">{t('Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
+                        <p class="card__sub">{t(additional ? 'Open a KeePass file, connect to WebDAV, or create a vault.' : 'Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
                     </div>
                 ) : (
-                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} onUnlock={cancelFileRead} capturePasskeySetup={() => {
+                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} canOpen={canOpen} onOpened={onOpened} onUnlock={cancelFileRead} capturePasskeySetup={() => {
                         const intent = setupIntent.current;
                         return (id: string) => { if (setupIntent.current === intent) onPasskeySetup(id); };
                     }} />
@@ -210,11 +214,15 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     );
 }
 
-function UnlockCard({ model, pane, onUnlock, capturePasskeySetup }: {
+function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpened }: {
     model: AppModel;
     pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' }>;
     onUnlock(): void; capturePasskeySetup(): (id: string) => void;
+    canOpen?(): boolean; onOpened?(): void;
 }) {
+    const mounted = useRef(true);
+    useLayoutEffect(() => () => { mounted.current = false; }, []);
+    const admission = canOpen ? () => mounted.current && canOpen() : undefined;
     const [setupAfterUnlock, setSetupAfterUnlock] = useState(false);
     const [password, setPassword] = useState('');
     const [show, setShow] = useState(false);
@@ -249,18 +257,21 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup }: {
             let result: unknown;
             const key = keyFile ? { keyFileData: keyFile.data, keyFileName: keyFile.name } : {};
             if (pane.kind === 'recent') {
-                result = await VaultApi.unlock({ id: pane.file.id, password, ...key });
+                result = await VaultApi.unlock({ id: pane.file.id, password, ...key, canOpen: admission });
             } else if (pane.kind === 'file') {
-                result = await VaultApi.openData({ name: pane.name, data: pane.data, password, ...key });
+                result = await VaultApi.openData({ name: pane.name, data: pane.data, password, ...key, canOpen: admission });
             } else {
-                result = await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key });
+                result = await VaultApi.openWebDav({ url: pane.url, user: pane.user, pass: pane.pass, password, ...key, canOpen: admission });
             }
+            if (admission && !admission()) return;
             if (setupAfterUnlock) {
                 const id = (result as { openedFileId?: unknown })?.openedFileId;
                 const file = typeof id === 'string' ? model.files.get(id) : undefined;
                 if (file?.active) navigateToSetup(file.id);
             }
+            onOpened?.();
         } catch (err) {
+            if (!mounted.current) return;
             const msg = err instanceof Error ? err.message : String(err);
             if (msg === 'invalid-password') setMessage(t('Wrong password'));
             else {
@@ -328,7 +339,7 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup }: {
                 <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{diagnostic}</pre>
             </details>}
             <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
-                setupAfterUnlock={setupAfterUnlock} onSetupChange={setSetupAfterUnlock}
+                setupAfterUnlock={setupAfterUnlock} onSetupChange={setSetupAfterUnlock} canOpen={admission} onOpened={onOpened}
                 keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setMessage} onAttempt={onUnlock} />
             <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock')}

@@ -113,6 +113,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
         }
         const openedFileId = await openFile({
             id: fileInfo.id,
+            canOpen: typeof req.canOpen === 'function' ? req.canOpen as () => boolean : undefined,
             name: fileInfo.name,
             storage: fileInfo.storage,
             path: fileInfo.path,
@@ -128,6 +129,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
         const url = String(req.url);
         const openedFileId = await openFile({
             name: UrlFormat.getDataFileName(url),
+            canOpen: typeof req.canOpen === 'function' ? req.canOpen as () => boolean : undefined,
             storage: 'webdav',
             path: url,
             opts: { user: req.user || '', password: req.pass || '' },
@@ -141,6 +143,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
         const bytes = kdbxweb.ByteUtils.base64ToBytes(String(req.data));
         const openedFileId = await openFile({
             name: String(req.name || 'vault').replace(/\.kdbx$/i, ''),
+            canOpen: typeof req.canOpen === 'function' ? req.canOpen as () => boolean : undefined,
             storage: null,
             path: null,
             fileData: kdbxweb.ByteUtils.arrayToBuffer(bytes),
