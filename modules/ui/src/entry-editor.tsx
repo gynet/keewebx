@@ -216,7 +216,7 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                                     <button hidden={!model.settings.canOpenGenerator} class="link" type="button" aria-expanded={generatorOpen}
                                         onClick={() => { if (model.settings.canOpenGenerator) setGeneratorOpen(!generatorOpen); }}>{t('Generate password')}</button>
                                 </div>
-                                {generatorOpen && model.settings.canOpenGenerator && <PasswordGeneratorPanel onClose={() => setGeneratorOpen(false)}
+                                {generatorOpen && model.settings.canOpenGenerator && <PasswordGeneratorPanel sourcePassword={draft.fields.Password} onClose={() => setGeneratorOpen(false)}
                                     onUse={(password) => {
                                         if (!model.settings.canOpenGenerator) return;
                                         setDraft((current) => ({ ...current, fields: { ...current.fields, Password: password } }));
