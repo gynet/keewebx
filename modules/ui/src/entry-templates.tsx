@@ -116,6 +116,7 @@ function TemplatesDialog({ model, groupId, close, onCreated, trigger }: {
                 </select></label>}
             {message && <p role="alert">{message}</p>}
             <EntryEditor key={`${target.mode}:${target.source?.id ?? target.file.id}`} model={model}
+                group={target.file.groups[0]}
                 entry={target.mode === 'edit' ? target.source! : null} draftSource={target.mode === 'use' ? target.source : undefined}
                 onSave={save} onCancel={() => { setTarget(null); setMessage(''); }} />
         </> : <>

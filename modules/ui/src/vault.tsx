@@ -784,7 +784,6 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                                 <span class="field__label">{t('Website')}</span>
                                 <span class="field__value">{entry.url}</span>
                             </span>
-                            <button type="button" class="field__action" onClick={() => void copy('url', () => entryFieldText(entry, 'url'))}>{copied === 'url' ? t('Copied') : t('Copy')}</button>
                             {website && <a class="field__action" href={website} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
                                 {t('Open')}
                             </a>}

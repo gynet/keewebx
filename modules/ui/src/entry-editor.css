@@ -68,6 +68,10 @@
 .entry-metadata dd { margin: 0; overflow-wrap: anywhere; }
 .entry-detail__actions {
     margin-left: auto;
+    flex-basis: 100%;
+}
+.entry-detail__head {
+    flex-wrap: wrap;
 }
 .entry-list__create {
     margin: 6px 14px;
