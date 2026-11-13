@@ -14,6 +14,11 @@ import { SwipeVaultRow } from './swipe-vault-row';
 import { LocalPasskeyUnlock } from './local-passkey-unlock';
 import { SidebarToggle, useSidebarCollapse } from './sidebar-collapse';
 import { PanelResizer } from 'ui-kit/panel-resizer';
+import { getSessionAccess } from 'comp/app/session-access';
+import { classifyStartFiles } from './start-files';
+import { readStartLink } from './start-link';
+import { StartTools } from './start-tools';
+import './start-flows.css';
 
 interface RecentFile {
     id: string;
@@ -24,10 +29,10 @@ interface RecentFile {
 
 type Pane =
     | { kind: 'create' }
-    | { kind: 'import' }
+    | { kind: 'import'; file?: File }
     | { kind: 'recent'; file: RecentFile }
-    | { kind: 'file'; name: string; data: string }
-    | { kind: 'webdav' }
+    | { kind: 'file'; name: string; data: string; key?: { name: string; data: string } }
+    | { kind: 'webdav'; url?: string }
     | { kind: 'webdav-unlock'; url: string; user: string; pass: string }
     | { kind: 'none' };
 
@@ -55,18 +60,29 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     const sidebar = useSidebarCollapse('start');
     const additional = !!onOpened;
     const [creating, setCreating] = useState(false);
+    const [unlocking, setUnlocking] = useState(false);
+    const [dropping, setDropping] = useState(false);
+    const [startup] = useState(() => additional ? undefined : readStartLink());
+    const busy = creating || unlocking;
+    const admitted = () => getSessionAccess(model).state === 'open' && canOpen?.() !== false;
+    const localAllowed = () => admitted() && model.settings.canOpen;
+    const remoteAllowed = () => admitted() && canOpenProvider('webdav');
     const recent: RecentFile[] = model.fileInfos.filter(fi => (!additional || !model.files.get(fi.id)?.active) && (!fi.storage || canOpenProvider(fi.storage))).map((fi) => ({
         id: fi.id,
         name: fi.name,
         storage: fi.storage,
         path: fi.path
     }));
-    const [pane, setPane] = useState<Pane>(!additional && recent[0] ? { kind: 'recent', file: recent[0] } : { kind: 'none' });
+    const [pane, setPane] = useState<Pane>(() => startup?.kind === 'webdav' && remoteAllowed()
+        ? { kind: 'webdav', url: startup.url } : !additional && recent[0] ? { kind: 'recent', file: recent[0] } : { kind: 'none' });
     const fileInput = useRef<HTMLInputElement>(null);
     const readVersion = useRef(0);
     const setupIntent = useRef(0);
+    const demoStarting = useRef(false);
     const [readingFile, setReadingFile] = useState(false);
-    const [fileError, setFileError] = useState<{ message: string; retry?: File } | null>(null);
+    const [fileError, setFileError] = useState<{ message: string; retry?: { file: File; key?: File } } | null>(() =>
+        startup?.kind === 'error' ? { message: t(startup.message) } : startup?.kind === 'webdav' && !remoteAllowed()
+            ? { message: t('Opening remote databases is disabled.') } : null);
     useEffect(() => () => { ++readVersion.current; }, []);
 
     const cancelFileRead = () => {
@@ -76,20 +92,23 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
         setFileError(null);
     };
     const selectPane = (next: Pane) => {
+        if (busy || !admitted()) return;
         if (next.kind === 'create' && !model.settings.canCreate) return;
-        if ((next.kind === 'webdav' || next.kind === 'webdav-unlock') && !canOpenProvider('webdav')) return;
+        if ((next.kind === 'webdav' || next.kind === 'webdav-unlock') && !remoteAllowed()) return;
+        if (next.kind === 'import' && !model.settings.canImportCsv && !model.settings.canImportXml) return;
         if (next.kind === 'recent' && next.file.storage && !canOpenProvider(next.file.storage)) return;
         cancelFileRead();
         setPane(next);
     };
-    const readFile = async (file: File) => {
-        if (!model.settings.canOpen) return;
+    const readFile = async (file: File, key?: File) => {
+        if (!localAllowed() || busy) return;
+        const epoch = getSessionAccess(model).epoch;
         const version = ++readVersion.current;
         setReadingFile(true);
         setFileError(null);
         try {
-            const data = await file.arrayBuffer();
-            if (version !== readVersion.current || !model.settings.canOpen) return;
+            const [data, keyData] = await Promise.all([file.arrayBuffer(), key?.arrayBuffer()]);
+            if (version !== readVersion.current || !localAllowed() || !getSessionAccess(model).isCurrent(epoch)) return;
             // Match Classic's signature check before replacing the selected vault.
             const signature = data.byteLength >= 8 ? new DataView(data) : null;
             const magic = signature?.getUint32(0, true);
@@ -100,10 +119,10 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                 return;
             }
             ++setupIntent.current;
-            setPane({ kind: 'file', name: file.name, data: toBase64(data) });
+            setPane({ kind: 'file', name: file.name, data: toBase64(data), key: key && keyData ? { name: key.name, data: toBase64(keyData) } : undefined });
         } catch {
             if (version === readVersion.current) {
-                setFileError({ message: t(Locale.openFailedRead), retry: file });
+                setFileError({ message: t(key ? 'Unable to read the database or key file. Retry or choose the files again.' : Locale.openFailedRead), retry: { file, key } });
             }
         } finally {
             if (version === readVersion.current) setReadingFile(false);
@@ -117,12 +136,46 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
         if (file) void readFile(file);
     };
 
+    const openDemo = () => {
+        if (busy || demoStarting.current || !admitted() || !model.settings.canOpenDemo) return;
+        demoStarting.current = true; cancelFileRead(); setPane({ kind: 'none' }); setUnlocking(true);
+        try { VaultApi.openDemo({}); }
+        catch { demoStarting.current = false; setUnlocking(false); setFileError({ message: t('Unable to open the demo.') }); }
+    };
+    useEffect(() => {
+        if (startup?.kind !== 'demo') return;
+        if (model.settings.canOpenDemo) openDemo();
+        else setFileError({ message: t('Opening the demo is disabled.') });
+    }, []);
+    const dropFiles = (files: File[]) => {
+        if (busy || !admitted() || document.querySelector('dialog[open]')) return;
+        if (pane.kind === 'create' || pane.kind === 'import') {
+            setFileError({ message: t('Finish or leave the current create/import form before dropping files.') }); return;
+        }
+        try {
+            const source = classifyStartFiles(files, model.settings);
+            if (source.kind === 'import') selectPane({ kind: 'import', file: source.file });
+            else void readFile(source.file, source.key);
+        } catch (error) { setFileError({ message: t((error as Error).message) }); }
+    };
+
     return (
-        <div class={`start start--foldable${sidebar.collapsed ? ' sidebar-folded' : ''}`} style={{ '--start-sidebar-width': `${sidebar.width}px` }}>
+        <div class={`start start--foldable${sidebar.collapsed ? ' sidebar-folded' : ''}${dropping ? ' start--dropping' : ''}`} style={{ '--start-sidebar-width': `${sidebar.width}px` }}
+            onDragOver={event => {
+                if (!event.dataTransfer?.types.includes('Files')) return;
+                event.preventDefault(); event.stopPropagation();
+                event.dataTransfer.dropEffect = localAllowed() && !busy ? 'copy' : 'none';
+                setDropping(localAllowed() && !busy);
+            }}
+            onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropping(false); }}
+            onDrop={event => {
+                event.preventDefault(); event.stopPropagation(); setDropping(false);
+                if (event.dataTransfer?.files.length) dropFiles([...event.dataTransfer.files]);
+            }}>
             <aside class="start__side" aria-label={t('Your vaults')}>
                 <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="start-sidebar-content" label={t('Your vaults')} />
                 <div class="sidebar-rail">
-                    <button hidden={!model.settings.canOpen} type="button" class="round" disabled={creating} aria-label={t('Open a file')} title={t('Open a file')} onClick={() => { sidebar.toggle(); if (model.settings.canOpen) fileInput.current?.click(); }}><Icon name="file" size={18} /></button>
+                    {model.settings.canOpen && <button type="button" class="round" disabled={busy} aria-label={t('Open a file')} title={t('Open a file')} onClick={() => { if (localAllowed()) { sidebar.toggle(); fileInput.current?.click(); } }}><Icon name="file" size={18} /></button>}
                     <ThemeToggle />
                 </div>
                 <div id="start-sidebar-content" class="start-sidebar-content">
@@ -138,9 +191,21 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <SwipeVaultRow key={file.id}>
                         <button
                             class={on ? 'vault-row vault-row--on' : 'vault-row'}
-                            disabled={creating}
+                            disabled={busy}
                             data-vault={file.name}
                             onClick={() => selectPane({ kind: 'recent', file })}
+                            onKeyDown={event => {
+                                if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+                                    || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+                                const rows = [...event.currentTarget.closest('.start')!.querySelectorAll<HTMLButtonElement>('.vault-row[data-vault]:not(:disabled)')]
+                                    .filter(row => row.getClientRects().length);
+                                const index = rows.indexOf(event.currentTarget);
+                                if (index < 0) return;
+                                event.preventDefault();
+                                const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1
+                                    : Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)));
+                                rows[next]?.focus();
+                            }}
                         >
                             <span class="vault-row__icon">
                                 <Icon name={file.storage === 'webdav' ? 'cloud' : 'file'} size={18} />
@@ -167,37 +232,38 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     );
                 })}
                 <h2 class={recent.length ? 'start__heading start__gap' : 'start__heading'}>{t('Add a vault')}</h2>
-                {model.settings.canCreate && <button class="add-row" id="create-vault" disabled={creating} onClick={() => selectPane({ kind: 'create' })}>
+                {model.settings.canCreate && <button class="add-row" id="create-vault" disabled={busy} onClick={() => selectPane({ kind: 'create' })}>
                     <span class="add-row__icon"><Icon name="plus" /></span>{t('Create a vault')}
                 </button>}
-                {(model.settings.canImportXml || model.settings.canImportCsv) && <button class="add-row" disabled={creating} onClick={() => selectPane({ kind: 'import' })}>{t('Import XML or CSV')}</button>}
-                <input ref={fileInput} type="file" accept=".kdbx,.kdb" disabled={creating} hidden onChange={chooseFile} id="open-file-input" />
-                <button hidden={!model.settings.canOpen} class="add-row" id="open-file" disabled={creating} onClick={() => { if (model.settings.canOpen) fileInput.current?.click(); }}>
+                {(model.settings.canImportXml || model.settings.canImportCsv) && <button class="add-row" disabled={busy} onClick={() => selectPane({ kind: 'import' })}>{t('Import XML or CSV')}</button>}
+                {model.settings.canOpen && <><input ref={fileInput} type="file" accept=".kdbx,.kdb" disabled={busy} hidden onChange={chooseFile} id="open-file-input" />
+                <button class="add-row" id="open-file" disabled={busy} onClick={() => { if (localAllowed()) fileInput.current?.click(); }}>
                     <span class="add-row__icon">
                         <Icon name="file" />
                     </span>
                     {t('Open a file')}
-                </button>
+                </button><p class="start-flow-drop">{t('Drop a database here, optionally with its key file. You can also use the file pickers.')}</p></>}
                 {readingFile && <p role="status">{t('Reading file…')}</p>}
                 {fileError && <div role="alert" id="open-file-error">
                     <p class="error">{fileError.message}</p>
                     <button type="button" class="link" onClick={() => {
-                        if (fileError.retry) void readFile(fileError.retry);
-                        else if (model.settings.canOpen) fileInput.current?.click();
+                        if (fileError.retry) void readFile(fileError.retry.file, fileError.retry.key);
+                        else fileInput.current?.click();
                     }}>{fileError.retry ? t('Retry reading file') : t('Choose another file')}</button>
                 </div>}
-                <button hidden={!canOpenProvider('webdav')} class="add-row" id="open-webdav" disabled={creating} onClick={() => selectPane({ kind: 'webdav' })}>
+                {canOpenProvider('webdav') && <button class="add-row" id="open-webdav" disabled={busy} onClick={() => selectPane({ kind: 'webdav' })}>
                     <span class="add-row__icon">
                         <Icon name="cloud" />
                     </span>
                     {t('Connect to WebDAV')}
-                </button>
-                {!additional && <button hidden={!model.settings.canOpenDemo} class="add-row" id="open-demo" onClick={() => { if (!model.settings.canOpenDemo) return; cancelFileRead(); VaultApi.openDemo({}); }}>
+                </button>}
+                {!additional && model.settings.canOpenDemo && <button class="add-row" id="open-demo" disabled={busy} onClick={openDemo}>
                     <span class="add-row__icon">
                         <Icon name="play" />
                     </span>
                     {t('Try the demo')}
                 </button>}
+                {!additional && <StartTools model={model} disabled={busy} beforeOpen={cancelFileRead} onSettings={onSettings} />}
                 </div>
             </aside>
             <PanelResizer label={t('Resize Your vaults panel')} value={sidebar.width} min={240} max={sidebar.max}
@@ -210,9 +276,9 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                 {((pane.kind === 'file' && !model.settings.canOpen) || (pane.kind === 'create' && !model.settings.canCreate) ||
                     ((pane.kind === 'webdav' || pane.kind === 'webdav-unlock') && !canOpenProvider('webdav')) ||
                     (pane.kind === 'recent' && pane.file.storage && !canOpenProvider(pane.file.storage))) ? <p role="status">{t('This action is disabled by the host.')}</p>
-                    : pane.kind === 'import' ? <div class="card"><ImportVault model={model} onDone={onOpened} canImport={canOpen} /></div>
+                    : pane.kind === 'import' ? <div class="card"><ImportVault key={pane.file?.name} initialFile={pane.file} model={model} onDone={onOpened} canImport={canOpen} /></div>
                     : pane.kind === 'create' ? <CreateVault model={model} onCreated={onOpened} onBusyChange={busy => { setCreating(busy); onCreating?.(busy); }} /> : pane.kind === 'webdav' ? (
-                    <WebDavForm onNext={(url, user, pass) => selectPane({ kind: 'webdav-unlock', url, user, pass })} />
+                    <WebDavForm initialUrl={pane.url} onNext={(url, user, pass) => selectPane({ kind: 'webdav-unlock', url, user, pass })} />
                 ) : pane.kind === 'none' ? (
                     <div class="card">
                         <Mark size={76} />
@@ -220,7 +286,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         <p class="card__sub">{t(additional ? 'Open a KeePass file, connect to WebDAV, or create a vault.' : 'Open a KeePass file, connect to WebDAV, or try the demo.')}</p>
                     </div>
                 ) : (
-                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} canOpen={canOpen} onOpened={onOpened} onUnlock={cancelFileRead} capturePasskeySetup={() => {
+                    <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} canOpen={canOpen} onBusyChange={setUnlocking} onOpened={onOpened} onUnlock={cancelFileRead} capturePasskeySetup={() => {
                         const intent = setupIntent.current;
                         return (id: string) => { if (setupIntent.current === intent) onPasskeySetup(id); };
                     }} />
@@ -230,18 +296,24 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     );
 }
 
-function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpened }: {
+function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpened, onBusyChange }: {
     model: AppModel;
-    pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' } | { kind: 'import' }>;
+    pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' } | { kind: 'import'; file?: File }>;
+    onBusyChange: (busy: boolean) => void;
     onUnlock(): void; capturePasskeySetup(): (id: string) => void;
     canOpen?(): boolean; onOpened?(): void;
 }) {
     const mounted = useRef(true);
     useLayoutEffect(() => () => { mounted.current = false; }, []);
-    const admission = canOpen ? () => mounted.current && canOpen() : undefined;
+    const admission = () => mounted.current && canOpen?.() !== false &&
+        (pane.kind === 'recent' || (pane.kind === 'file' ? model.settings.canOpen : canOpenProvider('webdav')));
     const [setupAfterUnlock, setSetupAfterUnlock] = useState(false);
     const [password, setPassword] = useState('');
     const [show, setShow] = useState(false);
+    const [capsLock, setCapsLock] = useState(false);
+    const updateCapsLock = (event: KeyboardEvent) => {
+        if (!event.isComposing) setCapsLock(event.getModifierState?.('CapsLock') ?? false);
+    };
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [diagnostic, setDiagnostic] = useState('');
@@ -251,20 +323,22 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
         setDiagnostic('');
         setError(message);
     };
-    const [keyFile, setKeyFile] = useState<{ name: string; data: string } | null>(null);
+    const [keyFile, setKeyFile] = useState<{ name: string; data: string } | null>(pane.kind === 'file' ? pane.key ?? null : null);
     const [readingKey, setReadingKey] = useState(false);
     const keyInput = useRef<HTMLInputElement>(null);
+    useLayoutEffect(() => { onBusyChange(busy); return () => onBusyChange(false); }, [busy]);
     const name =
         pane.kind === 'recent'
             ? pane.file.name
             : pane.kind === 'file'
             ? pane.name
-            : decodeURIComponent(pane.url.split('/').pop() || 'vault');
+            : pane.url.split('/').pop()?.split('?')[0] || 'vault';
     const sub =
         pane.kind === 'recent' ? where(pane.file) : pane.kind === 'file' ? t('File on this device') : t('WebDAV');
 
     const unlock = async (e: Event) => {
         e.preventDefault();
+        if (busy || readingKey || !admission()) return;
         onUnlock();
         setBusy(true);
         setMessage('');
@@ -314,6 +388,10 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
                     placeholder={t('Master password')}
                     value={password}
                     onInput={(e) => setPassword(e.currentTarget.value)}
+                    onKeyDown={updateCapsLock}
+                    onKeyUp={updateCapsLock}
+                    onBlur={() => setCapsLock(false)}
+                    aria-describedby={capsLock ? 'unlock-caps-lock' : undefined}
                     disabled={busy}
                     autoFocus
                     style={{ paddingRight: '48px' }}
@@ -328,13 +406,17 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
                     <Icon name="eye" size={18} />
                 </button>
             </div>
+            {capsLock && <p id="unlock-caps-lock" role="status">{t('Caps Lock is on')}</p>}
             <div class="unlock-key-file">
                 <input ref={keyInput} id="unlock-key-file" type="file" hidden disabled={busy || readingKey}
                     onChange={async (event) => {
                         const file = event.currentTarget.files?.[0];
                         if (!file) return;
                         setReadingKey(true);
-                        try { setKeyFile({ name: file.name, data: toBase64(await file.arrayBuffer()) }); setMessage(''); }
+                        try {
+                            const data = await file.arrayBuffer();
+                            if (admission()) { setKeyFile({ name: file.name, data: toBase64(data) }); setMessage(''); }
+                        }
                         catch { setMessage(t('Unable to read the key file.')); }
                         finally { setReadingKey(false); }
                     }} />
@@ -364,8 +446,9 @@ function UnlockCard({ model, pane, onUnlock, capturePasskeySetup, canOpen, onOpe
     );
 }
 
-function WebDavForm({ onNext }: { onNext: (url: string, user: string, pass: string) => void }) {
-    const [url, setUrl] = useState('');
+function WebDavForm({ onNext, initialUrl }: {
+    initialUrl?: string; onNext: (url: string, user: string, pass: string) => void }) {
+    const [url, setUrl] = useState(initialUrl ?? '');
     const [user, setUser] = useState('');
     const [pass, setPass] = useState('');
     const valid = /^https?:\/\/.+\/.+/.test(url.trim());

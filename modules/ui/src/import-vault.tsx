@@ -9,7 +9,7 @@ import { hasPendingDrafts } from './pending-drafts';
 import { t } from './i18n';
 
 type Source = { format: 'csv'; data: CsvData } | { format: 'xml'; data: string };
-export function ImportVault({ model, onDone, canImport }: { model: AppModel; onDone?: () => void; canImport?: () => boolean }) {
+export function ImportVault({ model, onDone, canImport, initialFile }: { initialFile?: File; model: AppModel; onDone?: () => void; canImport?: () => boolean }) {
     const [source, setSource] = useState<Source>();
     const [mapping, setMapping] = useState<string[]>([]);
     const [name, setName] = useState('');
@@ -53,6 +53,7 @@ export function ImportVault({ model, onDone, canImport }: { model: AppModel; onD
         } catch (error) { if (version === generation.current) setMessage((error as Error).message); }
         finally { if (version === generation.current) { working.current = false; setBusy(false); } }
     };
+    useEffect(() => { if (initialFile) void read(initialFile); }, [initialFile]);
     const groups: { group: GroupModel; label: string }[] = [];
     for (const file of model.files) {
         if (!file.active || (file as FileModel & { readOnly?: boolean }).readOnly) continue;

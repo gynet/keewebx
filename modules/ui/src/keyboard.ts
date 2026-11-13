@@ -1,8 +1,9 @@
 import type { AppModel } from 'models/app-model';
 import { getSessionAccess } from 'comp/app/session-access';
+import { isApplePlatform } from './keyboard-shortcuts';
 
 export function commandKey(event: KeyboardEvent): boolean {
-    return /Mac|iPhone|iPad/.test(navigator.platform)
+    return isApplePlatform(navigator.platform)
         ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
 }
 

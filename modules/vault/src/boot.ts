@@ -17,6 +17,7 @@ import { RuntimeDataModel } from 'models/runtime-data-model';
 import { applyRegisteredStorages, Storage } from 'storage';
 import { KdbxwebInit } from 'util/kdbxweb/kdbxweb-init';
 import { startPeriodicSync } from 'comp/app/periodic-sync';
+import { loadStartupConfig } from 'comp/app/startup-config';
 
 export { saveAndLock } from 'comp/app/vault-lifecycle';
 
@@ -34,6 +35,7 @@ export async function startVault(): Promise<AppModel> {
 
     const appModel = new AppModel();
     await Promise.all([AppSettingsModel.load(), RuntimeDataModel.load(), FileInfoCollection.load()]);
+    await loadStartupConfig(appModel);
     if (window.top !== window && !AppSettingsModel.allowIframes) {
         throw new Error('Opening the vault in a frame is disabled.');
     }

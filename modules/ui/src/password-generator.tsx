@@ -1,4 +1,7 @@
 import { useState } from 'preact/hooks';
+import { ProtectedValue } from 'kdbxweb';
+import { GeneratorPresetEditor } from './generator-preset-editor';
+import { validateGeneratorOptions } from './generator-preset-settings';
 import { GeneratorPresets } from 'comp/app/generator-presets';
 import { CharRanges, PasswordGenerator } from 'util/generators/password-generator';
 import { t } from './i18n';
@@ -17,31 +20,33 @@ const CHARACTER_SETS = [
 ] as const;
 
 function generate(options: Options): { password: string; error: string } {
-    if (!Number.isInteger(options.length) || options.length < 1 || options.length > 128) {
-        return { password: '', error: t('Choose a length from 1 to 128.') };
-    }
-    if (!Object.keys(CharRanges).some((key) => options[key]) && !options.include) {
-        return { password: '', error: t('Select at least one character set or add characters.') };
-    }
     try {
+        validateGeneratorOptions(options);
         const password = PasswordGenerator.generate(options);
         return { password, error: password ? '' : t('Could not generate a password with these options.') };
-    } catch {
-        return { password: '', error: t('Could not generate a password. Try again.') };
+    } catch (error) {
+        return { password: '', error: t(error instanceof Error ? error.message : 'Could not generate a password. Try again.') };
     }
 }
 
-export function PasswordGeneratorPanel({ onUse, onClose, actionLabel }: {
+export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePassword }: {
     actionLabel?: string;
+    sourcePassword?: string;
     onUse: (password: string) => void;
     onClose: () => void;
 }) {
-    const [presets] = useState(() => GeneratorPresets.enabled);
+    const [presets, setPresets] = useState(() => GeneratorPresets.enabled);
+    const [deriveSource, setDeriveSource] = useState('');
     const [options, setOptions] = useState<Options>(() => ({
         ...(presets.find((preset) => preset.default) ?? presets[0])
     }));
     const [result, setResult] = useState(() => generate(options));
     const [reveal, setReveal] = useState(false);
+    const select = (next: Options) => { setOptions({ ...next }); setResult(generate(next)); setReveal(false); };
+    const derive = (password: string) => {
+        const next = { ...PasswordGenerator.deriveOpts(ProtectedValue.fromString(password)), name: 'Derived' };
+        setDeriveSource(''); select(next);
+    };
     const change = (changes: Partial<Options>) => {
         const next = { ...options, ...changes, name: 'Custom' };
         setOptions(next);
@@ -66,9 +71,10 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel }: {
                         }
                     }}>
                         {presets.map((preset) => (
-                            <option key={preset.name} value={preset.name}>{t(PRESET_LABELS[preset.name] ?? preset.name)}</option>
+                            <option key={preset.name} value={preset.name}>{t(PRESET_LABELS[preset.name] ?? preset.title ?? preset.name)}</option>
                         ))}
                         <option value="Custom" disabled>{t('Custom')}</option>
+                        {options.name === 'Derived' && <option value="Derived">{t('Derived')}</option>}
                     </select>
                 </label>
                 <label class="field-label">
@@ -92,7 +98,21 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel }: {
                 <input class="input" value={options.include ?? ''} autoComplete="off" spellcheck={false}
                     onInput={(event) => change({ include: event.currentTarget.value })} />
             </label>
-            {options.pattern && <p class="muted">{t('Pattern: {}', options.pattern)}</p>}
+            <label class="field-label"><span>{t('Pattern')}</span>
+                <input class="input" value={options.pattern ?? ''} maxLength={128} autoComplete="off" spellcheck={false}
+                    onInput={event => change({ pattern: event.currentTarget.value })} />
+            </label>
+            <details><summary>{t('Pattern help')}</summary>
+                <p>{t('The pattern repeats to fill Length. X uses selected character sets; A uppercase, a lowercase, 1 digits, * symbols, [ brackets, Ä extended characters, 0 ambiguous characters, I additional characters. Other characters are literal separators. Example: XX- repeats pairs separated by a dash.')}</p>
+            </details>
+            <details><summary>{t('Derive options from a password')}</summary>
+                <p>{t('Only length and character classes are used. The source password is not saved or copied into a preset.')}</p>
+                {sourcePassword !== undefined && <button type="button" class="pill" disabled={!sourcePassword} onClick={() => derive(sourcePassword)}>{t('Use current password options')}</button>}
+                <label class="field-label">{t('Source password')}<input class="input" type="password" value={deriveSource} autoComplete="off"
+                    onInput={event => setDeriveSource(event.currentTarget.value)} /></label>
+                <button type="button" class="pill" disabled={!deriveSource} onClick={() => derive(deriveSource)}>{t('Derive options')}</button>
+            </details>
+            <GeneratorPresetEditor options={options} select={preset => select({ ...preset })} changed={() => setPresets(GeneratorPresets.enabled)} />
             <label class="field-label">
                 <span>{t('Generated password')}</span>
                 <input class="input password-generator__result" type={reveal ? 'text' : 'password'}

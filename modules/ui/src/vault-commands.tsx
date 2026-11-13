@@ -10,6 +10,7 @@ import { commandKey, editingText, keyboardAvailable } from './keyboard';
 import { PasswordGeneratorPanel } from './password-generator';
 import { PromptDialog } from './extension-prompts';
 import { t } from './i18n';
+import { shortcutKeys } from './keyboard-shortcuts';
 
 export function useVaultCommands(model: AppModel, surface: { current: HTMLElement | null }, actions: {
     open: () => void; settings: () => void; lock: () => void;
@@ -53,7 +54,7 @@ export function useVaultCommands(model: AppModel, surface: { current: HTMLElemen
             // vault surface. Never resolve this route through retained recovery UI.
             if (!model.files.hasOpenFiles() && access.state === 'open' && !event.defaultPrevented
                 && !event.isComposing && event.keyCode !== 229 && !event.repeat && commandKey(event)
-                && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'o' && !editingText(event.target)
+                && !event.altKey && !event.shiftKey && event.key.toLowerCase() === shortcutKeys.open && !editingText(event.target)
                 && !document.querySelector('dialog[open]') && model.settings.canOpen !== false) {
                 const input = document.querySelector<HTMLInputElement>('#open-file-input');
                 const start = input?.closest<HTMLElement>('.start');
@@ -64,16 +65,18 @@ export function useVaultCommands(model: AppModel, surface: { current: HTMLElemen
             }
             if (!keyboardAvailable(model, surface.current, event) || !commandKey(event) || event.altKey || event.shiftKey) return;
             const key = event.key.toLowerCase();
-            if (!['s', 'l', 'o', 'g', ','].includes(key)) return;
+            if (![shortcutKeys.save, shortcutKeys.lock, shortcutKeys.open, shortcutKeys.generator, shortcutKeys.settings].includes(key as never)) return;
+            if (key === shortcutKeys.generator && !model.settings.canOpenGenerator) return;
+            if (key === shortcutKeys.settings && !model.settings.canOpenSettings) return;
             // Saving and securing intentionally apply pending drafts. Navigation
             // shortcuts leave a focused editor and its native keys alone.
-            if (!['s', 'l'].includes(key) && (editingText(event.target) || hasEditor())) return;
+            if (![shortcutKeys.save, shortcutKeys.lock].includes(key as never) && (editingText(event.target) || hasEditor())) return;
             event.preventDefault();
             IdleTracker.regUserAction();
-            if (key === 's') void save();
-            else if (key === 'l') actions.lock();
-            else if (key === 'o') actions.open();
-            else if (key === ',') actions.settings();
+            if (key === shortcutKeys.save) void save();
+            else if (key === shortcutKeys.lock) actions.lock();
+            else if (key === shortcutKeys.open) actions.open();
+            else if (key === shortcutKeys.settings) actions.settings();
             else { setCopyMessage(''); setGenerator(true); }
         };
         const hasEditor = () => !!surface.current?.querySelector('.entry-editor, .notes__edit');
@@ -84,6 +87,7 @@ export function useVaultCommands(model: AppModel, surface: { current: HTMLElemen
         const epoch = access.epoch;
         try {
             access.assertOpen(epoch);
+            if (!model.settings.canOpenGenerator) return;
             await navigator.clipboard.writeText(password);
             VaultApi.copied({ text: password, password: false, sessionEpoch: epoch });
             access.assertOpen(epoch);
@@ -91,10 +95,10 @@ export function useVaultCommands(model: AppModel, surface: { current: HTMLElemen
         } catch { if (access.state === 'open') setCopyMessage(t('Could not copy. Reveal the password and copy it manually.')); }
     };
     return {
-        save: () => void save(), generator: () => { setCopyMessage(''); setGenerator(true); },
+        save: () => void save(), generator: () => { if (model.settings.canOpenGenerator) { setCopyMessage(''); setGenerator(true); } },
         content: <>
             {message && <div class="command-status" role="status">{message} <button type="button" class="link" onClick={() => setMessage('')}>{t('Dismiss')}</button></div>}
-            {generator && <PromptDialog title={t('Generate password')} icon="key" cancel={() => setGenerator(false)}>
+            {generator && model.settings.canOpenGenerator && <PromptDialog title={t('Generate password')} icon="key" cancel={() => setGenerator(false)}>
                 <PasswordGeneratorPanel actionLabel={t('Copy password')} onUse={password => void copy(password)} onClose={() => setGenerator(false)} />
                 {copyMessage && <p role="status">{copyMessage}</p>}
             </PromptDialog>}

@@ -1,0 +1,3 @@
+.start-flow-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; padding: 12px 0; }
+.start-flow-drop { margin: 8px 0 16px; padding: 12px; border: 1px dashed var(--kx-line); border-radius: 10px; overflow-wrap: anywhere; }
+.start--dropping .start-flow-drop { outline: 2px solid var(--kx-accent); }

@@ -449,7 +449,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     reset={() => { if (changeSearch({ ...searchDefaults, ...model.advancedSearch }, {})) setQuery(''); }} />
                 <div class="vault-commands">
                     <button type="button" class="pill" onClick={props.onSave}>{t('Save vaults')}</button>
-                    <button type="button" class="pill" onClick={props.onGenerator}>{t('Password generator')}</button>
+                    <button type="button" class="pill" hidden={!model.settings.canOpenGenerator} onClick={props.onGenerator}>{t('Password generator')}</button>
                 </div>
                 <EntrySort value={sort} onChange={next => {
                     const access = getSessionAccess(model);
