@@ -241,9 +241,9 @@ function App({ model }: { model: AppModel }) {
         <div ref={surface} hidden={!!gate} style={{ height: '100%' }}>
         {commands.content}
         <RemoteKeyRecovery model={model} />
-        <KeyChangeReminder model={model} version={version} enabled={!gate && !openingAnother && !closingFile && !settingsOpen}
+        <KeyChangeReminder model={model} version={version} enabled={model.settings.canOpenSettings && !gate && !openingAnother && !closingFile && !settingsOpen}
             change={file => {
-                if (access.state !== 'open' || model.files.get(file.id) !== file || !file.active) return;
+                if (!model.settings.canOpenSettings || access.state !== 'open' || model.files.get(file.id) !== file || !file.active) return;
                 setPasskeySettingsId(undefined); setCredentialSettingsId(file.id); setSettingsOpen(true);
             }} />
         {closingFile && <CloseVault key={closingFile.id} model={model} file={closingFile} close={() => {
