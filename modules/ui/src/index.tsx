@@ -235,7 +235,6 @@ if (classicEntry) location.replace(classicEntry);
 else void startVault().then((model) => {
     render(<App model={model} />, document.getElementById('root')!);
     ServiceWorkerClient.init();
-    if (new URLSearchParams(location.search).get('demo') === '1') model.createDemoFile();
 }).catch(() => {
     render(
         <main class="start__main">
