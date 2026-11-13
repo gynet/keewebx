@@ -72,7 +72,8 @@ function davPut(pathname: string, data: Buffer): void {
 let context: BrowserContext;
 let sw: PlaywrightWorker;
 let extensionId: string;
-const appUrl = () => `chrome-extension://${extensionId}/app/index.html`;
+const appUrl = () => `chrome-extension://${extensionId}/app/classic.html`;
+const newAppUrl = () => `chrome-extension://${extensionId}/app/next.html`;
 
 test.skip(!fs.existsSync(path.join(EXT_PATH, 'manifest.json')), 'build the vault extension first');
 
@@ -90,7 +91,7 @@ test.beforeAll(async () => {
         res.end(fs.readFileSync(file));
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    serverUrl = `http://localhost:${(server.address() as AddressInfo).port}/`;
+    serverUrl = `http://localhost:${(server.address() as AddressInfo).port}/classic.html`;
 });
 
 test.beforeAll(async () => {
@@ -560,7 +561,7 @@ async function openPopup(site?: Page, file = 'popup.html', size = POPUP): Promis
 
 const offscreenOpen = () => sw.evaluate(() => chrome.offscreen.hasDocument());
 const vaultTabOpen = () =>
-    sw.evaluate(async (url) => (await chrome.tabs.query({})).some((t) => t.url?.startsWith(url)), appUrl().replace('index.html', 'next.html'));
+    sw.evaluate(async (url) => (await chrome.tabs.query({})).some((t) => t.url?.startsWith(url)), newAppUrl());
 
 async function openDemoInPopup(site?: Page): Promise<Page> {
     const popup = await openPopup(site);
@@ -730,7 +731,7 @@ test('New embedded vault shares popup access and preserves a draft when locked f
     const app = await context.newPage();
     const errors: string[] = [];
     app.on('pageerror', error => errors.push(error.message));
-    await app.goto(appUrl().replace('index.html', 'next.html'));
+    await app.goto(newAppUrl());
     await app.locator('#open-file-input').setInputFiles(FIXTURE);
     await app.locator('#password').fill(FIXTURE_PASSWORD);
     await app.locator('#unlock').click();

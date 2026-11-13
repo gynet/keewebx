@@ -6,6 +6,33 @@ on:
   pull_request:
 
 jobs:
+  e2e-embedded-vault:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      KEEWEBX_NEW_EXTENSION: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2.2.0
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Build the packaged vault extension
+        run: cd modules/extension && bun run build-chrome-vault
+      - run: bunx playwright install chromium --with-deps
+      - name: Verify embedded New, Classic and Connect workflows
+        run: bunx playwright test --config e2e/extension/vault.playwright.config.ts
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-embedded-vault
+          path: e2e/test-results-vault/
+          retention-days: 7
+
   e2e-registered-storage:
     runs-on: ubuntu-latest
     timeout-minutes: 20
