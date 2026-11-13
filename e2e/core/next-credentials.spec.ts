@@ -67,6 +67,7 @@ async function open(page: Page, source: Fixture, name = 'credentials.kdbx') {
     await unlock(page, initial);
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 async function passwordDraft(page: Page, password: string, confirmation = password) {
     await credentials(page).getByLabel('New master password', { exact: true }).fill(password);
@@ -105,6 +106,7 @@ async function reload(page: Page, factors: Factors) {
     await page.reload();
     await unlock(page, factors);
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 async function selectKey(page: Page, bytes: Uint8Array, name = 'replacement.keyx') {
     await credentials(page).getByRole('combobox', { name: 'Key file action', exact: true }).selectOption('set');
@@ -276,6 +278,7 @@ test.describe('Database credential changes preserve encrypted access', () => {
             await page.locator('#webdav-next').click();
             await unlock(page, initial);
             await page.getByRole('button', { name: 'Settings', exact: true }).click();
+            await page.getByRole('tab', { name: 'Database', exact: true }).click();
             await passwordDraft(page, changedPassword);
             await selectKey(page, key);
             await apply(page);

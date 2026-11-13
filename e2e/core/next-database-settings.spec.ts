@@ -17,6 +17,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await page.getByRole('button', { name: 'Create vault', exact: true }).click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
     await page.click('#open-settings');
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await page.getByText('Advanced', { exact: true }).click();
     await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('initial-user');
     await expect(page.getByLabel('Key derivation function', { exact: true })).toHaveValue('Argon2id');
@@ -26,6 +27,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await expect(page.locator('#settings-back')).toHaveCount(0);
     await expect(page.getByRole('form', { name: /^Database settings: / })).toHaveCount(0);
     await page.click('#open-settings');
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await page.getByText('Advanced', { exact: true }).click();
     await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('initial-user');
     await page.getByLabel('Vault name', { exact: true }).fill('Renamed vault');
@@ -40,6 +42,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await page.fill('#password', 'settings password');
     await page.click('#unlock');
     await page.click('#open-settings');
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await page.getByText('Advanced', { exact: true }).click();
     await expect(page.getByLabel('Vault name', { exact: true })).toHaveValue('Renamed vault');
     await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('saved-user');

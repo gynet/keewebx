@@ -259,7 +259,7 @@ for (const variant of [
     });
 async function sessions(app: Page) {
     await app.getByRole('button', { name: 'Settings', exact: true }).click();
-    await app.getByRole('button', { name: 'Session permissions', exact: true }).click();
+    await app.getByRole('tab', { name: 'Browser extension', exact: true }).click();
     await expect(
         app.getByRole('region', {
             name: 'Browser extension sessions',

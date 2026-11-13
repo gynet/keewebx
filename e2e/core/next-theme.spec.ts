@@ -10,6 +10,7 @@ test('one click switches appearance and remembers it without changing Classic pr
     await expect(page.getByRole('button', { name: 'Switch to light mode' })).toBeVisible();
     await page.click('#open-demo');
     await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toHaveValue('dark');
     await page.getByRole('combobox', { name: 'Theme' }).selectOption('light');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -32,6 +33,7 @@ test('phone theme switch stays reachable in entry details and settings can retur
     await expect(page.locator('#entry-title')).toHaveText('GitHub');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     await expect(page.locator('#entry-title')).toHaveText('GitHub');

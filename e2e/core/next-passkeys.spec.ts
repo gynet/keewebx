@@ -50,6 +50,7 @@ async function openFile(page: Page, source: Fixture) {
 }
 async function openSettings(page: Page) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await expect(section(page)).toBeVisible();
 }
 async function enroll(page: Page, source: Fixture) {
@@ -128,6 +129,35 @@ test('virtual PRF: fresh password verification, durable unlock, forget preserves
     await screenshot(page, 'forgotten-local-only');
     await page.reload(); await page.locator('[data-vault="passkey-one"]').click();
     await passwordOpen(page, source); await openSettings(page); await provesExport(page, source);
+});
+
+test('password unlock setup choice opens the selected passkey region without enrolling automatically', async ({ page, context }) => {
+    const auth = await authenticator(context, page), source = await fixture();
+    await page.locator('#open-file-input').setInputFiles(payload(source.bytes, `${source.name}.kdbx`));
+    const setup = page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true });
+    await setup.check();
+    await page.locator('#password').fill('wrong password'); await page.locator('#unlock').click();
+    await expect(page.locator('#unlock-error')).toBeVisible();
+    await expect(setup).toBeChecked();
+    await expect(page.getByRole('tab', { name: 'Database', exact: true })).toHaveCount(0);
+    expect((await auth.credentials()).credentials).toHaveLength(0);
+    await page.locator('#password').fill(password); await page.locator('#unlock').click();
+    await expect(page.getByRole('tab', { name: 'Database', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(section(page)).toBeVisible();
+    await expect(section(page)).toBeFocused();
+    expect((await auth.credentials()).credentials).toHaveLength(0);
+    expect((await record(page)).passkeyCredentialId).toBeFalsy();
+    await page.getByRole('tab', { name: 'Security', exact: true }).click();
+    await page.getByRole('button', { name: `Set up or manage passkey unlock · ${source.name}`, exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Database', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(section(page)).toBeFocused();
+    expect((await auth.credentials()).credentials).toHaveLength(0);
+    await enroll(page, source);
+    expect((await auth.credentials()).credentials).toHaveLength(1);
+    await provesExport(page, source);
+    await lock(page); await page.reload();
+    await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
 });
 
 test('simulated cancellation preserves registration and password fallback', async ({ page, context }) => {
@@ -296,7 +326,9 @@ test('idle lock timeout and reauthentication reject late enrollment on the retai
     await page.clock.install(); await page.reload();
     await authenticator(context, page); const source = await fixture();
     await openFile(page, source); await openSettings(page);
+    await page.getByRole('tab', { name: 'Security', exact: true }).click();
     await page.locator('#setting-auto-lock').selectOption('5');
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await holdCeremony(page, 'create');
     await section(page).getByLabel('Current master password', { exact: true }).fill(password);
     await section(page).getByRole('button', { name: 'Enable local passkey', exact: true }).click();
