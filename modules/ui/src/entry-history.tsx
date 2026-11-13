@@ -72,7 +72,8 @@ function binaryIdentity(value: unknown): unknown {
     return value;
 }
 
-export function EntryHistory({ entry, hasDraft, onRestore }: {
+export function EntryHistory({ entry, hasDraft, onRestore, searchFilter }: {
+    searchFilter?: Parameters<AppModel['prepareFilter']>[0];
     entry: EntryModel;
     hasDraft?: boolean;
     onRestore: () => void;
@@ -86,7 +87,7 @@ export function EntryHistory({ entry, hasDraft, onRestore }: {
             catch { setMessage(t('History is unavailable. Unlock and reopen this entry.')); }
         }}>{t('History')}</button>
         {message && <p role="status">{message}</p>}
-        {snapshot && <HistoryDialog snapshot={snapshot} hasDraft={hasDraft ?? hasPendingDrafts()} trigger={trigger}
+        {snapshot && <HistoryDialog snapshot={snapshot} searchFilter={searchFilter} hasDraft={hasDraft ?? hasPendingDrafts()} trigger={trigger}
             onClose={() => setSnapshot(null)} onChanged={(action) => {
                 setSnapshot(null);
                 if (action === 'restore') onRestore();
@@ -95,7 +96,8 @@ export function EntryHistory({ entry, hasDraft, onRestore }: {
     </div>;
 }
 
-function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged }: {
+function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged, searchFilter }: {
+    searchFilter?: Parameters<AppModel['prepareFilter']>[0];
     snapshot: Snapshot;
     hasDraft: boolean;
     trigger: { current: HTMLButtonElement | null };
@@ -103,7 +105,14 @@ function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged }: {
     onChanged: (action: Action) => void;
 }) {
     const { records, entry, model } = snapshot;
-    const [index, setIndex] = useState(() => Math.max(0, records.indexOf(entry)));
+    const matchesSearch = (record: EntryModel) => !!searchFilter && record.matches({
+        text: searchFilter.text, textLower: searchFilter.textLower, textParts: searchFilter.textParts,
+        textLowerParts: searchFilter.textLowerParts, advanced: searchFilter.advanced
+    });
+    const [index, setIndex] = useState(() => {
+        const match = searchFilter ? records.findIndex(matchesSearch) : -1;
+        return match >= 0 ? match : Math.max(0, records.indexOf(entry));
+    });
     const [revealed, setRevealed] = useState<string[]>([]);
     const [copied, setCopied] = useState('');
     const [error, setError] = useState('');
@@ -213,6 +222,7 @@ function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged }: {
                     {records.map((item, position) => <option key={position} value={position}>
                         {t('Revision {} — {}', String(position + 1), DateFormat.dtStr(item.updated))}
                         {item === entry ? t(' (current applied state)') : ''}
+                        {matchesSearch(item) ? t(' (search match)') : ''}
                     </option>)}
                 </select>
             </label>

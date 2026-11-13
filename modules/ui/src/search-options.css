@@ -1,0 +1,11 @@
+.search-options { flex: 0 0 auto; margin: 0 14px 6px; min-width: 0; }
+.search-options summary { cursor: pointer; padding: 8px 0; }
+.search-options__body { max-height: min(430px, 45dvh); overflow: auto; padding: 2px 2px 8px; overflow-wrap: anywhere; }
+.search-options fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.search-options__check { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.search-options__body .input { width: 100%; min-width: 0; }
+.vault-commands { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 14px 6px; }
+.command-status { position: fixed; bottom: 72px; left: 12px; max-width: calc(100vw - 24px); padding: 10px; border: 1px solid var(--kx-line); border-radius: 8px; background: var(--kx-bg); z-index: 40; }
+@media (max-width: 760px) {
+    .search-options__body { max-height: min(430px, max(80px, calc(100dvh - 500px))); }
+}

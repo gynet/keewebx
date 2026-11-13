@@ -31,7 +31,8 @@ function generate(options: Options): { password: string; error: string } {
     }
 }
 
-export function PasswordGeneratorPanel({ onUse, onClose }: {
+export function PasswordGeneratorPanel({ onUse, onClose, actionLabel }: {
+    actionLabel?: string;
     onUse: (password: string) => void;
     onClose: () => void;
 }) {
@@ -104,7 +105,7 @@ export function PasswordGeneratorPanel({ onUse, onClose }: {
             <div class="password-generator__actions">
                 <button class="pill" type="button" onClick={() => setResult(generate(options))}>{t('Generate again')}</button>
                 <button class="pill pill--primary" type="button" disabled={!result.password || !!result.error}
-                    onClick={() => onUse(result.password)}>{t('Use this password')}</button>
+                    onClick={() => onUse(result.password)}>{actionLabel ?? t('Use this password')}</button>
             </div>
         </section>
     );

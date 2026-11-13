@@ -38,12 +38,10 @@ import { EntryHistory } from './entry-history';
 import { EntryClone } from './entry-clone';
 import { EntryDelete } from './entry-delete';
 import { EntrySort, sortEntries } from './entry-sort';
+import { SearchControls, searchDefaults, type SearchOptions, type SearchScope } from './search-options';
+import { commandKey, editingText, keyboardAvailable } from './keyboard';
 
-interface Filter {
-    group?: string;
-    tag?: string;
-    trash?: boolean;
-}
+
 
 const SYNC_LABELS: Record<string, string> = {
     saved: 'Up to date',
@@ -102,7 +100,7 @@ function isWithinGroup(group: GroupModel | null | undefined, id: string): boolea
     return false;
 }
 
-export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void; onOpenAnother?: () => void }) {
+export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void; onOpenAnother?: () => void; onSave: () => void; onGenerator: () => void }) {
     const { model } = props;
     const layout = usePanelLayout();
     const sidebar = useSidebarCollapse('vault');
@@ -130,7 +128,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         window.addEventListener('resize', resized);
         return () => window.removeEventListener('resize', resized);
     }, [navigationOpen]);
-    const [filter, setFilter] = useState<Filter>({});
+    const [filter, setFilter] = useState<SearchScope>({});
+    const [options, setOptions] = useState<SearchOptions>(() => ({ ...searchDefaults, ...model.advancedSearch }));
+    const vaultSurface = useRef<HTMLDivElement>(null);
+    const search = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState('title');
     const viewEpoch = getSessionAccess(model).epoch;
@@ -155,12 +156,20 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     });
 
     const files = model.files as unknown as FileModel[];
+    let searchError = '';
+    if (options.regex && query) {
+        try { new RegExp(query, options.cs ? '' : 'i'); }
+        catch { searchError = t('Invalid regular expression. Correct it or turn off Regular expression.'); }
+    }
+    const prepared = model.prepareFilter({ text: query, ...filter, subGroups: AppSettingsModel.expandGroups, advanced: { ...options, excludeProtected: true } });
     const entries = useMemo(() => {
-        const prepared = model.prepareFilter({ text: query, group: filter.group, tag: filter.tag, trash: filter.trash, subGroups: AppSettingsModel.expandGroups });
+        if (searchError) return [];
         const result = model.getEntriesByFilter(prepared, model.files);
         sortEntries(result, sort, prepared);
-        return [...(result as unknown as EntryModel[])];
-    }, [query, filter, sort, props.version]);
+        return [...(result as unknown as EntryModel[])].filter(entry => (entry.file as FileModel).active && (!filter.file || (entry.file as FileModel).id === filter.file));
+    }, [query, filter, options, sort, props.version]);
+    const historyFilter = options.history && query && !searchError ? { ...prepared, advanced: { ...prepared.advanced, history: false } } : undefined;
+
 
     const liveEntry = entries.find((e) => e.id === selected) ?? null;
     const retainedEntry = useRef<EntryModel | null>(null);
@@ -180,7 +189,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         .find((target): target is { file: FileModel; group: GroupModel } => !!target.group) : undefined;
     const groupTarget = filter.group ? selectedGroup : roots.find(({ group }) => group.id === rootChoice);
     const tags = model.tags;
-    const changeFilter = (next: Filter) => {
+    const changeFilter = (next: SearchScope) => {
         if (!confirmDiscardDrafts()) return;
         setEditing(null);
         setFilter(next);
@@ -237,11 +246,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             });
         }
     };
+    const creationGroup = filter.group ? files.map(file => file.getGroup(filter.group!)).find(Boolean)
+        : filter.file ? files.find(file => file.id === filter.file)?.groups[0] : undefined;
+    const canCreate = !filter.trash && model.canCreateEntries() && (!(filter.file || filter.group) || !!creationGroup)
+        && (!creationGroup || ((creationGroup.file as FileModel).active && !(creationGroup.file as FileModel & { readOnly?: boolean }).readOnly));
     const newEntry = () => {
-        if (!confirmDiscardDrafts()) return;
+        if (!canCreate || !confirmDiscardDrafts()) return;
         const groupId = filter.group;
         const group = groupId ? files.map((file) => file.getGroup(groupId)).find(Boolean) : undefined;
-        setEditing({ group: group ?? model.getFirstSelectedGroupForCreation().group, tag: filter.tag });
+        setEditing({ group: group ?? creationGroup ?? model.getFirstSelectedGroupForCreation().group, tag: filter.tag });
     };
     const saveEntry = (draft: EntryDraft) => {
         if (!editing) {
@@ -250,6 +263,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         prepareOtpDraft(draft.otp);
         const saved = 'entry' in editing ? editing.entry : model.createNewEntryWithFields(editing.group, {});
         applyEntryDraft(saved, draft);
+        if (!('entry' in editing) && typeof filter.color === 'string') saved.setColor(filter.color as Parameters<EntryModel['setColor']>[0]);
         model.updateTags();
         Events.emit('entry-updated', { entry: saved });
         setEditing(null);
@@ -259,8 +273,77 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         setSelected(saved.id);
     };
 
+    const changeSearch = (nextOptions: SearchOptions, nextScope: SearchScope) => {
+        if (!confirmDiscardDrafts()) return false;
+        setEditing(null); setOptions(nextOptions); setFilter(nextScope); return true;
+    };
+    const focusSearch = (select = true) => {
+        if (!confirmDiscardDrafts()) return;
+        setEditing(null); setSelected(undefined); setNavigationOpen(false);
+        requestAnimationFrame(() => {
+            if (getSessionAccess(model).state !== 'open' || vaultSurface.current?.closest('[hidden], [inert]')) return;
+            search.current?.focus();
+            if (select) search.current?.select();
+            else if (search.current) search.current.setSelectionRange(search.current.value.length, search.current.value.length);
+        });
+    };
+    const chooseEntry = (id: string, keyboard = false) => {
+        if (!confirmDiscardDrafts()) return;
+        setEditing(null); setSelected(id);
+        if (keyboard) requestAnimationFrame(() => {
+            if (getSessionAccess(model).state !== 'open' || vaultSurface.current?.closest('[hidden], [inert]')) return;
+            const row = vaultSurface.current?.querySelector<HTMLButtonElement>(`[data-entry-id="${id}"]`);
+            if (row?.getClientRects().length) { row.focus(); row.scrollIntoView({ block: 'nearest' }); }
+            else vaultSurface.current?.querySelector<HTMLElement>('.detail')?.focus();
+        });
+    };
+    useLayoutEffect(() => {
+        const keydown = (event: KeyboardEvent) => {
+            if (!keyboardAvailable(model, vaultSurface.current, event) || navigationOpen) return;
+            const key = event.key.toLowerCase();
+            if (commandKey(event) && !event.altKey && !event.shiftKey && key === 'f') {
+                event.preventDefault(); focusSearch(); return;
+            }
+            if (key === 'escape' && event.target === search.current) {
+                event.preventDefault();
+                if (confirmDiscardDrafts()) { setEditing(null); setQuery(''); }
+                return;
+            }
+            if (key === 'escape' && editing) {
+                event.preventDefault();
+                if (confirmDiscardDrafts()) setEditing(null);
+                return;
+            }
+            if (editingText(event.target) && !(event.target === search.current && ['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key))) return;
+            if (editing) return;
+            if (!event.ctrlKey && !event.metaKey && !event.altKey && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter'].includes(event.key)) {
+                if (event.key === 'Enter' && event.target !== search.current) return;
+                event.preventDefault();
+                const current = entries.findIndex(item => item.id === selected);
+                const index = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1
+                    : event.key === 'ArrowUp' ? (current < 0 ? entries.length - 1 : Math.max(0, current - 1))
+                        : Math.min(entries.length - 1, current + 1);
+                if (entries[index]) chooseEntry(entries[index].id, true);
+            } else if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && ['n', 'a', 'c', 'd'].includes(key)) {
+                event.preventDefault();
+                if (key === 'n') newEntry();
+                else changeFilter(key === 'a' ? {} : key === 'd' ? { trash: true } : { color: true });
+            } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && event.key !== ' '
+                && !window.getSelection()?.toString()) {
+                event.preventDefault();
+                if (!confirmDiscardDrafts()) return;
+                setQuery(current => current + event.key); focusSearch(false);
+            }
+        };
+        window.addEventListener('keydown', keydown);
+        return () => window.removeEventListener('keydown', keydown);
+    });
+
     return (
-        <div
+        <div ref={vaultSurface}
+            onKeyDownCapture={(event) => {
+                if ((event.isComposing || event.keyCode === 229) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); }
+            }}
             class={`${entry || editing ? 'vault vault--detail' : 'vault'}${navigationOpen ? ' vault--navigation' : ''}${sidebar.collapsed ? ' sidebar-folded' : ''}`}
             style={{ '--sidebar-width': `${layout.sidebar}px`, '--list-width': `${layout.list}px` }}
             onKeyDown={(event) => {
@@ -292,7 +375,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <button class="round side__close" aria-label={t('Close navigation')} onClick={closeNavigation}><Icon name="back" /></button>
                 </div>
                 <div id="vault-sidebar-content" class="side__content">
-                <NavRow icon="grid" label={t('All items')} on={!filter.group && !filter.tag && !filter.trash} onClick={() => changeFilter({})} />
+                <NavRow icon="grid" label={t('All items')} on={!Object.values(filter).some(Boolean)} onClick={() => changeFilter({})} />
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 {groups.length > 0 && <h2 class="side__heading">{t('Groups')}</h2>}
                 {groups.map((g) => (
@@ -344,7 +427,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <label class="search">
                         <Icon name="search" size={15} />
                         <input
+                            ref={search}
                             id="search"
+                            aria-invalid={!!searchError}
+                            aria-describedby={searchError ? 'search-error' : undefined}
                             type="search"
                             aria-label={t('Search')}
                             placeholder={t('Search')}
@@ -356,13 +442,20 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         />
                     </label>
                 </div>
+                {searchError && <p id="search-error" class="error" role="alert" style={{ margin: '0 14px 6px' }}>{searchError}</p>}
+                <SearchControls model={model} options={options} scope={filter} change={changeSearch}
+                    reset={() => { if (changeSearch({ ...searchDefaults, ...model.advancedSearch }, {})) setQuery(''); }} />
+                <div class="vault-commands">
+                    <button type="button" class="pill" onClick={props.onSave}>{t('Save vaults')}</button>
+                    <button type="button" class="pill" onClick={props.onGenerator}>{t('Password generator')}</button>
+                </div>
                 <EntrySort value={sort} onChange={next => {
                     const access = getSessionAccess(model);
                     if (access.state !== 'open' || !access.isCurrent(viewEpoch)) return false;
                     // Sorting changes presentation only: retain selection and the mounted draft.
                     setSort(next); return true;
                 }} />
-                <button class="pill entry-list__create" disabled={!!editing || !model.canCreateEntries()} onClick={newEntry}>
+                <button class="pill entry-list__create" disabled={!!editing || !canCreate} onClick={newEntry}>
                     {t('New entry')}
                 </button>
                 <details ref={groupManager} style={{ flex: '0 0 auto', margin: '0 14px 6px', minWidth: 0 }}>
@@ -411,15 +504,14 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                                 key={e.id}
                                 class={e.id === selected ? 'entry-row entry-row--on' : 'entry-row'}
                                 data-entry={s.title}
-                                onClick={() => {
-                                    if (!confirmDiscardDrafts()) return;
-                                    setEditing(null); setSelected(e.id);
-                                }}
+                                data-entry-id={e.id}
+                                aria-current={e.id === selected ? 'true' : undefined}
+                                onClick={() => chooseEntry(e.id)}
                             >
                                 <PreferenceTile title={s.title} icon={s.icon} customIcon={e.customIcon} url={s.url} list />
                                 <span class="entry-row__text">
                                     <span class="entry-row__title" title={s.title || t('(no title)')}>{s.title || t('(no title)')}</span>
-                                    <span class="entry-row__sub">{s.user || s.url}</span>
+                                    <span class="entry-row__sub">{historyFilter && !e.matches(historyFilter) ? t('Match in history — open History') : s.user || s.url}</span>
                                 </span>
                             </button>
                         );
@@ -451,7 +543,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     tags={'tag' in editing && editing.tag ? [editing.tag] : []}
                     onSave={saveEntry} onCancel={() => setEditing(null)} />
             ) : entry ? (
-                <EntryDetail key={entry.id} model={model} entry={entry} onBack={() => {
+                <EntryDetail key={entry.id} model={model} entry={entry} historyFilter={historyFilter} onBack={() => {
                     if (confirmDiscardDrafts()) setSelected(undefined);
                 }}
                     onEdit={() => { if (confirmDiscardDrafts()) setEditing({ entry }); }}
@@ -538,7 +630,7 @@ function useOtp(entry: EntryModel): { code: string; left: number; counterBased: 
     return otp;
 }
 
-function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDeleted, inTrash }: {
+function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDeleted, inTrash, historyFilter }: {
     model: AppModel;
     entry: EntryModel;
     onBack: () => void;
@@ -547,7 +639,9 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
     onCloned: (entryId: string, groupId: string) => void;
     onDeleted: () => void;
     inTrash?: boolean;
+    historyFilter?: Parameters<AppModel['prepareFilter']>[0];
 }) {
+    const detail = useRef<HTMLElement>(null);
     const s = summarizeEntry(entry);
     const otp = useOtp(entry);
     const [reveal, setReveal] = useState(false);
@@ -571,6 +665,28 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
             setTimeout(() => setCopied(''), 1500);
         } catch { setCopied(''); }
     };
+
+    useLayoutEffect(() => {
+        const keydown = (event: KeyboardEvent) => {
+            if (!keyboardAvailable(model, detail.current, event) || editingText(event.target) || window.getSelection()?.toString()) return;
+            const key = event.key.toLowerCase();
+            let field: string | undefined;
+            if (commandKey(event) && !event.shiftKey && !event.altKey) field = ({ c: 'password', b: 'user', u: 'url' } as Record<string, string>)[key];
+            else if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && key === '2') field = 'otp';
+            if (field) {
+                event.preventDefault();
+                void copy(field, () => entryFieldText(entry, field!));
+            } else if (commandKey(event) && !event.altKey && ['Delete', 'Backspace'].includes(event.key)) {
+                const row = event.target instanceof Element ? event.target.closest('[data-attachment]') : null;
+                const button = row?.querySelector<HTMLButtonElement>('button:last-child');
+                if (!row || !detail.current?.contains(row) || !button || button.disabled) return;
+                event.preventDefault();
+                if (window.confirm(t('Remove attachment {}?', row.getAttribute('data-attachment') ?? ''))) button.click();
+            }
+        };
+        window.addEventListener('keydown', keydown);
+        return () => window.removeEventListener('keydown', keydown);
+    });
 
     const custom = Object.entries(entry.fields ?? {}).filter(([k]) => k !== 'otp' && k !== 'TOTP Seed' && k !== 'TOTP Settings');
     const rows: { key: string; label: string; value: string; text: () => Promise<string>; mono?: boolean; secret?: boolean }[] = [];
@@ -605,7 +721,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
     }
 
     return (
-        <main class="detail" aria-label={s.title}>
+        <main ref={detail} class="detail" tabIndex={-1} aria-label={s.title}>
             <div class="detail__head entry-detail__head">
                 <button class="round phone-only" aria-label={t('Back')} onClick={onBack} style={{ display: 'none' }}>
                     <Icon name="back" size={17} />
@@ -621,7 +737,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
                     <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
                     {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
-                    <EntryHistory entry={entry} onRestore={() => setNotesVersion(value => value + 1)} />
+                    <EntryHistory entry={entry} searchFilter={historyFilter} onRestore={() => setNotesVersion(value => value + 1)} />
                     <EntryDelete model={model} entry={entry} onDeleted={onDeleted} />
                 </div>
             </div>
@@ -659,6 +775,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                                 <span class="field__label">{t('Website')}</span>
                                 <span class="field__value">{entry.url}</span>
                             </span>
+                            <button type="button" class="field__action" onClick={() => void copy('url', () => entryFieldText(entry, 'url'))}>{copied === 'url' ? t('Copied') : t('Copy')}</button>
                             {website && <a class="field__action" href={website} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
                                 {t('Open')}
                             </a>}

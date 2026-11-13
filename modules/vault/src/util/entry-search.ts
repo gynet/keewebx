@@ -24,11 +24,13 @@ interface EntryFields {
 }
 
 interface HistoryEntry {
-    fields: EntryFields;
+    fields: EntryFields | Map<string, FieldValue>;
 }
 
 interface EntryModel {
     searchTags?: string[];
+    tags?: string[];
+    attachments?: { title?: string }[];
     searchText: string;
     searchColor?: string | boolean;
     autoTypeEnabled?: boolean;
@@ -54,6 +56,9 @@ interface SearchFilter {
 }
 
 interface AdvancedFilter {
+    metadata?: boolean;
+    /** Opt-in for callers whose ordinary field scopes must exclude protected values. */
+    excludeProtected?: boolean;
     regex?: boolean;
     cs?: boolean;
     history?: boolean;
@@ -163,12 +168,15 @@ class EntrySearch {
                 match = EntrySearch.matchStringLower;
             }
         }
-        if (EntrySearch.matchFields(this.model.getAllFields(), adv, match!, search)) {
+        const metadata = adv.metadata ? [...(this.model.tags ?? this.model.searchTags ?? []),
+            ...(this.model.attachments ?? []).map(item => item.title ?? '')] : undefined;
+        if (EntrySearch.matchFields(this.model.getAllFields(), adv, match!, search, metadata)) {
             return true;
         }
         if (adv.history && this.model.getHistoryEntriesForSearch) {
             for (const historyEntry of this.model.getHistoryEntriesForSearch()) {
-                if (EntrySearch.matchFields(historyEntry.fields, adv, match!, search)) {
+                const fields = historyEntry.fields instanceof Map ? Object.fromEntries(historyEntry.fields) : historyEntry.fields;
+                if (EntrySearch.matchFields(fields, adv, match!, search)) {
                     return true;
                 }
             }
@@ -204,7 +212,7 @@ class EntrySearch {
                 strMatches =
                     typeof str !== 'string' && (str as ProtectedStringValue).isProtected
                         ? (str as ProtectedStringValue).includesLower!(item)
-                        : (str as string).includes(item);
+                        : (str as string).toLowerCase().includes(item);
             } else {
                 strMatches =
                     typeof str !== 'string' && (str as ProtectedStringValue).isProtected
@@ -246,23 +254,25 @@ class EntrySearch {
         fields: EntryFields,
         adv: AdvancedFilter,
         compare: MatchFn,
-        search: unknown
+        search: unknown,
+        metadata?: readonly string[]
     ): boolean {
         const context: MatchContext = {};
         const matchField = EntrySearch.matchField;
-        if (adv.user && matchField(fields.UserName, compare, search, context)) {
+        const allowed = (value: FieldValue | undefined) => !adv.excludeProtected || adv.protect || typeof value === 'string';
+        if (adv.user && allowed(fields.UserName) && matchField(fields.UserName, compare, search, context)) {
             return true;
         }
-        if (adv.url && matchField(fields.URL, compare, search, context)) {
+        if (adv.url && allowed(fields.URL) && matchField(fields.URL, compare, search, context)) {
             return true;
         }
-        if (adv.notes && matchField(fields.Notes, compare, search, context)) {
+        if (adv.notes && allowed(fields.Notes) && matchField(fields.Notes, compare, search, context)) {
             return true;
         }
         if (adv.pass && matchField(fields.Password, compare, search, context)) {
             return true;
         }
-        if (adv.title && matchField(fields.Title, compare, search, context)) {
+        if (adv.title && allowed(fields.Title) && matchField(fields.Title, compare, search, context)) {
             return true;
         }
         let matches = false;
@@ -272,6 +282,9 @@ class EntrySearch {
                 if (BuiltInFields.indexOf(field) >= 0) {
                     return false;
                 }
+                if (adv.excludeProtected && /^(otp|totp seed|totp settings)$/i.test(field)) {
+                    return adv.protect && matchField(fields[field]!, compare, search, context);
+                }
                 if (typeof fields[field] === 'string') {
                     return adv.other && matchField(fields[field]!, compare, search, context);
                 } else {
@@ -279,7 +292,7 @@ class EntrySearch {
                 }
             });
         }
-        return matches;
+        return matches || !!(adv.metadata && metadata?.some(value => matchField(value, compare, search, context)));
     }
 
     static matchField(

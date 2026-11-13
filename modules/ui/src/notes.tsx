@@ -6,7 +6,7 @@ import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
 import { t } from './i18n';
 import { ProtectedValue } from 'kdbxweb';
-import { usePendingDraft } from './pending-drafts';
+import { confirmDiscardDrafts, usePendingDraft } from './pending-drafts';
 
 export function Notes({ entry }: { entry: EntryModel }) {
     const [draft, setDraft] = useState<string | null>(null);
@@ -44,6 +44,15 @@ export function Notes({ entry }: { entry: EntryModel }) {
                 <div class="notes__edit">
                     {error && <p class="error" role="alert">{error}</p>}
                     <textarea
+                        onKeyDown={(event) => {
+                            if (event.isComposing || event.keyCode === 229) return;
+                            if (event.key === 'Escape') {
+                                event.preventDefault(); event.stopPropagation();
+                                if (confirmDiscardDrafts()) setDraft(null);
+                            } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                                event.preventDefault(); event.stopPropagation(); save();
+                            }
+                        }}
                         class="input notes__editor"
                         aria-label={t('Notes')}
                         value={draft}

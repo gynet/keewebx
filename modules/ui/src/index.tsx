@@ -28,6 +28,7 @@ import { waitForPendingOperations } from './pending-operations';
 import { hasPendingDrafts, savePendingDrafts, confirmDiscardDrafts } from './pending-drafts';
 import { RemoteKeyRecovery } from './remote-key-recovery';
 import { MultiVaultOpen } from './multi-vault-open';
+import { useVaultCommands } from './vault-commands';
 
 declare const __KW_NEW_EXTENSION__: boolean;
 
@@ -121,6 +122,12 @@ function App({ model }: { model: AppModel }) {
         }
     };
 
+    const commands = useVaultCommands(model, surface, {
+        open: () => setOpeningAnother(true),
+        settings: () => { setPasskeySettingsId(undefined); setSettingsOpen(true); },
+        lock: () => void lock()
+    });
+
     useEffect(() => {
         Events.on('user-idle', lock);
         Events.on('lock-workspace', lock);
@@ -187,6 +194,7 @@ function App({ model }: { model: AppModel }) {
                 }
             }} />}
         <div ref={surface} hidden={!!gate} style={{ height: '100%' }}>
+        {commands.content}
         <RemoteKeyRecovery model={model} />
         {openingAnother && <MultiVaultOpen model={model} close={() => setOpeningAnother(false)}
             setupPasskey={id => { setPasskeySettingsId(id); setSettingsOpen(true); }} />}
@@ -194,6 +202,8 @@ function App({ model }: { model: AppModel }) {
         <Vault
             model={model}
             version={version}
+            onSave={commands.save}
+            onGenerator={commands.generator}
             onSettings={() => { if (model.settings.canOpenSettings) { setPasskeySettingsId(undefined); setSettingsOpen(true); } }}
             onLock={() => void lock()}
             onOpenAnother={() => { if (access.state === 'open') setOpeningAnother(true); }}
