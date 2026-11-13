@@ -15,6 +15,7 @@ import { GeneralPreferences } from './general-preferences';
 import { ClassicSwitch } from './classic-switch';
 import { StoragePreferences } from './storage-preferences';
 import { IdlePreference, AppearancePreferences, SaveVerificationPreference, AuditPreferences, PreferencesHelp } from './app-preferences';
+import { FaviconQuality } from './favicon-import';
 import { DiagnosticsHelp } from './diagnostics-help';
 import { ExtensionPreferences } from './extension-preferences';
 import { ProviderPreferences } from './provider-preferences';
@@ -111,6 +112,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                         </div>
                     </section>
                     <AppearancePreferences />
+                    <FaviconQuality />
                     <PreferencesHelp />
                     <DiagnosticsHelp />
                     </section>
