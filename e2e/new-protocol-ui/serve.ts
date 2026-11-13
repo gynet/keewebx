@@ -15,11 +15,12 @@ config.plugins.push(new HtmlWebpackPlugin({ filename: 'index.html', templateCont
 await new Promise<void>((resolve, reject) => webpack(config, (error: Error | null, stats: { hasErrors(): boolean; toString(): string }) => {
     if (error || stats.hasErrors()) reject(error || new Error(stats.toString())); else resolve();
 }));
-Bun.serve({ hostname: '127.0.0.1', port: 8097, async fetch(request) {
+const port = Number(process.env.KEEWEBX_E2E_PORT || 8097);
+Bun.serve({ hostname: '127.0.0.1', port, async fetch(request) {
     const pathname = new URL(request.url).pathname;
     const target = path.resolve(config.output.path, '.' + (pathname === '/' ? '/index.html' : pathname));
     if (!target.startsWith(config.output.path + path.sep)) return new Response('', { status: 403 });
     const file = Bun.file(target);
     return await file.exists() ? new Response(file) : new Response('', { status: 404 });
 } });
-console.log('Extension UI fixture listening on http://127.0.0.1:8097');
+console.log(`Extension UI fixture listening on http://127.0.0.1:${port}`);

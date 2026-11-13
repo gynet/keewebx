@@ -25,8 +25,10 @@ const entries = ['Alpha', 'Beta'].map((title) => Object.assign(new TestEntry(), 
     getAllUrls: () => ['https://example.com'],
     getAllFields: () => ({ UserName: 'user@example.com', Password: password })
 }) as unknown as EntryModel);
+const recentFiles = [{ id: 'closed', name: 'Closed database with a long name for wrapping' }, { id: 'unapproved', name: 'Unapproved recent database' }];
 const model = {
-    files: Object.assign(files, { hasOpenFiles: () => true }),
+    files: Object.assign(files, { hasOpenFiles: () => true, get: (id: string) => files.find(file => file.id === id) }),
+    fileInfos: { get: (id: string) => recentFiles.find(file => file.id === id) },
     getEntriesByFilter: ({ text }: { text: string }) => entries.filter((entry) => entry.title.toLowerCase().includes(text.toLowerCase()))
 } as unknown as AppModel;
 const ui = createNewProtocolUi(model, () => !!document.querySelector('dialog[open]'));
@@ -36,6 +38,13 @@ let cancelCount = 0;
 let failForget = false;
 let touch: { dispose(): void } | undefined;
 const api = {
+    stats(read: number, written: number) {
+        sessions = sessions.map(session => ({ ...session, passwordsRead: read, passwordsWritten: written }));
+        listeners.forEach(listener => listener());
+    },
+    rotateSession() { sessions = sessions.map(session => ({ ...session, generation: session.generation + 1 })); },
+    replaceRecent() { recentFiles[0] = { ...recentFiles[0] }; },
+    get permissions() { return sessions[0]?.permissions; },
     async show(kind: string) {
         signal = new AbortController(); result = undefined;
         const common = { extensionName: 'Fixture extension' };
@@ -78,7 +87,7 @@ Object.assign(window, { extensionUiFixture: api });
 let sessions: ExtensionSession[] = [{
     identity: 'fixture-identity', generation: 1, clientId: 'client', connectionId: 1, extensionName: 'Fixture extension', appName: undefined,
     connectedDate: new Date('2026-01-01'), passwordsRead: 0, passwordsWritten: 0, permissionsDenied: false,
-    permissions: { allFiles: true, files: ['one', 'two'], askGet: 'multiple', askSave: 'always', canList: true }
+    permissions: { allFiles: true, files: ['one', 'two', 'closed'], askGet: 'multiple', askSave: 'always', canList: true }
 }];
 const listeners = new Set<() => void>();
 let approvals: ReturnType<ExtensionSessionsApi['getApprovals']> = { identities: [{ identity: 'fixture-identity', created: '2026-01-01', permissions: {}, pendingPersistence: false }], legacy: {}, legacyPendingPersistence: false };
@@ -95,7 +104,7 @@ const sessionApi: ExtensionSessionsApi = {
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     setPermissions(id, permissions) {
         sessions = sessions.map((session) => session.clientId === id
-            ? { ...session, permissions: { ...session.permissions, ...permissions } } : session);
+            ? { ...session, generation: session.generation + 1, permissions: { ...session.permissions, ...permissions } } : session);
         listeners.forEach((listener) => listener());
     },
     disconnect(id) { sessions = sessions.filter((session) => session.connectionId !== id); listeners.forEach((listener) => listener()); }

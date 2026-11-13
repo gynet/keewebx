@@ -49,6 +49,7 @@ export function ExtensionSessions({ model, api: providedApi, onBack }: {
     const [disconnecting, setDisconnecting] = useState<{ session: ExtensionSession; epoch: number } | null>(null);
     const [error, setError] = useState('');
     const access = getSessionAccess(model);
+    const epoch = access.epoch;
     const refresh = () => { setSessions(api.getSnapshot()); setApprovals(api.getApprovals()); };
     useLayoutEffect(() => {
         refresh();
@@ -57,7 +58,7 @@ export function ExtensionSessions({ model, api: providedApi, onBack }: {
     useLayoutEffect(() => access.subscribeInvalidation(() => { setDisconnecting(null); setForgetting(null); }), [access]);
     const update = (session: ExtensionSession, permissions: Partial<ClientPermissions>) => {
         try {
-            access.assertOpen();
+            access.assertOpen(epoch);
             if (!api?.getSnapshot().some((current) => current.clientId === session.clientId
                 && current.generation === session.generation && current.connectionId === session.connectionId && current.connectedDate.getTime() === session.connectedDate.getTime())) throw new Error('stale');
             api.setPermissions(session.clientId, permissions);
@@ -70,22 +71,38 @@ export function ExtensionSessions({ model, api: providedApi, onBack }: {
         {!providedApi && <p role="status">{t('Browser extension connections are not enabled in this interface yet.')}</p>}
         {!sessions.length ? <p role="status">{t('No browser extension sessions')}</p> : <>
                 <p class="muted">{t('These controls change the current session. Disconnecting does not erase remembered approvals.')}</p>
-                {sessions.map((session) => <section key={session.clientId} class="cardlist" style={{ padding: '16px', marginBottom: '16px', overflowWrap: 'anywhere' }}>
+                {sessions.map((session) => {
+                    const open = model.files.map(file => ({ id: file.id, name: file.name, closed: false, reference: file }));
+                    const closed = (session.permissions?.files ?? []).filter(id => !model.files.get(id))
+                        .map(id => model.fileInfos.get(id)).filter(file => !!file)
+                        .map(file => ({ id: file.id, name: file.name, closed: true, reference: file }));
+                    const files = [...open, ...closed];
+                    const effectiveFiles = () => [...new Set([...(session.permissions?.files ?? []),
+                        ...(session.permissions?.allFiles ? model.files.map(file => file.id) : [])])];
+                    return <section key={session.clientId} class="cardlist" style={{ padding: '16px', marginBottom: '16px', overflowWrap: 'anywhere' }}>
                     <h3 style={{ marginTop: 0 }}>{session.extensionName}{session.appName ? ` (${session.appName})` : ''}</h3>
                     <p class="muted">{t('Connected: {}', session.connectedDate.toLocaleString())}</p>
+                    <p>{t('Passwords read: {}', String(session.passwordsRead))}</p>
+                    <p>{t('Passwords written: {}', String(session.passwordsWritten))}</p>
                     {!session.permissions ? <p>{t(session.permissionsDenied ? 'Access denied' : 'Awaiting approval')}</p> : <>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '44px' }}>
                             <input type="checkbox" checked={!!session.permissions.allFiles} onChange={(event) => update(session, {
-                                allFiles: event.currentTarget.checked, files: model.files.map((file) => file.id)
+                                allFiles: event.currentTarget.checked,
+                                files: [...new Set([...effectiveFiles(), ...model.files.map(file => file.id)])]
                             })} />{t('All databases, including ones opened later')}
                         </label>
-                        {model.files.map((file, index) => <label key={file.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '44px' }}>
+                        {files.map((file, index) => <label key={file.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '44px' }}>
                             <input type="checkbox" checked={!!session.permissions?.allFiles || !!session.permissions?.files?.includes(file.id)}
                                 onChange={(event) => {
-                                    const files = session.permissions?.allFiles ? model.files.map((item) => item.id) : session.permissions?.files ?? [];
+                                    const current = file.closed ? !model.files.get(file.id) && model.fileInfos.get(file.id) === file.reference
+                                        : model.files.get(file.id) === file.reference;
+                                    if (!current || (file.closed && event.currentTarget.checked)) {
+                                        setError(t('This database changed. Reopen extension settings to continue.')); refresh(); return;
+                                    }
+                                    const files = effectiveFiles();
                                     update(session, { allFiles: false, files: event.currentTarget.checked
                                         ? [...new Set([...files, file.id])] : files.filter((id) => id !== file.id) });
-                                }} /><span>{t('{} ({})', file.name, String(index + 1))}</span>
+                                }} /><span>{file.closed ? t('{} ({}) — closed', file.name, String(index + 1)) : t('{} ({})', file.name, String(index + 1))}</span>
                         </label>)}
                         <label class="vault-form__field">{t('Ask before reading a login')}
                             <select class="input" value={session.permissions.askGet ?? 'multiple'} onChange={(event) => update(session, { askGet: event.currentTarget.value })}>
@@ -105,7 +122,7 @@ export function ExtensionSessions({ model, api: providedApi, onBack }: {
                     <button type="button" class="pill pill--tinted pill--danger" onClick={() => { setError(''); setDisconnecting({ session, epoch: access.epoch }); }}>
                         <Icon name="close" size={16} />{t('Disconnect session')}
                     </button>
-                </section>)}
+                </section>; })}
             </>}
         <h3>{t('Remembered approvals')}</h3>
         {!approvals.identities.length && !approvals.legacy && <p>{t('No remembered approvals')}</p>}

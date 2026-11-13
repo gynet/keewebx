@@ -730,6 +730,7 @@ async function findEntry(
 
     assertEntry(request, entry);
     client.stats.passwordsRead++;
+    Events.emit('browser-extension-sessions-changed');
 
     return entry;
 }
@@ -1314,6 +1315,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         }
 
         const client = getClient(request);
+        focusKeeWeb();
         const selectedFileId = await promptWithTimeout(request, (signal) => ui.createGroup({
             extensionName: getHumanReadableExtensionName(client),
             groupPath: groupNames.join(' / '),

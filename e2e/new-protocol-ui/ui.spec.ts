@@ -1,12 +1,46 @@
 import { test, expect } from '@playwright/test';
 
 interface Fixture {
+    stats(read: number, written: number): void; rotateSession(): void; replaceRecent(): void;
+    permissions: { allFiles: boolean; files: string[] };
     failForget(fail: boolean): void; abort(): void; dispose(): void; gate(): void; translate(map: Record<string, string>): void;
     result: unknown; cancelCount: number; secretReads: number;
 }
 declare global { interface Window { extensionUiFixture: Fixture } }
 
 test.beforeEach(async ({ page }) => { await page.goto('/'); });
+
+for (const width of [1280, 390, 320]) test(`session activity and closed permissions at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 800 });
+    const sessions = page.getByRole('region', { name: 'Browser extension sessions' });
+    await page.evaluate(() => window.extensionUiFixture.stats(21, 7));
+    await expect(sessions.getByText('Passwords read: 21', { exact: true })).toBeVisible();
+    await expect(sessions.getByText('Passwords written: 7', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => window.extensionUiFixture.secretReads)).toBe(0);
+    await expect(sessions.getByText('Unapproved recent database')).toHaveCount(0);
+    const closed = sessions.getByRole('checkbox', { name: /Closed database.*closed/ });
+    await expect(closed).toBeChecked();
+    await sessions.getByLabel('All databases, including ones opened later').uncheck();
+    await expect(closed).toBeChecked();
+    await sessions.getByLabel('All databases, including ones opened later').check();
+    await closed.click();
+    await expect(closed).toHaveCount(0);
+    expect(await page.evaluate(() => window.extensionUiFixture.permissions)).toMatchObject({ allFiles: false, files: ['one', 'two'] });
+    await expect(sessions.getByLabel('Database (1)', { exact: true })).toBeChecked();
+    await expect(sessions.getByLabel('Database (2)', { exact: true })).toBeChecked();
+    expect(await sessions.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`sessions-${width}.png`), fullPage: true });
+});
+
+test('stale session, epoch and closed descriptor controls cannot change permissions', async ({ page }) => {
+    for (const change of ['rotateSession', 'gate', 'replaceRecent'] as const) {
+        await page.goto('/');
+        await page.evaluate(method => window.extensionUiFixture[method](), change);
+        await page.getByRole('checkbox', { name: /Closed database.*closed/ }).click();
+        await expect(page.getByRole('alert')).toContainText(/changed|suspended/);
+        expect(await page.evaluate(() => window.extensionUiFixture.permissions)).toMatchObject({ allFiles: true, files: ['one', 'two', 'closed'] });
+    }
+});
 
 test('consent requires a decision, cancels with Escape, and restores focus', async ({ page }, testInfo) => {
     const trigger = page.getByRole('button', { name: 'connect', exact: true });

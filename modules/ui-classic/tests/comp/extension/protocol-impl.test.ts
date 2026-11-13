@@ -1055,8 +1055,9 @@ describe('ProtocolImpl — explicit UI decisions', () => {
         } as unknown as AppModel;
         const ui = testUi({ connect: async () => approved, ...overrides });
         const access = createSessionProtocolAccess(model);
-        ProtocolImpl.init({ appModel: model, logger, sendEvent() {}, ui, access });
-        return { model, ui, entry, root, file, access, createNewEntryWithFields, createNewGroupWithName };
+        const sendEvent = mock((_event: ProtocolResponse) => {});
+        ProtocolImpl.init({ appModel: model, logger, sendEvent, ui, access });
+        return { model, ui, entry, root, file, access, sendEvent, createNewEntryWithFields, createNewGroupWithName };
     }
 
     async function call(client: ClientState, action: string, payload: Record<string, unknown> = {}) {
@@ -1157,7 +1158,9 @@ describe('ProtocolImpl — explicit UI decisions', () => {
         const client = await handshake();
         expect((await call(client, 'create-new-group', { groupName: ' A / / B ' })).error?.errorCode).toBe('6');
         expect(f.createNewGroupWithName).not.toHaveBeenCalled();
+        f.sendEvent.mockClear();
         f.ui.createGroup = async (input) => {
+            expect(f.sendEvent).toHaveBeenCalledWith({ action: 'attention-required' });
             expect(input).toMatchObject({ groupPath: 'A / B', files: [{ id: 'f1', name: 'Vault', selected: true }] });
             return 'f1';
         };
@@ -1180,6 +1183,21 @@ describe('ProtocolImpl — explicit UI decisions', () => {
         f.ui.showTouch = (_input, cancel) => { cancel(); return { dispose }; };
         expect((await call(client, 'get-totp-by-url', { url: f.entry.url })).error?.errorCode).toBe('6');
         expect(dispose).toHaveBeenCalledTimes(2);
+    });
+
+    test('legacy read counters notify an already mounted session panel', async () => {
+        const f = fixture();
+        f.ui.selectEntry = async () => f.entry as unknown as EntryModel;
+        const client = await handshake();
+        const snapshots: number[] = [];
+        const changed = () => snapshots.push(ProtocolImpl.sessions[0].passwordsRead);
+        Events.on('browser-extension-sessions-changed', changed);
+        try {
+            expect((await call(client, 'get-logins', { url: f.entry.url })).ok?.count).toBe(1);
+            expect(snapshots).toContain(1);
+            expect((await call(client, 'get-totp-by-url', { url: f.entry.url })).ok?.totp).toBe('123456');
+            expect(snapshots.at(-1)).toBe(2);
+        } finally { Events.off('browser-extension-sessions-changed', changed); }
     });
 
     test('timed-out consent aborts the UI and cannot later approve', async () => {
