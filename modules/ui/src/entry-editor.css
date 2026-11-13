@@ -63,6 +63,9 @@
     align-items: center;
     gap: 6px;
 }
+.entry-editor__custom-row textarea { min-height: 100px; resize: vertical; }
+.entry-metadata { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; }
+.entry-metadata dd { margin: 0; overflow-wrap: anywhere; }
 .entry-detail__actions {
     margin-left: auto;
 }

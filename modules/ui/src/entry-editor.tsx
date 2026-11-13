@@ -7,6 +7,7 @@ import { OtpFieldNames, otpSnapshot, readEntryOtp, prepareOtpDraft, applyEntryOt
 import { EntryOtpFields } from './entry-otp-fields';
 import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
+import type { GroupModel } from 'models/group-model';
 import { PasswordGeneratorPanel } from './password-generator';
 import { t } from './i18n';
 import './entry-editor.css';
@@ -28,6 +29,7 @@ interface CustomField {
     name: string;
     value: string;
     protected: boolean;
+    multiline?: boolean;
 }
 
 export interface EntryDraft {
@@ -36,6 +38,13 @@ export interface EntryDraft {
     custom: CustomField[];
     otp?: OtpDraft;
     otpBaseline?: string;
+    expires?: string;
+    protection?: Record<string, boolean>;
+}
+
+function localDate(date?: Date): string {
+    if (!date || !Number.isFinite(date.getTime())) return '';
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 19);
 }
 
 function fieldText(value: unknown): string {
@@ -46,29 +55,37 @@ function customName(field: CustomField): string {
     return field.name === field.originalName ? field.name : field.name.trim();
 }
 
-function makeDraft(entry: EntryModel | null, tags: string[]): EntryDraft {
+function makeDraft(entry: EntryModel | null, tags: string[], group?: GroupModel): EntryDraft {
     const fields = entry?.getAllFields() ?? {};
     return {
-        fields: Object.fromEntries(FIELDS.map(({ name }) => [name, fieldText(fields[name])])),
+        fields: Object.fromEntries(FIELDS.map(({ name }) => [name, fieldText(fields[name] ??
+            (!entry && name === 'UserName' ? (group?.file as FileModel | undefined)?.defaultUser : ''))])),
+        protection: Object.fromEntries(FIELDS.map(({ name }) => [name,
+            fields[name] instanceof ProtectedValue || (!entry && name === 'Password')])),
+        expires: localDate(entry?.expires),
         tags: (entry?.tags ?? tags).join(', '),
         otp: { action: 'keep', value: readEntryOtp(entry).value },
         otpBaseline: otpSnapshot(entry),
         custom: Object.entries(fields)
             .filter(([name]) => !reservedNames.has(name.toLowerCase()))
             .map(([name, value], id) => ({
-                id, originalName: name, name, value: fieldText(value), protected: value instanceof ProtectedValue
+                id, originalName: name, name, value: fieldText(value), protected: value instanceof ProtectedValue,
+                multiline: /[\r\n]/.test(fieldText(value))
             }))
     };
 }
 
 /** Apply only changed fields, letting the model own history and file modification. */
 export function applyEntryDraft(entry: EntryModel, draft: EntryDraft): void {
+    const expires = draft.expires ? new Date(draft.expires) : null;
+    if (expires && !Number.isFinite(expires.getTime())) throw new Error('Invalid expiry date');
     if (draft.otp) applyEntryOtp(entry, draft.otp, draft.otpBaseline!);
     const original = entry.getAllFields();
     for (const { name } of FIELDS) {
         const value = draft.fields[name];
-        if (fieldText(original[name]) !== value) {
-            entry.setField(name, name === 'Password' || original[name] instanceof ProtectedValue
+        const protect = draft.protection?.[name] ?? (name === 'Password' || original[name] instanceof ProtectedValue);
+        if (fieldText(original[name]) !== value || (original[name] instanceof ProtectedValue) !== protect) {
+            entry.setField(name, protect
                 ? ProtectedValue.fromString(value) : value);
         }
     }
@@ -93,16 +110,18 @@ export function applyEntryDraft(entry: EntryModel, draft: EntryDraft): void {
         const tags = draft.tags.split(/[,;\n]/).map((tag) => tag.trim()).filter(Boolean);
         entry.setTags([...new Set(tags)]);
     }
+    if (draft.expires !== undefined && draft.expires !== localDate(entry.expires)) entry.setExpires(expires);
 }
 
-export function EntryEditor({ model, entry, tags = [], onSave, onCancel }: {
+export function EntryEditor({ model, entry, group, tags = [], onSave, onCancel }: {
     model: AppModel;
     entry: EntryModel | null;
+    group?: GroupModel;
     tags?: string[];
     onSave: (draft: EntryDraft) => void;
     onCancel: () => void;
 }) {
-    const [draft, setDraft] = useState(() => makeDraft(entry, tags));
+    const [draft, setDraft] = useState(() => makeDraft(entry, tags, group));
     const initialDraft = useRef(JSON.stringify(draft));
     const target = useRef(entry ? { file: entry.file as FileModel, db: (entry.file as FileModel).db, raw: entry.entry } : null);
     const access = getSessionAccess(model);
@@ -110,6 +129,10 @@ export function EntryEditor({ model, entry, tags = [], onSave, onCancel }: {
     if (access.state === 'open') openEpoch.current = access.epoch;
     const nextId = useRef(draft.custom.length);
     const [reveal, setReveal] = useState(false);
+    const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set());
+    const toggleReveal = (name: string) => setRevealedFields(current => {
+        const next = new Set(current); if (next.has(name)) next.delete(name); else next.add(name); return next;
+    });
     const [generatorOpen, setGeneratorOpen] = useState(false);
     const [error, setError] = useState('');
     const updateCustom = (id: number, changes: Partial<CustomField>) => setDraft((current) => ({
@@ -161,16 +184,24 @@ export function EntryEditor({ model, entry, tags = [], onSave, onCancel }: {
                     <div class="entry-editor__field" key={name}>
                         <label class="field-label">
                             <span>{t(label)}</span>
-                            {name === 'Notes' ? (
+                            {name === 'Notes' && (!draft.protection?.[name] || revealedFields.has(name)) ? (
                                 <textarea class="input entry-editor__notes" value={draft.fields[name]}
                                     onInput={(event) => setDraft({ ...draft, fields: { ...draft.fields, [name]: event.currentTarget.value } })} />
                             ) : (
-                                <input class="input" type={name === 'Password' && !reveal ? 'password' : 'text'}
+                                <input class="input" type={(name === 'Password' ? !reveal : draft.protection?.[name] && !revealedFields.has(name)) ? 'password' : 'text'}
                                     autoFocus={name === 'Title'} autoComplete="off" spellcheck={false}
+                                    list={name === 'UserName' ? 'entry-usernames' : undefined}
                                     value={draft.fields[name]}
                                     onInput={(event) => setDraft({ ...draft, fields: { ...draft.fields, [name]: event.currentTarget.value } })} />
                             )}
                         </label>
+                        <label class="entry-editor__protect">
+                            <input type="checkbox" checked={draft.protection?.[name]}
+                                onChange={event => setDraft({ ...draft, protection: { ...draft.protection, [name]: event.currentTarget.checked } })} />
+                            {t('Protect {}', t(label))}
+                        </label>
+                        {name !== 'Password' && draft.protection?.[name] && <button class="link" type="button"
+                            onClick={() => toggleReveal(name)}>{t(revealedFields.has(name) ? 'Hide {}' : 'Show {}', t(label))}</button>}
                         {name === 'Password' && (
                             <>
                                 <div class="entry-editor__password-actions">
@@ -189,6 +220,19 @@ export function EntryEditor({ model, entry, tags = [], onSave, onCancel }: {
                         )}
                     </div>
                 ))}
+                <datalist id="entry-usernames">
+                    {[...new Set(model.files.flatMap(file => {
+                        const names: string[] = [];
+                        file.forEachEntry({}, entry => { if (entry.user) names.push(entry.user); });
+                        return names;
+                    }))].map(name => <option value={name} />)}
+                </datalist>
+                <label class="field-label entry-editor__field">
+                    <span>{t('Expires')}</span>
+                    <input class="input" type="datetime-local" aria-label={t('Expires')} step="1" value={draft.expires}
+                        onInput={event => setDraft({ ...draft, expires: event.currentTarget.value })} />
+                    <span class="muted">{t('Leave empty for no expiry.')}</span>
+                </label>
                 <label class="field-label entry-editor__field">
                     <span>{t('Tags')}</span>
                     <input class="input" value={draft.tags} placeholder={t('Separate tags with commas')}
@@ -207,10 +251,21 @@ export function EntryEditor({ model, entry, tags = [], onSave, onCancel }: {
                             </label>
                             <label class="field-label">
                                 <span>{t('Field value')}</span>
-                                <input class="input" type={field.protected ? 'password' : 'text'}
+                                {field.multiline && (!field.protected || revealedFields.has(`custom:${field.id}`)) ?
+                                <textarea class="input" value={field.value} autoComplete="off" spellcheck={false}
+                                    onInput={event => updateCustom(field.id, { value: event.currentTarget.value })} /> :
+                                <input class="input" type={field.protected && !revealedFields.has(`custom:${field.id}`) ? 'password' : 'text'}
                                     value={field.value} autoComplete="off" spellcheck={false}
-                                    onInput={(event) => updateCustom(field.id, { value: event.currentTarget.value })} />
+                                    onInput={(event) => updateCustom(field.id, { value: event.currentTarget.value })} />}
                             </label>
+                            <label class="entry-editor__protect">
+                                <input type="checkbox" checked={field.multiline}
+                                    onChange={event => updateCustom(field.id, { multiline: event.currentTarget.checked })} />
+                                {t('Multiline')}
+                            </label>
+                            {field.protected && <button class="link" type="button" onClick={() => toggleReveal(`custom:${field.id}`)}>
+                                {t(revealedFields.has(`custom:${field.id}`) ? 'Hide field' : 'Show field')}
+                            </button>}
                             <label class="entry-editor__protect">
                                 <input type="checkbox" checked={field.protected}
                                     onChange={(event) => updateCustom(field.id, { protected: event.currentTarget.checked })} />

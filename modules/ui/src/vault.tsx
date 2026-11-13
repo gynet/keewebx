@@ -427,6 +427,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             {editing ? (
                 <EntryEditor model={model} key={'entry' in editing ? editing.entry.id : 'new'}
                     entry={'entry' in editing ? editing.entry : null}
+                    group={'group' in editing ? editing.group : undefined}
                     tags={'tag' in editing && editing.tag ? [editing.tag] : []}
                     onSave={saveEntry} onCancel={() => setEditing(null)} />
             ) : entry ? (
@@ -530,6 +531,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
     const s = summarizeEntry(entry);
     const otp = useOtp(entry);
     const [reveal, setReveal] = useState(false);
+    const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set());
     const [copied, setCopied] = useState('');
     const [notesVersion, setNotesVersion] = useState(0);
     const password = entry.password?.getText?.() ?? '';
@@ -578,7 +580,8 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
         const protectedValue = value as { getText?: () => string };
         const text = typeof protectedValue?.getText === 'function' ? protectedValue.getText() : String(value ?? '');
         const secret = typeof protectedValue?.getText === 'function';
-        rows.push({ key: `field:${name}`, label: name, value: secret ? '••••••••' : text, text: () => Promise.resolve(text) });
+        rows.push({ key: `field:${name}`, label: name, value: secret && !revealedFields.has(`field:${name}`) ? '••••••••' : text,
+            secret, text: () => Promise.resolve(text) });
     }
 
     return (
@@ -613,7 +616,13 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                             </span>
                             {r.key === 'otp' && otp && <span class="muted" style={{ fontSize: '12px' }}>{t('{} s', String(otp.left))}</span>}
                             {r.secret && (
-                                <button class="icon-btn" aria-label={reveal ? t('Hide password') : t('Show password')} onClick={() => setReveal(!reveal)}>
+                                <button class="icon-btn" aria-label={r.key === 'password' ? (reveal ? t('Hide password') : t('Show password'))
+                                    : t(revealedFields.has(r.key) ? 'Hide {}' : 'Show {}', r.label)} onClick={() => {
+                                    if (r.key === 'password') setReveal(!reveal);
+                                    else setRevealedFields(current => {
+                                        const next = new Set(current); if (next.has(r.key)) next.delete(r.key); else next.add(r.key); return next;
+                                    });
+                                }}>
                                     <Icon name="eye" size={17} />
                                 </button>
                             )}
@@ -631,6 +640,9 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                             {website && <a class="field__action" href={website} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
                                 {t('Open')}
                             </a>}
+                            <button class="field__action" onClick={() => void copy('url', () => entryFieldText(entry, 'url'))}>
+                                {copied === 'url' ? t('Copied') : t('Copy')}
+                            </button>
                         </div>
                     )}
                 </div>
@@ -651,7 +663,13 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
 
             <Attachments key={entry.id} model={model} entry={entry} />
 
-            <p class="detail__foot">{t('Updated {}', DateFormat.dtStr(entry.updated))}</p>
+            <dl class="detail__foot entry-metadata">
+                <dt>{t('Database')}</dt><dd>{entry.fileName}</dd>
+                <dt>{t('Group')}</dt><dd>{groupPath(entry.group as GroupModel)}</dd>
+                <dt>{t('Created')}</dt><dd>{DateFormat.dtStr(entry.created)}</dd>
+                <dt>{t('Updated')}</dt><dd>{DateFormat.dtStr(entry.updated)}</dd>
+                <dt>{t('Expires')}</dt><dd>{entry.expires ? DateFormat.dtStr(entry.expires) : t('Never')}{entry.expired ? ` (${t('Expired')})` : ''}</dd>
+            </dl>
         </main>
     );
 }
