@@ -1,0 +1,2 @@
+.close-vault { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; margin: auto; padding: 24px; overflow: auto; overflow-wrap: anywhere; color: var(--kx-text); background: var(--kx-bg); border: 1px solid var(--kx-line); border-radius: var(--kx-radius-card); }
+.close-vault__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

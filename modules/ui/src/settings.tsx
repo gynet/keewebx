@@ -5,6 +5,7 @@ import { Icon } from 'ui-kit/mark';
 import { t } from './i18n';
 import { ThemeToggle, ThemeSelect } from './theme';
 import { ClipboardLockSetting } from './clipboard-lock-setting';
+import type { FileModel } from 'models/file-model';
 import type { AppModel } from 'models/app-model';
 import { ImportVault } from './import-vault';
 import { DatabaseSettingsEditor } from './database-settings';
@@ -31,8 +32,8 @@ const SECTIONS = [
 ] as const;
 export type SettingsSection = typeof SECTIONS[number][0];
 
-export function Settings({ onBack, model, extensionSessions, initialSection = 'appearance', passkeyVaultId }: {
-    onBack: () => void; model: AppModel; extensionSessions?: ExtensionSessionsApi; initialSection?: SettingsSection; passkeyVaultId?: string;
+export function Settings({ onBack, model, extensionSessions, initialSection = 'appearance', passkeyVaultId, onCloseVault }: {
+    onBack: () => void; model: AppModel; extensionSessions?: ExtensionSessionsApi; initialSection?: SettingsSection; passkeyVaultId?: string; onCloseVault?(file: FileModel): void;
 }) {
     const [section, setSection] = useState<SettingsSection>(initialSection);
     const content = useRef<HTMLElement>(null);
@@ -149,8 +150,8 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                     <section id="settings-panel-database" role="tabpanel" aria-labelledby="settings-tab-database" hidden={section !== 'database'}>
                     <h2 class="group-title">{t('Database settings')}</h2>
                     <ImportVault model={model} />
-                    {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file}
-                        onCancel={() => { discardPendingDrafts('database'); onBack(); }} />)}
+                    {model.files.map((file) => <DatabaseSettingsEditor key={file.id} model={model} file={file} onClose={() => onCloseVault?.(file)}
+                        onCancel={() => { discardPendingDrafts('database', file.id); if (model.files.length === 1) onBack(); }} />)}
                     </section>
                 </div>
             </main>

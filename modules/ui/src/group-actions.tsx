@@ -227,7 +227,7 @@ function GroupActionDialog({ model, selection, disabled, onCancel, onComplete, g
     };
 
     usePendingDraft(action !== 'delete' && (!applied.current || failed.current)
-        && name !== (action === 'rename' ? selection.title : ''), () => apply(true), onCancel, 'group');
+        && name !== (action === 'rename' ? selection.title : ''), () => apply(true), onCancel, 'group', file.id);
 
     if (!available) return <div role="alert">
         <p class="error">{error}</p>

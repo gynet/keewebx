@@ -4,7 +4,7 @@ import { AppSettingsModel } from 'models/app-settings-model';
 import { Events } from 'framework/events';
 import type { AppModel } from 'models/app-model';
 
-const VAULT_EVENTS = ['file-opened', 'all-files-closed', 'refresh', 'file-changed', 'entry-updated', 'set-locale'];
+const VAULT_EVENTS = ['file-opened', 'one-file-closed', 'draft-changed', 'all-files-closed', 'refresh', 'file-changed', 'entry-updated', 'set-locale'];
 
 export function useVaultVersion(model: AppModel): number {
     const [version, setVersion] = useState(0);

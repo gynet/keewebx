@@ -37,7 +37,20 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     // This case tests applying an idle draft; concurrent-save denial is covered separately.
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
     await page.getByRole('button', { name: 'Save database settings', exact: true }).click();
-    await expect(page.getByRole('status')).toHaveText('Saved in browser storage. Download KDBX to update your external copy.');
+    const status = page.getByRole('status');
+    const saved = 'Saved in browser storage. Download KDBX to update your external copy.';
+    const saving = 'A save is in progress. Wait for it to finish, then retry.';
+    await expect.poll(async () => [saved, saving].includes(await status.textContent() ?? '')).toBe(true);
+    if (await status.textContent() === saving) {
+        // Autosave can still be finishing the initial vault. The guard must retain
+        // every setting so an ordinary retry can apply the complete draft.
+        await expect(page.getByLabel('Vault name', { exact: true })).toHaveValue('Renamed vault');
+        await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('saved-user');
+        await expect(page.getByLabel('Enable trash', { exact: true })).not.toBeChecked();
+        await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
+        await page.getByRole('button', { name: 'Save database settings', exact: true }).click();
+    }
+    await expect(status).toHaveText(saved);
     await page.click('#settings-back');
     await page.click('#lock');
     await expect(page.locator('#password')).toBeVisible();

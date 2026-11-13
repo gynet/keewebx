@@ -10,8 +10,11 @@ import type { FileModel } from 'models/file-model';
 import type { GroupModel } from 'models/group-model';
 import type { AttachmentModel } from 'models/attachment-model';
 import { Events } from 'framework/events';
+import { FileCollection } from 'collections/file-collection';
 import { entryFieldText, summarizeEntry } from 'comp/extension/entry-list';
 import { VaultApi } from 'comp/app/vault-api';
+import { fileSyncState } from 'comp/app/sync-scheduler';
+import { saveVault } from 'comp/app/vault-files';
 import { getSessionAccess } from 'comp/app/session-access';
 import { beginPendingOperation } from './pending-operations';
 import { IdleTracker } from 'comp/browser/idle-tracker';
@@ -25,7 +28,7 @@ import { SidebarToggle, useSidebarCollapse } from './sidebar-collapse';
 import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { MobileMenu } from './mobile-menu';
-import { confirmDiscardDrafts, hasPendingDrafts } from './pending-drafts';
+import { confirmDiscardDrafts, hasPendingDrafts, savePendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { prepareOtpDraft } from 'comp/app/entry-otp';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
@@ -43,6 +46,8 @@ import { EntrySort, sortEntries } from './entry-sort';
 import { SearchControls, searchDefaults, type SearchOptions, type SearchScope } from './search-options';
 import { commandKey, editingText, keyboardAvailable } from './keyboard';
 import { AttachmentPreview, attachmentBytes } from './attachment-preview';
+import './vault-switcher.css';
+import { writableCreationGroup } from './creation-target';
 
 
 const SYNC_LABELS: Record<string, string> = {
@@ -102,7 +107,7 @@ function isWithinGroup(group: GroupModel | null | undefined, id: string): boolea
     return false;
 }
 
-export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void; onOpenAnother?: () => void; onSave: () => void; onGenerator: () => void }) {
+export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void; onOpenAnother?: () => void; onSave: () => void; onGenerator: () => void; onCloseVault?: (file: FileModel) => void }) {
     const { model } = props;
     const layout = usePanelLayout();
     const sidebar = useSidebarCollapse('vault');
@@ -134,11 +139,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const [options, setOptions] = useState<SearchOptions>(() => ({ ...searchDefaults, ...model.advancedSearch }));
     const vaultSurface = useRef<HTMLDivElement>(null);
     const search = useRef<HTMLInputElement>(null);
+    const [vaultId, setVaultId] = useState('');
+    const [navigationError, setNavigationError] = useState('');
+    const [saving, setSaving] = useState<string[]>([]);
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState('title');
     const viewEpoch = getSessionAccess(model).epoch;
     const [selected, setSelected] = useState<string>();
-    const [editing, setEditing] = useState<{ entry: EntryModel } | { group: GroupModel; tag?: string } | null>(null);
+    const [storedEditing, setEditing] = useState<({ entry: EntryModel } | { group: GroupModel; tag?: string }) & { key?: string } | null>(null);
+    const editing = storedEditing && ('entry' in storedEditing ? storedEditing.entry.file as FileModel : storedEditing.group.file as FileModel).active ? storedEditing : null;
     const [expandedGroups, setExpandedGroups] = useState(readExpandedGroups);
     const [rootChoice, setRootChoice] = useState('');
     const [groupMessage, setGroupMessage] = useState('');
@@ -157,7 +166,17 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         if (ids.has(id)) ids.delete(id); else ids.add(id);
     });
 
-    const files = model.files as unknown as FileModel[];
+    const allFiles = model.files.filter(file => file.active);
+    const scopeId = vaultId && !allFiles.some(file => file.id === vaultId) ? allFiles[0]?.id ?? '' : vaultId;
+    const files = scopeId ? allFiles.filter(file => file.id === scopeId) : allFiles;
+    const vaultLabel = (file: FileModel) => t('{} (vault {})', kdbxName(file.name), String(allFiles.indexOf(file) + 1));
+    useEffect(() => {
+        if (scopeId !== vaultId) {
+            setVaultId(scopeId); setFilter({}); setQuery(''); setRootChoice(''); setGroupMessage('');
+        }
+        if (selected && !allFiles.some(file => file.getEntry(selected))) setSelected(undefined);
+        if (storedEditing && !('entry' in storedEditing ? storedEditing.entry.file as FileModel : storedEditing.group.file as FileModel).active) setEditing(null);
+    }, [scopeId, props.version]);
     let searchError = '';
     if (options.regex && query) {
         try { new RegExp(query, options.cs ? '' : 'i'); }
@@ -166,20 +185,19 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const prepared = model.prepareFilter({ text: query, ...filter, subGroups: AppSettingsModel.expandGroups, advanced: { ...options, excludeProtected: true } });
     const entries = useMemo(() => {
         if (searchError) return [];
-        const result = model.getEntriesByFilter(prepared, model.files);
+        const result = model.getEntriesByFilter(prepared, new FileCollection(files));
         sortEntries(result, sort, prepared);
         return [...(result as unknown as EntryModel[])].filter(entry => (entry.file as FileModel).active && (!filter.file || (entry.file as FileModel).id === filter.file));
-    }, [query, filter, options, sort, props.version]);
+    }, [query, filter, options, sort, scopeId, props.version]);
     const historyFilter = options.history && query && !searchError ? { ...prepared, advanced: { ...prepared.advanced, history: false } } : undefined;
-
 
     const liveEntry = entries.find((e) => e.id === selected) ?? null;
     const retainedEntry = useRef<EntryModel | null>(null);
     if (liveEntry) retainedEntry.current = liveEntry;
     // Keep an inline draft mounted if a remote deletion/filter change removes its row.
     // Save checks membership and rejects the conflict; the user can copy or discard it.
-    const entry = liveEntry ?? (retainedEntry.current?.id === selected && hasPendingDrafts() ? retainedEntry.current : null);
-    const sync = model.syncScheduler.summary().state;
+    const entry = liveEntry ?? (retainedEntry.current && retainedEntry.current.id === selected && (retainedEntry.current.file as FileModel).active && hasPendingDrafts((retainedEntry.current.file as FileModel).id) ? retainedEntry.current : null);
+    const sync = files.length === 1 ? fileSyncState(files[0]) : model.syncScheduler.summary().state;
     const groups: GroupLike[] = files.flatMap(
         (file) => Array.from(file.groups).flatMap((root) =>
             ((root as unknown as GroupLike).items ?? []).filter((group) => group.visible !== false))
@@ -190,7 +208,31 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         .map((file) => ({ file, group: file.getGroup(filter.group!) }))
         .find((target): target is { file: FileModel; group: GroupModel } => !!target.group) : undefined;
     const groupTarget = filter.group ? selectedGroup : roots.find(({ group }) => group.id === rootChoice);
-    const tags = model.tags;
+    const tags = [...new Set(files.flatMap(file => {
+        const values: string[] = [];
+        file.forEachEntry({}, entry => values.push(...entry.tags));
+        return values;
+    }))].sort();
+    const switchVault = (id: string) => {
+        if (getSessionAccess(model).state !== 'open' || (id && !model.files.get(id)?.active)) return false;
+        try { savePendingDrafts(); }
+        catch { setNavigationError(t('Resolve the current draft before switching vaults.')); return false; }
+        setNavigationError(''); setEditing(null); setSelected(undefined);
+        setVaultId(id); setFilter({}); setQuery(''); setRootChoice(''); setGroupMessage('');
+        closeNavigation();
+        return true;
+    };
+    const saveFile = async (file: FileModel) => {
+        if (saving.includes(file.id) || getSessionAccess(model).state !== 'open') return;
+        const finish = beginPendingOperation(model, file.id);
+        setSaving(current => [...current, file.id]); setNavigationError('');
+        try {
+            savePendingDrafts(file.id, true);
+            await saveVault(model, file);
+            if (file.active && (file.dirty || file.modified)) throw new Error(t('Changes are still pending. Keep this vault open and retry saving.'));
+        } catch (error) { setNavigationError(error instanceof Error ? error.message : t('Could not save this vault.')); }
+        finally { finish(); setSaving(current => current.filter(id => id !== file.id)); }
+    };
     const changeFilter = (next: SearchScope) => {
         if (!confirmDiscardDrafts()) return;
         setEditing(null);
@@ -249,30 +291,33 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         }
     };
     const creationGroup = filter.group ? files.map(file => file.getGroup(filter.group!)).find(Boolean)
-        : filter.file ? files.find(file => file.id === filter.file)?.groups[0] : undefined;
-    const canCreate = !filter.trash && model.canCreateEntries() && (!(filter.file || filter.group) || !!creationGroup)
-        && (!creationGroup || ((creationGroup.file as FileModel).active && !(creationGroup.file as FileModel & { readOnly?: boolean }).readOnly));
+        : filter.file ? files.find(file => file.id === filter.file)?.groups[0]
+        : groupTarget?.group ?? (files.length === 1 ? files[0].groups[0] : undefined);
+    const canCreate = !filter.trash && writableCreationGroup(model, creationGroup);
     const newEntry = () => {
-        if (!canCreate || !confirmDiscardDrafts()) return;
-        const groupId = filter.group;
-        const group = groupId ? files.map((file) => file.getGroup(groupId)).find(Boolean) : undefined;
-        setEditing({ group: group ?? creationGroup ?? model.getFirstSelectedGroupForCreation().group, tag: filter.tag });
+        if (!confirmDiscardDrafts()) return;
+        if (!creationGroup || !canCreate) return;
+        setEditing({ group: creationGroup, tag: filter.tag });
     };
-    const saveEntry = (draft: EntryDraft) => {
-        if (!editing) {
-            return;
-        }
+    const saveEntry = (draft: EntryDraft, retain = false): EntryModel => {
+        if (!editing) throw new Error('No entry is being edited.');
+        if (!('entry' in editing) && !writableCreationGroup(model, editing.group)) throw new Error('The creation group is no longer available.');
         prepareOtpDraft(draft.otp);
         const saved = 'entry' in editing ? editing.entry : model.createNewEntryWithFields(editing.group, {});
         applyEntryDraft(saved, draft);
         if (!('entry' in editing) && typeof filter.color === 'string') saved.setColor(filter.color as Parameters<EntryModel['setColor']>[0]);
         model.updateTags();
         Events.emit('entry-updated', { entry: saved });
+        if (retain) {
+            setEditing({ entry: saved, key: editing.key ?? ('entry' in editing ? editing.entry.id : 'new') });
+            return saved;
+        }
         setEditing(null);
         // Keep the saved entry visible if its title, tags or search terms changed.
         setFilter({});
         setQuery('');
         setSelected(saved.id);
+        return saved;
     };
 
     const changeSearch = (nextOptions: SearchOptions, nextScope: SearchScope) => {
@@ -353,7 +398,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 if (!navigationOpen) return;
                 if (event.key === 'Escape') { event.preventDefault(); closeNavigation(); }
                 if (event.key === 'Tab') {
-                    const controls = [...(navigation.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+                    const controls = [...(navigation.current?.querySelectorAll<HTMLInputElement>('button, select, input, a[href], [tabindex="0"]') ?? [])]
                         .filter((button) => !button.disabled && button.getClientRects().length);
                     const first = controls[0]; const last = controls[controls.length - 1];
                     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -377,13 +422,27 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <button class="round side__close" aria-label={t('Close navigation')} onClick={closeNavigation}><Icon name="back" /></button>
                 </div>
                 <div id="vault-sidebar-content" class="side__content">
+                <section class="open-vaults" aria-label={t('Open vaults')}>
+                    {allFiles.map(file => <div class="open-vaults__item" key={file.id} data-vault-id={file.id}>
+                        <button type="button" class="open-vaults__select" aria-pressed={scopeId === file.id} onClick={() => switchVault(file.id)}>
+                            <span>{vaultLabel(file)}</span>
+                            <span role="status">{hasPendingDrafts(file.id) ? t('Unsaved draft') : fileSyncState(file) === 'pending' ? t('Unsaved changes') : t(SYNC_LABELS[fileSyncState(file)])}</span>
+                        </button>
+                        <div class="open-vaults__actions">
+                            <button type="button" class="link" disabled={saving.includes(file.id)} onClick={() => void saveFile(file)} aria-label={t('Save {}', vaultLabel(file))}>{t('Save')}</button>
+                            <button type="button" class="link" onClick={() => { closeNavigation(); props.onCloseVault?.(file); }} aria-label={t('Close {}', vaultLabel(file))}>{t('Close')}</button>
+                        </div>
+                    </div>)}
+                </section>
                 <NavRow icon="grid" label={t('All items')} on={!Object.values(filter).some(Boolean)} onClick={() => changeFilter({})} />
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 {groups.length > 0 && <h2 class="side__heading">{t('Groups')}</h2>}
-                {groups.map((g) => (
-                    <GroupBranch key={g.id} group={g} selected={filter.group} onSelect={(id) => changeFilter({ group: id })}
-                        expandedGroups={expandedGroups} onToggle={toggleGroup} />
-                ))}
+                {files.map(file => <section key={file.id} aria-label={t('Groups in {}', vaultLabel(file))}>
+                    {files.length > 1 && <h3 class="side__heading">{vaultLabel(file)}</h3>}
+                    {Array.from(file.groups).flatMap(root => ((root as unknown as GroupLike).items ?? []).filter(group => group.visible !== false))
+                        .map(g => <GroupBranch key={g.id} group={g} selected={filter.group} onSelect={id => changeFilter({ group: id })}
+                            expandedGroups={expandedGroups} onToggle={toggleGroup} />)}
+                </section>)}
                 <button type="button" class="nav-row" onClick={openGroupManager}>
                     <Icon name="folder" size={17} />
                     <span class="nav-row__label">{t('Manage groups')}</span>
@@ -415,7 +474,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={() => { setNavigationOpen(false); props.onSettings(); }}>
                         <Icon name="gear" size={17} />
                     </button>
-                    <button class="round" aria-label={t('Lock')} title={t('Lock')} id="lock" onClick={props.onLock}>
+                    <button class="round" aria-label={t('Lock')} title={t('Save all vaults and lock')} id="lock" onClick={props.onLock}>
                         <Icon name="lock" size={17} />
                     </button>
                 </div>
@@ -425,6 +484,13 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 onChange={(width) => layout.set('sidebar', width)} onReset={() => layout.reset('sidebar')} />
 
             <section class="list" aria-label={t('Entries')}>
+                <label class="vault-filter">{t('Vault filter')}
+                    <select class="input" aria-label={t('Vault filter')} value={scopeId} onChange={event => { if (!switchVault(event.currentTarget.value)) event.currentTarget.value = scopeId; }}>
+                        <option value="">{t('All open vaults')}</option>
+                        {allFiles.map(file => <option key={file.id} value={file.id}>{vaultLabel(file)}</option>)}
+                    </select>
+                </label>
+                {navigationError && <p class="error vault-filter" role="alert">{navigationError}</p>}
                 <div class="list__bar">
                     <label class="search">
                         <Icon name="search" size={15} />
@@ -445,7 +511,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     </label>
                 </div>
                 {searchError && <p id="search-error" class="error" role="alert" style={{ margin: '0 14px 6px' }}>{searchError}</p>}
-                <SearchControls model={model} options={options} scope={filter} change={changeSearch}
+                <SearchControls model={model} files={files} options={options} scope={filter} change={changeSearch}
                     reset={() => { if (changeSearch({ ...searchDefaults, ...model.advancedSearch }, {})) setQuery(''); }} />
                 <div class="vault-commands">
                     <button type="button" class="pill" onClick={props.onSave}>{t('Save vaults')}</button>
@@ -457,6 +523,12 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     // Sorting changes presentation only: retain selection and the mounted draft.
                     setSort(next); return true;
                 }} />
+                {files.length > 1 && !selectedGroup && <label class="vault-filter">{t('New entry vault')}
+                    <select class="input" aria-label={t('New entry vault')} value={rootChoice} onChange={event => setRootChoice(event.currentTarget.value)}>
+                        <option value="">{t('Select a vault and root…')}</option>
+                        {roots.map(({ file, group }) => <option key={group.id} value={group.id}>{vaultLabel(file)} · {group.title}</option>)}
+                    </select>
+                </label>}
                 <button class="pill entry-list__create" disabled={!!editing || !canCreate} onClick={newEntry}>
                     {t('New entry')}
                 </button>
@@ -479,13 +551,13 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             }}>
                                 <option value="">{t('Select a vault and root…')}</option>
                                 {roots.map(({ file, group, index }) => <option key={group.id} value={group.id}>
-                                    {t('{} (vault {}) — root {}: {}', kdbxName(file.name), String(files.indexOf(file) + 1), String(index + 1), group.title)}
+                                    {t('{} (vault {}) — root {}: {}', kdbxName(file.name), String(allFiles.indexOf(file) + 1), String(index + 1), group.title)}
                                 </option>)}
                             </select>
                         </label>}
                         {groupTarget && <>
                             <p class="muted" style={{ margin: '0 0 12px' }}>
-                                {t('Database: {} (vault {})', kdbxName(groupTarget.file.name), String(files.indexOf(groupTarget.file) + 1))}
+                                {t('Database: {} (vault {})', kdbxName(groupTarget.file.name), String(allFiles.indexOf(groupTarget.file) + 1))}
                             </p>
                             <GroupActions key={groupTarget.group.id} model={model} file={groupTarget.file} group={groupTarget.group}
                                 onComplete={groupChanged} getReturnFocus={() => groupSummary.current} />
@@ -518,7 +590,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                                 <PreferenceTile title={s.title} icon={s.icon} customIcon={e.customIcon} url={s.url} list />
                                 <span class="entry-row__text">
                                     <span class="entry-row__title" title={s.title || t('(no title)')}>{s.title || t('(no title)')}</span>
-                                    <span class="entry-row__sub">{historyFilter && !e.matches(historyFilter) ? t('Match in history — open History') : s.user || s.url}</span>
+                                    <span class="entry-row__sub">{files.length > 1 ? `${vaultLabel(e.file as FileModel)} · ` : ''}{historyFilter && !e.matches(historyFilter) ? t('Match in history — open History') : s.user || s.url}</span>
                                 </span>
                             </button>
                         );
@@ -538,15 +610,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} onClick={props.onSettings}>
                     <Icon name="gear" size={18} />
                 </button>
-                <button class="round" aria-label={t('Lock')} onClick={props.onLock}>
+                <button class="round" aria-label={t('Lock')} title={t('Save all vaults and lock')} onClick={props.onLock}>
                     <Icon name="lock" size={18} />
                 </button>
             </MobileMenu>
 
             {editing ? (
-                <EntryEditor model={model} key={'entry' in editing ? editing.entry.id : 'new'}
-                    entry={'entry' in editing ? editing.entry : null}
+                <EntryEditor model={model} key={editing.key ?? ('entry' in editing ? editing.entry.id : 'new')}
                     group={'group' in editing ? editing.group : undefined}
+                    entry={'entry' in editing ? editing.entry : null}
                     tags={'tag' in editing && editing.tag ? [editing.tag] : []}
                     onSave={saveEntry} onCancel={() => setEditing(null)} />
             ) : entry ? (
@@ -851,7 +923,7 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
             return;
         }
         working.current = true;
-        const finished = beginPendingOperation(model);
+        const finished = beginPendingOperation(model, file.id);
         const access = getSessionAccess(model);
         const epoch = access.epoch;
         const canPublish = () => mounted.current && file.active &&

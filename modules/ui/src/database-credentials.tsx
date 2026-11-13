@@ -52,7 +52,7 @@ export function DatabaseCredentialsEditor({ file, onBusyChange, onDraftChange, c
         setMessage(t('Apply or discard credential edits before saving, downloading, or locking.'));
         return false;
     };
-    usePendingDraft(dirty, refuseImplicitApply, discard, 'database');
+    usePendingDraft(dirty, refuseImplicitApply, discard, 'database', file.id);
     const run = async (action: (current: () => boolean) => Promise<void>) => {
         if (lifecycle.current.busy) return;
         const generation = ++lifecycle.current.generation;

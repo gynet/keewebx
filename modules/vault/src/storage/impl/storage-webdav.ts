@@ -44,7 +44,11 @@ interface FileOpts {
     user?: string;
     password?: string;
     encpass?: string;
+    encpassSalt?: string;
+    encpassKey?: 'key-file';
 }
+
+type WebDavFile = { uuid: string; db?: { credentials?: { keyFileHash?: kdbxweb.ProtectedValue } } };
 
 class StorageWebDav extends StorageBase {
     name = 'webdav';
@@ -401,22 +405,26 @@ class StorageWebDav extends StorageBase {
 
     async fileOptsToStoreOpts(
         opts: FileOpts,
-        file: { uuid: string },
+        file: WebDavFile,
         passwordHash?: Uint8Array
     ): Promise<FileOpts> {
         const result: FileOpts = { user: opts.user, encpass: opts.encpass };
         if (opts.password) {
-            if (passwordHash) {
-                const encrypted = await encryptWebDavPassword(
-                    opts.password,
-                    passwordHash,
-                    file.uuid
-                );
-                if (encrypted) {
-                    result.encpass = encrypted;
-                    return result;
+            const keyFileHash = !passwordHash ? file.db?.credentials?.keyFileHash?.getBinary() : undefined;
+            try {
+                const hash = passwordHash ?? keyFileHash;
+                if (hash) {
+                    const encrypted = await encryptWebDavPassword(opts.password, hash, file.uuid);
+                    if (encrypted) {
+                        result.encpass = encrypted;
+                        result.encpassSalt = file.uuid;
+                        if (keyFileHash) result.encpassKey = 'key-file';
+                        return result;
+                    }
                 }
-            }
+            } finally { keyFileHash?.fill(0); }
+            // Legacy fallback has no public salt: publishing its XOR key would expose
+            // the password. Key-file-only databases use authenticated encryption above.
             // Fallback to XOR if no passwordHash or crypto.subtle unavailable
             const encpass = this._xorString(opts.password, file.uuid);
             result.encpass = btoa(encpass);
@@ -424,25 +432,42 @@ class StorageWebDav extends StorageBase {
         return result;
     }
 
+    /** Recover connection credentials before HEAD/GET; cached vault bytes are optional. */
+    async prepareOpenOpts(opts: FileOpts, password: kdbxweb.ProtectedValue | null, keyFile?: ArrayBuffer | Uint8Array | null): Promise<FileOpts> {
+        // Older records lack the UUID salt. They retain the cache-based migration
+        // path; opening that database rewrites its connection options with a salt.
+        if (!opts.encpass || !opts.encpassSalt) return { ...opts };
+        let hash: Uint8Array | undefined;
+        try {
+            const credentials = opts.encpassKey === 'key-file' ? new kdbxweb.Credentials(null, keyFile) : undefined;
+            if (credentials) await credentials.ready;
+            else if (password) hash = new Uint8Array(await password.getHash());
+            const decoded = await this.storeOptsToFileOpts({ ...opts }, { uuid: opts.encpassSalt, db: { credentials } }, hash);
+            if (decoded.password === undefined) {
+                throw Object.assign(new Error('Could not unlock saved WebDAV credentials.'), { code: 'InvalidKey' });
+            }
+            return decoded;
+        } finally { hash?.fill(0); }
+    }
+
     async storeOptsToFileOpts(
         opts: FileOpts,
-        file: { uuid: string },
+        file: WebDavFile,
         passwordHash?: Uint8Array
     ): Promise<FileOpts> {
         const result: FileOpts = { user: opts.user, password: opts.password };
         if (opts.encpass) {
             if (opts.encpass.startsWith(AESGCM_PREFIX)) {
                 // New AES-GCM format
-                if (passwordHash) {
-                    result.password = await decryptWebDavPassword(
-                        opts.encpass,
-                        passwordHash,
-                        file.uuid
-                    ) ?? undefined;
-                } else {
-                    // Cannot decrypt without passwordHash
-                    result.password = undefined;
-                }
+                const keyFileHash = opts.encpassKey === 'key-file' ? file.db?.credentials?.keyFileHash?.getBinary() : undefined;
+                const hash = opts.encpassKey === 'key-file' ? keyFileHash : passwordHash;
+                try {
+                    if (hash) {
+                        result.password = await decryptWebDavPassword(opts.encpass, hash, file.uuid) ?? undefined;
+                    } else {
+                        result.password = undefined;
+                    }
+                } finally { keyFileHash?.fill(0); }
             } else {
                 // Legacy XOR format -- decrypt
                 const encpass = atob(opts.encpass);

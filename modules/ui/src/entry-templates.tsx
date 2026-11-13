@@ -102,6 +102,7 @@ function TemplatesDialog({ model, groupId, close, onCreated, trigger }: {
         model.updateTags(); Events.emit('entry-updated', { entry }); Events.emit('refresh');
         if (mode === 'use') { close(); onCreated(entry); }
         else { setTarget(null); setMessage(t('Template saved.')); }
+        return entry;
     };
     const templates = model.getEntryTemplates().filter(({ file }) => writable(file));
     return <dialog ref={dialog} class="entry-templates" aria-label={t('Entry templates')}

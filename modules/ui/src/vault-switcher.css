@@ -1,0 +1,8 @@
+.vault-filter { display: grid; gap: 6px; margin: 8px 14px; flex: 0 0 auto; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.vault-filter select { min-width: 0; width: 100%; }
+.open-vaults { display: grid; gap: 8px; margin-bottom: 16px; }
+.open-vaults__item { padding: 8px; border: 1px solid var(--kx-line); border-radius: 8px; min-width: 0; }
+.open-vaults__select { display: grid; gap: 4px; width: 100%; padding: 0; background: transparent; color: inherit; border: 0; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.open-vaults__select[aria-pressed="true"] { color: var(--kx-accent); }
+.open-vaults__select [role="status"] { font-size: 12px; color: var(--kx-muted); }
+.open-vaults__actions { display: flex; gap: 16px; margin-top: 8px; }

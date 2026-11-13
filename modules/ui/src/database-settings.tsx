@@ -13,7 +13,9 @@ import { PlaintextExport } from './plaintext-export';
 import { DatabasePasskey } from './database-passkey';
 import { WebDavSaveAs } from './webdav-save-as';
 
-export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppModel; file: FileModel; onCancel: () => void }) {
+export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { model: AppModel; file: FileModel; onCancel: () => void; onClose?: () => void }) {
+    const name = model.files.filter(candidate => candidate.name === file.name).length > 1
+        ? t('{} (vault {})', file.name, String(model.files.indexOf(file) + 1)) : file.name;
     const [draft, setDraft] = useState(() => readDatabaseSettings(file));
     const [baseline, setBaseline] = useState(() => JSON.stringify(draft));
     const [message, setMessage] = useState('');
@@ -41,7 +43,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             return true;
         } catch (error) { setMessage((error as Error).message); return false; }
     };
-    usePendingDraft(JSON.stringify(draft) !== baseline, apply, reset, 'database');
+    usePendingDraft(JSON.stringify(draft) !== baseline, apply, reset, 'database', file.id);
     const download = async () => {
         if (busy || credentialBusy || !model.settings.canSaveTo) return;
         if (!available() || getSessionAccess(model).state !== 'open') return;
@@ -53,7 +55,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             setMessage(t('Resolve invalid settings before downloading.'));
             return;
         }
-        try { savePendingDrafts(); }
+        try { savePendingDrafts(file.id); }
         catch { setMessage(t('Resolve invalid or conflicting edits before downloading.')); return; }
         setBusy(true); setMessage('');
         try {
@@ -75,7 +77,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             setMessage(t('Could not export the database. Keep the vault open and retry.'));
         } finally { setBusy(false); }
     };
-    return <><form ref={form} class="database-settings cardlist" aria-label={t('Database settings: {}', file.name)}
+    return <><form ref={form} class="database-settings cardlist" data-vault-id={file.id} aria-label={t('Database settings: {}', name)}
         onSubmit={async (event) => {
             event.preventDefault();
             if (busy || credentialBusy) return;
@@ -95,7 +97,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             catch { setMessage(t('Changes are pending. Keep the vault open and retry saving.')); }
             finally { setBusy(false); }
         }}>
-        <h3 style={{ overflowWrap: 'anywhere' }}>{file.name}</h3>
+        <h3 style={{ overflowWrap: 'anywhere' }}>{name}</h3>
         <fieldset disabled={busy || credentialBusy}>
             <DatabaseCredentialsEditor file={file} onBusyChange={setCredentialBusy}
                 onDraftChange={(dirty) => { credentialDraft.current = dirty; }}
@@ -106,6 +108,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel }: { model: AppMo
             <div class="database-settings__actions">
                 <button type="submit" class="pill pill--primary" disabled={file.syncing}>{t('Save database settings')}</button>
                 <button hidden={!model.settings.canSaveTo} type="button" class="pill" onClick={download}>{t('Download KDBX')}</button>
+                {onClose && <button type="button" class="pill" onClick={onClose}>{t('Close vault')}</button>}
                 <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
             </div>
         </fieldset>

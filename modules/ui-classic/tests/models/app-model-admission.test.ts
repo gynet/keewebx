@@ -13,6 +13,8 @@ const cacheRemove = mock((_id: string, _opts: unknown, done?: Callback, canRemov
 const cacheLoad = mock((_id: string, _opts: unknown, _done: (error: unknown, data?: ArrayBuffer) => void) => {});
 const remoteLoad = mock((_path: unknown, _opts: unknown, _done: (error: unknown, data?: ArrayBuffer) => void) => {});
 const remoteSave = mock(() => {});
+const remoteProvider = { name: 'webdav', enabled: true, load: remoteLoad, save: remoteSave,
+    prepareOpenOpts: undefined as undefined | ((opts: Record<string, unknown>, password: unknown) => Promise<Record<string, unknown>>) };
 const beforeSync = mock(() => undefined);
 let nextId = 0;
 
@@ -73,7 +75,7 @@ class QuietLogger { info() {} debug() {} error() {} warn() {} }
 mock.module('framework/events', () => ({ Events: events }));
 mock.module('storage', () => ({ Storage: {
     cache: { save: cacheSave, load: cacheLoad, remove: cacheRemove },
-    webdav: { name: 'webdav', enabled: true, load: remoteLoad, save: remoteSave }
+    webdav: remoteProvider
 } }));
 mock.module('collections/search-result-collection', () => ({ SearchResultCollection: class {} }));
 mock.module('collections/file-collection', () => ({ FileCollection: FileList }));
@@ -132,6 +134,7 @@ function model() {
 }
 type Harness = ReturnType<typeof model>;
 beforeEach(() => {
+    remoteProvider.prepareOpenOpts = undefined;
     PendingFile.created = []; Info.created = []; nextId = 0; events.removeAllListeners();
     for (const call of [cacheSave, cacheLoad, cacheRemove, remoteLoad, remoteSave, beforeSync]) call.mockClear();
 });
@@ -152,6 +155,35 @@ function expectNoPublication(h: Harness) {
     expect(h.add).not.toHaveBeenCalled(); expect(h.opened).not.toHaveBeenCalled();
     expect(h.recent).not.toHaveBeenCalled(); expect(cacheSave).not.toHaveBeenCalled();
 }
+
+describe('storage credential preparation admission', () => {
+    for (const phase of ['securing', 'recovery-required', 'reopened', 'canceled'] as const) {
+        test(`delayed connection credential preparation cannot send a request after ${phase}`, async () => {
+            const h = model(), done = mock(), prepared = deferred<Record<string, unknown>>();
+            let allowed = true;
+            remoteProvider.prepareOpenOpts = () => prepared.promise;
+            h.app.openFile({ name: 'B', storage: 'webdav', path: '/B.kdbx', opts: { encpass: 'wrapped' }, canOpen: () => allowed }, done);
+            await settle(); expect(remoteLoad).not.toHaveBeenCalled();
+            if (phase === 'canceled') allowed = false;
+            else advanceEmpty(h.app, phase);
+            prepared.resolve({ user: 'synthetic', password: 'request-only' }); await settle();
+            expect(remoteLoad).not.toHaveBeenCalled(); expect(done).toHaveBeenCalledTimes(1);
+            expect(done.mock.calls[0][0]).toBeInstanceOf(Error); expectNoPublication(h);
+        });
+    }
+    test('prepared credentials are request-local and failed preparation never starts I/O', async () => {
+        const h = model(), done = mock();
+        const stored = { encpass: 'wrapped' }, prepared = { user: 'synthetic', password: 'request-only' };
+        remoteProvider.prepareOpenOpts = async () => prepared;
+        h.app.openFile({ name: 'B', storage: 'webdav', path: '/B.kdbx', opts: stored }, done);
+        await settle(); expect(remoteLoad.mock.calls[0][1]).toEqual(prepared);
+        expect(stored).toEqual({ encpass: 'wrapped' });
+        remoteLoad.mockClear();
+        remoteProvider.prepareOpenOpts = async () => { throw new Error('Cannot unwrap'); };
+        h.app.openFile({ name: 'B', storage: 'webdav', path: '/B.kdbx', opts: stored }, done);
+        await settle(); expect(remoteLoad).not.toHaveBeenCalled(); expect(done).toHaveBeenCalledTimes(1);
+    });
+});
 
 describe('AppModel open/create/import admission', () => {
     for (const boundary of ['request', 'loaded', 'decrypted', 'options'] as const) {

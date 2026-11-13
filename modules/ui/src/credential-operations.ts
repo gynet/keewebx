@@ -16,7 +16,7 @@ export async function runCredentialOperation(
         !(file as unknown as { readOnly?: boolean }).readOnly && file.db === db && db.credentials === credentials;
     access.assertOpen(epoch);
     if (!available()) throw new Error('The vault is no longer available for this change.');
-    const finish = beginPendingOperation(model);
+    const finish = beginPendingOperation(model, file.id);
     const canPublish = () => available() && access.state === 'open' && access.epoch === epoch;
     try { await operation(canPublish); }
     finally { finish(); }

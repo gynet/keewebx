@@ -18,7 +18,7 @@ export function Notes({ entry }: { entry: EntryModel }) {
         [value, AppSettingsModel.useMarkdown]
     );
 
-    const save = () => {
+    const save = (retain = false) => {
         if (draft !== null && ((entry.file as FileModel).getEntry(entry.id) !== entry || value !== baseline.current)) {
             setError(t('This entry changed while you were editing. Copy your notes, then cancel and reopen the editor.'));
             return false;
@@ -28,9 +28,10 @@ export function Notes({ entry }: { entry: EntryModel }) {
             entry.setField('Notes', original instanceof ProtectedValue ? ProtectedValue.fromString(draft) : draft);
             Events.emit('entry-updated', { entry });
         }
-        setDraft(null);
+        if (retain) baseline.current = draft ?? value;
+        else setDraft(null);
     };
-    usePendingDraft(draft !== null && draft !== value, save, () => setDraft(null));
+    usePendingDraft(draft !== null && draft !== value, save, () => setDraft(null), undefined, (entry.file as FileModel).id);
 
     return (
         <section class="entry-notes" aria-label={t('Notes')}>
@@ -61,7 +62,7 @@ export function Notes({ entry }: { entry: EntryModel }) {
                     />
                     <div class="notes__actions">
                         <button class="pill" onClick={() => setDraft(null)}>{t('Cancel')}</button>
-                        <button class="pill pill--primary" onClick={save}>{t('Save')}</button>
+                        <button class="pill pill--primary" onClick={() => save()}>{t('Save')}</button>
                     </div>
                 </div>
             ) : typeof converted !== 'string' && converted.html ? (

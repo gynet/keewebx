@@ -192,6 +192,41 @@ describe('StorageWebDav', () => {
         const differentHash = new Uint8Array(32);
         for (let i = 0; i < 32; i++) differentHash[i] = 255 - i;
 
+        test('stored connection credentials unwrap before network access without mutating the recent record', async () => {
+            const stored = await storage.fileOptsToStoreOpts({ user: 'admin', password: 'secret' }, { uuid: 'vault-B' }, passwordHash);
+            const original = JSON.stringify(stored);
+            const temporary = passwordHash.slice();
+            const password = { getHash: async () => temporary.buffer } as any;
+            expect(stored.encpassSalt).toBe('vault-B');
+            expect(await storage.prepareOpenOpts(stored, password)).toEqual({ user: 'admin', password: 'secret' });
+            expect(JSON.stringify(stored)).toBe(original);
+            expect(temporary.every(byte => byte === 0)).toBe(true);
+            expect(stored.password).toBeUndefined();
+        });
+
+        test('wrong master password or swapped vault salt rejects credential preparation', async () => {
+            const stored = await storage.fileOptsToStoreOpts({ user: 'admin', password: 'secret' }, { uuid: 'vault-B' }, passwordHash);
+            await expect(storage.prepareOpenOpts(stored, { getHash: async () => differentHash.slice().buffer } as any)).rejects.toMatchObject({ code: 'InvalidKey' });
+            await expect(storage.prepareOpenOpts({ ...stored, encpassSalt: 'vault-A' }, { getHash: async () => passwordHash.slice().buffer } as any)).rejects.toMatchObject({ code: 'InvalidKey' });
+        });
+
+        test('legacy saltless options retain migration behavior without publishing the XOR key', async () => {
+            const legacy = { user: 'admin', encpass: 'old-record' };
+            expect(await storage.prepareOpenOpts(legacy, null)).toEqual(legacy);
+            const stored = await storage.fileOptsToStoreOpts({ user: 'admin', password: 'secret' }, { uuid: 'vault-B' });
+            expect(stored.encpassSalt).toBeUndefined();
+        });
+
+        test('key-file-only vaults encrypt connection credentials with their key file rather than XOR', async () => {
+            const file = { uuid: 'vault-B', db: { credentials: { keyFileHash: { getBinary: () => passwordHash.slice() } as any } } };
+            const stored = await storage.fileOptsToStoreOpts({ user: 'admin', password: 'secret' }, file);
+            expect(stored.encpassKey).toBe('key-file');
+            expect(stored.encpassSalt).toBe('vault-B');
+            expect(stored.encpass).toStartWith('aesgcm:');
+            expect(await storage.storeOptsToFileOpts(stored, file)).toEqual({ user: 'admin', password: 'secret' });
+            expect((await storage.storeOptsToFileOpts(stored, { uuid: 'vault-B' }, passwordHash)).password).toBeUndefined();
+        });
+
         test('fileOptsToStoreOpts produces aesgcm: prefixed encpass', async () => {
             const opts = { user: 'admin', password: 'secret' };
             const file = { uuid: 'test-uuid' };

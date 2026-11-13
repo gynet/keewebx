@@ -92,6 +92,7 @@ async function assertExport(bytes: Buffer, source: Fixture, other: Fixture, expe
 /** Synthetic authenticated loopback DAV; no real credentials or remote services. */
 async function dav(source: Fixture, responseReady: Promise<void> = Promise.resolve()) {
     const requests: string[] = [];
+    const unauthorized: string[] = [];
     const server = createServer(async (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
         res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, HEAD');
@@ -100,6 +101,7 @@ async function dav(source: Fixture, responseReady: Promise<void> = Promise.resol
         if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
         requests.push(req.method!);
         if (req.headers.authorization !== `Basic ${Buffer.from('test:disposable').toString('base64')}`) {
+            unauthorized.push(req.method!);
             res.writeHead(401).end(); return;
         }
         if (req.method === 'GET') await responseReady;
@@ -109,7 +111,7 @@ async function dav(source: Fixture, responseReady: Promise<void> = Promise.resol
     });
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     return {
-        requests, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/${source.name}.kdbx`,
+        requests, unauthorized, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/${source.name}.kdbx`,
         async close() {
             server.closeAllConnections();
             await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
@@ -316,10 +318,37 @@ for (const kind of ['local', 'WebDAV'] as const) {
                 await passwordOpen(page, b.password);
                 await assertDraft(page);
                 await expect(row(page, 'B')).toHaveCount(1);
+                // Successful cache fallback must not conceal missing HTTP credentials.
+                if (remote) expect(remote.unauthorized).toEqual([]);
             } finally { await remote?.close(); }
         });
     }
 }
+
+for (const factors of ['password-key', 'key-only'] as const) test(`WebDAV: ${factors} recent reopen authenticates without cached database bytes`, async ({ page }) => {
+    await page.addInitScript(() => {
+        if (!localStorage.getItem('appSettings')) localStorage.setItem('appSettings', JSON.stringify({ disableOfflineStorage: true, autoSave: false, autoSaveInterval: 0, idleMinutes: 0 }));
+    });
+    const b = await fixture('B', factors), remote = await dav(b);
+    try {
+        await page.goto('/next.html'); await connect(page, remote.url);
+        await selectKey(page, b.key!); await passwordOpen(page, b.password);
+        await expect(row(page, 'B')).toBeVisible();
+        await page.getByRole('button', { name: 'Lock', exact: true }).click();
+        await expect(page.locator('.vault-row[data-vault="B"]')).toBeVisible();
+        await page.reload(); await page.locator('.vault-row[data-vault="B"]').click();
+        await selectKey(page, b.key!);
+        await passwordOpen(page, factors === 'password-key' ? 'wrong master password' : b.password);
+        if (factors === 'password-key') {
+            await expect(page.locator('#unlock-error')).toHaveText('Wrong password');
+            await passwordOpen(page, b.password);
+        }
+        await expect(row(page, 'B')).toBeVisible();
+        expect(remote.requests.filter(method => method === 'GET')).toHaveLength(2);
+        expect(remote.requests).toContain('HEAD');
+        expect(remote.unauthorized).toEqual([]);
+    } finally { await remote.close(); }
+});
 
 test('idle lock revokes an open picker and a held decrypt, saving the existing draft', async ({ page }) => {
     await page.clock.install();

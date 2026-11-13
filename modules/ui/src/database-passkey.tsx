@@ -29,7 +29,7 @@ export function DatabasePasskey({ model, file }: { model: AppModel; file: FileMo
     };
     usePendingDraft(!!password || !!keyFile, () => {
         setMessage(t('Finish or discard passkey enrollment before continuing.')); return false;
-    }, clear, 'database');
+    }, clear, 'database', file.id);
     const enroll = async () => {
         if (running.current) return;
         running.current = true; setBusy(true); setMessage('');

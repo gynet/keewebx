@@ -13,6 +13,7 @@ import { t } from './i18n';
 import './entry-editor.css';
 import { usePendingDraft } from './pending-drafts';
 import { EntryHistory } from './entry-history';
+import { writableCreationGroup } from './creation-target';
 
 const FIELDS = [
     { name: 'Title', label: 'Title' },
@@ -119,15 +120,17 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
     group?: GroupModel;
     tags?: string[];
     draftSource?: EntryModel;
-    onSave: (draft: EntryDraft) => void;
+    onSave: (draft: EntryDraft, retain?: boolean) => EntryModel;
     onCancel: () => void;
 }) {
+    const file = (entry?.file ?? group?.file) as FileModel | undefined;
     const [draft, setDraft] = useState(() => {
         const initial = makeDraft(entry ?? draftSource ?? null, tags, group);
         if (!entry && draftSource) initial.fields.Title = '';
         return initial;
     });
     const initialDraft = useRef(JSON.stringify(draft));
+    const cleanDraft = useRef(JSON.stringify(draft));
     const target = useRef(entry ? { file: entry.file as FileModel, db: (entry.file as FileModel).db, raw: entry.entry } : null);
     const access = getSessionAccess(model);
     const openEpoch = useRef(access.epoch);
@@ -143,10 +146,10 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
     const updateCustom = (id: number, changes: Partial<CustomField>) => setDraft((current) => ({
         ...current, custom: current.custom.map((field) => field.id === id ? { ...field, ...changes } : field)
     }));
-    const save = (forLock = false) => {
+    const save = (forLock = false, retain = false) => {
         const allowed = access.state === 'open' || (forLock && access.state === 'securing' && access.epoch === openEpoch.current + 1);
         const original = target.current;
-        if (!allowed || (entry && (!original || !original.file.active || model.files.get(original.file.id) !== original.file ||
+        if (!allowed || !file || !file.active || model.files.get(file.id) !== file || (!entry && !writableCreationGroup(model, group)) || (entry && (!original || !original.file.active || model.files.get(original.file.id) !== original.file ||
             entry.file !== original.file || original.file.db !== original.db || entry.entry !== original.raw || (original.file as FileModel & { readOnly?: boolean }).readOnly))) {
             setError(t('This entry is no longer available for editing.')); return false;
         }
@@ -163,10 +166,21 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
             }
             names.add(name);
         }
-        try { prepareOtpDraft(draft.otp); onSave(draft); return true; }
+        try {
+            prepareOtpDraft(draft.otp);
+            const saved = onSave(draft, retain);
+            if (retain) {
+                initialDraft.current = JSON.stringify(makeDraft(saved, tags));
+                target.current = { file, db: file.db, raw: saved.entry };
+                const next = { ...draft, otpBaseline: otpSnapshot(saved), custom: draft.custom.map(field => ({ ...field, originalName: customName(field) })) };
+                cleanDraft.current = JSON.stringify(next);
+                setDraft(next);
+            }
+            return true;
+        }
         catch { setError(t('Could not save. Check the OTP configuration and reopen the editor if this entry changed.')); return false; }
     };
-    usePendingDraft(JSON.stringify(draft) !== initialDraft.current, () => save(true), onCancel);
+    usePendingDraft(JSON.stringify(draft) !== cleanDraft.current, retain => save(true, retain), onCancel, undefined, file?.id);
 
     return (
         <main class="detail entry-editor" aria-label={entry ? t('Edit entry') : t('New entry')}>
@@ -174,10 +188,11 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                 <div class="entry-editor__head">
                     <h1 class="detail__title">{entry ? t('Edit entry') : t('New entry')}</h1>
                     <div class="entry-editor__actions">
-                        {entry && <EntryHistory entry={entry} hasDraft={JSON.stringify(draft) !== initialDraft.current}
+                        {entry && <EntryHistory entry={entry} hasDraft={JSON.stringify(draft) !== cleanDraft.current}
                             onRestore={() => {
                                 const restored = makeDraft(entry, tags);
                                 initialDraft.current = JSON.stringify(restored);
+                                cleanDraft.current = JSON.stringify(restored);
                                 nextId.current = restored.custom.length;
                                 setDraft(restored); setError('');
                             }} />}

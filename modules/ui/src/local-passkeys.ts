@@ -97,7 +97,7 @@ export async function enrollLocalPasskey(
         if (!isSupportedCredentialShape(credentials) || file.chalResp || !credentials.passwordHash) throw new Error('This vault requires factors that passkey unlock cannot support.');
     };
     guard.check();
-    const finish = beginPendingOperation(model);
+    const finish = beginPendingOperation(model, file.id);
     let key: ArrayBuffer | undefined, candidate: Credentials | undefined;
     let input: ProtectedValue | undefined;
     try {
@@ -149,7 +149,7 @@ export async function unlockWithLocalPasskey(
         throw new Error('Select the key file first. A passkey replaces only the master password.');
     }
     const guard = capture(model, info, current);
-    const finish = beginPendingOperation(model);
+    const finish = beginPendingOperation(model, id);
     let secret: ProtectedValue | undefined, key: ArrayBuffer | undefined;
     try {
         const result = await unlockFileWithPasskey(id, {

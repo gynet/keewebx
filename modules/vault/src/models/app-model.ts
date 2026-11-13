@@ -86,6 +86,10 @@ interface StorageProvider {
     unwatch?(path: string): void;
     getPathForName?(name: string): string;
     mkdir?(path: string, callback: (err?: unknown) => void): void;
+    prepareOpenOpts?(
+        opts: Record<string, unknown>, password: kdbxweb.ProtectedValue | null,
+        keyFile?: ArrayBuffer | Uint8Array | null
+    ): Promise<Record<string, unknown>>;
     fileOptsToStoreOpts?(
         opts: Record<string, unknown>,
         file: FileModel,
@@ -889,6 +893,31 @@ class AppModel {
     }
 
     openFileFromStorage(
+        params: OpenFileParams,
+        callback: (err?: unknown, file?: FileModel) => void,
+        fileInfo: FileInfoModel | null,
+        logger: Logger,
+        noCache?: boolean
+    ): void {
+        const storage = getStorageProvider(params.storage);
+        if (!storage?.prepareOpenOpts || !params.opts) {
+            this.openFileFromStorageWithOpts(params, callback, fileInfo, logger, noCache);
+            return;
+        }
+        const access = getSessionAccess(this);
+        const epoch = params.sessionEpoch ?? access.epoch;
+        const opts = params.opts;
+        const keyFile = params.keyFileData ?? (this.settings.rememberKeyFiles === 'data' && fileInfo?.keyFileHash
+            ? FileModel.createKeyFileWithHash(fileInfo.keyFileHash) : undefined);
+        Promise.resolve().then(() => storage.prepareOpenOpts!(opts, params.password ?? null, keyFile)).then(prepared => {
+            access.assertOpen(epoch);
+            if (params.canOpen && !params.canOpen()) throw new Error('Open canceled');
+            // Plaintext connection credentials belong to this request, never the recent record.
+            this.openFileFromStorageWithOpts({ ...params, opts: prepared }, callback, fileInfo, logger, noCache);
+        }).catch(callback);
+    }
+
+    private openFileFromStorageWithOpts(
         params: OpenFileParams,
         callback: (err?: unknown, file?: FileModel) => void,
         fileInfo: FileInfoModel | null,

@@ -1,5 +1,6 @@
 import type { GroupModel } from 'models/group-model';
 import type { AppModel } from 'models/app-model';
+import type { FileModel } from 'models/file-model';
 import type { AdvancedFilter } from 'util/entry-search';
 import { Colors } from 'const/colors';
 import { t } from './i18n';
@@ -17,11 +18,11 @@ const fields = [
     ['cs', 'Case sensitive'], ['regex', 'Regular expression'], ['exact', 'Exact phrase'], ['history', 'Search history']
 ] as const;
 
-export function SearchControls({ model, options, scope, change, reset }: {
-    model: AppModel; options: SearchOptions; scope: SearchScope;
+export function SearchControls({ model, files = model.files.filter(file => file.active), options, scope, change, reset }: {
+    model: AppModel; files?: FileModel[]; options: SearchOptions; scope: SearchScope;
     change: (options: SearchOptions, scope: SearchScope) => boolean; reset: () => void;
 }) {
-    const groups = model.files.filter(file => file.active && (!scope.file || scope.file === file.id)).flatMap(file => {
+    const groups = files.filter(file => file.active && (!scope.file || scope.file === file.id)).flatMap(file => {
         const result: { id: string; title: string }[] = [];
         const visit = (group: typeof file.groups[0], prefix: string) => {
             if (group.visible === false) return;
@@ -47,7 +48,7 @@ export function SearchControls({ model, options, scope, change, reset }: {
             <label class="vault-form__field">{t('Search vault')}
                 <select class="input" value={scope.file ?? ''} onChange={event => {
                     if (!change(options, { ...scope, file: event.currentTarget.value || undefined, group: undefined })) event.currentTarget.value = scope.file ?? '';
-                }}><option value="">{t('All vaults')}</option>{model.files.filter(file => file.active).map(file => <option value={file.id}>{file.name}</option>)}</select>
+                }}><option value="">{t('All vaults')}</option>{files.filter(file => file.active).map(file => <option value={file.id}>{file.name}</option>)}</select>
             </label>
             <label class="vault-form__field">{t('Search group')}
                 <select class="input" disabled={scope.trash} value={scope.group ?? ''} onChange={event => {
