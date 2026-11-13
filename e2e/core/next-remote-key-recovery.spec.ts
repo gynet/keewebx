@@ -86,7 +86,8 @@ async function browse(page: Page) {
     const show = page.getByRole('button', { name: 'Show menu', exact: true }); if (await show.isVisible()) await show.click();
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible()) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
-async function settings(page: Page) { await browse(page); await page.locator('#open-settings').click(); }
+async function settings(page: Page) { await browse(page); await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Saving and content', exact: true }).click(); }
 async function back(page: Page) { await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); }
 async function collapse(page: Page) { const menu = page.getByRole('button', { name: 'Move menu', exact: true }); if (await menu.isVisible()) await menu.click(); }
 async function connect(page: Page, dav: Dav, password = originalPassword, key?: Uint8Array) {
@@ -96,7 +97,8 @@ async function connect(page: Page, dav: Dav, password = originalPassword, key?: 
     if (key) await page.locator('#unlock-key-file').setInputFiles({ name: 'remote.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(key) });
     await page.locator('#unlock').click(); await expect(page.locator('.entry-row').first()).toBeVisible({ timeout });
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await settings(page); await page.locator('#setting-auto-save').selectOption('0'); await page.locator('#setting-auto-lock').selectOption('0');
+    await settings(page); await page.locator('#setting-auto-save').selectOption('0');
+    await page.getByRole('tab', { name: 'Security', exact: true }).click(); await page.locator('#setting-auto-lock').selectOption('0');
     await back(page); await collapse(page);
 }
 async function localEdit(page: Page, apply = true) {
@@ -115,6 +117,7 @@ async function changeOnOtherPeer(browser: Browser, page: Page, dav: Dav, key?: U
         await other.locator('.entry-editor').getByLabel('Title', { exact: true }).fill('Added by remote peer');
         await other.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
         await settings(other);
+        await other.getByRole('tab', { name: 'Database', exact: true }).click();
         const credentials = other.getByRole('region', { name: 'Database credentials', exact: true });
         await credentials.getByLabel('New master password', { exact: true }).fill(password);
         await credentials.getByLabel('Confirm new master password', { exact: true }).fill(password);
@@ -146,6 +149,7 @@ async function retry(page: Page, password: string, key?: Uint8Array) {
     await dialog(page).getByRole('button', { name: 'Retry synchronization', exact: true }).click();
 }
 async function download(page: Page, password = originalPassword, key?: Uint8Array) {
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const waiting = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const file = await waiting; const stream = await file.createReadStream(); if (!stream) throw new Error('No encrypted download');
     const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));
@@ -281,7 +285,7 @@ test.describe('New remote master-key recovery', () => {
     });
     test('late remote response cannot adopt credentials or write after lock recovery and reauthentication', async ({ page, browser, dav }) => {
         await page.clock.install(); await connect(page, dav);
-        await settings(page); await page.locator('#setting-auto-lock').selectOption('5'); await back(page);
+        await settings(page); await page.getByRole('tab', { name: 'Security', exact: true }).click(); await page.locator('#setting-auto-lock').selectOption('5'); await back(page);
         await localEdit(page); const remote = await changeOnOtherPeer(browser, page, dav);
         await detect(page); const gate = dav.holdNextGet(); const writes = dav.writes();
         await retry(page, remotePassword); await expect.poll(() => gate.entered, { timeout }).toBe(true);
