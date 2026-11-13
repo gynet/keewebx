@@ -429,7 +429,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     aria-controls="vault-navigation" onClick={() => setNavigationOpen(true)}>
                     <SidebarPanelIcon open={false} />
                 </button>
-                <span class="mobile-vault-header__title">{selectedGroup?.title || (filter.trash ? t('Trash')
+                <span class="mobile-vault-header__title">{selectedGroup?.group.title || (filter.trash ? t('Trash')
                     : filter.tag || (files.length === 1 ? kdbxName(files[0].name) : t('All open vaults')))}</span>
             </header>
             {navigationOpen && <button class="navigation-backdrop" tabIndex={-1} aria-label={t('Close navigation')} onClick={closeNavigation} />}
