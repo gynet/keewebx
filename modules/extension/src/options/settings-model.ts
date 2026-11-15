@@ -1,3 +1,4 @@
+import { defaultAppUrl, migrateAppUrl } from 'common/app-location';
 import { TypedEmitter } from 'tiny-typed-emitter';
 import { OptionsPageMessage } from 'common/options-page-interface';
 import { BackendConnectionState } from 'common/backend-connection-state';
@@ -12,13 +13,8 @@ interface SettingsModelEvents {
     change: () => void;
 }
 
-declare const __KW_EMBEDDED_VAULT__: boolean | undefined;
-
 class SettingsModel extends TypedEmitter<SettingsModelEvents> {
-    readonly defaultKeeWebUrl =
-        typeof __KW_EMBEDDED_VAULT__ !== 'undefined' && __KW_EMBEDDED_VAULT__
-            ? chrome.runtime.getURL('app/index.html')
-            : 'https://keewebx.app/';
+    readonly defaultKeeWebUrl = defaultAppUrl();
 
     private _loaded = false;
     private _canAccessKeeWebTab: boolean | undefined;
@@ -39,7 +35,7 @@ class SettingsModel extends TypedEmitter<SettingsModelEvents> {
     private loadStorageConfig(): Promise<void> {
         return new Promise((resolve) => {
             chrome.storage.local.get(['keeWebUrl'], (result) => {
-                this._keeWebUrl = <string>result.keeWebUrl;
+                this._keeWebUrl = migrateAppUrl(result.keeWebUrl);
                 resolve();
             });
         });

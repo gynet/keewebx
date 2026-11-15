@@ -392,7 +392,7 @@ test('the settings page switches between the two modes', async () => {
     await expect(page.locator('#databases')).toBeVisible();
     await shot(page, '08-options-full-mode');
     await page.check('#vault-mode-connect');
-    await expect.poll(stored).toBe('https://keewebx.app/');
+    await expect.poll(stored).toBe('https://keewebx.app/app');
     await expect(page.locator('#server-default')).toBeChecked();
     await shot(page, '09-options-connect-mode');
 

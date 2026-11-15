@@ -1,3 +1,4 @@
+import { HOSTED_APP_URL } from 'common/app-location';
 import { matchesAppUrl } from 'common/app-url';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
@@ -5,7 +6,6 @@ import { VaultStatus, getMode, hostOf, onVaultChanged, vault } from 'ui/vault-cl
 import { t } from 'ui/i18n';
 import { ThemeToggle, ThemeSelect } from 'ui/theme';
 
-const DEFAULT_WEB_URL = 'https://keewebx.app/';
 const STORAGE_LABELS: Record<string, string> = { webdav: 'uiWebDav' };
 const AUTO_LOCK: [number, () => string][] = [
     [5, () => t('uiMinutes', '5')],
@@ -50,7 +50,7 @@ function Settings() {
         if (full) {
             await chrome.storage.local.remove('keeWebUrl');
         } else {
-            await chrome.storage.local.set({ keeWebUrl: DEFAULT_WEB_URL });
+            await chrome.storage.local.set({ keeWebUrl: HOSTED_APP_URL });
         }
         await load();
     };
@@ -174,7 +174,7 @@ function Settings() {
 }
 
 function WebServer(props: { keeWebUrl: string; open?: boolean; onChange: () => Promise<void> }) {
-    const custom = props.keeWebUrl !== DEFAULT_WEB_URL;
+    const custom = props.keeWebUrl !== HOSTED_APP_URL;
     const [draft, setDraft] = useState(custom ? props.keeWebUrl : '');
     const [error, setError] = useState('');
 
@@ -206,7 +206,7 @@ function WebServer(props: { keeWebUrl: string; open?: boolean; onChange: () => P
                         name="server"
                         id="server-default"
                         checked={!custom}
-                        onChange={() => void save(DEFAULT_WEB_URL)}
+                        onChange={() => void save(HOSTED_APP_URL)}
                     />
                 </label>
                 <label class="card__row">

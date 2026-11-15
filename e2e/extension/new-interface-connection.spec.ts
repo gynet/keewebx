@@ -68,6 +68,7 @@ test.beforeEach(async ({}, info) => {
     context = await chromium.launchPersistentContext(profile, {
         channel: 'chromium',
         headless: true,
+        serviceWorkers: info.title.includes('hosted default') ? 'block' : 'allow',
         viewport: { width: 1280, height: 800 },
         args: [`--disable-extensions-except=${packages}`, `--load-extension=${packages}`]
     });
@@ -144,7 +145,7 @@ async function configure(url: string) {
     await expect(settings.locator('#server-default')).toBeChecked();
     await expect
         .poll(() => sw.evaluate(async () => (await chrome.storage.local.get('keeWebUrl')).keeWebUrl))
-        .toBe('https://keewebx.app/');
+        .toBe('https://keewebx.app/app');
     await settings.locator('#server-url').fill(url);
     await settings.locator('#server-url').press('Enter');
     await expect
@@ -537,4 +538,54 @@ for (const classic of [false, true])
         }
         await expect(site.locator('#login_field')).toHaveValue('demouser');
         await expect(site.locator('#password')).not.toHaveValue('');
+    });
+
+
+for (const migrated of [false, true])
+    test(`Legacy hosted default ${migrated ? 'migration' : 'fresh install'} discovers /app beside marketing and fills`, async () => {
+        // Keep the production URL and actual packaged defaults. Only HTTP delivery
+        // is local: root is marketing, /app and assets are the compiled artifact.
+        const dist = path.join(ROOT, 'dist');
+        await context.route('https://keewebx.app/**', route => {
+            const pathname = new URL(route.request().url()).pathname;
+            if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<h1>Marketing landing</h1>' });
+            const file = path.resolve(dist, pathname === '/app' ? 'index.html' : '.' + pathname);
+            if (!file.startsWith(dist + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile())
+                return route.fulfill({ status: 404, body: 'Not found' });
+            const types: Record<string, string> = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+                '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.wasm': 'application/wasm' };
+            return route.fulfill({ body: fs.readFileSync(file), contentType: types[path.extname(file)] || 'application/octet-stream' });
+        });
+        if (migrated) {
+            await sw.evaluate(() => chrome.storage.local.set({ keeWebUrl: 'https://keewebx.app/' }));
+            await expect.poll(() => sw.evaluate(async () => (await chrome.storage.local.get('keeWebUrl')).keeWebUrl))
+                .toBe('https://keewebx.app/app');
+        } else {
+            expect(await sw.evaluate(async () => (await chrome.storage.local.get('keeWebUrl')).keeWebUrl)).toBeUndefined();
+        }
+        const landing = await context.newPage(); await landing.goto('https://keewebx.app/');
+        const options = await context.newPage(); await options.goto(`chrome-extension://${id}/pages/options.html`);
+        await expect(options.locator('form input[type="text"]').first()).toHaveAttribute('placeholder', 'https://keewebx.app/app');
+        const opened = context.waitForEvent('page');
+        const linkName = await sw.evaluate(() => chrome.i18n.getMessage('optionsConnectionModeWebLink'));
+        await options.getByRole('link', { name: linkName, exact: true }).click();
+        const app = await opened;
+        await expect(app).toHaveURL('https://keewebx.app/app');
+        await app.locator('#open-demo').click();
+        await expect(app.locator('.entry-row').first()).toBeVisible();
+        const site = await sitePage(); await site.locator('#login_field').focus();
+        await expect.poll(() => sw.evaluate(() => (chrome.action.onClicked as any).hasListeners())).toBe(true);
+        await sw.evaluate(async url => {
+            const tab = (await chrome.tabs.query({})).find(tab => tab.url === url);
+            if (!tab) throw new Error('Missing disposable site tab');
+            (chrome.action.onClicked as any).dispatch(tab);
+        }, site.url());
+        const consent = app.getByRole('dialog', { name: 'Allow browser extension access', exact: true });
+        await expect(consent).toBeVisible();
+        await expect(consent.getByRole('checkbox', { name: 'Allow listing and searching entries', exact: true })).not.toBeChecked();
+        await consent.getByRole('button', { name: 'Allow', exact: true }).click();
+        await expect(site.locator('#login_field')).toHaveValue('demouser');
+        await expect(site.locator('#password')).not.toHaveValue('');
+        await expect(landing.getByRole('heading', { name: 'Marketing landing' })).toBeVisible();
+        expect(context.pages().filter(page => page.url() === 'https://keewebx.app/app')).toHaveLength(1);
     });

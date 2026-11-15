@@ -1,3 +1,4 @@
+import { HOSTED_APP_URL } from 'common/app-location';
 import { FunctionComponent, JSX } from 'preact';
 import { res } from 'options/utils';
 import { model } from 'options/settings-model';
@@ -8,7 +9,6 @@ import { validateKeeWebUrl } from './validate-keeweb-url';
 declare const __KW_EMBEDDED_VAULT__: boolean | undefined;
 
 const isVaultBuild = typeof __KW_EMBEDDED_VAULT__ !== 'undefined' && !!__KW_EMBEDDED_VAULT__;
-const CONNECT_DEFAULT_URL = 'https://keewebx.app/';
 
 const ConnectionWeb: FunctionComponent = () => {
     const askKeeWebTabPermission = () => {
@@ -76,7 +76,7 @@ const ConnectionWeb: FunctionComponent = () => {
                                 name="vault-mode"
                                 id="vault-mode-connect"
                                 checked={!fullMode}
-                                onChange={() => model.setKeeWebUrl(CONNECT_DEFAULT_URL)}
+                                onChange={() => model.setKeeWebUrl(HOSTED_APP_URL)}
                             />{' '}
                             {res('optionsVaultModeConnect')}
                         </label>

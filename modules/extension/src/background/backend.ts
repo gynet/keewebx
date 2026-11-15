@@ -1,3 +1,4 @@
+import { defaultAppUrl, migrateAppUrl } from 'common/app-location';
 import { matchesAppUrl } from 'common/app-url';
 import { TypedEmitter } from 'tiny-typed-emitter';
 import { BackendConnectionState } from 'common/backend-connection-state';
@@ -25,20 +26,15 @@ interface BackendEvents {
     'connect-finished': (error?: Error) => void;
 }
 
-declare const __KW_EMBEDDED_VAULT__: boolean | undefined;
-
 class Backend extends TypedEmitter<BackendEvents> {
-    private readonly _defaultKeeWebUrl =
-        typeof __KW_EMBEDDED_VAULT__ !== 'undefined' && __KW_EMBEDDED_VAULT__
-            ? chrome.runtime.getURL('app/index.html')
-            : 'https://keewebx.app/';
+    private readonly _defaultKeeWebUrl = defaultAppUrl();
     private readonly _requestTimeoutMillis = 60000;
     private readonly _consoleLogStyle =
         'background: {}; color: #000; padding: 2px 4px 0; border-radius: 2px;';
     private readonly _consoleLogStyleIn = this._consoleLogStyle.replace('{}', '#825fe3');
     private readonly _consoleLogStyleOut = this._consoleLogStyle.replace('{}', '#15be5c');
 
-    private _keeWebUrl = this._defaultKeeWebUrl;
+    private _keeWebUrl: string | undefined = this._defaultKeeWebUrl;
 
     private _state = BackendConnectionState.Initializing;
     private _connectionError: string | undefined;
@@ -70,16 +66,24 @@ class Backend extends TypedEmitter<BackendEvents> {
         return new Promise((resolve) => {
             chrome.storage.onChanged.addListener((changes) => this.storageChanged(changes));
             chrome.storage.local.get(['keeWebUrl'], (storageData) => {
-                this._keeWebUrl = <string>storageData.keeWebUrl;
+                this._keeWebUrl = this.readConfiguredUrl(storageData.keeWebUrl);
                 this.resetStateByConfig();
                 resolve();
             });
         });
     }
 
+    private readConfiguredUrl(value: string | undefined): string | undefined {
+        const url = migrateAppUrl(value);
+        if (url !== value) chrome.storage.local.set({ keeWebUrl: url });
+        return url;
+    }
+
     private async storageChanged(changes: { [prop: string]: chrome.storage.StorageChange }) {
         if (changes.keeWebUrl) {
-            this._keeWebUrl = <string>changes.keeWebUrl.newValue;
+            const url = this.readConfiguredUrl(changes.keeWebUrl.newValue);
+            if (url === this._keeWebUrl) return;
+            this._keeWebUrl = url;
         } else {
             return;
         }
