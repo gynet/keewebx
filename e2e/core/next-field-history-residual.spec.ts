@@ -62,7 +62,7 @@ async function field(page: Page, name: string) {
 async function savedReopen(page: Page, touch: boolean) {
     await activateDatabaseAction(page, /^Save Fields/, touch);
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
-    await click(nav(page).getByRole('button', { name: 'Close actions', exact: true }), touch);
+    await click(page.getByRole('group', { name: 'Database actions', exact: true }).getByRole('button', { name: 'Close actions', exact: true }), touch);
     await activateVaultUtility(page, 'Lock', { touch });
     await expect(page.locator('#password')).toBeVisible(); await page.reload();
     await click(page.locator('.vault-row').filter({ has: page.getByText('Fields.kdbx', { exact: true }) }), touch);

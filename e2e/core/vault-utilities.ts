@@ -5,6 +5,11 @@ export async function activateVaultUtility(page: Page, name: string, options: { 
     // Wait for the requested surface: unlock/demo loading may still show Start's Settings.
     if (options.start) await expect(page.locator('.start')).toBeVisible();
     else await expect(page.locator('.vault')).toBeAttached({ timeout: 30_000 });
+    const closeEntryActions = page.getByRole('group', { name: 'Entry actions', exact: true })
+        .getByRole('button', { name: 'Close actions', exact: true });
+    if (await closeEntryActions.isVisible()) {
+        if (options.touch) await closeEntryActions.tap(); else await closeEntryActions.click();
+    }
     const action = page.getByRole('button', { name, exact: true }).filter({ visible: true });
     const browse = page.getByRole('button', { name: options.browseName ?? 'Browse vault', exact: true });
     const reveal = page.locator('.mobile-toolbar__reveal');
@@ -35,17 +40,8 @@ export async function activateVaultUtility(page: Page, name: string, options: { 
     } else await action.click();
 }
 
-/** The small-screen utility menu contains the real inline selector; desktop retains its popover. */
+/** Theme uses the same picker on the phone toolbar and desktop footer. */
 export async function revealVaultTheme(page: Page) {
-    const reveal = page.locator('.mobile-toolbar__reveal');
-    if (await reveal.isVisible()) await reveal.click();
-    const menu = page.locator('.mobile-toolbar > .entry-more > button');
-    if (await menu.isVisible()) {
-        const picker = page.locator('.mobile-toolbar').getByRole('combobox', { name: 'Theme', exact: true });
-        if (!await picker.isVisible()) await menu.click();
-        await expect(picker).toBeVisible();
-        return picker;
-    }
     await activateVaultUtility(page, 'Theme');
     return page.getByRole('dialog', { name: 'Theme', exact: true }).getByRole('combobox', { name: 'Theme', exact: true });
 }

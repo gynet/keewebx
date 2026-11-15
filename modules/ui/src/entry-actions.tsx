@@ -18,22 +18,39 @@ export function EntryActions({ children, label = t('More actions'), title = t('E
     };
     useLayoutEffect(() => {
         if (!open) return;
+        const viewport = window.visualViewport;
         const place = () => {
             const rect = trigger.current?.getBoundingClientRect();
             if (!rect) return;
-            const below = innerHeight - rect.bottom - 18;
-            const above = rect.top - 18;
+            let edgeTop = (viewport?.offsetTop ?? 0) + 8;
+            let edgeBottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight) - 8;
+            const toolbar = document.querySelector<HTMLElement>('.mobile-toolbar');
+            const dock = toolbar?.closest<HTMLElement>('.vault')?.dataset.toolbarDock;
+            if (toolbar && dock !== 'floating') {
+                const bounds = toolbar.getBoundingClientRect();
+                if (dock === 'top') edgeTop = Math.max(edgeTop, bounds.bottom + 8);
+                if (dock === 'bottom') edgeBottom = Math.min(edgeBottom, bounds.top - 8);
+            }
+            const below = edgeBottom - rect.bottom - 6;
+            const above = rect.top - edgeTop - 6;
             const height = Math.min(520, panel.current?.scrollHeight ?? 320);
             const upwards = below < height && above > below;
             const maxHeight = Math.max(44, Math.min(520, upwards ? above : below));
-            const top = upwards ? Math.max(8, rect.top - 6 - Math.min(height, maxHeight)) : rect.bottom + 6;
+            const visibleHeight = Math.min(height, maxHeight);
+            const desiredTop = upwards ? rect.top - 6 - visibleHeight : rect.bottom + 6;
+            const top = Math.max(edgeTop, Math.min(desiredTop, edgeBottom - visibleHeight));
             setPosition({ left: Math.max(8, Math.min(rect.left, innerWidth - Math.min(300, innerWidth - 32) - 8)),
                 top, maxHeight });
         };
         place();
         window.addEventListener('resize', place);
         window.addEventListener('scroll', place, true);
-        return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+        viewport?.addEventListener('resize', place);
+        viewport?.addEventListener('scroll', place);
+        return () => {
+            window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true);
+            viewport?.removeEventListener('resize', place); viewport?.removeEventListener('scroll', place);
+        };
     }, [open]);
     useEffect(() => {
         if (!open) return;

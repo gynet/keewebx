@@ -52,8 +52,8 @@ async function stored(page: Page, name: string) {
     return page.evaluate(name => JSON.parse(localStorage.getItem('appSettings') || '{}')[name], name);
 }
 async function selectEntry(page: Page, title: string) {
-    const close = page.getByRole('button', { name: 'Browse vault', exact: true });
-    if (await close.getAttribute('aria-expanded') === 'true') await close.click();
+    const close = page.getByRole('button').and(page.locator('[aria-controls="vault-navigation"]'));
+    if (await close.isVisible() && await close.getAttribute('aria-expanded') === 'true') await close.click();
     await page.locator(`.entry-row[data-entry="${title}"]`).click();
 }
 test('per-entry audit exclusion persists in encrypted storage and can be resumed', async ({ page }) => {

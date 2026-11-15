@@ -2,6 +2,11 @@ import { expect, type Page } from '@playwright/test';
 
 /** Open the global or per-file database popover before using Save/Close. */
 export async function revealDatabaseAction(page: Page, name: string | RegExp, touch = false) {
+    const closeEntryActions = page.getByRole('group', { name: 'Entry actions', exact: true })
+        .getByRole('button', { name: 'Close actions', exact: true });
+    if (await closeEntryActions.isVisible()) {
+        if (touch) await closeEntryActions.tap(); else await closeEntryActions.click();
+    }
     const reveal = page.locator('.mobile-toolbar__reveal');
     if (await reveal.isVisible()) { if (touch) await reveal.tap(); else await reveal.click(); }
     const toolbar = page.locator('.mobile-toolbar');

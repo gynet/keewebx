@@ -44,7 +44,8 @@ for (const width of [320, 390]) {
     test(`Browse vault filters groups, long tags and trash without internal overflow at ${width}px`, async ({ page, browserName }) => {
         await page.setViewportSize({ width, height: 740 });
         await openFixture(page);
-        const browse = page.getByRole('button', { name: 'Browse vault', exact: true, includeHidden: true });
+        const toolbar = page.getByRole('group', { name: 'Vault tools', exact: true });
+        const browse = toolbar.getByRole('button').and(page.locator('[aria-controls="vault-navigation"]'));
         const navigation = page.getByRole('navigation', { name: 'Vault', exact: true });
         const search = page.locator('#search');
         const cdp = browserName === 'chromium' ? await page.context().newCDPSession(page) : undefined;
@@ -61,6 +62,7 @@ for (const width of [320, 390]) {
             await browse.click();
             await expect(browse).toHaveAttribute('aria-expanded', 'true');
             await expect(navigation).toBeVisible();
+            expect(await toolbar.evaluate((element) => !!element.closest('[inert]'))).toBe(false);
             expect(await search.evaluate((element) => !!element.closest('[inert]'))).toBe(true);
             expect(await page.getByRole('button', { name: 'New entry', exact: true, includeHidden: true }).evaluate((element) => !!element.closest('[inert]'))).toBe(true);
             await expectNativeSearchExposed(false);
@@ -85,7 +87,7 @@ for (const width of [320, 390]) {
         const first = navigation.locator('.nav-row').first();
         await first.focus();
         await page.keyboard.press('Shift+Tab');
-        await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeFocused();
+        await expect(toolbar.getByRole('button', { name: 'Database actions', exact: true })).toBeFocused();
         await page.keyboard.press('Tab');
         await expect(first).toBeFocused();
         await page.keyboard.press('Escape');

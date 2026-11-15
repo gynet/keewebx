@@ -568,7 +568,7 @@ for (const width of [1280, 320]) test(`single vault save and close use the foote
     if (width === 320) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
     const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
     await expect(cards(page)).toHaveCount(0);
-    await expect(width === 320 ? page.getByRole('button', { name: 'Menu', exact: true })
+    await expect(width === 320 ? page.locator('.mobile-toolbar').getByRole('button', { name: 'Database actions', exact: true })
         : nav.locator('.side__foot').getByRole('button', { name: 'Database actions', exact: true })).toBeVisible();
     const save = await revealDatabaseAction(page, /^Save A\.kdbx/);
     await expect(save).toBeVisible();

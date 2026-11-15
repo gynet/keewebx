@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
+import { activateVaultUtility } from './vault-utilities';
 
 const password = 'Disposable toolbar fixture';
 let source: Buffer;
@@ -24,12 +25,6 @@ async function unlock(page: Page) {
     await page.locator('#unlock').click();
     await expect(page.locator('.entry-row')).toHaveCount(6);
 }
-async function browse(page: Page) {
-    if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible()) {
-        await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
-    }
-}
-
 for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 1280, height: 800 }]) {
     test(`compact toolbar and live controls at ${viewport.width}px`, async ({ page }, info) => {
         await page.setViewportSize(viewport);
@@ -82,8 +77,11 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }
         await page.getByRole('button', { name: 'New entry', exact: true }).click();
         await expect(page.locator('.entry-editor')).toBeVisible();
         await page.locator('.entry-editor').getByRole('button', { name: 'Cancel', exact: true }).click();
-        await browse(page);
-        const generator = page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Password generator', exact: true });
+        const tools = viewport.width < 760
+            ? page.getByRole('group', { name: 'Vault tools', exact: true })
+            : page.getByRole('navigation', { name: 'Vault', exact: true });
+        const generator = tools.getByRole('button', { name: 'Password generator', exact: true });
+        await expect(generator).toHaveCount(1);
         expect((await generator.boundingBox())!.height).toBeGreaterThanOrEqual(viewport.width < 760 ? 44 : 36);
         await generator.click();
         await expect(page.getByRole('dialog', { name: 'Generate password', exact: true })).toBeVisible();
@@ -94,8 +92,8 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }
 
 test('multiple vaults expose scope and retain visible rows on the shortest phone', async ({ page }, info) => {
     await page.setViewportSize({ width: 320, height: 568 });
-    await page.goto('/next.html'); await unlock(page); await browse(page);
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await page.goto('/next.html'); await unlock(page);
+    await activateVaultUtility(page, 'Open another vault');
     const dialog = page.getByRole('dialog', { name: 'Open another vault', exact: true });
     await dialog.locator('#open-file-input').setInputFiles({ name: 'Second.kdbx', mimeType: 'application/octet-stream', buffer: source });
     await dialog.locator('#password').fill(password); await dialog.locator('#unlock').click();

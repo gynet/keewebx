@@ -7,7 +7,7 @@ import { activateVaultUtility } from './vault-utilities';
 const password = 'Disposable direct menu password';
 const timeout = 30_000;
 const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
-const browse = (page: Page) => page.getByRole('button', { name: 'Browse vault', exact: true });
+const browse = (page: Page) => page.getByRole('button').and(page.locator('[aria-controls="vault-navigation"]'));
 let first: Buffer, second: Buffer;
 async function fixture(name: string) {
     kdbx.CryptoEngine.setArgon2Impl(argon2);
@@ -59,7 +59,8 @@ test('collapsed desktop sidebar and phone drawer never introduce a floating dupl
         if (width < 760) {
             await expect(browse(page)).toHaveCount(1);
             await openNavigation(page);
-            await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeInViewport();
+            await expect(page.getByRole('group', { name: 'Vault tools', exact: true })
+                .getByRole('button', { name: 'Database actions', exact: true })).toBeInViewport();
             await closeNavigation(page, width);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -98,7 +99,7 @@ for (const width of [1280, 390, 320]) {
         const dialog = page.getByRole('dialog', { name: 'Close vault: Menu A', exact: true });
         await expect(dialog).toBeVisible(); await page.keyboard.press('Escape');
         await expect(dialog).toHaveCount(0);
-        // The bottom Menu remains visible after the drawer closes, so its original action regains focus.
+        // The toolbar remains visible after the drawer closes, so its original action regains focus.
         await expect(close).toBeFocused();
         await openNavigation(page); await revealDatabaseAction(page, /^Close Menu A/); await close.focus(); await page.keyboard.press('Enter');
         await dialog.getByRole('button', { name: 'Save and close', exact: true }).click();

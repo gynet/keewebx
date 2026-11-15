@@ -15,7 +15,14 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     await setup.getByRole('combobox').selectOption('edge');
     await expect(setup).toContainText('edge://extensions');
     await setup.getByRole('combobox').selectOption('other');
-    await expect(setup).toContainText('Safari and native password-manager integration are not provided');
+    await expect(setup).toContainText('Use a supported Chrome, Chromium, Edge, or Firefox desktop browser. For iOS Safari, see the Userscripts setup below.');
+    await setup.getByText('iOS Safari with Userscripts (experimental)', { exact: true }).click();
+    await expect(setup.getByRole('link', { name: 'Download Connect userscript', exact: true }))
+        .toHaveAttribute('href', 'https://raw.githubusercontent.com/gynet/keewebx/master/modules/extension/userscript/keewebx-connect.user.js');
+    await expect(setup.getByRole('link', { name: 'Userscripts setup guide', exact: true }))
+        .toHaveAttribute('href', 'https://github.com/gynet/keewebx/tree/master/modules/extension/userscript#readme');
+    await expect(setup).toContainText('choose Connect this tab and approve account listing');
+    await expect(setup).toContainText('The script fills the form without submitting it.');
     const locked = setup.getByLabel('Ask to unlock when an extension requests a login', { exact: true });
     const empty = setup.getByLabel('Show the entry chooser when no website matches', { exact: true });
     await expect(locked).toBeChecked(); await expect(empty).toBeChecked();
