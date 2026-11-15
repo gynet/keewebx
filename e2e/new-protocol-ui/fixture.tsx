@@ -1,6 +1,7 @@
 import 'ui-kit/tokens.css';
 import '../../modules/ui/src/styles.css';
 import { render } from 'preact';
+import { useEffect } from 'preact/hooks';
 import { Model } from 'framework/model';
 import type { AppModel } from 'models/app-model';
 import type { EntryModel } from 'models/entry-model';
@@ -11,6 +12,8 @@ import { createNewProtocolUi } from '../../modules/ui/src/extension-ui';
 import { NewProtocolUiHost } from '../../modules/ui/src/extension-prompts';
 import { ExtensionSessions, type ExtensionSession, type ExtensionSessionsApi } from '../../modules/ui/src/extension-sessions';
 import { setTranslations } from '../../modules/ui/src/i18n';
+import { Events } from 'framework/events';
+import { registerStorageUi, RegisteredStorageSettings } from '../../modules/ui/src/storage-extensions';
 
 class TestEntry extends Model {}
 TestEntry.defineModelProperties({}, { extensions: true });
@@ -90,6 +93,24 @@ let sessions: ExtensionSession[] = [{
     permissions: { allFiles: true, files: ['one', 'two', 'closed'], askGet: 'multiple', askSave: 'always', canList: true }
 }];
 const listeners = new Set<() => void>();
+let unregisterStorageUi: (() => void) | undefined;
+let sectionMounts = 0, sectionCleanups = 0, sectionRefreshes = 0;
+function RegisteredSection({ file }: { file?: { id: string } }) {
+    useEffect(() => {
+        sectionMounts++;
+        const refresh = () => { sectionRefreshes++; };
+        Events.on('settings-fixture-refresh', refresh);
+        return () => { sectionCleanups++; Events.off('settings-fixture-refresh', refresh); };
+    }, []);
+    return <p>{file ? `Registered database: ${file.id}` : 'Registered general settings'}</p>;
+}
+Object.assign(window, { storageUiFixture: {
+    register() { unregisterStorageUi = registerStorageUi({ id: 'fixture', provider: 'fixture', title: 'Fixture',
+        Settings: RegisteredSection, DatabaseSettings: RegisteredSection }); },
+    unregister() { unregisterStorageUi?.(); },
+    refresh() { Events.emit('settings-fixture-refresh'); },
+    get counts() { return { mounts: sectionMounts, cleanups: sectionCleanups, refreshes: sectionRefreshes }; }
+} });
 let approvals: ReturnType<ExtensionSessionsApi['getApprovals']> = { identities: [{ identity: 'fixture-identity', created: '2026-01-01', permissions: {}, pendingPersistence: false }], legacy: {}, legacyPendingPersistence: false };
 const sessionApi: ExtensionSessionsApi = {
     getApprovals: () => approvals,
@@ -116,4 +137,8 @@ render(<main style={{ padding: '16px' }}>
     </div>
     <NewProtocolUiHost controller={ui} />
     <ExtensionSessions model={model} api={sessionApi} onBack={() => {}} />
+    <section aria-label="Registered storage settings fixture">
+        <RegisteredStorageSettings model={model} />
+        {files.map(file => <RegisteredStorageSettings key={file.id} model={model} file={file as any} />)}
+    </section>
 </main>, document.getElementById('root')!);

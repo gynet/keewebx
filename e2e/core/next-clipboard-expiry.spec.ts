@@ -44,6 +44,20 @@ test('clipboard expiry clears the original password without a further user gestu
     await page.clock.fastForward(11_000);
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('');
 });
+for (const seconds of [5, 15]) test(`retained ${seconds}-second clipboard setting persists and clears only after its deadline`, async ({ page }) => {
+    await page.clock.install(); await open(page); await configure(page, seconds);
+    await page.reload(); await unlock(page);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Security', exact: true }).click();
+    await expect(page.locator('#setting-clipboard')).toHaveValue(String(seconds));
+    await expect(page.getByText('Clipboard clearing is best effort. If the browser denies clipboard access, the copied value may remain. Newer clipboard content is kept.', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
+    await copyPassword(page);
+    await page.clock.fastForward((seconds - 1) * 1000);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(secret);
+    await page.clock.fastForward(2000);
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('');
+});
 test('clipboard expiry preserves text copied later outside the vault', async ({ page }) => {
     await page.clock.install(); await open(page); await configure(page, 10); await copyPassword(page);
     await page.evaluate(() => navigator.clipboard.writeText('Unrelated disposable user text'));

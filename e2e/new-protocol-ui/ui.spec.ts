@@ -7,12 +7,36 @@ interface Fixture {
     result: unknown; cancelCount: number; secretReads: number;
 }
 declare global { interface Window { extensionUiFixture: Fixture } }
+declare global { interface Window { storageUiFixture: {
+    register(): void; unregister(): void; refresh(): void;
+    counts: { mounts: number; cleanups: number; refreshes: number };
+} } }
 
 test.beforeEach(async ({ page }) => { await page.goto('/'); });
+
+test('registered settings bind each file and clean up sections and handlers before re-registration', async ({ page }) => {
+    const host = page.getByRole('region', { name: 'Registered storage settings fixture' });
+    await expect(host).toBeEmpty();
+    for (let iteration = 1; iteration <= 2; iteration++) {
+        await page.evaluate(() => window.storageUiFixture.register());
+        await expect(host.getByText('Registered general settings', { exact: true })).toHaveCount(1);
+        for (const id of ['one', 'two']) await expect(host.getByText(`Registered database: ${id}`, { exact: true })).toHaveCount(1);
+        await expect.poll(() => page.evaluate(() => window.storageUiFixture.counts.mounts)).toBe(iteration * 3);
+        await expect(page.evaluate(() => window.storageUiFixture.register())).rejects.toThrow('duplicate storage UI registration');
+        await page.evaluate(() => window.storageUiFixture.refresh());
+        expect((await page.evaluate(() => window.storageUiFixture.counts)).refreshes).toBe(iteration * 3);
+        await page.evaluate(() => window.storageUiFixture.unregister());
+        await expect(host).toBeEmpty();
+        await expect.poll(() => page.evaluate(() => window.storageUiFixture.counts.cleanups)).toBe(iteration * 3);
+        await page.evaluate(() => window.storageUiFixture.refresh());
+        expect((await page.evaluate(() => window.storageUiFixture.counts)).refreshes).toBe(iteration * 3);
+    }
+});
 
 for (const width of [1280, 390, 320]) test(`session activity and closed permissions at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 800 });
     const sessions = page.getByRole('region', { name: 'Browser extension sessions' });
+    await expect(sessions.getByText('Access allowed', { exact: true })).toBeVisible();
     await page.evaluate(() => window.extensionUiFixture.stats(21, 7));
     await expect(sessions.getByText('Passwords read: 21', { exact: true })).toBeVisible();
     await expect(sessions.getByText('Passwords written: 7', { exact: true })).toBeVisible();
@@ -30,6 +54,11 @@ for (const width of [1280, 390, 320]) test(`session activity and closed permissi
     await expect(sessions.getByLabel('Database (2)', { exact: true })).toBeChecked();
     expect(await sessions.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath(`sessions-${width}.png`), fullPage: true });
+    await sessions.getByLabel('Database (1)', { exact: true }).uncheck();
+    await sessions.getByLabel('Database (2)', { exact: true }).uncheck();
+    await expect(sessions.getByRole('status')).toHaveText('No databases are allowed for this session.');
+    await sessions.getByLabel('Database (1)', { exact: true }).check();
+    await expect(sessions.getByText('No databases are allowed for this session.', { exact: true })).toHaveCount(0);
 });
 
 test('stale session, epoch and closed descriptor controls cannot change permissions', async ({ page }) => {

@@ -27,9 +27,13 @@ for (const width of [1280, 320]) test.describe(`language ${width}`, () => {
         const notes = page.locator('.entry-editor textarea');
         await notes.fill('Draft $& {} <script> remains literal');
         await activateVaultUtility(page, 'Einstellungen', { browseName: 'Tresor durchsuchen' });
+        await expect(page.getByText('Classic ist veraltet und bleibt aus Kompatibilitätsgründen verfügbar.', { exact: true })).toBeVisible();
+        await expect(page.locator('#use-classic')).toHaveAccessibleName('Classic');
         await page.locator('#setting-locale').selectOption('fr-FR');
         await expect(page.getByRole('heading', { name: 'Paramètres', exact: true })).toBeVisible();
         await expect(page.locator('html')).toHaveAttribute('lang', 'fr-FR');
+        await expect(page.getByText('Classic est obsolète et reste disponible pour des raisons de compatibilité.', { exact: true })).toBeVisible();
+        await expect(page.locator('#use-classic')).toHaveAccessibleName('Classic');
         await page.screenshot({ path: test.info().outputPath(`language-fr-${width}.png`) });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.getByRole('button', { name: 'Retour au coffre', exact: true }).filter({ visible: true }).click();

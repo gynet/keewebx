@@ -1,0 +1,50 @@
+import { test, expect } from '@playwright/test';
+import * as kdbx from '../../modules/db/lib';
+import { argon2 } from '../../modules/db/test/test-support/argon2';
+import { activateVaultUtility } from './vault-utilities';
+
+test('empty master password requires confirmation; cancel preserves drafts and accepted save keeps the required key', async ({ page }) => {
+    kdbx.CryptoEngine.setArgon2Impl(argon2);
+    const key = await kdbx.Credentials.createRandomKeyFile(2);
+    const factors = (bytes = key) => new kdbx.Credentials(kdbx.ProtectedValue.fromString(''), bytes);
+    const db = kdbx.Kdbx.create(factors(), 'Key only');
+    db.header.kdfParameters!.set('M', kdbx.VarDictionary.ValueType.UInt64, kdbx.Int64.from(32 * 1024));
+    db.header.kdfParameters!.set('I', kdbx.VarDictionary.ValueType.UInt64, kdbx.Int64.from(2));
+    const entry = db.createEntry(db.getDefaultGroup()); entry.fields.set('Title', 'Key-protected entry');
+    entry.fields.set('Password', kdbx.ProtectedValue.fromString('Preserved key-only secret'));
+    await page.addInitScript(() => localStorage.setItem('appSettings', JSON.stringify({ autoSaveInterval: 0, idleMinutes: 0, rememberKeyFiles: false })));
+    await page.goto('/next.html');
+    await page.locator('#open-file-input').setInputFiles({ name: 'key-only.kdbx', mimeType: 'application/octet-stream', buffer: Buffer.from(await db.save()) });
+    const selectKey = () => page.locator('#unlock-key-file').setInputFiles({ name: 'fixture.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(key) });
+    await selectKey(); await page.locator('#unlock').click();
+    await expect(page.locator('.entry-row')).toBeVisible();
+    await activateVaultUtility(page, 'Settings'); await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    const form = page.getByRole('form', { name: 'Database settings: key-only', exact: true });
+    await form.getByText('Advanced', { exact: true }).click();
+    const username = form.getByLabel('Default user', { exact: true });
+    await username.fill('  key-user  ');
+    const downloads: unknown[] = []; page.on('download', download => downloads.push(download));
+    for (const name of ['Save database settings', 'Download KDBX']) {
+        page.once('dialog', async dialog => { expect(dialog.message()).toContain('no master password'); await dialog.dismiss(); });
+        await form.getByRole('button', { name, exact: true }).click();
+        await expect(username).toHaveValue('  key-user  ');
+        expect(downloads).toHaveLength(0);
+    }
+    page.once('dialog', dialog => dialog.accept());
+    await form.getByRole('button', { name: 'Save database settings', exact: true }).click();
+    await expect(form.getByRole('status').filter({ hasText: 'Saved in browser storage' })).toBeVisible();
+    await expect(username).toHaveValue('key-user');
+    page.once('dialog', dialog => dialog.accept());
+    const pending = page.waitForEvent('download'); await form.getByRole('button', { name: 'Download KDBX', exact: true }).click();
+    const stream = await (await pending).createReadStream(); if (!stream) throw new Error('Missing encrypted download');
+    const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const data = new Uint8Array(Buffer.concat(chunks)).buffer;
+    const reopened = await kdbx.Kdbx.load(data, factors());
+    expect(reopened.meta.defaultUser).toBe('key-user');
+    expect((reopened.getDefaultGroup().entries[0].fields.get('Password') as kdbx.ProtectedValue).getText()).toBe('Preserved key-only secret');
+    await expect(kdbx.Kdbx.load(data, new kdbx.Credentials(kdbx.ProtectedValue.fromString('')))).rejects.toThrow();
+    await expect(kdbx.Kdbx.load(data, factors(await kdbx.Credentials.createRandomKeyFile(2)))).rejects.toThrow();
+    await page.locator('#settings-back').click(); await activateVaultUtility(page, 'Lock');
+    await page.reload(); await selectKey(); await page.locator('#unlock').click();
+    await expect(page.locator('.entry-row')).toBeVisible();
+});

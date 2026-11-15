@@ -54,8 +54,8 @@ async function openSettings(page: Page) {
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await expect(section(page)).toBeVisible();
 }
-async function enroll(page: Page, source: Fixture) {
-    await section(page).getByLabel('Current master password', { exact: true }).fill(password);
+async function enroll(page: Page, source: Fixture, currentPassword = password) {
+    await section(page).getByLabel('Current master password', { exact: true }).fill(currentPassword);
     if (source.key) await section(page).getByLabel('Current key file (if required)', { exact: true }).setInputFiles(payload(source.key, 'fixture.keyx'));
     await section(page).getByRole('button', { name: 'Enable local passkey', exact: true }).click();
     await expect(section(page).getByRole('status')).toContainText('Passkey unlock saved in this browser', { timeout });
@@ -250,6 +250,90 @@ test('simulated cancellation preserves registration and password fallback', asyn
     expect(await record(page)).toEqual(before);
     await screenshot(page, 'canceled-passkey-password-fallback');
     await passwordOpen(page, source);
+});
+
+test('virtual PRF registration survives a failed credential save; retry invalidates it and password plus key can enroll again', async ({ page, context }) => {
+    await authenticator(context, page);
+    const source = await fixture('passkey-one', true);
+    const nextPassword = 'Rotated disposable passkey master';
+    await openFile(page, source); await openSettings(page); await enroll(page, source);
+    const before = await record(page);
+    const cached = async () => Buffer.from(await page.evaluate(async id => {
+        const name = (await indexedDB.databases()).find(db => db.name?.endsWith('FilesCache'))?.name;
+        if (!name) throw new Error('Missing cache');
+        return new Promise<number[]>((resolve, reject) => {
+            const request = indexedDB.open(name);
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                const db = request.result, read = db.transaction('files').objectStore('files').get(id);
+                read.onerror = () => { db.close(); reject(read.error); };
+                read.onsuccess = () => { db.close(); resolve(Array.from(new Uint8Array(read.result))); };
+            };
+        });
+    }, before.id));
+    const verify = async (bytes: Buffer, accepted: string, rejected: string) => {
+        const factors = (value: string) => new kdbx.Credentials(kdbx.ProtectedValue.fromString(value), source.key);
+        const db = await kdbx.Kdbx.load(new Uint8Array(bytes).buffer, factors(accepted));
+        const entry = [...db.getDefaultGroup().allEntries()].find(entry => entry.uuid.id === source.entryId);
+        expect((entry?.fields.get('Password') as kdbx.ProtectedValue).getText()).toBe('Preserved disposable entry secret');
+        await expect(kdbx.Kdbx.load(new Uint8Array(bytes).buffer, factors(rejected))).rejects.toThrow();
+    };
+    await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
+    await page.locator('#setting-auto-save').selectOption('0');
+    await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    const editor = settings(page).getByRole('region', { name: 'Database credentials', exact: true });
+    await editor.getByLabel('New master password', { exact: true }).fill(nextPassword);
+    await editor.getByLabel('Confirm new master password', { exact: true }).fill(nextPassword);
+    await editor.getByRole('button', { name: 'Apply credential changes', exact: true }).click();
+    await expect(editor.getByRole('status')).toContainText('Credentials applied in memory');
+    await page.evaluate(() => {
+        const put = IDBObjectStore.prototype.put;
+        (window as any).__restorePasskeyCache = () => { IDBObjectStore.prototype.put = put; };
+        IDBObjectStore.prototype.put = function(...args) {
+            if (this.transaction.db.name.endsWith('FilesCache')) throw new DOMException('Controlled quota failure', 'QuotaExceededError');
+            return put.apply(this, args as any);
+        };
+    });
+    await settings(page).getByRole('button', { name: 'Save database settings', exact: true }).click();
+    await expect(settings(page).getByRole('status').filter({ hasText: /Changes are (still )?pending/ })).toBeVisible();
+    expect((await record(page)).passkeyWrappedKey).toBe(before.passkeyWrappedKey);
+    await verify(await cached(), password, nextPassword);
+    await page.evaluate(() => (window as any).__restorePasskeyCache());
+    await settings(page).getByRole('button', { name: 'Save database settings', exact: true }).click();
+    await expect(settings(page).getByRole('status').filter({ hasText: 'Saved in browser storage' })).toBeVisible();
+    expect((await record(page)).passkeyCredentialId).toBeFalsy();
+    await verify(await cached(), nextPassword, password);
+    await lock(page); await page.reload();
+    await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toHaveCount(0);
+    await page.locator('#password').fill(nextPassword);
+    await page.locator('#unlock-key-file').setInputFiles(payload(source.key!, 'fixture.keyx'));
+    await page.locator('#unlock').click();
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
+    await openSettings(page); await enroll(page, source, nextPassword); await lock(page);
+    await page.locator('#unlock-key-file').setInputFiles(payload(source.key!, 'fixture.keyx'));
+    await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
+});
+
+test('corrupt local wrapping keeps password recovery, explicit forget and real re-enrollment usable', async ({ page, context }) => {
+    await authenticator(context, page); const source = await fixture();
+    await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page);
+    await page.evaluate(() => {
+        const rows = JSON.parse(localStorage.getItem('fileInfo')!);
+        rows.find((row: any) => row.name === 'passkey-one').passkeyWrappedKey = 'AAAA';
+        localStorage.setItem('fileInfo', JSON.stringify(rows));
+    });
+    await page.reload();
+    await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+    await expect(page.locator('#unlock-error')).toContainText('unwrapKey: input too short');
+    expect((await record(page)).passkeyWrappedKey).toBe('AAAA');
+    await passwordOpen(page, source); await openSettings(page); await provesExport(page, source);
+    page.once('dialog', dialog => dialog.accept());
+    await section(page).getByRole('button', { name: 'Forget local passkey', exact: true }).click();
+    await expect(section(page).getByRole('status')).toContainText('registration forgotten');
+    await enroll(page, source); await lock(page);
+    await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
 });
 
 test('simulated canceled enrollment and virtual authenticator without PRF never publish a descriptor', async ({ page, context }) => {

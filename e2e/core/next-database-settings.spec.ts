@@ -6,7 +6,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await expect(page.locator('.database-advanced')).not.toHaveAttribute('open', '');
     await page.getByLabel('Vault name', { exact: true }).fill('Settings test');
     await page.getByText('Advanced', { exact: true }).click();
-    await page.getByLabel('Default user', { exact: true }).fill('initial-user');
+    await page.getByLabel('Default user', { exact: true }).fill('  initial-user  ');
     await page.getByLabel('Key derivation function', { exact: true }).selectOption('Argon2id');
     await page.getByLabel('Iterations', { exact: true }).fill('3');
     await page.getByLabel('Memory, KiB', { exact: true }).fill('16384');
@@ -31,7 +31,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await page.getByText('Advanced', { exact: true }).click();
     await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('initial-user');
     await page.getByLabel('Vault name', { exact: true }).fill('Renamed vault');
-    await page.getByLabel('Default user', { exact: true }).fill('saved-user');
+    await page.getByLabel('Default user', { exact: true }).fill('  saved-user  ');
     await page.getByLabel('Enable trash', { exact: true }).uncheck();
     // A periodic/focus save may run while the settings draft is being edited.
     // This case tests applying an idle draft; concurrent-save denial is covered separately.
@@ -45,7 +45,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
         // Autosave can still be finishing the initial vault. The guard must retain
         // every setting so an ordinary retry can apply the complete draft.
         await expect(page.getByLabel('Vault name', { exact: true })).toHaveValue('Renamed vault');
-        await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('saved-user');
+        await expect(page.getByLabel('Default user', { exact: true })).toHaveValue('  saved-user  ');
         await expect(page.getByLabel('Enable trash', { exact: true })).not.toBeChecked();
         await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
         await page.getByRole('button', { name: 'Save database settings', exact: true }).click();
@@ -67,4 +67,7 @@ test('shared advanced settings persist on creation and editing, while cancel lea
     await expect(page.getByLabel('Key derivation function', { exact: true })).toHaveValue('Argon2id');
     await expect(page.getByLabel('Memory, KiB', { exact: true })).toHaveValue('16384');
     await expect(page.getByLabel('Parallelism', { exact: true })).toHaveValue('2');
+    await page.click('#settings-back');
+    await page.getByRole('button', { name: 'New entry', exact: true }).click();
+    await expect(page.locator('.entry-editor').getByLabel('Username', { exact: true })).toHaveValue('saved-user');
 });
