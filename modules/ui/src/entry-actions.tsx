@@ -37,7 +37,9 @@ export function EntryActions({ children, label = t('More actions'), title = t('E
     }, [open]);
     useEffect(() => {
         if (!open) return;
-        const hasDialog = () => !!document.querySelector('dialog[open]');
+        // Lock temporarily closes retained child dialogs before recovery reopens them.
+        // Keep their panel visible while they are mounted, including that closed interval.
+        const hasDialog = () => !!document.querySelector('dialog[open]') || !!root.current?.querySelector('dialog');
         const outside = (event: PointerEvent) => {
             if (!hasDialog() && !root.current?.contains(event.target as Node)) close();
         };
