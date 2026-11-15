@@ -226,6 +226,9 @@ for (const width of [1280, 320]) {
                 await expect(reopened.locator('[data-field="password"] .field__value')).toContainText('•');
                 await expect(reopened.locator('.entry-notes')).toContainText('second line');
                 await key(reopened, 'l'); await expect(reopened.locator('.vault')).toHaveCount(0, { timeout });
+                // The unlock form autofocuses its password field; global shortcuts ignore text editing.
+                await unfocus(reopened);
+                await expect(reopened.locator('#password')).not.toBeFocused();
                 await key(reopened, 'g'); await key(reopened, 'f'); await reopened.keyboard.press('Alt+n');
                 // The start screen permits a standalone generator without exposing the locked vault.
                 await expect(reopened.getByRole('dialog', { name: 'Generate password', exact: true })).toBeVisible();
