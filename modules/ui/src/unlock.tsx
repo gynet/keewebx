@@ -345,6 +345,10 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
     };
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const passwordInput = useRef<HTMLInputElement>(null);
+    useLayoutEffect(() => {
+        if (!busy && error === t('Wrong password') && document.activeElement === document.body) passwordInput.current?.focus();
+    }, [busy, error]);
     const [diagnostic, setDiagnostic] = useState('');
     const errorDetails = useRef<HTMLDetailsElement>(null);
     const setMessage = (message: string) => {
@@ -400,7 +404,7 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
             if (msg === 'invalid-password') setMessage(t('Wrong password'));
             else {
                 const remote = pane.kind === 'webdav-unlock' || (pane.kind === 'recent' && pane.file.storage === 'webdav');
-                setMessage(remote ? t(webDavError(msg)) : `${t(Locale.openErrorDescription)}. ${t('Try again or choose another file.')}`);
+                setMessage(remote ? webDavError(msg) : `${t(Locale.openErrorDescription)}. ${t('Try again or choose another file.')}`);
                 setDiagnostic(msg);
             }
             setBusy(false);
@@ -417,7 +421,7 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
             </label>
             <div style={{ position: 'relative', width: '100%' }}>
                 <input
-                    id="password"
+                    id="password" ref={passwordInput}
                     class={error ? 'input input--error' : 'input'}
                     type={show ? 'text' : 'password'}
                     placeholder={t('Master password')}

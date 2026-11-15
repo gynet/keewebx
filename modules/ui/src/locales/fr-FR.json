@@ -1211,5 +1211,18 @@
   "Entry actions": "Actions de l’entrée",
   "Close actions": "Fermer les actions",
   "Copy password…": "Copier le mot de passe…",
-  "Copy the password to the clipboard?": "Copier le mot de passe dans le presse-papiers ?"
+  "Copy the password to the clipboard?": "Copier le mot de passe dans le presse-papiers ?",
+  "Cancel read-only drafts before downloading the saved database.": "Annulez les brouillons en lecture seule avant de télécharger la base enregistrée.",
+  "This database is read-only or the entry is no longer available. Copy your notes before canceling.": "Cette base est en lecture seule ou l’entrée n’est plus disponible. Copiez vos notes avant d’annuler.",
+  "The local copy could not be removed. Its recent entry is retained. Retry, or unlock and download a backup before removing it.": "La copie locale n’a pas pu être supprimée. Son entrée récente est conservée. Réessayez, ou déverrouillez la base et téléchargez une sauvegarde avant de la supprimer.",
+  "Edit connection": "Modifier la connexion",
+  "Move entry to Trash": "Placer l’entrée dans la corbeille",
+  "Move “{}” to Trash?": "Placer « {} » dans la corbeille ?",
+  "You can restore this entry, its history and its attachments from Trash.": "Vous pouvez restaurer cette entrée, son historique et ses pièces jointes depuis la corbeille.",
+  "WebDAV sign-in failed. Check your username and password, then edit the connection and retry.": "La connexion WebDAV a échoué. Vérifiez votre identifiant et votre mot de passe, modifiez la connexion, puis réessayez.",
+  "The WebDAV server denied access. Check this account’s permission for the file.": "Le serveur WebDAV a refusé l’accès. Vérifiez les droits de ce compte sur le fichier.",
+  "The WebDAV file was not found. Check its address and edit the connection to retry.": "Le fichier WebDAV est introuvable. Vérifiez son adresse et modifiez la connexion pour réessayer.",
+  "The WebDAV server is unavailable. Retry later; your cached copies are retained.": "Le serveur WebDAV est indisponible. Réessayez plus tard ; vos copies en cache sont conservées.",
+  "This WebDAV file is not a supported or readable KDBX database. Check the file address or choose another file.": "Ce fichier WebDAV n’est pas une base KDBX lisible ou prise en charge. Vérifiez son adresse ou choisissez un autre fichier.",
+  "Could not reach or read the WebDAV file. Check the network, HTTPS certificate and server CORS settings, then retry or edit the connection. Your cached copies are retained.": "Le fichier WebDAV n’a pas pu être joint ou lu. Vérifiez le réseau, le certificat HTTPS et les paramètres CORS du serveur, puis réessayez ou modifiez la connexion. Vos copies en cache sont conservées."
 }

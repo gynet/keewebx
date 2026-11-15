@@ -148,6 +148,18 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const [selected, setSelected] = useState<string>();
     const [storedEditing, setEditing] = useState<({ entry: EntryModel } | { group: GroupModel; tag?: string }) & { key?: string } | null>(null);
     const editing = storedEditing && ('entry' in storedEditing ? storedEditing.entry.file as FileModel : storedEditing.group.file as FileModel).active ? storedEditing : null;
+    const wasEditing = useRef(false);
+    useLayoutEffect(() => {
+        if (editing) { wasEditing.current = true; return; }
+        if (!wasEditing.current) return;
+        wasEditing.current = false;
+        requestAnimationFrame(() => {
+            if (getSessionAccess(model).state !== 'open' || navigationOpen
+                || vaultSurface.current?.closest('[hidden], [inert]') || document.querySelector('dialog[open]')) return;
+            const target = vaultSurface.current?.querySelector<HTMLButtonElement>('.entry-detail__actions button') ?? search.current;
+            if (target?.getClientRects().length) target.focus({ preventScroll: true });
+        });
+    }, [editing]);
     const [expandedGroups, setExpandedGroups] = useState(readExpandedGroups);
     const [rootChoice, setRootChoice] = useState('');
     const [transfer, setTransfer] = useState<EntryTransferRequest | null>(null);

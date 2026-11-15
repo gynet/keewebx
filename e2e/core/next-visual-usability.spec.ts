@@ -77,6 +77,7 @@ for (const colorScheme of ['light', 'dark'] as const) for (const width of [320, 
         }
         await page.keyboard.press('Escape');
         await expect(editor).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeFocused();
         if (width < 760) {
             await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
             for (const control of await page.locator('.side .nav-row, .side button.tag').all()) await touchTarget(control);

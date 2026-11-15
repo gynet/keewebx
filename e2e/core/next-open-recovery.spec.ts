@@ -109,6 +109,7 @@ test('a truncated KDBX reports an open error and permits a valid replacement and
     await page.locator('#password').fill('wrong password');
     await page.locator('#unlock').click();
     await expect(page.locator('#unlock-error')).toHaveText('Wrong password');
+    await expect(page.locator('#password')).toBeFocused();
     await expect(details).toHaveCount(0);
     await openSelected(page);
 });

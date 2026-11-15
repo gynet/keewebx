@@ -51,7 +51,8 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
     usePendingDraft(JSON.stringify(draft) !== baseline, apply, reset, 'database', file.id);
     const download = async () => {
         if (busy || credentialBusy || !model.settings.canSaveTo) return;
-        if (!mounted.current || model.files.get(file.id) !== file || !file.active || getSessionAccess(model).state !== 'open') return;
+        const readable = () => mounted.current && model.files.get(file.id) === file && file.active && getSessionAccess(model).state === 'open';
+        if (!readable()) return;
         if (!available() && hasPendingDrafts(file.id)) {
             setMessage(t('Cancel read-only drafts before downloading the saved database.')); return;
         }
@@ -63,7 +64,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
             setMessage(t('Resolve invalid settings before downloading.'));
             return;
         }
-        if (!confirmDatabasePassword(model, file, available)) return;
+        if (!confirmDatabasePassword(model, file, readable)) return;
         try { savePendingDrafts(file.id); }
         catch { setMessage(t('Resolve invalid or conflicting edits before downloading.')); return; }
         setBusy(true); setMessage('');
