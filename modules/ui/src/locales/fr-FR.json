@@ -1233,5 +1233,8 @@
   "The WebDAV file was not found. Check its address and edit the connection to retry.": "Le fichier WebDAV est introuvable. Vérifiez son adresse et modifiez la connexion pour réessayer.",
   "The WebDAV server is unavailable. Retry later; your cached copies are retained.": "Le serveur WebDAV est indisponible. Réessayez plus tard ; vos copies en cache sont conservées.",
   "This WebDAV file is not a supported or readable KDBX database. Check the file address or choose another file.": "Ce fichier WebDAV n’est pas une base KDBX lisible ou prise en charge. Vérifiez son adresse ou choisissez un autre fichier.",
-  "Could not reach or read the WebDAV file. Check the network, HTTPS certificate and server CORS settings, then retry or edit the connection. Your cached copies are retained.": "Le fichier WebDAV n’a pas pu être joint ou lu. Vérifiez le réseau, le certificat HTTPS et les paramètres CORS du serveur, puis réessayez ou modifiez la connexion. Vos copies en cache sont conservées."
+  "Could not reach or read the WebDAV file. Check the network, HTTPS certificate and server CORS settings, then retry or edit the connection. Your cached copies are retained.": "Le fichier WebDAV n’a pas pu être joint ou lu. Vérifiez le réseau, le certificat HTTPS et les paramètres CORS du serveur, puis réessayez ou modifiez la connexion. Vos copies en cache sont conservées.",
+  "Unlock options": "Options de déverrouillage",
+  "Unlock with password": "Déverrouiller avec le mot de passe",
+  "This vault uses a key file.": "Ce coffre utilise un fichier clé."
 }

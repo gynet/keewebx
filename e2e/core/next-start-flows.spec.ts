@@ -180,6 +180,7 @@ test('late file-read completion cannot replace a newer selection', async ({ page
     await drop(page, [{ name: 'Current.kdbx', bytes: plain }]);
     await expect(page.locator('.card__title')).toHaveText('Current.kdbx');
     await page.evaluate(() => window.dispatchEvent(new Event('release-late-read')));
+    await page.locator('.unlock-card__options > summary').click();
     await expect(page.getByRole('button', { name: 'Use a key file', exact: true })).toBeVisible();
     await unlock(page);
 });

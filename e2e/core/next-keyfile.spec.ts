@@ -88,6 +88,8 @@ test.describe('touch key-file controls', () => {
         const name = `${'long-key-filename-'.repeat(10)}.keyx`;
         await upload(page, data.file);
         const choose = async () => {
+            const options = page.locator('.unlock-card__options');
+            if (!await options.evaluate(element => element.hasAttribute('open'))) await options.locator('summary').tap();
             const chooser = page.waitForEvent('filechooser');
             await page.getByRole('button', { name: 'Use a key file', exact: true }).tap();
             await (await chooser).setFiles(keyPayload(data.key, name));

@@ -248,6 +248,7 @@ for (const destination of ['cancel', 'different pane', 'lock'] as const) test(`l
     await openA(page, a);
     await openPicker(page);
     await page.locator('#open-file-input').setInputFiles(payload(b.buffer, b.name));
+    await page.locator('.unlock-card__options > summary').click();
     await page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true }).check();
     await holdDecrypt(page);
     await passwordOpen(page, b.password);
@@ -437,6 +438,7 @@ test('passkey setup targets B without enrolling, then recent passkey open preser
     await openPicker(page);
     await page.locator('#open-file-input').setInputFiles(payload(b.buffer, b.name));
     await selectKey(page, b.key!);
+    await page.locator('.unlock-card__options > summary').click();
     await page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true }).check();
     await passwordOpen(page, b.password);
     await expect(picker(page)).toHaveCount(0);
@@ -449,6 +451,7 @@ test('passkey setup targets B without enrolling, then recent passkey open preser
         name: 'B.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(b.key!)
     });
     await region.getByRole('button', { name: 'Enable local passkey', exact: true }).click();
+    await region.getByRole('button', { name: 'Verify passkey', exact: true }).click();
     await expect(region.getByRole('status')).toContainText('Passkey unlock saved in this browser');
     const records = await page.evaluate(() => JSON.parse(localStorage.getItem('fileInfo') || '[]'));
     expect(records.find((info: any) => info.name === 'A').passkeyCredentialId).toBeFalsy();

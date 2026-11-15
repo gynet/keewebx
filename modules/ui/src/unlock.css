@@ -1,0 +1,17 @@
+.unlock-card { padding-block: 12px; }
+.unlock-card__password { position: relative; width: 100%; }
+.unlock-card__password > .input { width: 100%; padding-right: 52px; }
+.unlock-card__password > .icon-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; }
+.unlock-card .unlock-card__action { min-height: 46px; margin-top: 12px; }
+.unlock-card__help { width: 100%; margin: 12px 0 0; color: var(--kx-muted); font-size: 13px; line-height: 1.5; }
+.unlock-card__options { width: 100%; min-width: 0; margin-top: 12px; border-block: 1px solid var(--kx-line); }
+.unlock-card__options > summary { min-height: 44px; padding: 12px 0; cursor: pointer; font-size: 13px; }
+.unlock-card__extras { display: flex; flex-direction: column; align-items: flex-start; padding-bottom: 8px; }
+.unlock-card .unlock-key-file { margin: 4px 0; gap: 0 12px; }
+.unlock-card .unlock-key-file > .link { display: inline-flex; align-items: center; min-height: 44px; }
+.unlock-card .unlock-card__forget { min-height: 44px; color: var(--kx-error); text-align: left; }
+.unlock-card__cancel { min-height: 44px; margin-top: 4px; }
+.unlock-card :is(summary, label, button, p) { max-width: 100%; overflow-wrap: anywhere; }
+@media (pointer: coarse), (max-width: 600px) {
+    .unlock-card__password > .input { font-size: 16px; }
+}

@@ -34,6 +34,10 @@ async function authenticator(context: BrowserContext, page: Page, hasPrf = true)
     } });
     return { cdp, authenticatorId, credentials: () => cdp.send('WebAuthn.getCredentials', { authenticatorId }) };
 }
+async function unlockOptions(page: Page) {
+    const options = page.locator('.unlock-card__options');
+    if (!await options.evaluate(element => element.hasAttribute('open'))) await options.locator('summary').click();
+}
 async function infos(page: Page): Promise<any[]> {
     return page.evaluate(() => JSON.parse(localStorage.getItem('fileInfo') || '[]'));
 }
@@ -120,6 +124,7 @@ test('virtual PRF: fresh password verification, durable unlock, forget preserves
     const other = await fixture('other-vault'); await openFile(page, other); await lock(page);
     const otherBefore = await record(page, 'other-vault');
     await page.locator('[data-vault="passkey-one"]').click();
+    await unlockOptions(page);
     page.once('dialog', (dialog) => dialog.accept());
     await page.getByRole('button', { name: 'Forget local passkey', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toHaveCount(0);
@@ -136,6 +141,7 @@ test('virtual PRF: fresh password verification, durable unlock, forget preserves
 test('password unlock setup choice opens the selected passkey region without enrolling automatically', async ({ page, context }) => {
     const auth = await authenticator(context, page), source = await fixture();
     await page.locator('#open-file-input').setInputFiles(payload(source.bytes, `${source.name}.kdbx`));
+    await unlockOptions(page);
     const setup = page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true });
     await setup.check();
     await page.locator('#password').fill('wrong password'); await page.locator('#unlock').click();
@@ -169,6 +175,7 @@ for (const unlockSecond of [false, true]) test(`late setup-requested decrypt can
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.locator('#open-file-input').setInputFiles(payload(first.bytes, `${first.name}.kdbx`));
+    await unlockOptions(page);
     await page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true }).check();
     // Delay only A's first real AES-CBC decrypt result; B uses the original crypto path.
     await page.evaluate(() => {
@@ -189,6 +196,7 @@ for (const unlockSecond of [false, true]) test(`late setup-requested decrypt can
         await expect(page.locator('#open-file-input')).toBeDisabled();
         await page.getByRole('button', { name: 'Cancel unlock', exact: true }).click();
         await page.locator('#open-file-input').setInputFiles(payload(second.bytes, `${second.name}.kdbx`));
+        await unlockOptions(page);
         await expect(page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true })).not.toBeChecked();
         if (unlockSecond) {
             await page.locator('#password').fill(password); await page.locator('#unlock').click();

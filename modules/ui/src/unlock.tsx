@@ -26,6 +26,7 @@ import { removeRecent } from './recent-removal';
 import { webDavAddress } from 'comp/app/webdav-address';
 import { webDavError } from './webdav-error';
 import './start-flows.css';
+import './unlock.css';
 
 interface RecentFile {
     id: string;
@@ -422,15 +423,39 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
         }
     };
 
+    const info = pane.kind === 'recent' ? model.fileInfos.get(pane.file.id) : undefined;
+    const keyRequired = !!(info?.keyFileName || info?.keyFileHash);
+    const keyVisible = keyRequired || !!keyFile;
+    const keyControl = (
+        <div class="unlock-key-file">
+            <input ref={keyInput} id="unlock-key-file" type="file" hidden disabled={busy || readingKey}
+                onChange={async (event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (!file) return;
+                    setReadingKey(true);
+                    try {
+                        const data = await file.arrayBuffer();
+                        if (admission()) { setKeyFile({ name: file.name, data: toBase64(data) }); setMessage(''); }
+                    }
+                    catch { setMessage(t('Unable to read the key file.')); }
+                    finally { setReadingKey(false); }
+                }} />
+            <button type="button" class="link" disabled={busy || readingKey} onClick={() => keyInput.current?.click()}>
+                {keyFile ? t('Key file: {}', keyFile.name) : t('Use a key file')}
+            </button>
+            {keyFile && <button type="button" class="link" disabled={busy || readingKey} onClick={() => {
+                setKeyFile(null); if (keyInput.current) keyInput.current.value = '';
+            }}>{t('Remove key file')}</button>}
+        </div>
+    );
+
     return (
-        <form class="card" onSubmit={unlock}>
+        <form class="card unlock-card" onSubmit={unlock}>
             <Mark size={76} />
             <h1 class="card__title">{kdbxName(name)}</h1>
             <p class="card__sub">{sub}</p>
-            <label class="sr-only" for="password">
-                {t('Master password')}
-            </label>
-            <div style={{ position: 'relative', width: '100%' }}>
+            <label class="sr-only" for="password">{t('Master password')}</label>
+            <div class="unlock-card__password">
                 <input
                     id="password" ref={passwordInput}
                     class={error ? 'input input--error' : 'input'}
@@ -441,42 +466,20 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
                     onKeyDown={updateCapsLock}
                     onKeyUp={updateCapsLock}
                     onBlur={() => setCapsLock(false)}
-                    aria-describedby={capsLock ? 'unlock-caps-lock' : undefined}
+                    aria-describedby={[capsLock && 'unlock-caps-lock', error && 'unlock-error'].filter(Boolean).join(' ') || undefined}
+                    aria-invalid={!!error}
                     disabled={busy}
                     autoFocus
-                    style={{ paddingRight: '48px' }}
                 />
-                <button
-                    type="button"
-                    class="icon-btn"
+                <button type="button" class="icon-btn" disabled={busy}
                     aria-label={show ? t('Hide password') : t('Show password')}
-                    onClick={() => setShow(!show)}
-                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)' }}
-                >
+                    onClick={() => setShow(!show)}>
                     <Icon name="eye" size={18} />
                 </button>
             </div>
             {capsLock && <p id="unlock-caps-lock" role="status">{t('Caps Lock is on')}</p>}
-            <div class="unlock-key-file">
-                <input ref={keyInput} id="unlock-key-file" type="file" hidden disabled={busy || readingKey}
-                    onChange={async (event) => {
-                        const file = event.currentTarget.files?.[0];
-                        if (!file) return;
-                        setReadingKey(true);
-                        try {
-                            const data = await file.arrayBuffer();
-                            if (admission()) { setKeyFile({ name: file.name, data: toBase64(data) }); setMessage(''); }
-                        }
-                        catch { setMessage(t('Unable to read the key file.')); }
-                        finally { setReadingKey(false); }
-                    }} />
-                <button type="button" class="link" disabled={busy || readingKey} onClick={() => keyInput.current?.click()}>
-                    {keyFile ? t('Key file: {}', keyFile.name) : t('Use a key file')}
-                </button>
-                {keyFile && <button type="button" class="link" disabled={busy || readingKey} onClick={() => {
-                    setKeyFile(null); if (keyInput.current) keyInput.current.value = '';
-                }}>{t('Remove key file')}</button>}
-            </div>
+            {keyRequired && <p class="unlock-card__help">{t('This vault uses a key file.')}</p>}
+            {keyVisible && keyControl}
             {error && (
                 <p class="error" role="alert" id="unlock-error" style={{ alignSelf: 'flex-start' }}>
                     {error}
@@ -488,13 +491,15 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
             </details>}
             {error && (pane.kind === 'webdav-unlock' || (pane.kind === 'recent' && pane.file.storage === 'webdav')) &&
                 <button type="button" class="pill" onClick={() => onEditConnection(pane.kind === 'webdav-unlock' ? pane.url : pane.file.path ?? '')}>{t('Edit connection')}</button>}
+            <button class="pill pill--primary pill--block unlock-card__action" id="unlock" disabled={busy || readingKey}>
+                {busy ? t('Unlocking…') : t('Unlock with password')}
+            </button>
             <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
                 setupAfterUnlock={setupAfterUnlock} onSetupChange={setSetupAfterUnlock} canOpen={admission} onOpened={onOpened}
-                keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setMessage} onAttempt={onUnlock} />
-            <button class="pill pill--primary pill--block" id="unlock" disabled={busy || readingKey}>
-                {busy ? t('Unlocking…') : t('Unlock')}
-            </button>
-            <button type="button" class="pill" onClick={() => {
+                keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setMessage} onAttempt={onUnlock}
+                optionsOpen={!!error} onForgot={() => passwordInput.current?.focus()}
+                options={!keyVisible && keyControl} />
+            <button type="button" class="link unlock-card__cancel" onClick={() => {
                 canceled.current = true;
                 mounted.current = false;
                 onCancel();
