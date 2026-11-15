@@ -8,6 +8,7 @@ import type { FileModel } from 'models/file-model';
 import { Icon, Tile } from 'ui-kit/mark';
 import type { NewProtocolUi, ExtensionPrompt } from './extension-ui';
 import { t } from './i18n';
+import './prompt-dialog.css';
 
 type PromptOf<K extends ExtensionPrompt['kind']> = Extract<ExtensionPrompt, { kind: K }>;
 const rowStyle = { display: 'flex', alignItems: 'center', gap: '10px', minHeight: '44px' };
@@ -53,10 +54,11 @@ export function NewProtocolUiHost({ controller }: { controller: NewProtocolUi })
     return <div ref={host} style={{ display: 'contents' }}>{content}</div>;
 }
 
-export function PromptDialog({ title, icon, cancel, children, confirm, confirmLabel, disabled = false, focusSearch = false, focusHeading = false, getReturnFocus }: {
+export function PromptDialog({ title, icon, cancel, children, confirm, confirmLabel, disabled = false, focusSearch = false, focusHeading = false, getReturnFocus, closeLabel }: {
     title: string; icon: string; cancel: () => void; children: ComponentChildren;
     confirm?: () => void; confirmLabel?: string; disabled?: boolean; focusSearch?: boolean; focusHeading?: boolean;
     getReturnFocus?: () => HTMLElement | null;
+    closeLabel?: string;
 }) {
     const dialog = useRef<HTMLDialogElement>(null);
     const cancelButton = useRef<HTMLButtonElement>(null);
@@ -82,23 +84,30 @@ export function PromptDialog({ title, icon, cancel, children, confirm, confirmLa
             });
         };
     }, []);
-    return <dialog ref={dialog} data-extension-prompt aria-labelledby={titleId} aria-modal="true"
+    const titleNode = <h2 id={titleId} ref={heading} tabIndex={focusHeading ? -1 : undefined}
+        style={{ ...rowStyle, margin: closeLabel ? '0' : '0 0 12px', fontSize: '20px' }}>
+        <Icon name={icon} /><span>{title}</span>
+    </h2>;
+    return <dialog ref={dialog} class={closeLabel ? 'prompt-dialog--closable' : undefined} data-extension-prompt aria-labelledby={titleId} aria-modal="true"
         onCancel={(event) => { event.preventDefault(); cancel(); }} onClose={cancel}
         onKeyDown={(event) => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         onClick={(event) => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         style={{ width: 'min(520px, calc(100vw - 24px))', maxHeight: 'calc(100dvh - 24px)',
-            margin: 'auto', padding: '20px', overflow: 'auto', overflowWrap: 'anywhere',
+            margin: 'auto', padding: closeLabel ? '0' : '20px', overflow: closeLabel ? 'hidden' : 'auto', overflowWrap: 'anywhere',
             border: '1px solid var(--kx-line)', borderRadius: 'var(--kx-radius-card)',
             background: 'var(--kx-bg)', color: 'var(--kx-text)' }}>
         <form onSubmit={(event) => { event.preventDefault(); if (!disabled) confirm?.(); }}>
-            <h2 id={titleId} ref={heading} tabIndex={focusHeading ? -1 : undefined} style={{ ...rowStyle, margin: '0 0 12px', fontSize: '20px' }}>
-                <Icon name={icon} /><span>{title}</span>
-            </h2>
-            {children}
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
-                <button ref={cancelButton} type="button" class="pill" onClick={cancel}>{t('Cancel')}</button>
+            {closeLabel ? <>
+                <header class="prompt-dialog__header">
+                    {titleNode}
+                    <button ref={cancelButton} type="button" class="icon-btn prompt-dialog__close" aria-label={closeLabel} title={closeLabel} onClick={cancel}>×</button>
+                </header>
+                <div class="prompt-dialog__body">{children}</div>
+            </> : <>{titleNode}{children}</>}
+            {(!closeLabel || confirm) && <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
+                {!closeLabel && <button ref={cancelButton} type="button" class="pill" onClick={cancel}>{t('Cancel')}</button>}
                 {confirm && <button type="submit" class="pill pill--primary" disabled={disabled}>{confirmLabel ?? t('Allow')}</button>}
-            </div>
+            </div>}
         </form>
     </dialog>;
 }

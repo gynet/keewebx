@@ -45,8 +45,8 @@ export function StartTools({ model, beforeOpen, disabled, onSettings }: { model:
     };
     return <div ref={root} class="start-flow-tools">
         {model.settings.canOpenGenerator && <button type="button" class="link" disabled={disabled} onClick={() => open('generator')}>{t('Password generator')}</button>}
-        {tool === 'generator' && model.settings.canOpenGenerator && <PromptDialog title={t('Generate password')} icon="key" focusHeading cancel={() => setTool(undefined)}>
-            <PasswordGeneratorPanel actionLabel={t('Copy password')} onUse={password => void copy(password)} onClose={() => setTool(undefined)} />
+        {tool === 'generator' && model.settings.canOpenGenerator && <PromptDialog title={t('Generate password')} icon="key" focusHeading closeLabel={t('Close generator')} cancel={() => setTool(undefined)}>
+            <PasswordGeneratorPanel inDialog actionLabel={t('Copy password')} onUse={password => void copy(password)} onClose={() => setTool(undefined)} />
             {message && <p role="status">{message}</p>}
         </PromptDialog>}
     </div>;

@@ -30,9 +30,10 @@ function generate(options: Options): { password: string; error: string } {
     }
 }
 
-export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePassword }: {
+export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePassword, inDialog = false }: {
     actionLabel?: string;
     sourcePassword?: string;
+    inDialog?: boolean;
     onUse: (password: string) => void;
     onClose: () => void;
 }) {
@@ -55,11 +56,11 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
     };
 
     return (
-        <section class="password-generator" aria-label={t('Password generator')}>
-            <div class="password-generator__head">
+        <section class={inDialog ? 'password-generator password-generator--dialog' : 'password-generator'} aria-label={t('Password generator')}>
+            {!inDialog && <div class="password-generator__head">
                 <h2 class="section-title">{t('Password generator')}</h2>
                 <button class="link" type="button" onClick={onClose}>{t('Close generator')}</button>
-            </div>
+            </div>}
             <div class="password-generator__preview">
                 <label class="field-label" for="generated-password-result">{t('Generated password')}</label>
                 <div class="password-generator__output">

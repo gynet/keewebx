@@ -1,0 +1,29 @@
+.prompt-dialog--closable { max-width: calc(100vw - 24px); }
+.prompt-dialog--closable > form {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: calc(100dvh - 26px);
+}
+.prompt-dialog__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding: 12px;
+    border-bottom: 1px solid var(--kx-line);
+}
+.prompt-dialog__header h2 { flex: 1; min-width: 0; }
+.prompt-dialog__close {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
+}
+.prompt-dialog__body {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 16px;
+    scroll-padding-block: 88px 68px;
+}
