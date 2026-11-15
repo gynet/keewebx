@@ -1,0 +1,61 @@
+{
+  "bundleSha256": "4a0b824459fb890502244dd993155a288dbb1ecab68216022adfbb26b39c5a4e",
+  "captures": [
+    {
+      "file": "new-start-desktop-light.png",
+      "width": 1440,
+      "height": 900,
+      "theme": "light",
+      "screen": "start"
+    },
+    {
+      "file": "colorful-tags.png",
+      "width": 1440,
+      "height": 900,
+      "theme": "light",
+      "screen": "demo-entry"
+    },
+    {
+      "file": "new-start-phone-light.png",
+      "width": 390,
+      "height": 844,
+      "theme": "light",
+      "screen": "start"
+    },
+    {
+      "file": "phone-demo.png",
+      "width": 390,
+      "height": 844,
+      "theme": "light",
+      "screen": "demo-entry"
+    },
+    {
+      "file": "new-start-desktop-dark.png",
+      "width": 1440,
+      "height": 900,
+      "theme": "dark",
+      "screen": "start"
+    },
+    {
+      "file": "new-desktop-dark.png",
+      "width": 1440,
+      "height": 900,
+      "theme": "dark",
+      "screen": "demo-entry"
+    },
+    {
+      "file": "new-start-phone-dark.png",
+      "width": 390,
+      "height": 844,
+      "theme": "dark",
+      "screen": "start"
+    },
+    {
+      "file": "new-phone-dark.png",
+      "width": 390,
+      "height": 844,
+      "theme": "dark",
+      "screen": "demo-entry"
+    }
+  ]
+}

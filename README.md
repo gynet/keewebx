@@ -48,6 +48,8 @@ See [the self-host guide](docs/self-host.md) for deployment details.
 - Save to WebDAV, see per-vault synchronization state, recover from offline or failed saves, and explicitly save or discard when closing a vault.
 - Use browser autofill with KeeWebX Connect, with explicit access approval and session controls.
 
+Save and close databases from the sidebar. Use a group’s `⋯` menu to manage it, and click an entry’s icon to change its icon or color. On a phone, the panel button opens the same navigation and controls.
+
 Switching interfaces checks pending edits and saves before navigating. A failed save keeps the vault available for recovery.
 
 ## Browser extension
