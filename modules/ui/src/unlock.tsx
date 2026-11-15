@@ -91,6 +91,18 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     }));
     const [pane, setPane] = useState<Pane>(() => startup?.kind === 'webdav' && remoteAllowed()
         ? { kind: 'webdav', url: startup.url } : !additional && recent[0] ? { kind: 'recent', file: recent[0] } : { kind: 'none' });
+    const main = useRef<HTMLElement>(null);
+    useLayoutEffect(() => {
+        // Mobile file actions sit below the selected panel. Reveal the whole
+        // panel after its autofocus and after an additional-vault dialog opens.
+        const frame = requestAnimationFrame(() => {
+            const panel = main.current;
+            if (!panel?.getClientRects().length) return;
+            panel.scrollTop = 0;
+            panel.scrollIntoView({ block: 'start', behavior: 'instant' });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [pane]);
     const fileInput = useRef<HTMLInputElement>(null);
     const readVersion = useRef(0);
     const setupIntent = useRef(0);
@@ -303,7 +315,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
             </aside>
             <PanelResizer label={t('Resize Your vaults panel')} value={sidebar.width} min={240} max={sidebar.max}
                 onChange={sidebar.setWidth} onReset={() => sidebar.setWidth(360)} />
-            <main class="start__main" style={extensionRequest ? { flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' } : undefined}>
+            <main ref={main} class="start__main" style={extensionRequest ? { flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' } : undefined}>
                 {extensionRequest && <div class="card" role="status" style={{ marginBottom: '16px' }}>
                     <p>{t('Unlock to connect a browser extension')}</p>
                     <button class="pill" type="button" onClick={onCancelExtensionRequest}>{t('Cancel extension request')}</button>

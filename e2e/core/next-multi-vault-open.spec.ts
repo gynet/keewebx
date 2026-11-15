@@ -228,6 +228,47 @@ async function releaseDecrypt(page: Page) {
     await expect.poll(() => page.evaluate(() => !!(window as any).__parsed)).toBe(true);
 }
 
+for (const width of [320, 390]) for (const source of ['local', 'WebDAV'] as const) {
+    test(`${width}px: another ${source} vault reveals the selected unlock panel above the file actions`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 668 });
+        const a = await fixture('A'), b = await fixture('B');
+        const remote = source === 'WebDAV' ? await dav(b) : undefined;
+        try {
+            await openA(page, a);
+            await openPicker(page);
+            await expect(picker(page).getByRole('heading', { name: 'Open a vault', exact: true })).toBeInViewport({ ratio: 1 });
+            // The mobile layout puts file actions below the selected panel.
+            const action = picker(page).locator(remote ? '#open-webdav' : '#open-file');
+            await action.scrollIntoViewIfNeeded();
+            await expect(action).toBeInViewport({ ratio: 1 });
+            if (remote) {
+                await picker(page).locator('#open-webdav').click();
+                await picker(page).locator('#webdav-url').fill(remote.url);
+                await picker(page).locator('#webdav-user').fill('test');
+                await picker(page).locator('#webdav-pass').fill('disposable');
+                await picker(page).locator('#webdav-next').click();
+            } else {
+                const chooser = page.waitForEvent('filechooser');
+                await picker(page).locator('#open-file').click();
+                await (await chooser).setFiles(payload(b.buffer, b.name));
+            }
+            await expect(picker(page).locator('#password')).toBeFocused();
+            const heading = picker(page).locator('.unlock-card .card__title');
+            await expect(heading).toHaveText('B.kdbx');
+            await expect(heading).toBeInViewport({ ratio: 1 });
+            await expect(picker(page).locator('#unlock')).toBeInViewport({ ratio: 1 });
+            await expect.poll(() => picker(page).evaluate(dialog => {
+                const header = dialog.querySelector('.multi-vault-open__header')!.getBoundingClientRect();
+                const panel = dialog.querySelector('.start__main')!.getBoundingClientRect();
+                return Math.abs(panel.top - header.bottom);
+            })).toBeLessThanOrEqual(1);
+            await passwordOpen(page, b.password);
+            await assertDraft(page);
+            await expect(row(page, 'B')).toHaveCount(1);
+        } finally { await remote?.close(); }
+    });
+}
+
 test('cancel initial unlock rejects a late decrypt and recent record, then permits a fresh retry', async ({ page }) => {
     const file = await fixture('Canceled');
     await page.goto('/next.html');
