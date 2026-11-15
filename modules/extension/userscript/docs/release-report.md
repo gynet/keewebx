@@ -105,6 +105,29 @@ Build and test commands are in the [installation guide](../README.md).
 [Discovery design and sources](tab-discovery.md) cover browser partitioning
 and the separate Home Screen PWA investigation.
 
+## Publication checks
+
+- [Release v1.0.4-extension](https://github.com/gynet/keewebx/releases/tag/v1.0.4-extension)
+  contains Chrome/Edge ZIPs, the unsigned Firefox XPI, the standalone installer
+  and `SHA256SUMS.txt`. All four downloaded files passed their published
+  checksums; the downloaded installer exactly matched the accepted artifact.
+- [The packaging workflow passed](https://github.com/gynet/keewebx/actions/runs/43754769426).
+  Bun 1.3.11 is pinned for byte-reproducible installer checks, and packaging
+  creates the extraction parent directory before validating archives. An
+  existing immutable tag can be rebuilt through the workflow's optional
+  `release_tag` input. The default web release remains `v0.4.10`.
+- The hosted app reported build `6fd5272`. Its `connect.html` returned the
+  685-byte lightweight helper without app scripts. The original app tabs are
+  not redirected or reloaded by discovery.
+- The complete database acceptance ran against a local production build.
+  An additional browser attempt against the live origin was blocked before
+  app loading by the runner's IPv6 network (`ENETUNREACH`). Live verification
+  therefore covers HTTP route/build identity and public artifacts; it is not
+  a claim of a completed production-browser or native iPhone E2E run.
+- Full repository CI continues independently of publication. The checks above
+  describe the scoped acceptance and successful release workflow, not an
+  assertion that every unrelated repository job has passed.
+
 ## Native-device limits and final iPhone acceptance
 
 Complete iPhone autofill, long hidden-tab delays, screen lock and memory
