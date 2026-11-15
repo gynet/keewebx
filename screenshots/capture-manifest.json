@@ -1,61 +1,102 @@
 {
-  "bundleSha256": "99e2ceb452886e536b3b823be366b776a9b005e9e51abe535a531df0c2d77f2f",
+  "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+  "bundleSha256": "e4f3b2834bcfd1ec30e4b8d5d51579fe2baae401f2e5c6df43d551605389e728",
+  "bundleUrl": "http://localhost:39231/js/next.js",
+  "appUrl": "http://localhost:39231/next.html",
+  "capturedAt": "2026-11-15T15:41:42.768Z",
+  "fixture": "bundled disposable demo; GitHub entry",
+  "realUserData": false,
+  "applicationHttpMocks": false,
   "captures": [
     {
       "file": "new-start-desktop-light.png",
       "width": 1440,
       "height": 900,
       "theme": "light",
-      "screen": "start"
+      "screen": "start",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sha256": "5d8bc3b008896f9f70d1d3ee9324cde4925055b94507d0b3cb77662815d7d29b"
     },
     {
       "file": "colorful-tags.png",
       "width": 1440,
       "height": 900,
       "theme": "light",
-      "screen": "demo-entry"
+      "screen": "demo-entry",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sha256": "d8af9dc629ab7f7784aa9d62cb1964fb1a6c69287e4082d780e6a70caa9c186f"
     },
     {
       "file": "new-start-phone-light.png",
       "width": 390,
       "height": 844,
       "theme": "light",
-      "screen": "start"
+      "screen": "start",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sha256": "9044ba61bc5854e43704745ff0097ece32477ed5f79e8386031f21a7b57ee8b9"
     },
     {
       "file": "phone-demo.png",
       "width": 390,
       "height": 844,
       "theme": "light",
-      "screen": "demo-entry"
+      "screen": "demo-entry",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "toolbarDefault": "bottom-visible",
+      "toolbar": {
+        "x": 0,
+        "y": 788,
+        "width": 390,
+        "height": 56,
+        "bottom": 844,
+        "viewport": 844
+      },
+      "sha256": "e2ad075bd7451dc5fbdb4760708a812d1650e0acbec5bf298ab725c83e0cad7e"
     },
     {
       "file": "new-start-desktop-dark.png",
       "width": 1440,
       "height": 900,
       "theme": "dark",
-      "screen": "start"
+      "screen": "start",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sha256": "7ee4890d170b21ff5c7521aa9cfcef1e5ca8274d96a04b4e31de24785830c97f"
     },
     {
       "file": "new-desktop-dark.png",
       "width": 1440,
       "height": 900,
       "theme": "dark",
-      "screen": "demo-entry"
+      "screen": "demo-entry",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sha256": "aea03018180e38013a241018411d79d0c1e29b3fde88c4000df83bb7b116ea5f"
     },
     {
       "file": "new-start-phone-dark.png",
       "width": 390,
       "height": 844,
       "theme": "dark",
-      "screen": "start"
+      "screen": "start",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sha256": "4595e29db93e3a9a300e6d6443885f2083912801dce655669fe0f58d561fd7b7"
     },
     {
       "file": "new-phone-dark.png",
       "width": 390,
       "height": 844,
       "theme": "dark",
-      "screen": "demo-entry"
+      "screen": "demo-entry",
+      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "toolbarDefault": "bottom-visible",
+      "toolbar": {
+        "x": 0,
+        "y": 788,
+        "width": 390,
+        "height": 56,
+        "bottom": 844,
+        "viewport": 844
+      },
+      "sha256": "58dda8763fbd3e3d343c15ac02c723303358764986e795f6efb92a2a5d243a39"
     }
   ]
 }
