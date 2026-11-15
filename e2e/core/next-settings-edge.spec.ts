@@ -34,6 +34,16 @@ async function createVault(page: Page, name = vaultName) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
 }
 
+async function pauseBackgroundSync(page: Page) {
+    // Validation and retained-draft tests submit explicitly. A creation-triggered
+    // background save can disable Save during pointer activation or focused Enter.
+    await page.locator('#open-settings').click();
+    await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
+    await page.locator('#setting-auto-save').selectOption('0');
+    await expect(page.locator('#setting-auto-save')).toHaveValue('0');
+    await page.locator('#settings-back').click();
+}
+
 async function openSettings(page: Page) {
     await page.locator('#open-settings').click();
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
@@ -138,13 +148,7 @@ test.describe('Next database settings edge cases', () => {
     for (const invalid of invalidParameters) {
         test(`rejects ${invalid.name} before applying any database edits`, async ({ page }) => {
             await createVault(page);
-            // Isolate validation from the creation-triggered background save: it can
-            // disable Save between pointer-down and pointer-up. Keep real UI submission.
-            await page.locator('#open-settings').click();
-            await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
-            await page.locator('#setting-auto-save').selectOption('0');
-            await expect(page.locator('#setting-auto-save')).toHaveValue('0');
-            await page.locator('#settings-back').click();
+            await pauseBackgroundSync(page);
             const form = await openSettings(page);
             await form.getByLabel('Vault name', { exact: true }).fill('Must not be applied');
             await form.getByLabel('Default user', { exact: true }).fill('must-not-be-applied');
@@ -235,6 +239,7 @@ test.describe('Next database settings edge cases', () => {
     for (const invalid of [false, true]) {
         test(`Back cannot silently drop ${invalid ? 'an invalid' : 'a valid'} database draft`, async ({ page, browserName }) => {
             await createVault(page);
+            await pauseBackgroundSync(page);
             const form = await openSettings(page);
             await form.getByLabel('Vault name', { exact: true }).fill('Retained draft');
             await form.getByLabel('Default user', { exact: true }).fill('retained-user');
@@ -248,7 +253,7 @@ test.describe('Next database settings edge cases', () => {
             await expect(form.getByLabel('Memory, KiB', { exact: true })).toHaveValue(invalid ? '8' : '8192');
             await expect(form.getByLabel('Parallelism', { exact: true })).toHaveValue('2');
             if (invalid) await form.getByLabel('Memory, KiB', { exact: true }).fill('8192');
-            // Dismissing the native dialog can trigger the focus-sync scheduler.
+            // Wait for any save already running when automatic sync was paused.
             // This case tests retained drafts; active-writer rejection has its own coverage.
             await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
             const save = form.getByRole('button', { name: 'Save database settings', exact: true });
