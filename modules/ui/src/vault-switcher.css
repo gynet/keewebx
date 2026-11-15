@@ -8,6 +8,4 @@
 .open-vaults__actions { display: flex; gap: 16px; margin-top: 8px; }
 
 .open-vaults__single { padding: 0; border: 0; border-radius: 0; }
-.open-vaults__single > summary { padding: 8px; min-height: 44px; box-sizing: border-box; display: list-item; align-content: center; cursor: pointer; font-size: 13px; color: var(--kx-muted); }
-.open-vaults__single .open-vaults__actions { margin: 0; padding: 0 8px; }
-.open-vaults__single .open-vaults__actions button { min-height: 44px; }
+.open-vaults__single .nav-row { min-height: 44px; }

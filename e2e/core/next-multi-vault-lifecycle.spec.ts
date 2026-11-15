@@ -72,8 +72,6 @@ async function edit(page: Page, name: string, notes: string) {
     await entry(page).getByLabel('Notes', { exact: true }).fill(notes);
 }
 async function close(page: Page, name: string) {
-    const actions = card(page, name);
-    if (await actions.evaluate(element => element.tagName === 'DETAILS' && !element.hasAttribute('open'))) await actions.locator('summary').click();
     await card(page, name).getByRole('button', { name: /^Close / }).click();
     await expect(closeDialog(page)).toBeVisible();
 }
@@ -543,7 +541,7 @@ test('manual Lock offers explicit saving for all vault drafts with automatic sav
     expect((await decrypt(await download(page, 'B'), b)).found.fields.get('Notes')).toBe('B saved by explicit Lock');
 });
 
-for (const width of [1280, 320]) test(`single vault actions are collapsed without a duplicate name or status at ${width}px`, async ({ page }) => {
+for (const width of [1280, 320]) test(`single vault save and close are direct menu items without a duplicate name or status at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 740 });
     const a = await fixture('A');
     await page.goto('/next.html');
@@ -555,12 +553,11 @@ for (const width of [1280, 320]) test(`single vault actions are collapsed withou
     await expect(cards(page).locator('.open-vaults__select')).toHaveCount(0);
     await expect(cards(page).getByRole('status')).toHaveCount(0);
     const save = actions.getByRole('button', { name: /^Save / });
-    await expect(save).toBeHidden();
-    await actions.locator('summary').click();
+    await expect(save).toBeVisible();
+    await expect(actions.locator('summary')).toHaveCount(0);
     await save.click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date');
-    await actions.locator('summary').click();
-    await expect(save).toBeHidden();
+    await expect(save).toBeVisible();
     await page.screenshot({ path: test.info().outputPath(`single-vault-sidebar-${width}.png`) });
     await close(page, 'A');
     await closeDialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
