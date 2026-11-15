@@ -42,7 +42,7 @@ test('idle lock discards a group icon draft and requires authentication', async 
 test('group trash and restore retain custom icon and existing entry icons', async ({ page }) => {
     const source = await open(page); const actions = await groupActions(page);
     await actions.getByRole('button', { name: 'Delete group', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Move group to trash', exact: true }).getByRole('button', { name: 'Move to trash', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Move group to trash', exact: true }).getByRole('button', { name: 'Recycle', exact: true }).click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await browse(page); await page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Trash', exact: true }).click();
     const manager = page.locator('details').filter({ has: page.locator('summary', { hasText: /^Manage trash$/ }) });

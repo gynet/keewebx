@@ -1193,5 +1193,8 @@
   "This entry changed. Cancel and open Clone again.": "Dieser Eintrag hat sich geändert. Brechen Sie ab und öffnen Sie Duplizieren erneut.",
   "Clone…": "Duplizieren…",
   "Clone": "Duplizieren",
-  "Recycle": "In den Papierkorb"
+  "Recycle": "In den Papierkorb",
+  "Database actions": "Datenbankaktionen",
+  "Save database": "Datenbank speichern",
+  "Close database": "Datenbank schließen"
 }

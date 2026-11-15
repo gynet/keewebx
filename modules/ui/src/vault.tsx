@@ -428,7 +428,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 if (!navigationOpen) return;
                 if (event.key === 'Escape') { event.preventDefault(); closeNavigation(); }
                 if (event.key === 'Tab') {
-                    const controls = [...(navigation.current?.querySelectorAll<HTMLInputElement>('button, select, input, a[href], [tabindex="0"]') ?? [])]
+                    const controls = [...(navigation.current?.querySelectorAll<HTMLInputElement>('button, summary, select, input, a[href], [tabindex="0"]') ?? [])]
                         .filter((button) => !button.disabled && button.getClientRects().length);
                     const first = controls[0]; const last = controls[controls.length - 1];
                     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -463,7 +463,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </div>
                 <div id="vault-sidebar-content" class="side__content">
                 <section class="open-vaults" aria-label={t('Open vaults')}>
-                    {allFiles.map(file => <div class="open-vaults__item" key={file.id} data-vault-id={file.id}>
+                    {allFiles.length === 1 ? <details class="open-vaults__item open-vaults__single" data-vault-id={allFiles[0].id}>
+                        <summary>{t('Database actions')}</summary>
+                        <div class="open-vaults__actions">
+                            <button type="button" class="link" disabled={saving.includes(allFiles[0].id)}
+                                onClick={() => void saveFile(allFiles[0])} aria-label={t('Save {}', vaultLabel(allFiles[0]))}>{t('Save database')}</button>
+                            <button type="button" class="link" onClick={() => { closeNavigation(); props.onCloseVault?.(allFiles[0]); }}
+                                aria-label={t('Close {}', vaultLabel(allFiles[0]))}>{t('Close database')}</button>
+                        </div>
+                    </details> : allFiles.map(file => <div class="open-vaults__item" key={file.id} data-vault-id={file.id}>
                         <button type="button" class="open-vaults__select" aria-pressed={scopeId === file.id} onClick={() => switchVault(file.id)}>
                             <span>{vaultLabel(file)}</span>
                             <span role="status">{hasPendingDrafts(file.id) ? t('Unsaved draft') : fileSyncState(file) === 'pending' ? t('Unsaved changes') : t(SYNC_LABELS[fileSyncState(file)])}</span>

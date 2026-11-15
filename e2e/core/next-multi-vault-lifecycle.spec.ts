@@ -8,7 +8,7 @@ import { argon2 } from '../../modules/db/test/test-support/argon2';
 const entry = (page: Page) => page.locator('.entry-editor');
 const selector = (page: Page) => page.getByRole('combobox', { name: 'Vault filter', exact: true });
 const cards = (page: Page) => page.getByRole('region', { name: 'Open vaults', exact: true });
-const card = (page: Page, name: string) => cards(page).locator('.open-vaults__item').filter({ hasText: `${name}.kdbx` });
+const card = (page: Page, name: string) => cards(page).locator('.open-vaults__item').filter({ has: page.getByRole('button', { name: new RegExp(`^Close ${name}\\.kdbx`), includeHidden: true }) });
 const closeDialog = (page: Page) => page.locator('dialog.close-vault');
 const rows = (page: Page) => page.locator('.entry-row');
 const payload = (buffer: Buffer, name: string) => ({ name: `${name}.kdbx`, mimeType: 'application/octet-stream', buffer });
@@ -72,6 +72,8 @@ async function edit(page: Page, name: string, notes: string) {
     await entry(page).getByLabel('Notes', { exact: true }).fill(notes);
 }
 async function close(page: Page, name: string) {
+    const actions = card(page, name);
+    if (await actions.evaluate(element => element.tagName === 'DETAILS' && !element.hasAttribute('open'))) await actions.locator('summary').click();
     await card(page, name).getByRole('button', { name: /^Close / }).click();
     await expect(closeDialog(page)).toBeVisible();
 }
@@ -539,4 +541,29 @@ test('manual Lock offers explicit saving for all vault drafts with automatic sav
     await reopen(page, b); await settings(page);
     expect((await decrypt(await download(page, 'A'), a)).found.fields.get('Notes')).toBe('A saved by explicit Lock');
     expect((await decrypt(await download(page, 'B'), b)).found.fields.get('Notes')).toBe('B saved by explicit Lock');
+});
+
+for (const width of [1280, 320]) test(`single vault actions are collapsed without a duplicate name or status at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 740 });
+    const a = await fixture('A');
+    await page.goto('/next.html');
+    await page.locator('#open-file-input').setInputFiles(payload(a.buffer, a.name));
+    await unlock(page, a);
+    if (width === 320) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
+    const actions = card(page, 'A');
+    await expect(actions).toBeVisible();
+    await expect(cards(page).locator('.open-vaults__select')).toHaveCount(0);
+    await expect(cards(page).getByRole('status')).toHaveCount(0);
+    const save = actions.getByRole('button', { name: /^Save / });
+    await expect(save).toBeHidden();
+    await actions.locator('summary').click();
+    await save.click();
+    await expect(page.locator('#sync-state')).toHaveText('Up to date');
+    await actions.locator('summary').click();
+    await expect(save).toBeHidden();
+    await page.screenshot({ path: test.info().outputPath(`single-vault-sidebar-${width}.png`) });
+    await close(page, 'A');
+    await closeDialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.locator('.vault')).toBeVisible();
+    await expect(rows(page)).toContainText('A-account-marker');
 });
