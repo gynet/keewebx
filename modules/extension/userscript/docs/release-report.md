@@ -58,6 +58,7 @@ handle the initial window readiness handshake.
 | Desktop extension unit tests | 225 passed, including 25 protocol-runtime/crypto validation cases |
 | Real-app Chromium acceptance | Four scenarios, 33 passing stages using the exact installer above |
 | Form destination/lifetime tests | 16 passed across Chromium and desktop WebKit |
+| Native BroadcastChannel transport | Eight passed across Chromium and desktop WebKit, including delayed trusted commits with withheld timers and discovery expiry |
 | App and disconnected extension setup instructions | Rendered successfully; download/guide URLs checked |
 | Authored userscript language | English source, comments, UI and documentation; no CJK matches |
 
@@ -79,6 +80,12 @@ in Chromium's main world. App, KDBX, permissions, encrypted protocol and form
 filling are real. It does not load the Userscripts extension or certify its
 isolated execution environment. Supplemental lifecycle regressions are
 maintained alongside this acceptance; see their current test output.
+
+Supplemental real-app cancellation acceptance passed: restarting or closing
+the helper removes the pending native Allow dialog, detached late Allow
+actions do not persist approval, and a fresh explicit approval is required
+before listing/filling. The transport tests independently check absolute
+expiry while withholding normal timeout callbacks.
 
 ## Documentation and distribution
 

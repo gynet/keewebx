@@ -112,7 +112,8 @@ a hidden, unfocused KeeWebX page in iPhone Safari with Userscripts. That result
 supports linked-window message delivery at that moment; it did not access a
 vault or establish reliable long-term background operation.
 
-Build the native installer from the repository root with:
+Build the native installer from the repository root with Bun 1.3.11 (also
+pinned in the installer acceptance and release jobs):
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
@@ -128,6 +129,7 @@ KEEWEBX_E2E_PORT=8085 bun e2e/serve-app.ts
 ```sh
 node modules/extension/userscript/tests/connect.mjs
 node modules/extension/userscript/tests/form-guards.mjs chromium webkit
+node modules/extension/userscript/tests/relay-transport.mjs chromium webkit
 ```
 
 The acceptance covers both app-first and website-first setup and preserves

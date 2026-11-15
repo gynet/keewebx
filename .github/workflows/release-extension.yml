@@ -21,6 +21,11 @@ on:
     tags:
       - 'v*-extension'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Rebuild and attach packages to an existing extension release tag (optional)'
+        type: string
+        required: false
 
 permissions:
   contents: write   # required for softprops/action-gh-release to upload assets
@@ -30,8 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: 1.3.11
 
       - name: Install (frozen lockfile)
         run: bun install --frozen-lockfile
@@ -85,7 +94,7 @@ jobs:
         # the naming continuity — so we slice $GITHUB_SHA directly.
         run: |
           set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA:0:8}"
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
           MANIFEST_VER="${{ steps.manifest.outputs.version }}"
           echo "Short SHA: ${SHORT_SHA}"
           echo "Manifest version: ${MANIFEST_VER}"
@@ -130,9 +139,10 @@ jobs:
           retention-days: 30
 
       - name: Attach to GitHub Release (tag push only)
-        if: startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref_name, '-extension')
+        if: (startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref_name, '-extension')) || (startsWith(inputs.release_tag, 'v') && endsWith(inputs.release_tag, '-extension'))
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
           files: |
             artifacts/keewebx-connect-chrome-${{ steps.pack.outputs.short_sha }}.zip
             artifacts/keewebx-connect-edge-${{ steps.pack.outputs.short_sha }}.zip
@@ -144,7 +154,7 @@ jobs:
           fail_on_unmatched_files: true
 
   dual-mode-preview:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.release_tag
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
