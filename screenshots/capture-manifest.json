@@ -1,9 +1,9 @@
 {
-  "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
-  "bundleSha256": "e4f3b2834bcfd1ec30e4b8d5d51579fe2baae401f2e5c6df43d551605389e728",
+  "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
+  "bundleSha256": "f15b3a3eb19f953d7dbee5b8e6c3ffa94a3c27bd47c99772b9318b8110d0f191",
   "bundleUrl": "http://localhost:39231/js/next.js",
   "appUrl": "http://localhost:39231/next.html",
-  "capturedAt": "2026-11-15T15:41:42.768Z",
+  "capturedAt": "2026-11-15T15:45:30.562Z",
   "fixture": "bundled disposable demo; GitHub entry",
   "realUserData": false,
   "applicationHttpMocks": false,
@@ -14,7 +14,7 @@
       "height": 900,
       "theme": "light",
       "screen": "start",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
       "sha256": "5d8bc3b008896f9f70d1d3ee9324cde4925055b94507d0b3cb77662815d7d29b"
     },
     {
@@ -23,8 +23,8 @@
       "height": 900,
       "theme": "light",
       "screen": "demo-entry",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
-      "sha256": "d8af9dc629ab7f7784aa9d62cb1964fb1a6c69287e4082d780e6a70caa9c186f"
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
+      "sha256": "419bb6e1c55ab3a82fc23b8ff9bc146ad6e7ec5e5a90e5d21d815924d22b9b00"
     },
     {
       "file": "new-start-phone-light.png",
@@ -32,7 +32,7 @@
       "height": 844,
       "theme": "light",
       "screen": "start",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
       "sha256": "9044ba61bc5854e43704745ff0097ece32477ed5f79e8386031f21a7b57ee8b9"
     },
     {
@@ -41,7 +41,7 @@
       "height": 844,
       "theme": "light",
       "screen": "demo-entry",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
       "toolbarDefault": "bottom-visible",
       "toolbar": {
         "x": 0,
@@ -51,7 +51,7 @@
         "bottom": 844,
         "viewport": 844
       },
-      "sha256": "e2ad075bd7451dc5fbdb4760708a812d1650e0acbec5bf298ab725c83e0cad7e"
+      "sha256": "9d4daa6530172150127c8304e3a53d3622e6b50a7e898fd30fde6a5d091b668c"
     },
     {
       "file": "new-start-desktop-dark.png",
@@ -59,7 +59,7 @@
       "height": 900,
       "theme": "dark",
       "screen": "start",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
       "sha256": "7ee4890d170b21ff5c7521aa9cfcef1e5ca8274d96a04b4e31de24785830c97f"
     },
     {
@@ -68,8 +68,8 @@
       "height": 900,
       "theme": "dark",
       "screen": "demo-entry",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
-      "sha256": "aea03018180e38013a241018411d79d0c1e29b3fde88c4000df83bb7b116ea5f"
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
+      "sha256": "c42d0e18474549b706e449d7e593c893f5da4130bfa104c7d6639bb31cc38601"
     },
     {
       "file": "new-start-phone-dark.png",
@@ -77,7 +77,7 @@
       "height": 844,
       "theme": "dark",
       "screen": "start",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
       "sha256": "4595e29db93e3a9a300e6d6443885f2083912801dce655669fe0f58d561fd7b7"
     },
     {
@@ -86,7 +86,7 @@
       "height": 844,
       "theme": "dark",
       "screen": "demo-entry",
-      "sourceSha": "4ee255e396dbd28b1b32c5f15875a8c2b3c7b3ee",
+      "sourceSha": "e80d20d52fc59e2e8655f6d1949c5fc07505d04a",
       "toolbarDefault": "bottom-visible",
       "toolbar": {
         "x": 0,
@@ -96,7 +96,7 @@
         "bottom": 844,
         "viewport": 844
       },
-      "sha256": "58dda8763fbd3e3d343c15ac02c723303358764986e795f6efb92a2a5d243a39"
+      "sha256": "1f8ef75caad0f21457affe9640383c5b07f5cad6e3e5efc89f022cd8c2886aa7"
     }
   ]
 }
