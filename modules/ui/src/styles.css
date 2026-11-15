@@ -746,6 +746,8 @@ button {
     margin: 0 auto;
 }
 .settings__title {
+    min-width: 0;
+    overflow-wrap: anywhere;
     margin: 0;
     font-size: 26px;
     font-weight: 700;

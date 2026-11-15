@@ -169,8 +169,9 @@ function fidelity(db: kdbx.Kdbx, dav: Dav) {
 
 test.describe('New remote master-key recovery', () => {
     test.setTimeout(90_000);
-    for (const mobile of [false, true]) test.describe(mobile ? '320px dark password and key' : 'desktop light password', () => {
-        test.use({ viewport: mobile ? { width: 320, height: 350 } : { width: 1280, height: 800 }, hasTouch: mobile, colorScheme: mobile ? 'dark' : 'light' });
+    for (const appearance of ['desktop light', '320px dark', '320px light'] as const) test.describe(`${appearance} password${appearance.startsWith('320px') ? ' and key' : ''}`, () => {
+        const mobile = appearance.startsWith('320px');
+        test.use({ viewport: mobile ? { width: 320, height: 350 } : { width: 1280, height: 800 }, hasTouch: mobile, colorScheme: appearance.endsWith('dark') ? 'dark' : 'light' });
         test('two peers: cancel and incorrect credentials retain local edits; correct retry merges without losing identity or content', async ({ page, browser, dav }) => {
             await connect(page, dav); await localEdit(page);
             const key = mobile ? await kdbx.Credentials.createRandomKeyFile(2) : undefined;
@@ -178,6 +179,30 @@ test.describe('New remote master-key recovery', () => {
             await detect(page); await page.keyboard.press('Escape');
             await expect(dialog(page)).toHaveCount(0);
             expect(dav.bytes().equals(remote)).toBe(true); expect(dav.writes()).toBe(writes);
+            if (mobile) {
+                const database = page.getByRole('tab', { name: 'Database', exact: true });
+                const notice = page.getByRole('complementary', { name: 'Remote synchronization', exact: true });
+                await expect(database).toBeInViewport({ ratio: 1 });
+                await expect(notice.getByRole('button', { name: 'Resolve remote key', exact: true })).toBeInViewport({ ratio: 1 });
+                const geometry = await page.evaluate(() => {
+                    const bounds = (selector: string) => {
+                        const element = document.querySelector<HTMLElement>(selector)!;
+                        const rect = element.getBoundingClientRect();
+                        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, bottom: rect.bottom, scrollTop: element.scrollTop };
+                    };
+                    const tab = bounds('#settings-tab-database');
+                    const target = document.querySelector('#settings-tab-database')!;
+                    return { scrollY, viewport: { width: innerWidth, height: innerHeight }, settings: bounds('.settings'),
+                        header: bounds('.settings__header'), tab, notice: bounds('.remote-key-notices'),
+                        tabReceivesPointer: target.contains(document.elementFromPoint(tab.x + tab.width / 2, tab.y + tab.height / 2)) };
+                });
+                await test.info().attach('settings-remote-notice-geometry', { body: JSON.stringify(geometry, null, 2), contentType: 'application/json' });
+                expect(geometry.tabReceivesPointer).toBe(true);
+                expect(geometry.notice.y).toBeGreaterThanOrEqual(geometry.settings.bottom);
+                expect(geometry.settings.bottom - geometry.header.bottom).toBeGreaterThanOrEqual(44);
+                expect(geometry.tab.height).toBeGreaterThanOrEqual(44);
+                expect((await notice.getByRole('button', { name: 'Resolve remote key', exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+            }
             const local = await download(page);
             expect(field(all(local).find(entry => entry.uuid.id === dav.source.id)!, 'Notes')).toBe(localNotes);
             await page.getByRole('button', { name: 'Resolve remote key', exact: true }).click();

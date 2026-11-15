@@ -1,6 +1,14 @@
 .remote-key-notices { position: fixed; z-index: 40; right: 16px; bottom: 76px; width: min(380px, calc(100vw - 32px)); max-height: 35dvh; overflow: auto; }
-/* Settings has no bottom vault toolbar to reserve space for. */
-.remote-key-notices:has(~ .vault--settings) { bottom: max(16px, env(safe-area-inset-bottom)); }
+/* Reserve the notice's actual height instead of covering Settings controls. */
+:has(> .remote-key-notices):has(> .vault--settings) { display: flex; flex-direction: column; max-height: 100dvh; }
+.remote-key-notices:has(~ .vault--settings) { position: static; order: 1; flex: none; align-self: flex-end; margin: 0 max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)); }
+.remote-key-notices ~ .vault--settings { flex: 1 1 0; min-height: 0; height: auto; }
+@media (max-height: 480px) {
+    .remote-key-notices ~ .vault--settings .settings__header { padding-top: max(4px, env(safe-area-inset-top)); }
+    .remote-key-notices ~ .vault--settings .settings__titlebar { margin-bottom: 0; }
+    .remote-key-notices ~ .vault--settings .settings__tabs { padding-block: 4px; }
+    .remote-key-notices ~ .vault--settings .settings__tabs [role="tab"] { padding-block: 0; }
+}
 .remote-key-notice { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; margin-top: 8px; background: var(--kx-bg); color: var(--kx-text); border: 1px solid var(--kx-line); border-radius: var(--kx-radius-card); font-size: 13px; overflow-wrap: anywhere; }
 .remote-key-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; box-sizing: border-box; padding: 20px; border: 1px solid var(--kx-line); border-radius: var(--kx-radius-card); background: var(--kx-bg); color: var(--kx-text); }
 .remote-key-dialog::backdrop { background: #0008; }
