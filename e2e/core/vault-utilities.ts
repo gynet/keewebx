@@ -19,7 +19,8 @@ export async function activateVaultUtility(page: Page, name: string, options: { 
         if (await reveal.isVisible()) {
             if (options.touch) await reveal.tap(); else await reveal.click();
         }
-        const launcher = await menu.isVisible() ? menu : browse;
+        const menuAction = page.locator('.mobile-toolbar > .entry-more').getByRole('button', { name, exact: true, includeHidden: true });
+        const launcher = await menu.isVisible() && await menuAction.count() ? menu : browse;
         if (options.touch) await launcher.tap(); else await launcher.click();
     }
     await expect(action).toHaveCount(1);

@@ -35,7 +35,12 @@ async function upload(page: Page, source: Awaited<ReturnType<typeof fixture>>, t
 async function click(control: Locator, touch: boolean) { if (touch) await control.tap(); else await control.click(); }
 async function closeDrawer(page: Page) {
     const close = page.getByRole('button', { name: 'Browse vault', exact: true });
-    if (await close.isVisible()) await close.tap();
+    const openMenu = page.locator('.mobile-toolbar > .entry-more > button[aria-expanded=true]');
+    if (await openMenu.isVisible()) {
+        await page.keyboard.press('Escape');
+        await expect(openMenu).toHaveCount(0);
+    }
+    if (await close.isVisible() && await close.getAttribute('aria-expanded') === 'true') await close.tap();
 }
 async function download(page: Page, name: string, touch: boolean) {
     await activateVaultUtility(page, 'Settings', { touch });
