@@ -4,13 +4,26 @@ import { Events } from 'framework/events';
 import { AppSettingsModel } from 'models/app-settings-model';
 import type { EntryModel } from 'models/entry-model';
 import type { FileModel } from 'models/file-model';
+import type { AppModel } from 'models/app-model';
+import { getSessionAccess } from 'comp/app/session-access';
 import { t } from './i18n';
 import { ProtectedValue } from 'kdbxweb';
 import { confirmDiscardDrafts, usePendingDraft } from './pending-drafts';
 
-export function Notes({ entry }: { entry: EntryModel }) {
+export function Notes({ model, entry }: { model: AppModel; entry: EntryModel }) {
     const [draft, setDraft] = useState<string | null>(null);
     const baseline = useRef('');
+    const target = useRef({ file: entry.file as FileModel, db: (entry.file as FileModel).db, raw: entry.entry });
+    const access = getSessionAccess(model), openEpoch = useRef(access.epoch);
+    if (access.state === 'open') openEpoch.current = access.epoch;
+    const available = () => {
+        const { db, raw } = target.current;
+        const file = draft === null ? entry.file as FileModel : target.current.file;
+        return (access.state === 'open' || (access.state === 'securing' && access.epoch === openEpoch.current + 1)) &&
+            file.active && model.files.get(file.id) === file && entry.file === file &&
+            (draft === null || (file.db === db && entry.entry === raw)) &&
+            file.getEntry(entry.id) === entry && !(file as FileModel & { readOnly?: boolean }).readOnly;
+    };
     const [error, setError] = useState('');
     const value = entry.notes || '';
     const converted = useMemo(
@@ -21,6 +34,10 @@ export function Notes({ entry }: { entry: EntryModel }) {
     const save = (retain = false) => {
         if (draft !== null && ((entry.file as FileModel).getEntry(entry.id) !== entry || value !== baseline.current)) {
             setError(t('This entry changed while you were editing. Copy your notes, then cancel and reopen the editor.'));
+            return false;
+        }
+        if (!available()) {
+            setError(t('This database is read-only or the entry is no longer available. Copy your notes before canceling.'));
             return false;
         }
         if (draft !== null && draft !== value) {
@@ -38,7 +55,11 @@ export function Notes({ entry }: { entry: EntryModel }) {
             <div class="notes__head">
                 <h2 class="section-title">{t('Notes')}</h2>
                 {draft === null && (
-                    <button class="link" onClick={() => { baseline.current = value; setError(''); setDraft(value); }}>{t('Edit notes')}</button>
+                    <button class="link" disabled={!available()} onClick={() => {
+                        if (!available() || access.state !== 'open') return;
+                        target.current = { file: entry.file as FileModel, db: (entry.file as FileModel).db, raw: entry.entry };
+                        baseline.current = value; setError(''); setDraft(value);
+                    }}>{t('Edit notes')}</button>
                 )}
             </div>
             {draft !== null ? (

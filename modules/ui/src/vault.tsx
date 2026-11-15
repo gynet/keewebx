@@ -35,6 +35,7 @@ import { t } from './i18n';
 import { ThemeToggle } from './theme';
 import { confirmDiscardDrafts, hasPendingDrafts, savePendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
+import { safeWebsiteUrl } from './website-url';
 import { prepareOtpDraft } from 'comp/app/entry-otp';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
 import { EntryTemplates } from './entry-templates';
@@ -68,23 +69,6 @@ const SYNC_LABELS: Record<string, string> = {
 };
 
 const kdbxName = (name: string) => (/\.kdbx$/i.test(name) ? name : `${name}.kdbx`);
-
-function safeWebsiteUrl(text: string): string | undefined {
-    const value = text.trim();
-    // Reject control characters and backslashes before the URL parser can normalize them.
-    // eslint-disable-next-line no-control-regex
-    if (!value || /[\x00-\x1f\x7f\\]/.test(value)) {
-        return undefined;
-    }
-    try {
-        const candidate = value.startsWith('//') ? `https:${value}`
-            : /^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`;
-        const url = new URL(candidate);
-        return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname ? url.href : undefined;
-    } catch {
-        return undefined;
-    }
-}
 
 interface GroupLike {
     iconId?: number | null;
@@ -861,7 +845,9 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                     <span class="detail__where" style={{ overflowWrap: 'anywhere' }}>{entry.groupName}</span>
                 </div>
                 <div class="entry-detail__actions">
-                    <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
+                    <button class="pill pill--tinted" disabled={!!(entry.file as FileModel & { readOnly?: boolean }).readOnly} onClick={() => {
+                        if (!(entry.file as FileModel & { readOnly?: boolean }).readOnly) onEdit();
+                    }}><Icon name="edit" size={16} />{t('Edit')}</button>
                     <EntryActions>
                         <button type="button" class="pill" aria-haspopup="dialog"
                             onClick={() => detail.current?.querySelector<HTMLButtonElement>('.entry-icon-trigger')?.click()}>
@@ -944,7 +930,7 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 </div>
             )}
 
-            <Notes key={`${entry.id}:${notesVersion}`} entry={entry} />
+            <Notes key={`${entry.id}:${notesVersion}`} model={model} entry={entry} />
 
             <Attachments key={entry.id} model={model} entry={entry} />
 

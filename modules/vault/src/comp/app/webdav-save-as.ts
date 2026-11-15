@@ -4,9 +4,10 @@ import { Storage } from 'storage';
 import { getSessionAccess } from './session-access';
 import { waitForSync } from './vault-files';
 import { credentialChangeVersion } from '../../util/kdbxweb/credential-changes';
+import { webDavAddress } from './webdav-address';
 
 export function webDavDestination(value: string): string {
-    const url = new URL(value.trim());
+    const url = new URL(webDavAddress(value));
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash ||
         !url.pathname.toLowerCase().endsWith('.kdbx')) {
         throw new Error('Enter an HTTP or HTTPS address ending in .kdbx, without embedded credentials or a fragment.');

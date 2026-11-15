@@ -20,6 +20,9 @@ import { getSessionAccess } from 'comp/app/session-access';
 import { classifyStartFiles } from './start-files';
 import { readStartLink } from './start-link';
 import { StartTools } from './start-tools';
+import { removeRecent } from './recent-removal';
+import { webDavAddress } from 'comp/app/webdav-address';
+import { webDavError } from './webdav-error';
 import './start-flows.css';
 
 interface RecentFile {
@@ -68,9 +71,11 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     const additional = !!onOpened;
     const [creating, setCreating] = useState(false);
     const [unlocking, setUnlocking] = useState(false);
+    const [removing, setRemoving] = useState(false);
+    const removal = useRef(false);
     const [dropping, setDropping] = useState(false);
     const [startup] = useState(() => additional ? undefined : readStartLink());
-    const busy = creating || unlocking;
+    const busy = creating || unlocking || removing;
     const admitted = () => getSessionAccess(model).state === 'open' && canOpen?.() !== false;
     const localAllowed = () => admitted() && model.settings.canOpen;
     const remoteAllowed = () => admitted() && canOpenProvider('webdav');
@@ -226,15 +231,21 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                         {!additional && model.settings.canRemoveLatest && <button class="round vault-row__remove"
                             aria-label={t('Remove {} from this browser', kdbxName(file.name))}
                             title={t(file.storage ? 'Forget this vault' : 'Remove local copy')}
-                            onClick={() => {
-                                if (!model.settings.canRemoveLatest) return;
+                            disabled={busy} onClick={async () => {
+                                if (!model.settings.canRemoveLatest || busy || removal.current) return;
                                 const message = file.storage
                                     ? 'Forget {} on this browser? Its cached copy and saved connection details will be removed. The remote database will not be deleted.'
                                     : 'Remove {} from this browser? Its encrypted local copy and recent entry will be deleted. Download a backup first if this is your only copy. Original files on disk are not deleted.';
                                 if (!window.confirm(t(message, kdbxName(file.name)))) return;
                                 if (!model.settings.canRemoveLatest) return;
-                                model.removeFileInfo(file.id);
-                                selectPane({ kind: 'none' });
+                                removal.current = true; setRemoving(true);
+                                const access = getSessionAccess(model), epoch = access.epoch;
+                                try {
+                                    await removeRecent(model, file.id);
+                                    if (access.state === 'open' && access.isCurrent(epoch)) selectPane({ kind: 'none' });
+                                } catch {
+                                    if (access.state === 'open' && access.isCurrent(epoch)) setFileError({ message: t('The local copy could not be removed. Its recent entry is retained. Retry, or unlock and download a backup before removing it.') });
+                                } finally { removal.current = false; setRemoving(false); }
                             }}><Icon name="trash" size={16} /></button>}
                         </SwipeVaultRow>
                     );
@@ -300,6 +311,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     </div>
                 ) : (
                     <UnlockCard key={JSON.stringify(pane)} model={model} pane={pane} canOpen={canOpen} onBusyChange={setUnlocking} onOpened={onOpened} onUnlock={cancelFileRead}
+                        onEditConnection={url => selectPane({ kind: 'webdav', url })}
                         onCancel={() => { cancelFileRead(); setUnlocking(false); setPane({ kind: 'none' }); }} capturePasskeySetup={() => {
                         const intent = setupIntent.current;
                         return (id: string) => { if (setupIntent.current === intent) onPasskeySetup(id); };
@@ -310,11 +322,12 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
     );
 }
 
-function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canOpen, onOpened, onBusyChange }: {
+function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canOpen, onOpened, onBusyChange, onEditConnection }: {
     model: AppModel;
     pane: Exclude<Pane, { kind: 'webdav' } | { kind: 'none' } | { kind: 'create' } | { kind: 'import'; file?: File } | { kind: 'provider' }>;
     onBusyChange: (busy: boolean) => void;
     onCancel(): void;
+    onEditConnection(url: string): void;
     onUnlock(): void; capturePasskeySetup(): (id: string) => void;
     canOpen?(): boolean; onOpened?(): void;
 }) {
@@ -386,7 +399,8 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
             const msg = err instanceof Error ? err.message : String(err);
             if (msg === 'invalid-password') setMessage(t('Wrong password'));
             else {
-                setMessage(`${t(Locale.openErrorDescription)}. ${t('Try again or choose another file.')}`);
+                const remote = pane.kind === 'webdav-unlock' || (pane.kind === 'recent' && pane.file.storage === 'webdav');
+                setMessage(remote ? t(webDavError(msg)) : `${t(Locale.openErrorDescription)}. ${t('Try again or choose another file.')}`);
                 setDiagnostic(msg);
             }
             setBusy(false);
@@ -457,6 +471,8 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
                 <summary>{t('Error details')}</summary>
                 <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{diagnostic}</pre>
             </details>}
+            {error && (pane.kind === 'webdav-unlock' || (pane.kind === 'recent' && pane.file.storage === 'webdav')) &&
+                <button type="button" class="pill" onClick={() => onEditConnection(pane.kind === 'webdav-unlock' ? pane.url : pane.file.path ?? '')}>{t('Edit connection')}</button>}
             <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
                 setupAfterUnlock={setupAfterUnlock} onSetupChange={setSetupAfterUnlock} canOpen={admission} onOpened={onOpened}
                 keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setMessage} onAttempt={onUnlock} />
@@ -477,7 +493,9 @@ function WebDavForm({ onNext, initialUrl }: {
     const [url, setUrl] = useState(initialUrl ?? '');
     const [user, setUser] = useState('');
     const [pass, setPass] = useState('');
-    const valid = /^https?:\/\/.+\/.+/.test(url.trim());
+    let addressError = '';
+    try { webDavAddress(url); } catch (error) { addressError = error instanceof Error ? error.message : 'Enter a valid WebDAV file address.'; }
+    const valid = !addressError;
     return (
         <form
             class="card"
@@ -517,6 +535,7 @@ function WebDavForm({ onNext, initialUrl }: {
                     />
                 </label>
             </div>
+            {url && addressError && <p role="alert">{t(addressError)}</p>}
             <button class="pill pill--primary pill--block" id="webdav-next" disabled={!valid}>
                 {t('Continue')}
             </button>

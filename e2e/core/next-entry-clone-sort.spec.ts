@@ -1,4 +1,4 @@
-import { activateEntryAction } from '../entry-actions';
+import { activateEntryAction, recycleEntry } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
@@ -231,7 +231,7 @@ test.describe('New entry clone and sort', () => {
         await dialog(page).getByRole('button', { name: 'Clone', exact: true }).click();
         await expect(page.locator('.entry-row--on')).toContainText('bravo');
         const copied = await download(page); const cloneId = await fidelity(copied.db, source);
-        await activateEntryAction(page, 'Recycle');
+        await recycleEntry(page);
         await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click();
         await row(page, 'needle Copy').click(); await expect(page.getByRole('button', { name: 'Clone…', exact: true, includeHidden: true })).toHaveCount(0);
         const after = (await download(page)).db;

@@ -91,7 +91,7 @@ export function EntryDelete({ model, entry, onDeleted }: {
         const reason = unavailable(model, next);
         if (reason) { setError(reason); return; }
         setError('');
-        if (next.trash || !next.binEnabled) setSelection(next);
+        if (next.trash || !next.binEnabled || matchMedia('(max-width: 900px)').matches) setSelection(next);
         else apply(next);
     };
     return <div>
@@ -113,6 +113,7 @@ function DeleteDialog({ model, selection, trigger, error, applied, onCancel, onD
     const cancel = useRef<HTMLButtonElement>(null);
     const [supported, setSupported] = useState(true);
     const reason = unavailable(model, selection);
+    const permanent = selection.trash || !selection.binEnabled;
     useLayoutEffect(() => {
         const element = dialog.current!;
         if (typeof element.showModal !== 'function') { setSupported(false); return; }
@@ -129,7 +130,7 @@ function DeleteDialog({ model, selection, trigger, error, applied, onCancel, onD
         <p>{t('This browser cannot open the delete dialog. Use a browser that supports modal dialogs.')}</p>
         <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
     </div>;
-    return <dialog ref={dialog} aria-label={t('Permanently delete entry')} aria-modal="true"
+    return <dialog ref={dialog} aria-label={t(permanent ? 'Permanently delete entry' : 'Move entry to Trash')} aria-modal="true"
         onCancel={event => { event.preventDefault(); onCancel(); }}
         onKeyDown={event => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         onClick={event => { IdleTracker.regUserAction(); event.stopPropagation(); }}
@@ -137,10 +138,11 @@ function DeleteDialog({ model, selection, trigger, error, applied, onCancel, onD
             padding: '24px', margin: 'auto', overflow: 'auto', overflowWrap: 'anywhere',
             border: '1px solid var(--kx-line)', borderRadius: 'var(--kx-radius-card)',
             background: 'var(--kx-bg)', color: 'var(--kx-text)' }}>
-        <h2>{t('Permanently delete entry')}</h2>
-        <p>{t('Permanently delete “{}”?', selection.entry.title || t('(no title)'))}</p>
-        <p>{t('This cannot be undone. This entry, its history and its attachments will be removed from this database.')}</p>
-        {!selection.trash && <p>{t('The recycle bin is disabled. This entry will not be moved to Trash.')}</p>}
+        <h2>{t(permanent ? 'Permanently delete entry' : 'Move entry to Trash')}</h2>
+        <p>{t(permanent ? 'Permanently delete “{}”?' : 'Move “{}” to Trash?', selection.entry.title || t('(no title)'))}</p>
+        <p>{t(permanent ? 'This cannot be undone. This entry, its history and its attachments will be removed from this database.'
+            : 'You can restore this entry, its history and its attachments from Trash.')}</p>
+        {!selection.trash && !selection.binEnabled && <p>{t('The recycle bin is disabled. This entry will not be moved to Trash.')}</p>}
         <p>{t('Unsaved drafts will require a separate discard confirmation.')}</p>
         {reason && <p role="alert" class="error">{reason}</p>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -151,7 +153,7 @@ function DeleteDialog({ model, selection, trigger, error, applied, onCancel, onD
                     return !!(supported && element?.isConnected && element.open && !element.closest('[hidden], [inert]'));
                 };
                 if (canApply()) onDelete(canApply);
-            }}>{t('Delete permanently')}</button>
+            }}>{t(permanent ? 'Delete permanently' : 'Move to Trash')}</button>
         </div>
         {error && <p role="alert" class="error">{error}</p>}
     </dialog>;

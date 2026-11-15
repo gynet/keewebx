@@ -1,4 +1,4 @@
-import { activateEntryAction, revealEntryAction } from '../entry-actions';
+import { activateEntryAction, revealEntryAction, recycleEntry } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
@@ -283,7 +283,7 @@ test.describe('New same-vault entry move', () => {
         await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         fidelity((await download(page)).db, source, source.ids.source);
         // Trash has a separate Restore workflow; normal move must not expose it as a destination/source.
-        await activateEntryAction(page, 'Recycle');
+        await recycleEntry(page);
         await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click();
         await row(page).click();
         await expect(page.getByRole('button', { name: 'Move to group…', exact: true, includeHidden: true })).toHaveCount(0);

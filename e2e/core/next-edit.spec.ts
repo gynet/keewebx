@@ -1,4 +1,4 @@
-import { activateEntryAction } from '../entry-actions';
+import { activateEntryAction, recycleEntry } from '../entry-actions';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import path from 'path';
 
@@ -184,7 +184,7 @@ test.describe('New interface entry editing', () => {
         await expect(form.getByLabel('Field value', { exact: true })).toHaveValue('new protected custom value');
         await expect(form.getByLabel('Protected', { exact: true })).toBeChecked();
         await form.getByRole('button', { name: 'Cancel', exact: true }).click();
-        await activateEntryAction(page, 'Recycle');
+        await recycleEntry(page);
         await expect(entryRow(page, 'Created fixture entry')).toHaveCount(0);
         await lockAndReopen(page);
         await expect(entryRow(page, 'Created fixture entry')).toHaveCount(0);

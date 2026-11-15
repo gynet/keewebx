@@ -1,4 +1,4 @@
-import { activateEntryAction, revealEntryAction } from '../entry-actions';
+import { activateEntryAction, revealEntryAction, recycleEntry } from '../entry-actions';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -148,7 +148,7 @@ for (const mode of ['trash', 'disabled'] as const) test(`${mode}: cancel is iner
 test('normal Recycle remains reversible and creates no tombstone', async ({ page }) => {
     const source = await fixture('normal'); await open(page, source);
     await expect(page.getByRole('button', { name: 'Delete permanently…', exact: true, includeHidden: true })).toHaveCount(0);
-    await activateEntryAction(page, 'Recycle');
+    await recycleEntry(page);
     await expect(dialog(page)).toHaveCount(0); await expect(row(page)).toHaveCount(0);
     await nav(page).getByRole('button', { name: 'Trash', exact: true }).click(); await row(page).click();
     await expect(await revealEntryAction(page, 'Delete permanently…')).toBeVisible();

@@ -14,6 +14,7 @@ import type { FileModel } from 'models/file-model';
 import { entryFieldText, listEntries, summarizeEntry } from 'comp/extension/entry-list';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { UrlFormat } from 'util/formatting/url-format';
+import { webDavAddress } from './webdav-address';
 import { getSessionAccess } from './session-access';
 import { Timeouts } from 'const/timeouts';
 import { clipboardExpiry } from 'comp/browser/clipboard-expiry';
@@ -129,7 +130,7 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
 
     async openWebDav(req) {
         assertVaultPolicy('provider', 'webdav');
-        const url = String(req.url);
+        const url = webDavAddress(String(req.url));
         const openedFileId = await openFile({
             name: UrlFormat.getDataFileName(url),
             canOpen: typeof req.canOpen === 'function' ? req.canOpen as () => boolean : undefined,
