@@ -1,4 +1,5 @@
 /** No vault open: recent vaults on the left, an unlock card or a way to add one on the right. */
+import { hasInterface } from 'comp/browser/ui-entry';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { ByteUtils, Consts } from 'kdbxweb';
 import type { AppModel } from 'models/app-model';
@@ -194,7 +195,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                 </div>
                 <div id="start-sidebar-content" class="start-sidebar-content">
                 <div class="start__tools">
-                    {!additional && <a class="link" href="classic.html">{t('Open Classic')}</a>}
+                    {!additional && hasInterface('classic') && <a class="link" href="classic.html">{t('Open Classic')}</a>}
                     {!additional && onSettings && model.settings.canOpenSettings && <button type="button" class="link" onClick={() => { if (model.settings.canOpenSettings) onSettings(); }}>{t('Settings')}</button>}
                     <ThemeToggle />
                 </div>

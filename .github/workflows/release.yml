@@ -3,7 +3,8 @@ name: Release self-host bundle
 # Produces a static-site tarball + zip users can drop onto any HTTP server
 # (nginx, Caddy, S3+CF, GitHub Pages, `python3 -m http.server`, ...). This is
 # the "I don't want to use keewebx.app, I want to host it myself"
-# artifact. Contains both interfaces without hosted-service overlays.
+# artifacts. New is recommended; Classic is deprecated. The combined bundle
+# remains available for existing deployments. All contain static assets only.
 #
 # Triggers:
 #   - push of a tag `v*`   -> attach archives to the matching GitHub Release
@@ -101,7 +102,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Release version label: ${VERSION}"
 
-      - name: Package both interfaces as zip and tar.gz
+      - name: Package New, Classic and compatibility bundles
         id: pack
         run: |
           set -euo pipefail
@@ -112,16 +113,24 @@ jobs:
       - name: Verify and smoke the actual extracted archive
         run: |
           set -euo pipefail
-          BASE="${{ steps.pack.outputs.base }}"
-          (cd artifacts && sha256sum -c "${BASE}.zip.sha256" && sha256sum -c "${BASE}.tar.gz.sha256")
-          unzip -tq "artifacts/${BASE}.zip"
-          mkdir -p unpacked/zip unpacked/tar
-          unzip -q "artifacts/${BASE}.zip" -d unpacked/zip
-          tar -xzf "artifacts/${BASE}.tar.gz" -C unpacked/tar
-          diff -qr "unpacked/zip/${BASE}" "unpacked/tar/${BASE}"
           bunx playwright install --with-deps chromium
-          node scripts/smoke-artifact.mjs "unpacked/zip/${BASE}" > artifacts/smoke-zip.json
-          node scripts/smoke-artifact.mjs "unpacked/tar/${BASE}" > artifacts/smoke-tar.json
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p unpacked/zip unpacked/tar
+          for UI in new classic web; do
+            BASE="keewebx-${UI}-${VERSION}"
+            (cd artifacts && sha256sum -c "${BASE}.zip.sha256" && sha256sum -c "${BASE}.tar.gz.sha256")
+            unzip -tq "artifacts/${BASE}.zip"
+            unzip -q "artifacts/${BASE}.zip" -d unpacked/zip
+            tar -xzf "artifacts/${BASE}.tar.gz" -C unpacked/tar
+            diff -qr "unpacked/zip/${BASE}" "unpacked/tar/${BASE}"
+            if [ "$UI" = web ]; then
+              SMOKE=scripts/smoke-artifact.mjs
+            else
+              SMOKE=scripts/smoke-standalone-artifact.mjs
+            fi
+            node "$SMOKE" "unpacked/zip/${BASE}" > "artifacts/smoke-${UI}-zip.json"
+            node "$SMOKE" "unpacked/tar/${BASE}" > "artifacts/smoke-${UI}-tar.json"
+          done
 
       - name: Upload as workflow artifact (always)
         uses: actions/upload-artifact@v7
@@ -150,7 +159,7 @@ jobs:
         run: |
           set -euo pipefail
           NEW_TAG="${GITHUB_REF_NAME}"
-          BASE="${{ steps.pack.outputs.base }}"
+          VERSION="${{ steps.version.outputs.version }}"
           # Previous non-extension v* tag, sorted by version. `git tag
           # --sort=-v:refname` lists newest first; we exclude the current
           # tag and any -extension variant.
@@ -193,9 +202,12 @@ jobs:
             echo ""
             echo "## Self-host"
             echo ""
-            echo "Download \`${BASE}.zip\` or \`${BASE}.tar.gz\` below, extract,"
-            echo "and double-click \`index.html\` (or serve the folder from any static"
-            echo "HTTP server). \`.sha256\` checksums are attached for verification."
+            echo "Recommended: [New ZIP](https://github.com/${GITHUB_REPOSITORY}/releases/download/${NEW_TAG}/keewebx-new-${VERSION}.zip) or [New TAR](https://github.com/${GITHUB_REPOSITORY}/releases/download/${NEW_TAG}/keewebx-new-${VERSION}.tar.gz)."
+            echo ""
+            echo "Deprecated Classic: \`keewebx-classic-${VERSION}.zip\` or \`.tar.gz\`."
+            echo "The combined compatibility bundle remains \`keewebx-web-${VERSION}.zip\` or \`.tar.gz\`."
+            echo "Extract and open \`index.html\`, or serve the folder from a static HTTP server."
+            echo "Each archive has an attached \`.sha256\` checksum."
             echo "See the bundled \`DEPLOY.md\` for the full self-host guide."
             echo ""
             if [ -n "${PREV_TAG}" ]; then
@@ -212,10 +224,9 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            artifacts/${{ steps.pack.outputs.base }}.zip
-            artifacts/${{ steps.pack.outputs.base }}.zip.sha256
-            artifacts/${{ steps.pack.outputs.base }}.tar.gz
-            artifacts/${{ steps.pack.outputs.base }}.tar.gz.sha256
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.sha256
           body_path: release-body.md
           # generate_release_notes intentionally omitted: we build the
           # body ourselves above. Leaving it on would append softprops's

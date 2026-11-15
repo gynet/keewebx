@@ -37,6 +37,7 @@
     {{/if}}
 
     <h2 id="appearance">{{res 'setGenAppearance'}}</h2>
+    {{#if canSwitchInterface}}
     <div>
         <label for="settings__general-ui">{{res 'setGenInterface'}}:</label>
         <select class="settings__general-ui settings__select input-base" id="settings__general-ui">
@@ -44,6 +45,7 @@
             <option value="new">{{res 'setGenInterfaceNew'}}</option>
         </select>
     </div>
+    {{/if}}
     {{#if locales}}
     <div>
         <label for="settings__general-locale">{{res 'setGenLocale'}}:</label>

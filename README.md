@@ -18,14 +18,15 @@ The current interface is the default for the app, demo, downloads and developmen
 
 ## Use it locally
 
-Download `keewebx-web-<version>.zip` or `.tar.gz` from [Releases](https://github.com/gynet/keewebx/releases/latest), verify its accompanying SHA-256 checksum, and extract the complete archive.
+Download the recommended `keewebx-new-<version>.zip` or `.tar.gz` from [Releases](https://github.com/gynet/keewebx/releases/latest), verify its accompanying SHA-256 checksum, and extract the complete archive.
 
-| Entry point | Interface |
-| --- | --- |
-| `index.html` | New, the default |
-| `next.html` | New compatibility entry |
-| `classic.html` | Deprecated Classic |
-| `classic/index.html` or `?ui=classic` | Deprecated Classic compatibility routes |
+| Package | Homepage | Other entry points |
+| --- | --- | --- |
+| `keewebx-new-<version>` (recommended) | New | `next.html` |
+| `keewebx-classic-<version>` (deprecated) | Classic | `classic.html`, `classic/index.html` |
+| `keewebx-web-<version>` (combined compatibility bundle) | New | Both interfaces and in-app switching |
+
+Each package includes its own assets and offline service worker. Standalone packages hide switching to the other interface. The combined bundle keeps `?ui=classic` compatibility routes.
 
 Double-click `index.html`, or serve the extracted directory with any static HTTP server:
 

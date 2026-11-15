@@ -1,3 +1,4 @@
+import { hasInterface } from 'comp/browser/ui-entry';
 import '../styles/main.scss';
 import { Events } from 'framework/events';
 import { storageKey } from 'comp/settings/storage-namespace';
@@ -87,7 +88,7 @@ $(() => {
         const embeddedConfig = document.querySelector('meta[name=kw-config]')?.getAttribute('content');
         const configured = new URLSearchParams(location.search).has('config') ||
             !!(embeddedConfig && embeddedConfig !== '(no-config)');
-        if (/(?:^|\/)classic(?:\.html|\/(?:index\.html)?)?$/.test(location.pathname) || /[?&]ui=classic\b/.test(location.search)) {
+        if (!hasInterface('new') || /(?:^|\/)classic(?:\.html|\/(?:index\.html)?)?$/.test(location.pathname) || /[?&]ui=classic\b/.test(location.search)) {
             appModel.settings.ui = 'classic';
         } else if (!configured && appModel.settings.ui === 'new' && /^https?:$/.test(location.protocol)) {
             location.replace('next.html' + location.hash);

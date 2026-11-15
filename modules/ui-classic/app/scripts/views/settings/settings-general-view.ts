@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { hasInterface } from 'comp/browser/ui-entry';
 import { Events } from 'framework/events';
 import { View } from 'framework/views/view';
 import { Storage } from 'storage';
@@ -124,6 +125,7 @@ class SettingsGeneralView extends View {
         const storageProviders = this.getStorageProviders();
 
         super.render({
+            canSwitchInterface: hasInterface('new'),
             themes: this.getAllThemes(),
             autoSwitchTheme: settings.autoSwitchTheme,
             activeTheme: settingsManager.activeTheme,
@@ -312,7 +314,7 @@ class SettingsGeneralView extends View {
     }
 
     changeInterface(e: any): void {
-        if (e.target.value === 'new') {
+        if (hasInterface('new') && e.target.value === 'new') {
             this.appModel.settings.ui = 'new';
             location.href = new URL('index.html', document.baseURI).href;
         }

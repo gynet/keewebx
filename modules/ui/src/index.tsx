@@ -32,7 +32,7 @@ import { CloseVault } from './close-vault';
 import type { FileModel } from 'models/file-model';
 import { MultiVaultOpen } from './multi-vault-open';
 import { useVaultCommands } from './vault-commands';
-import { legacyClassicEntry } from 'comp/browser/ui-entry';
+import { hasInterface, legacyClassicEntry } from 'comp/browser/ui-entry';
 import { KeyChangeReminder } from './key-change-reminder';
 
 declare const __KW_NEW_EXTENSION__: boolean;
@@ -271,7 +271,7 @@ function App({ model }: { model: AppModel }) {
     );
 }
 
-const classicEntry = legacyClassicEntry(location.href, document.baseURI);
+const classicEntry = hasInterface('classic') && legacyClassicEntry(location.href, document.baseURI);
 if (classicEntry) location.replace(classicEntry);
 else void startVault().then((model) => {
     render(<App model={model} />, document.getElementById('root')!);
@@ -281,8 +281,8 @@ else void startVault().then((model) => {
         <main class="start__main">
             <div class="card" role="alert">
                 <h1>{t('Unable to open the vault')}</h1>
-                <p>{t('Try opening the app directly or return to Classic.')}</p>
-                <a href="classic.html">{t('Open Classic')}</a>
+                <p>{t(hasInterface('classic') ? 'Try opening the app directly or return to Classic.' : 'Try opening the app directly.')}</p>
+                {hasInterface('classic') && <a href="classic.html">{t('Open Classic')}</a>}
             </div>
         </main>,
         document.getElementById('root')!

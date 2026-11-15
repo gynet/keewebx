@@ -1,4 +1,5 @@
 /** Settings: interface choice and security. Classic keeps its own full settings. */
+import { hasInterface } from 'comp/browser/ui-entry';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AppSettingsModel } from 'models/app-settings-model';
 import { Icon } from 'ui-kit/mark';
@@ -110,7 +111,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                     <section id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden={section !== 'appearance'}>
                     <h2 class="group-title">{t('Appearance')}</h2>
                     <section class="cardlist">
-                        <div class="cardlist__row">
+                        {hasInterface('classic') && <><div class="cardlist__row">
                             <span title={t('Classic is the original layout. Your vaults and settings stay the same.')}>
                                 {t('Interface')}
                             </span>
@@ -121,7 +122,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                                 <ClassicSwitch model={model} />
                             </div>
                         </div>
-                        <p class="general-preferences__help">{t('Classic is deprecated and remains available for compatibility.')}</p>
+                        <p class="general-preferences__help">{t('Classic is deprecated and remains available for compatibility.')}</p></>}
                         <div class="cardlist__row">
                             <span>{t('Theme')}</span>
                             <ThemeSelect />
