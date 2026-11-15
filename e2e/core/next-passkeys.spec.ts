@@ -58,6 +58,7 @@ async function enroll(page: Page, source: Fixture, currentPassword = password) {
     await section(page).getByLabel('Current master password', { exact: true }).fill(currentPassword);
     if (source.key) await section(page).getByLabel('Current key file (if required)', { exact: true }).setInputFiles(payload(source.key, 'fixture.keyx'));
     await section(page).getByRole('button', { name: 'Enable local passkey', exact: true }).click();
+    await section(page).getByRole('button', { name: 'Verify passkey', exact: true }).click();
     await expect(section(page).getByRole('status')).toContainText('Passkey unlock saved in this browser', { timeout });
     await expect(section(page).getByLabel('Current master password', { exact: true })).toHaveValue('');
 }
@@ -249,6 +250,108 @@ test('simulated cancellation preserves registration and password fallback', asyn
     await expect(page.locator('#unlock-error-details')).toHaveCount(0);
     expect(await record(page)).toEqual(before);
     await screenshot(page, 'canceled-passkey-password-fallback');
+    await passwordOpen(page, source);
+});
+
+test('virtual PRF: saved credential waits for fresh verification; rejected get retries without creating another passkey', async ({ page, context }) => {
+    const auth = await authenticator(context, page), source = await fixture();
+    await openFile(page, source); await openSettings(page);
+    // Only the first get refusal is simulated. Creation and the successful retry
+    // use the real CDP virtual authenticator and the application's real PRF crypto.
+    await page.evaluate(() => {
+        const create = navigator.credentials.create.bind(navigator.credentials);
+        const get = navigator.credentials.get.bind(navigator.credentials);
+        const probe = (window as any).__verifyProbe = { creates: 0, gets: 0, active: [] as boolean[] };
+        navigator.credentials.create = async (...args) => { probe.creates++; return create(...args); };
+        navigator.credentials.get = async (...args) => {
+            probe.gets++; probe.active.push(navigator.userActivation.isActive);
+            if (probe.gets === 1) throw new DOMException('Simulated post-create provider refusal', 'NotAllowedError');
+            return get(...args);
+        };
+    });
+    await section(page).getByLabel('Current master password', { exact: true }).fill(password);
+    await section(page).getByRole('button', { name: 'Enable local passkey', exact: true }).click();
+    const verify = section(page).getByRole('button', { name: 'Verify passkey', exact: true });
+    await expect(verify).toBeVisible();
+    const created = (await auth.credentials()).credentials;
+    expect(created).toHaveLength(1);
+    expect(await page.evaluate(() => (window as any).__verifyProbe.gets)).toBe(0);
+    for (const key of ['passkeyCredentialId', 'passkeyPrfSalt', 'passkeyWrappedKey', 'passkeyCreatedDate']) {
+        expect((await record(page))[key]).toBeFalsy();
+    }
+    await verify.click();
+    await expect(section(page).getByRole('status')).toContainText('canceled');
+    await expect(section(page).getByRole('status')).not.toContainText(/you (?:have )?cancel(?:ed|led)/i);
+    await expect(verify).toBeEnabled();
+    for (const key of ['passkeyCredentialId', 'passkeyPrfSalt', 'passkeyWrappedKey', 'passkeyCreatedDate']) {
+        expect((await record(page))[key]).toBeFalsy();
+    }
+    expect((await auth.credentials()).credentials.map(value => value.credentialId)).toEqual(created.map(value => value.credentialId));
+    await screenshot(page, 'post-create-verification-refused-retry');
+    await verify.click();
+    await expect(section(page).getByRole('status')).toContainText('Passkey unlock saved in this browser', { timeout });
+    expect(await page.evaluate(() => (window as any).__verifyProbe)).toEqual({ creates: 1, gets: 2, active: [true, true] });
+    const verified = (await auth.credentials()).credentials;
+    expect(verified.map(value => value.credentialId)).toEqual(created.map(value => value.credentialId));
+    expect(verified[0].signCount).toBeGreaterThan(created[0].signCount);
+    const saved = await record(page);
+    expect(saved.passkeyCredentialId).toBe(created[0].credentialId);
+    expect(saved.passkeyPrfSalt).toBeTruthy(); expect(saved.passkeyWrappedKey).toBeTruthy(); expect(saved.passkeyCreatedDate).toBeTruthy();
+    await lock(page); await page.reload();
+    await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
+});
+
+for (const outcome of ['cancel', 'missing-prf'] as const) {
+    test(`virtual PRF: ${outcome} during replacement verification retains old registration and password recovery`, async ({ page, context }) => {
+        const auth = await authenticator(context, page), source = await fixture();
+        await openFile(page, source); await openSettings(page); await enroll(page, source);
+        const before = await record(page);
+        await section(page).getByLabel('Current master password', { exact: true }).fill(password);
+        await section(page).getByRole('button', { name: 'Replace local passkey', exact: true }).click();
+        const verify = section(page).getByRole('button', { name: 'Verify passkey', exact: true });
+        await expect(verify).toBeVisible();
+        expect((await auth.credentials()).credentials).toHaveLength(2);
+        expect(await record(page)).toEqual(before);
+        if (outcome === 'missing-prf') {
+            await page.evaluate(() => {
+                const get = navigator.credentials.get.bind(navigator.credentials);
+                navigator.credentials.get = async (...args) => {
+                    navigator.credentials.get = get;
+                    const result = await get(...args);
+                    // Real assertion; simulate the provider omitting extension output.
+                    if (result) Object.defineProperty(result, 'getClientExtensionResults', { value: () => ({}) });
+                    return result;
+                };
+            });
+            await verify.click();
+            await expect(section(page).getByRole('status')).toContainText('does not support passkey unlock');
+            expect(await record(page)).toEqual(before);
+        }
+        const cancel = section(page).getByRole('button', { name: /Cancel (?:passkey(?: setup| enrollment)?|setup|enrollment)/i });
+        if (outcome === 'cancel' || await cancel.isVisible()) await cancel.click();
+        await expect(verify).toHaveCount(0);
+        expect(await record(page)).toEqual(before);
+        await screenshot(page, `replacement-${outcome}-old-registration-kept`);
+        await lock(page); await passwordOpen(page, source);
+        await lock(page); await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+        await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
+        expect(await record(page)).toEqual(before);
+    });
+}
+
+test('leaving pending verification releases enrollment so lock and password recovery can finish', async ({ page, context }) => {
+    const auth = await authenticator(context, page), source = await fixture();
+    await openFile(page, source); await openSettings(page);
+    await section(page).getByLabel('Current master password', { exact: true }).fill(password);
+    await section(page).getByRole('button', { name: 'Enable local passkey', exact: true }).click();
+    await expect(section(page).getByRole('button', { name: 'Verify passkey', exact: true })).toBeVisible();
+    expect((await auth.credentials()).credentials).toHaveLength(1);
+    await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
+    await expect(page.locator('#password')).toBeVisible({ timeout: 10_000 });
+    expect((await record(page)).passkeyCredentialId).toBeFalsy();
+    await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toHaveCount(0);
     await passwordOpen(page, source);
 });
 
