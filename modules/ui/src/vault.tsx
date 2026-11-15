@@ -124,17 +124,14 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             .filter((element) => element !== navigation.current && !element.classList.contains('navigation-backdrop') && !element.hasAttribute('inert'));
         background.forEach((element) => element.setAttribute('inert', ''));
         (groupReturnFocus.current ?? navigation.current?.querySelector<HTMLButtonElement>('.side__close'))?.focus();
+        groupReturnFocus.current = null;
         return () => background.forEach((element) => element.removeAttribute('inert'));
     }, [navigationOpen]);
     useEffect(() => {
-        if (navigationOpen) {
-            (groupReturnFocus.current ?? navigation.current?.querySelector<HTMLButtonElement>('.side__close'))?.focus();
-            groupReturnFocus.current = null;
-        }
         const resized = () => { if (window.innerWidth > 760) setNavigationOpen(false); };
         window.addEventListener('resize', resized);
         return () => window.removeEventListener('resize', resized);
-    }, [navigationOpen]);
+    }, []);
     const [filter, setFilter] = useState<SearchScope>({});
     const [options, setOptions] = useState<SearchOptions>(() => ({ ...searchDefaults, ...model.advancedSearch }));
     const vaultSurface = useRef<HTMLDivElement>(null);
