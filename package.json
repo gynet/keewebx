@@ -1,6 +1,6 @@
 {
   "name": "keewebx",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "private": true,
   "description": "Modern KeePass web client - TypeScript monorepo",
   "license": "MIT",

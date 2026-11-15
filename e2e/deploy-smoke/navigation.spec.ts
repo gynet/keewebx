@@ -26,7 +26,8 @@ for (const width of [1280, 390, 320]) test(`New default and essential actions at
     }
     await expect(nav.locator('.open-vaults__select')).toHaveCount(0);
     await expect(nav.locator('.side__content').getByRole('button', { name: /^Save / })).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Lock', exact: true })).toHaveCount(1);
+    if (width < 761) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Lock', exact: true })).toHaveCount(1);
     await activateDatabaseAction(page, /^Save /);
     await page.keyboard.press('Escape');
     await expect(page.locator('#sync-state')).toHaveText('Up to date');
@@ -36,9 +37,10 @@ for (const width of [1280, 390, 320]) test(`New default and essential actions at
     await page.getByRole('dialog', { name: 'Rename group', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
     await groups.getByRole('button', { name: 'Close groups', exact: true }).click();
     if (width < 761) {
-        await nav.getByRole('button', { name: 'Close navigation', exact: true }).click();
+        await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
         await expect(nav).toBeHidden();
         await expect(page.locator('.phone-bar, .mobile-menu')).toHaveCount(0);
+        await expect(page.locator('.mobile-toolbar')).toBeVisible();
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
