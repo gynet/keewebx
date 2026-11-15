@@ -72,6 +72,7 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
                     </button>
                 </div>
             </div>
+            {result.error && <p class="error" role="alert">{result.error}</p>}
             <div class="password-generator__options">
                 <label class="field-label">
                     <span>{t('Preset')}</span>
@@ -126,7 +127,6 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
                 <button type="button" class="pill" disabled={!deriveSource} onClick={() => derive(deriveSource)}>{t('Derive options')}</button>
             </details>
             <GeneratorPresetEditor options={options} select={preset => select({ ...preset })} changed={() => setPresets(GeneratorPresets.enabled)} />
-            {result.error && <p class="error" role="alert">{result.error}</p>}
             <div class="password-generator__actions">
                 <button class="pill" type="button" onClick={() => setResult(generate(options))}>{t('Generate again')}</button>
                 <button class="pill pill--primary" type="button" disabled={!result.password || !!result.error}

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { ProtectedValue } from 'kdbxweb';
 import { BuiltInFields } from 'const/entry-fields';
 import type { AppModel } from 'models/app-model';
@@ -125,6 +125,8 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
     onCancel: () => void;
 }) {
     const file = (entry?.file ?? group?.file) as FileModel | undefined;
+    const titleInput = useRef<HTMLInputElement>(null);
+    useLayoutEffect(() => { titleInput.current?.focus(); }, []);
     const [draft, setDraft] = useState(() => {
         const initial = makeDraft(entry ?? draftSource ?? null, tags, group);
         if (!entry && draftSource) initial.fields.Title = '';
@@ -216,7 +218,7 @@ export function EntryEditor({ model, entry, group, tags = [], draftSource, onSav
                                     onInput={value => setDraft({ ...draft, fields: { ...draft.fields, UserName: value } })} />
                             ) : (
                                 <input class="input" type={(name === 'Password' ? !reveal : draft.protection?.[name] && !revealedFields.has(name)) ? 'password' : 'text'}
-                                    autoFocus={name === 'Title'} autoComplete="off" spellcheck={false}
+                                    ref={name === 'Title' ? titleInput : undefined} autoFocus={name === 'Title'} autoComplete="off" spellcheck={false}
                                     value={draft.fields[name]}
                                     onInput={(event) => setDraft({ ...draft, fields: { ...draft.fields, [name]: event.currentTarget.value } })} />
                             )}

@@ -102,8 +102,9 @@ test.describe('phone contextual group actions', () => {
         const trigger = nav.getByRole('button', exact('Manage Projects'));
         await expect(trigger).toHaveCSS('opacity', '1');
         const bounds = await trigger.boundingBox();
-        expect(bounds!.width).toBeGreaterThanOrEqual(44);
-        expect(bounds!.height).toBeGreaterThanOrEqual(44);
+        // Allow Firefox's subpixel serialization of an exact CSS 44px edge.
+        expect(bounds!.width).toBeGreaterThanOrEqual(43.99);
+        expect(bounds!.height).toBeGreaterThanOrEqual(43.99);
         await trigger.tap();
         const sheet = page.getByRole('dialog', exact('Groups'));
         await expect(sheet.locator('h3')).toHaveText('Projects');

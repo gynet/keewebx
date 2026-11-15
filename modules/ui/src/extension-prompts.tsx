@@ -53,12 +53,14 @@ export function NewProtocolUiHost({ controller }: { controller: NewProtocolUi })
     return <div ref={host} style={{ display: 'contents' }}>{content}</div>;
 }
 
-export function PromptDialog({ title, icon, cancel, children, confirm, confirmLabel, disabled = false, focusSearch = false }: {
+export function PromptDialog({ title, icon, cancel, children, confirm, confirmLabel, disabled = false, focusSearch = false, focusHeading = false, getReturnFocus }: {
     title: string; icon: string; cancel: () => void; children: ComponentChildren;
-    confirm?: () => void; confirmLabel?: string; disabled?: boolean; focusSearch?: boolean;
+    confirm?: () => void; confirmLabel?: string; disabled?: boolean; focusSearch?: boolean; focusHeading?: boolean;
+    getReturnFocus?: () => HTMLElement | null;
 }) {
     const dialog = useRef<HTMLDialogElement>(null);
     const cancelButton = useRef<HTMLButtonElement>(null);
+    const heading = useRef<HTMLHeadingElement>(null);
     const titleId = useId();
     const callbacks = useRef({ cancel });
     callbacks.current = { cancel };
@@ -68,13 +70,15 @@ export function PromptDialog({ title, icon, cancel, children, confirm, confirmLa
         try {
             element.showModal();
             if (focusSearch) element.querySelector<HTMLInputElement>('input[type=search]')?.focus();
+            else if (focusHeading) { heading.current?.focus({ preventScroll: true }); element.scrollTop = 0; }
             else cancelButton.current?.focus();
         } catch { callbacks.current.cancel(); }
         return () => {
             if (element.open) element.close();
             requestAnimationFrame(() => {
-                if (previous?.isConnected && !previous.closest('[inert], [hidden]') && !previous.matches(':disabled')
-                    && !document.querySelector('dialog[open]')) previous.focus();
+                const target = previous?.getClientRects().length ? previous : getReturnFocus?.();
+                if (target?.isConnected && target.getClientRects().length && !target.closest('[inert], [hidden]') && !target.matches(':disabled')
+                    && !document.querySelector('dialog[open]')) target.focus();
             });
         };
     }, []);
@@ -87,7 +91,7 @@ export function PromptDialog({ title, icon, cancel, children, confirm, confirmLa
             border: '1px solid var(--kx-line)', borderRadius: 'var(--kx-radius-card)',
             background: 'var(--kx-bg)', color: 'var(--kx-text)' }}>
         <form onSubmit={(event) => { event.preventDefault(); if (!disabled) confirm?.(); }}>
-            <h2 id={titleId} style={{ ...rowStyle, margin: '0 0 12px', fontSize: '20px' }}>
+            <h2 id={titleId} ref={heading} tabIndex={focusHeading ? -1 : undefined} style={{ ...rowStyle, margin: '0 0 12px', fontSize: '20px' }}>
                 <Icon name={icon} /><span>{title}</span>
             </h2>
             {children}

@@ -107,6 +107,13 @@
     }
 }
 @media (max-width: 760px) {
+    .vault > .detail { padding-inline: 16px; }
+    .detail .round,
+    .detail .icon-btn { width: 44px; height: 44px; flex: 0 0 44px; }
+    .detail .field__action { min-width: 44px; min-height: 44px; flex-shrink: 0; }
+    .detail .notes__head > .link { min-height: 44px; }
+    .entry-editor .link,
+    .entry-editor__protect { min-height: 44px; }
     .entry-editor {
         padding: 20px 16px;
     }
