@@ -359,6 +359,40 @@ describe('Kdbx', () => {
         expect(entry.history.length).toBe(10);
     });
 
+    test('cleanup retains attachments and icons referenced outside the default root', async () => {
+        const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('cleanup roots'));
+        const db = kdbxweb.Kdbx.create(credentials, 'multiple roots');
+        const secondRoot = kdbxweb.KdbxGroup.create('second root');
+        db.groups.push(secondRoot);
+        const entry = db.createEntry(db.getDefaultGroup());
+        const historyBinary = await db.createBinary(new Uint8Array([1, 2, 3]).buffer);
+        const currentBinary = await db.createBinary(new Uint8Array([4, 5, 6]).buffer);
+        const unusedBinary = await db.createBinary(new Uint8Array([7, 8, 9]).buffer);
+        const icons = Array.from({ length: 4 }, () => kdbxweb.KdbxUuid.random());
+        for (const icon of icons) db.meta.customIcons.set(icon.id, { data: new Uint8Array([1]).buffer });
+        entry.customIcon = icons[0];
+        entry.binaries.set('history.bin', historyBinary);
+        entry.pushHistory();
+        entry.customIcon = icons[1];
+        entry.binaries.clear();
+        entry.binaries.set('current.bin', currentBinary);
+        secondRoot.customIcon = icons[2];
+        db.move(entry, secondRoot);
+
+        db.cleanup({ historyRules: true, customIcons: true, binaries: true });
+
+        expect(db.binaries.getAllWithHashes().map(binary => binary.hash).sort())
+            .toEqual([historyBinary.hash, currentBinary.hash].sort());
+        expect(db.binaries.getRefByHash(unusedBinary.hash)).toBeUndefined();
+        expect([...db.meta.customIcons.keys()].sort()).toEqual(icons.slice(0, 3).map(icon => icon.id).sort());
+        const reopened = await kdbxweb.Kdbx.load(await db.save(), credentials);
+        const restored = reopened.groups[1].entries[0];
+        expect(restored.uuid.id).toBe(entry.uuid.id);
+        expect(restored.binaries.get('current.bin')).toEqual(currentBinary);
+        expect(restored.history[0].binaries.get('history.bin')).toEqual(historyBinary);
+        expect([...reopened.meta.customIcons.keys()].sort()).toEqual(icons.slice(0, 3).map(icon => icon.id).sort());
+    });
+
     test('creates missing uuids', async () => {
         const cred = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(''));
         const xml = kdbxweb.ByteUtils.bytesToString(TestResources.emptyUuidXml).toString();

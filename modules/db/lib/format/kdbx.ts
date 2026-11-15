@@ -355,20 +355,22 @@ export class Kdbx {
                 }
             }
         };
-        for (const item of this.getDefaultGroup().allGroupsAndEntries()) {
-            if (item instanceof KdbxEntry) {
-                if (item.history.length > historyMaxItems) {
-                    item.removeHistory(0, item.history.length - historyMaxItems);
-                }
-                processEntry(item);
-                if (item.history) {
-                    for (const historyEntry of item.history) {
-                        processEntry(historyEntry);
+        for (const root of this.groups) {
+            for (const item of root.allGroupsAndEntries()) {
+                if (item instanceof KdbxEntry) {
+                    if (item.history.length > historyMaxItems) {
+                        item.removeHistory(0, item.history.length - historyMaxItems);
                     }
-                }
-            } else {
-                if (item.customIcon) {
-                    usedCustomIcons.add(item.customIcon.id);
+                    processEntry(item);
+                    if (item.history) {
+                        for (const historyEntry of item.history) {
+                            processEntry(historyEntry);
+                        }
+                    }
+                } else {
+                    if (item.customIcon) {
+                        usedCustomIcons.add(item.customIcon.id);
+                    }
                 }
             }
         }
