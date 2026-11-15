@@ -1,6 +1,6 @@
 {
   "name": "@keewebx/extension",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "KeeWebX browser extension for autofill",
   "main": "index.js",
   "scripts": {

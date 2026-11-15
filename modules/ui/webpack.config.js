@@ -115,6 +115,12 @@ module.exports = (env, argv) => {
                 inject: 'body',
                 publicPath: ''
             })),
+            new HtmlWebpackPlugin({
+                template: path.join(rootDir, 'connect.html'),
+                filename: 'connect.html',
+                inject: false,
+                chunks: []
+            }),
         ],
         externals: { xmldom: 'null', '@xmldom/xmldom': 'null', crypto: 'null', fs: 'null', path: 'null' },
         devtool: devMode ? 'source-map' : undefined

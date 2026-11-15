@@ -1,6 +1,141 @@
-# Userscripts on iOS: transport experiments
+# Userscripts on iOS: Connect and transport diagnostics
 
-## Post-robot probe — current experiment
+## Native Connect (experimental)
+
+Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/master/modules/extension/userscript/keewebx-connect.user.js) for account lookup
+and explicit autofill using native `window.postMessage` plus a same-origin
+`BroadcastChannel` relay for independent app tabs. This installer
+uses the existing encrypted Connect protocol and does not bundle post-robot.
+The files under `diagnostics/` are separate transport tests, not the Connect
+installer.
+
+### Install and authorize
+
+1. Open the **Userscripts** app once and choose its script directory. Disable
+   the older diagnostic probes. Download `keewebx-connect.user.js` above and
+   save it into that directory with **Save to Files**, keeping the `.user.js`
+   filename. Enable Userscripts in Safari's extension settings and allow it
+   on KeeWebX and the login website. Use the same installed script file on both sites;
+   its private storage holds the shared Connect identity and app address.
+   Save database changes before reloading a page to activate a new install.
+2. On the login website, click a username or password field, open
+   **KeeWebX Connect**, and choose **Connection**. The default app address
+   is `https://keewebx.app/app`. For another deployment, enter its complete
+   HTTPS app URL in **KeeWebX address** and click **Save address**.
+3. Tap the key icon or **Open KeeWebX**. A small `connect.html` page first
+   looks for cooperating KeeWebX tabs. Keep the connection page open. Its
+   discovery messages contain no vault credentials.
+4. If existing app tabs respond, visit the tab whose unlocked database you
+   want to use. Its script panel shows the requesting website's exact HTTPS
+   origin. Choose **Connect this tab**, approve account listing in KeeWebX,
+   and wait for **Authorized**. Only the app that wins this confirmation is
+   selected; another app's late confirmation cannot replace it.
+5. If no app responds within the discovery window, the connection page
+   navigates to the normal app. Open and unlock a database there, then choose
+   **Authorize Connect** in the script panel and approve account listing.
+   For self-hosting, deploy the built `connect.html` alongside the app.
+6. Choose **Back to site**, or select the original website tab if Safari
+   declines the focus request. Focus a login field and tap the key. Select
+   a matching account from **Accounts**; use **Find accounts** to retry a
+   lookup. **Filled** confirms success. The script does not submit the form.
+
+Authorization is retained for the script identity. Normal lookups use fresh
+encrypted sessions without repeating the initial approval. Renaming or
+reinstalling the script can change its storage identity and require setup
+again. A locked database must be unlocked in KeeWebX.
+
+### Link a website from the app
+
+You can also start in the configured KeeWebX app tab. Unlock the database
+and complete **Authorize Connect**, then enter the website's HTTPS address
+under **Or open a login website here** and click **Open linked website**.
+In the new website tab, choose the login field and use **Find accounts**.
+The app's **Disconnect** button removes its current website association.
+
+Each helper keeps one selected app and one linked website window. Original
+app tabs can be discovered without a prior opener relationship; they must
+already run this installed Connect script and share the app's origin and
+storage partition. Their original document, database and unlock state remain
+in place. Keep both the selected app and connection page open. Closing or
+reloading either can require discovery and confirmation again.
+
+The website must retain its relationship with its helper. `noopener`,
+Cross-Origin-Opener-Policy and browser isolation can break it. A previously
+related named window is reused when the browser permits. This is not a
+browser-wide tab enumeration API. A change to a different website origin
+requires fresh discovery and confirmation. See the [discovery design](docs/tab-discovery.md)
+for the transport, PWA boundaries and remaining native-device test gaps.
+
+Only accounts matching the website's exact HTTPS origin are offered. Each
+field read requires an explicit account selection. After switching away,
+navigating, locking, restoring a cached page, or an expired selection, use
+**Find accounts** again. **Test connection** in the website's **Connection**
+tab checks the native bridge without filling a form.
+
+This is an experimental, foreground-assisted workflow. Desktop checks and
+individual phone results do not establish reliable long-term hidden-tab
+execution, automatic wakeup, or support for every iOS/Safari configuration.
+
+### Privacy and connection recovery
+
+The script stores its Connect signing identity and configured app address in
+Userscripts' script-private storage. Session encryption keys stay in memory.
+It does not store database contents, usernames or passwords, and it does not
+send credentials to a relay server. Remove the script's permission in KeeWebX
+to revoke its vault access; **Disconnect** only clears the current tab link.
+
+If lookup times out, check that the selected app is open and unlocked and
+that its connection page is still open. Use **Connection → Open KeeWebX**
+to reach the connection page. **Find app tabs again** restarts discovery;
+confirm in the intended app, return to the site and **Find accounts** again. Do not reinstall or rename the script
+as a normal reconnection step. Save unsaved database changes before any reload.
+
+### Verification
+
+Automated Chromium acceptance uses the actual installer, a real encrypted
+KDBX fixture, the New interface, its native permission dialog and encrypted
+Connect handshake. Only Userscripts' GM storage/injection is simulated; it
+does not load the iOS manager. It checks explicit selection, exact-origin
+filtering, username/password fill, no form submission, navigation invalidation
+and absence of vault credentials in persistent script storage. Independent-tab
+acceptance opens two original app tabs with distinct databases, confirms only
+one, verifies that the other is never read, rejects its delayed confirmation,
+and checks that locking the selected app never falls back to another vault.
+
+Sixteen Chromium/WebKit form checks cover destination replacement, navigation,
+expiry during input handlers and native form events. Protocol tests separately
+cover encryption, nonce/key validation and suppression of credential logs.
+These desktop checks do not certify the complete iPhone autofill workflow.
+
+The earlier post-robot diagnostic received user-reported 2–3 ms replies from
+a hidden, unfocused KeeWebX page in iPhone Safari with Userscripts. That result
+supports linked-window message delivery at that moment; it did not access a
+vault or establish reliable long-term background operation.
+
+Build the native installer from the repository root with:
+
+```sh
+bun modules/extension/userscript/build-connect.ts
+```
+
+After building the app and installing Playwright Chromium, run the real-app
+acceptance with a static server in a separate terminal:
+
+```sh
+KEEWEBX_E2E_PORT=8085 bun e2e/serve-app.ts
+```
+
+```sh
+node modules/extension/userscript/tests/connect.mjs
+node modules/extension/userscript/tests/form-guards.mjs chromium webkit
+```
+
+The acceptance covers both app-first and website-first setup and preserves
+the same unlocked app document during related named-window reuse. Set
+`KWX_APP_SERVER` for another local server. Install WebKit before requesting
+the WebKit form checks. Browser reports identify mocked GM and native iOS gaps.
+
+## Older post-robot diagnostic (0.2.1)
 
 Install **`diagnostics/post-robot-probe.user.js`** to test event-driven
 cross-origin requests with the actual bundled `@krakenjs/post-robot` 11.0.1.
@@ -12,10 +147,10 @@ state. It has no GM grants or runtime CDN dependencies.
 2. Install the new script in Userscripts, and allow it on KeeWebX and the
    chosen test website. Save database changes before the one-time page reload
    needed to inject a newly installed script.
-3. In the original `https://keewebx.app/app` tab, open **Post-robot 测试**.
-   Leave the test URL as `https://example.com/` and tap **关联并打开网站**.
-4. In the newly opened website tab, open **Post-robot 测试** and tap
-   **测试后台回包**. This action sends messages without requesting tab focus.
+3. In the original `https://keewebx.app/app` tab, open **Post-robot test**.
+   Leave the test URL as `https://example.com/` and tap **Open linked website**.
+4. In the newly opened website tab, open **Post-robot test** and tap
+   **Test background reply**. This action sends messages without requesting tab focus.
 5. Stay on the website. Repeat after one and five minutes without visiting
    KeeWebX in between. Note the elapsed time, `visible`/`hidden`, and page
    marker shown in the result. A timeout is a test result, not a cue to
@@ -27,7 +162,7 @@ its `window.opener` relationship. Independent tabs cannot be discovered this
 way. Address-bar cross-site navigation, `noopener`, or site isolation policies
 can break the association. Following an ordinary link may preserve it.
 
-The app-side **撤销关联** button rejects future requests without closing the
+The app-side **Disconnect** button rejects future requests without closing the
 website. Refreshing KeeWebX deliberately loses the association. Delayed or
 expired replies must not count as successful fresh requests. No polling or
 heartbeat was added by this probe; post-robot uses its own request timeout and
@@ -57,7 +192,8 @@ node modules/extension/userscript/tests/post-robot-probe.mjs chromium-extension
 The desktop fixtures remained `visible`. The delay test intercepts native
 MessageEvents temporarily; it is not an OS suspension test. These results do
 not prove iPhone/Userscripts background replies, automatic process wakeup, or
-an unlocked vault. Native iPhone results remain unverified.
+an unlocked vault. The user-reported iPhone transport result is recorded above;
+complete native iPhone autofill remains unverified.
 
 ## Older GM mailbox probe
 

@@ -45,6 +45,13 @@ jobs:
       - name: Build Edge variant
         run: bun run --filter @keewebx/extension build-edge
 
+      - name: Build and typecheck the experimental Userscripts installer
+        run: |
+          bun modules/extension/userscript/build-connect.ts
+          modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
+          node --check modules/extension/userscript/keewebx-connect.user.js
+          git diff --exit-code -- modules/extension/userscript/keewebx-connect.user.js
+
       - name: Sanity-check manifests
         id: manifest
         # Read the source manifest version once, then cross-check that
@@ -96,9 +103,10 @@ jobs:
           XPI_SRC="modules/extension/web-ext-artifacts/keewebx_connect-${MANIFEST_VER}.zip"
           test -f "${XPI_SRC}" || { echo "::error::Expected ${XPI_SRC} from web-ext build"; ls -la modules/extension/web-ext-artifacts/; exit 1; }
           cp "${XPI_SRC}" "artifacts/keewebx-connect-firefox-${SHORT_SHA}.xpi"
+          cp modules/extension/userscript/keewebx-connect.user.js artifacts/
 
           # Checksums — ubuntu-latest has sha256sum, not shasum.
-          (cd artifacts && sha256sum *.zip *.xpi > SHA256SUMS.txt)
+          (cd artifacts && sha256sum *.zip *.xpi *.user.js > SHA256SUMS.txt)
           for file in artifacts/*.zip artifacts/*.xpi; do unzip -tq "$file"; done
           for browser in chrome edge; do
             unzip -q "artifacts/keewebx-connect-${browser}-${SHORT_SHA}.zip" -d "unpacked/${browser}"
@@ -129,7 +137,9 @@ jobs:
             artifacts/keewebx-connect-chrome-${{ steps.pack.outputs.short_sha }}.zip
             artifacts/keewebx-connect-edge-${{ steps.pack.outputs.short_sha }}.zip
             artifacts/keewebx-connect-firefox-${{ steps.pack.outputs.short_sha }}.xpi
+            artifacts/keewebx-connect.user.js
             artifacts/SHA256SUMS.txt
+          make_latest: false
           generate_release_notes: true
           fail_on_unmatched_files: true
 

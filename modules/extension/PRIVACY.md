@@ -1,12 +1,12 @@
 # Privacy Policy — KeeWebX Connect
 
-**Last updated:** 2026-04-12
+**Last updated:** 2026-11-15
 
 KeeWebX Connect is an open-source browser extension that connects to a KeeWebX instance to autofill passwords. This policy explains what data the extension accesses and how it is handled.
 
 ## Data Collection
 
-**KeeWebX Connect does not collect, transmit, or store any personal data.** The extension does not have analytics, telemetry, crash reporting, or any form of data collection.
+KeeWebX Connect has no analytics, telemetry or crash reporting. It accesses and transmits credentials only to perform the user's requested autofill; it does not collect them for another purpose.
 
 ## Data Access
 
@@ -18,10 +18,13 @@ The extension accesses the following data solely to perform autofill:
 | Credentials (username, password, TOTP) | Retrieved from KeeWebX and injected into form fields | Never stored — held in memory only for the duration of the fill operation |
 | KeeWebX instance URL | User-configured URL for connecting to KeeWebX | Stored locally in `chrome.storage.local` on the user's device |
 | Encryption key pair | NaCl (Curve25519) key pair for encrypted communication with KeeWebX | Generated per session, never persisted to disk |
+| Signing identity | Ed25519 identity used to recognize previously approved clients | Persisted in extension storage; the Userscripts variant uses script-private GM storage |
 
 ## Communication
 
-All communication between the extension and KeeWebX is encrypted end-to-end using **TweetNaCl** (Curve25519 + XSalsa20 + Poly1305). The extension communicates exclusively with the user's own KeeWebX instance — either the official hosted version or a self-hosted deployment. No data is sent to any third-party server.
+Credential payloads between Connect and KeeWebX are encrypted end-to-end using **TweetNaCl** (Curve25519 + XSalsa20 + Poly1305). Public handshake keys and connection metadata are not secret credential payloads. Connect communicates with the user's KeeWebX instance, either the hosted version or a self-hosted deployment. No credential relay server is used.
+
+The experimental Userscripts variant uses a local, top-level connection page and BroadcastChannel to discover cooperating app tabs. Discovery includes random connection identifiers and the requesting website origin. The selected app remains responsible for vault access; the connection page forwards encrypted protocol messages without decrypting credentials. Usernames and passwords are not persisted in GM storage. The website receives the fields explicitly chosen for autofill.
 
 ## Permissions
 

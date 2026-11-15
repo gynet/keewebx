@@ -57,6 +57,10 @@ Switching interfaces checks pending edits and saves before navigating. A failed 
 
 [KeeWebX Connect releases](https://github.com/gynet/keewebx/releases) provide browser autofill. Choose the app location in the extension, open and unlock a vault, then approve the connection in KeeWebX. Access can be limited to selected vaults and revoked from the app's extension settings.
 
+For Chrome, Edge and Firefox, follow the [extension setup guide](modules/extension/README.md#connect-to-the-web-app). Use `https://keewebx.app/app` for the hosted app; replace old `/preview/` addresses. Setup and troubleshooting are also available in the extension's options, including before a connection succeeds.
+
+For **iOS Safari with Userscripts**, try the separate experimental [KeeWebX Connect userscript](modules/extension/userscript/README.md). A small connection page discovers cooperating KeeWebX tabs; confirm in the app tab you want to use, then select an account beside a login field to fill without submitting the form. The relay forwards the existing encrypted Connect protocol and preserves the selected app document. Keep the selected app and connection page open. Standalone Home Screen PWAs remain unverified, and iOS background suspension can interrupt the connection.
+
 ## Development
 
 ```sh

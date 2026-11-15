@@ -262,6 +262,12 @@ jobs:
         run: |
           bun run build-chrome
           bun run build-chrome-vault
+      - name: Build and typecheck Userscripts Connect
+        run: |
+          bun modules/extension/userscript/build-connect.ts
+          modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
+          node --check modules/extension/userscript/keewebx-connect.user.js
+          git diff --exit-code -- modules/extension/userscript/keewebx-connect.user.js
       - name: Install full headless Chromium
         run: bunx playwright install chromium --with-deps
       - name: Test real New and Classic extension connections
@@ -282,6 +288,8 @@ jobs:
             sleep 1
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
+          KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/connect.mjs
+          FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
           bunx playwright test --config e2e/extension/new-interface.playwright.config.ts e2e/extension/new-interface-connection.spec.ts --reporter=line,html
       - name: Test installed compatible client commands
         run: |
@@ -296,6 +304,7 @@ jobs:
             playwright-report/new-interface-connect/
             .cache/new-interface-connect-server.log
             .cache/extension-command-results/
+            .cache/userscript-connect/
           retention-days: 7
 
   e2e-new-interface-core:

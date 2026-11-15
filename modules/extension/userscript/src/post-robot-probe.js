@@ -29,17 +29,17 @@ function installKeeWebXPostRobotProbe(robot) {
     const panel = document.createElement('section');
     panel.hidden = true;
     const title = document.createElement('h2');
-    title.textContent = 'Post-robot 通信测试';
+    title.textContent = 'Post-robot connection test';
     const help = document.createElement('p');
     help.textContent = app
-        ? '从这个原标签页打开一个关联网站。测试只传随机消息，不读取数据库或密码。'
-        : '点击测试会直接向原 KeeWebX 窗口发消息，不会主动切换标签页。';
+        ? 'Open a linked website from this original tab. The test sends random messages only and does not read databases or passwords.'
+        : 'Run the test to message the original KeeWebX window directly, without requesting a tab switch.';
     const status = document.createElement('p');
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
-    status.textContent = app ? '等待建立关联。' : '请从 KeeWebX 测试面板打开这个网站。';
+    status.textContent = app ? 'Waiting for a linked website.' : 'Open this website from the KeeWebX test panel.';
     const label = document.createElement('label');
-    label.textContent = '测试网站（HTTPS）';
+    label.textContent = 'Test website (HTTPS)';
     const target = document.createElement('input');
     target.type = 'url';
     target.value = 'https://example.com/';
@@ -48,26 +48,26 @@ function installKeeWebXPostRobotProbe(robot) {
     label.append(target);
     const action = document.createElement('button');
     action.type = 'button';
-    action.textContent = app ? '关联并打开网站' : '测试后台回包';
+    action.textContent = app ? 'Open linked website' : 'Test background reply';
     const revoke = document.createElement('button');
     revoke.type = 'button';
-    revoke.textContent = '撤销关联';
+    revoke.textContent = 'Disconnect';
     const close = document.createElement('button');
     close.type = 'button';
-    close.textContent = '关闭';
+    close.textContent = 'Close';
     const footer = document.createElement('footer');
     footer.append(action);
     if (app) footer.append(revoke);
     footer.append(close);
     const history = document.createElement('pre');
-    history.setAttribute('aria-label', '测试记录');
-    history.textContent = 'post-robot 11.0.1 · 不使用 GM 存储轮询';
+    history.setAttribute('aria-label', 'Test history');
+    history.textContent = 'post-robot 11.0.1 · No GM storage polling';
     panel.append(title, help);
     if (app) panel.append(label);
     panel.append(status, footer, history);
     const toggle = document.createElement('button');
     toggle.type = 'button';
-    toggle.textContent = 'Post-robot 测试';
+    toggle.textContent = 'Post-robot test';
     toggle.setAttribute('aria-expanded', 'false');
     toggle.onclick = () => {
         panel.hidden = !panel.hidden;
@@ -87,14 +87,14 @@ function installKeeWebXPostRobotProbe(robot) {
 
     function validate(event) {
         if (disposed || !child || event.source !== child || !/^https:\/\/[^/]+$/.test(event.origin)) {
-            throw new Error('来源窗口未关联，请重新从 KeeWebX 建立关联。');
+            throw new Error('The source window is not linked. Link the website again from KeeWebX.');
         }
         const data = event.data;
         if (!object(data) || !id(data.clientBoot) || !id(data.nonce) ||
             !Number.isFinite(data.sentAt) || !Number.isFinite(data.deadline) ||
             data.sentAt > Date.now() + 1000 || data.deadline <= Date.now() ||
             data.deadline - data.sentAt !== TIMEOUT) {
-            throw new Error('请求已过期或格式无效。');
+            throw new Error('The request expired or has an invalid format.');
         }
         return data;
     }
@@ -114,39 +114,39 @@ function installKeeWebXPostRobotProbe(robot) {
         listeners.push(robot.on(HELLO, { domain: /^https:\/\/[^/]+$/ }, event => {
             const data = validate(event);
             session = { clientBoot: data.clientBoot, origin: event.origin, token: crypto.randomUUID() };
-            status.textContent = `已关联 ${event.origin}；本页标记 ${boot.slice(0, 8)}。`;
+            status.textContent = `Linked ${event.origin}; page marker ${boot.slice(0, 8)}.`;
             return { ...snapshot(event, data), token: session.token };
         }));
         listeners.push(robot.on(PING, { domain: /^https:\/\/[^/]+$/ }, event => {
             const data = validate(event);
             if (!session || data.clientBoot !== session.clientBoot || event.origin !== session.origin ||
                 data.token !== session.token || data.appBoot !== boot) {
-                throw new Error('关联已失效，请重新连接。');
+                throw new Error('The link is no longer valid. Connect again.');
             }
             const reply = snapshot(event, data);
-            record(`已回包，页面 ${reply.visibility}；来源 ${event.origin}`);
+            record(`Reply sent; page ${reply.visibility}; source ${event.origin}`);
             return reply;
         }));
         action.onclick = () => {
             try {
                 const url = new URL(target.value);
                 if (url.protocol !== 'https:' || url.username || url.password || url.origin === APP_ORIGIN) {
-                    throw new Error('请选择另一个 HTTPS 网站，例如 https://example.com/');
+                    throw new Error('Choose a different HTTPS website, such as https://example.com/');
                 }
                 // Keep this synchronous inside the user's tap for Safari popup rules.
                 const opened = window.open(url.href, `kwx-postrobot-${crypto.randomUUID()}`);
-                if (!opened) throw new Error('Safari 阻止了新标签页，请允许弹出窗口后重试。');
+                if (!opened) throw new Error('Safari blocked the new tab. Allow pop-ups and try again.');
                 child = opened;
                 session = undefined;
-                status.textContent = '关联网站已打开。请在网站页点击“Post-robot 测试”。';
-                record(`建立关联：${url.origin}`);
+                status.textContent = 'Linked website opened. Click "Post-robot test" on the website.';
+                record(`Linked website: ${url.origin}`);
             } catch (error) { status.textContent = errorText(error); }
         };
         revoke.onclick = () => {
             child = undefined;
             session = undefined;
-            status.textContent = '已撤销关联；浏览标签页保持打开。';
-            record('关联已撤销');
+            status.textContent = 'Disconnected. The website tab remains open.';
+            record('Link removed');
         };
     } else {
         revoke.remove();
@@ -160,7 +160,7 @@ function installKeeWebXPostRobotProbe(robot) {
                 reply.requestOrigin !== origin || !Number.isFinite(reply.repliedAt) ||
                 reply.repliedAt < request.sentAt || reply.repliedAt >= request.deadline ||
                 !['visible', 'hidden'].includes(reply.visibility) || typeof reply.focused !== 'boolean') {
-                throw new Error('收到过期、来源不匹配或页面状态已改变的回复。');
+                throw new Error('Received an expired reply, a mismatched source, or a reply for a changed page.');
             }
             return reply;
         }
@@ -174,36 +174,36 @@ function installKeeWebXPostRobotProbe(robot) {
             if (testing) return;
             testing = true;
             action.disabled = true;
-            let phase = '握手';
+            let phase = 'Handshake';
             let phaseStarted = performance.now();
             try {
                 if (!original || original.closed) {
-                    throw new Error('没有可用的来源窗口。请从 KeeWebX 的“关联并打开网站”按钮进入；独立标签页不能直接连接。');
+                    throw new Error('No usable source window. Open the website with "Open linked website" in KeeWebX; independent tabs cannot connect directly.');
                 }
                 const origin = location.origin;
-                status.textContent = '正在与原 KeeWebX 标签页握手…';
+                status.textContent = 'Handshaking with the original KeeWebX tab...';
                 const helloRequest = request();
                 const helloEvent = await robot.send(original, HELLO, helloRequest, { domain: APP_ORIGIN, timeout: TIMEOUT });
                 const hello = verify(helloEvent.data, helloRequest, origin);
-                if (!id(hello.token)) throw new Error('握手回复缺少关联标记。');
-                if (lastAppBoot && lastAppBoot !== hello.appBoot) throw new Error('原 KeeWebX 页面已重新加载，不能沿用先前页面状态。');
-                phase = '回包';
+                if (!id(hello.token)) throw new Error('The handshake response is missing a link token.');
+                if (lastAppBoot && lastAppBoot !== hello.appBoot) throw new Error('The original KeeWebX page reloaded. Its previous page state cannot be reused.');
+                phase = 'Reply';
                 phaseStarted = performance.now();
-                status.textContent = '正在测试后台回包…';
+                status.textContent = 'Testing a background reply...';
                 const pingRequest = { ...request(), appBoot: hello.appBoot, token: hello.token };
                 const started = performance.now();
                 const event = await robot.send(original, PING, pingRequest, { domain: APP_ORIGIN, timeout: TIMEOUT });
                 const reply = verify(event.data, pingRequest, origin, hello.appBoot);
                 const elapsed = Math.round(performance.now() - started);
                 lastAppBoot = reply.appBoot;
-                status.textContent = `成功：${elapsed} ms；KeeWebX 回包时 ${reply.visibility}${reply.focused ? '，有焦点' : '，无焦点'}；页面标记 ${reply.appBoot.slice(0, 8)}。`;
-                record(`成功 ${elapsed} ms · ${reply.visibility} · 页面 ${reply.appBoot.slice(0, 8)}`);
+                status.textContent = `Success: ${elapsed} ms; KeeWebX replied while ${reply.visibility}${reply.focused ? ', focused' : ', unfocused'}; page marker ${reply.appBoot.slice(0, 8)}.`;
+                record(`Success ${elapsed} ms · ${reply.visibility} · page ${reply.appBoot.slice(0, 8)}`);
             } catch (error) {
                 const detail = errorText(error);
                 const timeout = /timeout|timed out|no ack|no response/i.test(detail);
                 status.textContent = timeout
-                    ? `${phase}超时：已等待约 ${Math.round(performance.now() - phaseStarted)} ms（上限 ${TIMEOUT} ms）；测试未主动切换标签页。`
-                    : `测试失败：${detail}`;
+                    ? `${phase} timed out: waited about ${Math.round(performance.now() - phaseStarted)} ms (limit ${TIMEOUT} ms); no tab switch was requested.`
+                    : `Test failed: ${detail}`;
                 record(status.textContent);
             } finally {
                 testing = false;
@@ -222,7 +222,7 @@ function installKeeWebXPostRobotProbe(robot) {
     });
     addEventListener('pageshow', event => {
         if (event.persisted) {
-            status.textContent = '页面从缓存恢复；请重新加载测试页并建立关联。';
+            status.textContent = 'Page restored from cache. Reload the test page and link the website again.';
             action.disabled = true;
         }
     });

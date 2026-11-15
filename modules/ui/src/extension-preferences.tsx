@@ -25,13 +25,24 @@ export function ExtensionPreferences({ enabled }: { enabled: boolean }) {
             {mobile ? <p>{t('These installation steps are for desktop browsers. Mobile extension support depends on your browser; use the web app when extensions are unavailable.')}</p> : null}
             {family === 'firefox' ? <p>{t('Firefox: install a signed release package when available. For a temporary development install, open about:debugging, choose This Firefox, then Load Temporary Add-on and select manifest.json. Temporary installs end when Firefox closes.')}</p>
                 : family === 'chrome' || family === 'edge' ? <p>{t('Extract the matching release package. Open {}, enable Developer mode, choose Load unpacked, and select the extracted extension folder.', family === 'edge' ? 'edge://extensions' : 'chrome://extensions')}</p>
-                : <p>{t('Use a supported Chrome, Chromium, Edge, or Firefox desktop browser. Safari and native password-manager integration are not provided by this web app.')}</p>}
+                : <p>{t('Use a supported Chrome, Chromium, Edge, or Firefox desktop browser. For iOS Safari, see the Userscripts setup below.')}</p>}
             <ol>
                 <li>{t('In the extension settings, choose Connect to a KeeWebX tab and set the address to this app’s URL.')}</li>
                 <li>{t('Keep this app tab open, unlock a vault, then request a login from the extension.')}</li>
                 <li>{t('Review the requested vault permissions and approve only the databases you want to share. Manage or revoke access below.')}</li>
             </ol>
             {!enabled && <p role="status">{t('Browser extension connections are not enabled in this build.')}</p>}
+        </details>
+        <details class="preference-help">
+            <summary>{t('iOS Safari with Userscripts (experimental)')}</summary>
+            <p>{t('Install the Userscripts app, then save the KeeWebX Connect script in its script folder. Disable the old connection probes and allow Userscripts on KeeWebX and your login website.')}</p>
+            <p><a href="https://raw.githubusercontent.com/gynet/keewebx/master/modules/extension/userscript/keewebx-connect.user.js" target="_blank" rel="noopener noreferrer">{t('Download Connect userscript')}</a> · <a href={`${Links.Repo}/tree/master/modules/extension/userscript#readme`} target="_blank" rel="noopener noreferrer">{t('Userscripts setup guide')}</a></p>
+            <ol>
+                <li>{t('On the login website, tap the key icon. A connection page finds existing KeeWebX tabs. For a self-hosted app, save its HTTPS address in the script’s Connection tab first.')}</li>
+                <li>{t('In the KeeWebX tab you want to use, choose Connect this tab and approve account listing. If no app responds, the connection page opens the app; unlock a database there and choose Authorize Connect.')}</li>
+                <li>{t('Choose Back to site. Focus a login field, tap the key and select a matching account. The script fills the form without submitting it.')}</li>
+            </ol>
+            <p>{t('Keep the selected KeeWebX tab and connection page open. Discovery requires the Connect script in the app tab. Standalone Home Screen PWAs remain unverified. iOS can suspend background tabs; reconnect if the app stops replying.')}</p>
         </details>
         <div class="cardlist">
             <PreferenceCheck name="extensionFocusIfLocked" label="Ask to unlock when an extension requests a login" />

@@ -15,7 +15,7 @@ if (createHash('sha256').update(license).digest('hex') !== 'b91dceb7942fcaa50687
 const metadata = `// ==UserScript==
 // @name         KeeWebX post-robot connection test
 // @namespace    https://keewebx.app/
-// @version      0.2.0
+// @version      0.2.1
 // @description  Test cross-origin replies from the original KeeWebX tab using bundled post-robot 11.0.1. No database/password access.
 // @match        https://*/*
 // @noframes

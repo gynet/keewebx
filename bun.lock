@@ -42,7 +42,7 @@
     },
     "modules/extension": {
       "name": "@keewebx/extension",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "dependencies": {
         "preact": "^10.5.13",
         "tiny-typed-emitter": "^2.1.0",

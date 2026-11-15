@@ -16,12 +16,45 @@ Browser extension for [KeeWebX](https://github.com/gynet/keewebx), a modern open
 
 ## Installation
 
-Install from the official stores:
+Download the matching Chrome, Edge or Firefox package from the
+[Connect release](https://github.com/gynet/keewebx/releases/tag/v1.0.4-extension).
+Store listings are not available yet. Extract Chrome/Edge packages and use
+the unpacked installation steps below. A Firefox build package is unsigned;
+use a temporary development installation unless a signed package is provided.
+Renaming a ZIP to XPI does not sign it.
 
-- [Chrome Web Store](https://chrome.google.com/webstore/detail/keewebx-connect/) *(coming soon)*
-- [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/keewebx-connect/) *(coming soon)*
+## Connect to the web app
 
-Or load the unpacked extension for development (see below).
+1. Open the extension's options. Set the app address to `https://keewebx.app/app`,
+   or your own KeeWebX installation, and save. Replace old `/preview/` addresses.
+   Grant the requested site permission. In a build with a bundled vault, choose
+   the mode that connects to a browser tab before configuring its address.
+2. Open that address in the same browser and unlock your KDBX database.
+3. Approve browser extension access when KeeWebX asks. Return to the login
+   website, open the extension and select an account.
+4. Manage allowed databases and revoke access in KeeWebX's browser extension
+   settings. Locking the database prevents credential access.
+
+If connection fails, check that the configured URL matches the open app and
+that the database is unlocked. Check the extension's site permissions. Save
+pending database changes before refreshing the app. The extension options
+include setup and troubleshooting even while disconnected.
+
+## iOS Safari with Userscripts
+
+Use the separate experimental [KeeWebX Connect userscript](userscript/README.md)
+with the **Userscripts** app. It has its own extension-style connection panel;
+the desktop extension's settings do not configure it. Its small connection
+page discovers cooperating app tabs, including independently opened tabs.
+Confirm **Connect this tab** in the app you want to use and approve vault
+access. If no app responds, the connection page opens the normal app instead.
+
+The script uses native `window.postMessage` for linked tabs and reuses the
+existing encrypted Connect protocol, permission checks and form-fill helpers.
+The relay forwards encrypted messages without decrypting credentials. It
+does not submit login forms. Keep the selected KeeWebX tab and connection page
+open. Standalone Home Screen PWA sessions and reliable background execution
+under iOS suspension remain unverified.
 
 ## Building
 
@@ -30,6 +63,7 @@ Requires [Bun](https://bun.sh) runtime.
 ```sh
 # Install dependencies (from monorepo root)
 bun install
+cd modules/extension
 
 # Build for all browsers
 bun run start

@@ -1,6 +1,12 @@
 Release notes
 -------------
 
+##### v1.0.4
+- Add experimental KeeWebX Connect for iOS Safari with Userscripts, using native linked-window messaging and the existing encrypted protocol and permissions.
+- Share form filling helpers and allow the protocol runtime to run without desktop extension APIs.
+- Keep setup and troubleshooting available in the options page before connecting, including the separate Userscripts workflow.
+- Include the standalone userscript and checksums with extension release artifacts. iPhone autofill and long-term background operation require native verification.
+
 ##### v1.0.1 (TBD)
 `-` fix: allow `https://`, `file://`, and `http://localhost|127.0.0.1|::1` as KeeWeb URL so the v0.1.0 self-host bundle works (#issue-TBD)
 `-` fix: convert URL to match pattern before calling `chrome.permissions.contains` — Firefox strict-rejected concrete URLs, blocking the autofill permission flow
