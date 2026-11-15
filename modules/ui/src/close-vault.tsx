@@ -31,7 +31,14 @@ export function CloseVault({ model, file, close }: { model: AppModel; file: File
             mounted.current = false; operation.current?.abort(); unsubscribe(); element.close();
             requestAnimationFrame(() => {
                 const previous = previousFocus.current;
-                if (access.state === 'open' && previous?.isConnected && !previous.closest('[hidden], [inert]')) previous.focus();
+                if (access.state !== 'open') return;
+                const visible = (target: HTMLElement | null) => target?.isConnected && target.getClientRects().length &&
+                    !target.closest('[hidden], [inert]') && getComputedStyle(target).visibility !== 'hidden';
+                if (visible(previous)) previous?.focus();
+                else if (previous?.closest('#vault-navigation')) {
+                    const browse = document.querySelector<HTMLButtonElement>('.mobile-vault-header__toggle');
+                    if (visible(browse)) browse?.focus();
+                }
             });
         };
     }, []);
