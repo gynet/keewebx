@@ -61,6 +61,21 @@ test('an unreadable file preserves the recent selection and password, then retri
     expect(errors).toEqual([]);
 });
 
+test('an empty file offers read recovery and leaves the selected vault and password usable', async ({ page }) => {
+    const buffer = await database();
+    await recentVault(page, buffer);
+    await page.locator('#open-file-input').setInputFiles(payload(Buffer.alloc(0), 'empty.kdbx'));
+    await expect(page.locator('#open-file-error')).toContainText('The database file could not be read completely. Download it to this device, then choose it again.');
+    await expect(page.getByRole('button', { name: 'Retry reading file', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Choose another file', exact: true })).toHaveCount(0);
+    await expect(page.locator('.vault-row--on')).toHaveAttribute('data-vault', 'recovery');
+    await expect(page.locator('#password')).toHaveValue(password);
+    await expect(page.locator('#unlock')).toBeEnabled();
+    await expect(page.locator('#open-file-input')).toHaveValue('');
+    await page.locator('#unlock').click();
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout: 30_000 });
+});
+
 test('short, unrelated and legacy KDB bytes leave the selected vault and password usable', async ({ page }) => {
     const buffer = await database();
     await recentVault(page, buffer);
@@ -68,7 +83,6 @@ test('short, unrelated and legacy KDB bytes leave the selected vault and passwor
     kdb.writeUInt32LE(kdbx.Consts.Signatures.FileMagic, 0);
     kdb.writeUInt32LE(kdbx.Consts.Signatures.Sig2Kdb, 4);
     for (const invalid of [
-        { bytes: Buffer.alloc(0), name: 'empty.kdbx', message: 'This file format is not supported.' },
         { bytes: buffer.subarray(0, 7), name: 'short.kdbx', message: 'This file format is not supported.' },
         { bytes: Buffer.from('not a database'), name: 'wrong.kdbx', message: 'This file format is not supported.' },
         { bytes: kdb, name: 'legacy.kdb', message: 'please use KeePass v2 to convert between them.' }

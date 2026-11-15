@@ -36,28 +36,33 @@ for (const width of [320, 1280]) test.describe(`${width}px file picker`, () => {
         await expect(page.locator('.entry-row')).toHaveCount(21, { timeout: 30000 });
     });
 
-    test('an incomplete provider read preserves the selected vault and offers a real retry', async ({ page }) => {
+    for (const byteLength of [0, 16]) test(`a ${byteLength}-byte provider read preserves the selected vault and offers a real retry`, async ({ page }) => {
         await page.goto('/next.html');
         const input = page.locator('#open-file-input');
         await input.setInputFiles(chosen('Prior.kdbx'));
         await expect(page.locator('.card__title')).toHaveText('Prior.kdbx');
-        await page.evaluate(() => {
+        await page.locator('#password').fill('demo');
+        await page.evaluate(byteLength => {
             const read = File.prototype.arrayBuffer;
             let interrupted = false;
             File.prototype.arrayBuffer = async function () {
                 const bytes = await read.call(this);
                 if (this.name === 'Cloud.kdbx' && !interrupted) {
                     interrupted = true;
-                    return bytes.slice(0, 16); // Valid signature, incomplete file.
+                    return bytes.slice(0, byteLength); // Empty or valid signature, incomplete file.
                 }
                 return bytes;
             };
-        });
+        }, byteLength);
         await input.setInputFiles(chosen('Cloud.kdbx'));
         await expect(page.locator('#open-file-error')).toContainText('could not be read completely');
         await expect(page.locator('.card__title')).toHaveText('Prior.kdbx');
+        await expect(page.locator('#password')).toHaveValue('demo');
+        await expect(input).toHaveValue('');
+        await expect(page.locator('#unlock')).toBeEnabled();
         await page.getByRole('button', { name: 'Retry reading file', exact: true }).click();
         await expect(page.locator('.card__title')).toHaveText('Cloud.kdbx');
+        await expect(page.locator('#open-file-error')).toHaveCount(0);
         await page.locator('#password').fill('demo');
         await page.locator('#unlock').click();
         await expect(page.locator('.entry-row')).toHaveCount(21, { timeout: 30000 });
