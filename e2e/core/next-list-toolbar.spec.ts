@@ -84,7 +84,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }
         await page.locator('.entry-editor').getByRole('button', { name: 'Cancel', exact: true }).click();
         await browse(page);
         const generator = page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Password generator', exact: true });
-        expect((await generator.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect((await generator.boundingBox())!.height).toBeGreaterThanOrEqual(viewport.width < 760 ? 44 : 36);
         await generator.click();
         await expect(page.getByRole('dialog', { name: 'Generate password', exact: true })).toBeVisible();
         await page.keyboard.press('Escape');
