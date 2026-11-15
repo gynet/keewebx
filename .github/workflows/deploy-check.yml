@@ -1,0 +1,40 @@
+name: Deploy check
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KEEWEBX_NEW_EXTENSION: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2.2.0
+      - run: bun install --frozen-lockfile
+      - name: Build both interfaces
+        run: bun run build
+      - name: Check translated interface strings
+        run: bun test modules/ui/tests/locale.test.ts
+      - run: bunx playwright install chromium --with-deps
+      - name: Check default entry, mobile navigation and essential dialogs
+        run: bunx playwright test -c e2e/deploy-smoke.playwright.config.ts
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: deployment-smoke
+          path: e2e/test-results-deploy/
+          retention-days: 7
