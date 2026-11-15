@@ -1194,6 +1194,8 @@
   "Clone…": "Duplizieren…",
   "Clone": "Duplizieren",
   "Recycle": "In den Papierkorb",
+  "Database actions": "Datenbankaktionen",
+  "Database actions for {}": "Datenbankaktionen für {}",
   "Save database": "Datenbank speichern",
   "Close database": "Datenbank schließen",
   "Change icon and color": "Symbol und Farbe ändern",

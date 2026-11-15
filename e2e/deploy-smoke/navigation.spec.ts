@@ -1,3 +1,4 @@
+import { activateDatabaseAction } from '../database-actions';
 import { activateEntryAction } from '../entry-actions';
 import { expect, test } from '@playwright/test';
 
@@ -24,7 +25,10 @@ for (const width of [1280, 390, 320]) test(`New default and essential actions at
         await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
     }
     await expect(nav.locator('.open-vaults__select')).toHaveCount(0);
-    await nav.getByRole('button', { name: /^Save / }).click();
+    await expect(nav.locator('.side__content').getByRole('button', { name: /^Save / })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Lock', exact: true })).toHaveCount(1);
+    await activateDatabaseAction(page, /^Save /);
+    await page.keyboard.press('Escape');
     await expect(page.locator('#sync-state')).toHaveText('Up to date');
     await nav.getByRole('button', { name: 'Manage Work', exact: true }).click();
     const groups = page.getByRole('dialog', { name: 'Groups', exact: true });
