@@ -20,6 +20,7 @@ async function fixture(name: string) {
 }
 async function unlock(page: Page) {
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
+    await expect(page.getByRole('dialog', { name: 'Open another vault', exact: true })).toHaveCount(0, { timeout });
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
 }
 async function openNavigation(page: Page) {

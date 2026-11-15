@@ -116,7 +116,7 @@ test('multiple vaults expose scope and retain visible rows on the shortest phone
 });
 
 test('sidebar generator respects configured restrictions', async ({ page }) => {
-    await page.route('**/toolbar-policy.json', route => route.fulfill({ json: { settings: { canOpenGenerator: false } } }));
+    await page.route(url => url.pathname === '/toolbar-policy.json', route => route.fulfill({ json: { settings: { canOpenGenerator: false } } }));
     await page.goto('/next.html?config=/toolbar-policy.json'); await unlock(page);
     await expect(page.getByRole('navigation', { name: 'Vault', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Password generator', exact: true, includeHidden: true })).toHaveCount(0);
