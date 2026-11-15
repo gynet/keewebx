@@ -280,7 +280,7 @@ test('virtual PRF: saved credential waits for fresh verification; rejected get r
         expect((await record(page))[key]).toBeFalsy();
     }
     await verify.click();
-    await expect(section(page).getByRole('status')).toContainText('canceled');
+    await expect(section(page).getByRole('status')).toContainText('Your passkey was created, but encryption verification did not finish.');
     await expect(section(page).getByRole('status')).not.toContainText(/you (?:have )?cancel(?:ed|led)/i);
     await expect(verify).toBeEnabled();
     for (const key of ['passkeyCredentialId', 'passkeyPrfSalt', 'passkeyWrappedKey', 'passkeyCreatedDate']) {
