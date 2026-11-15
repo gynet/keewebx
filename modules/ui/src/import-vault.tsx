@@ -96,7 +96,8 @@ export function ImportVault({ model, onDone, canImport, initialFile }: { initial
                 const file = new FileModel({ id: IdGenerator.uuid(), name: name.trim() });
                 file.db = db;
                 file.readModel();
-                file.set({ active: true, created: true, name: name.trim() });
+                file.setOpenFile({ passwordLength: Array.from(password).length });
+                file.set({ created: true, name: name.trim() });
                 file.setModified();
                 published = file;
                 if (!model.addFile(file)) throw new Error('Could not add the imported vault.');

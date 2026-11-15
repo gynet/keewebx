@@ -1,4 +1,5 @@
 import { activateVaultUtility } from './vault-utilities';
+import { withEmptyMasterPasswordConsent } from '../empty-master-password';
 import { test, expect, type Browser, type Download, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -86,9 +87,10 @@ async function openSettings(page: Page) {
     return form;
 }
 
-async function downloadBytes(page: Page) {
+async function downloadBytes(page: Page, emptyPassword = false) {
     const pending = page.waitForEvent('download', { timeout });
-    await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
+    await withEmptyMasterPasswordConsent(page, emptyPassword, () =>
+        page.getByRole('button', { name: 'Download KDBX', exact: true }).click());
     const download = await pending;
     expect(await download.failure()).toBeNull();
     const stream = await download.createReadStream();
@@ -167,7 +169,7 @@ test.describe('New encrypted KDBX export', () => {
                 await page.screenshot({ path: testInfo.outputPath('export-controls-320.png'), fullPage: true });
                 await page.setViewportSize(viewport);
             }
-            const exported = await downloadBytes(page);
+            const exported = await downloadBytes(page, mode === 'key file only');
             expect(exported.name).toBe('export-source.kdbx');
             await expectFidelity(exported.data, source);
             await expect(decrypt(exported.data, 'wrong export password', source.key)).rejects.toMatchObject({ code: 'InvalidKey' });

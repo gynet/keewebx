@@ -1,4 +1,5 @@
 import { activateVaultUtility } from './vault-utilities';
+import { withEmptyMasterPasswordConsent } from '../empty-master-password';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -118,12 +119,13 @@ async function dialog(page: Page, dav: Dav) {
 async function localRecord(page: Page) {
     return page.evaluate(() => JSON.parse(localStorage.getItem('fileInfo') || '[]').find((item: { name: string }) => item.name === 'Migration'));
 }
-async function migration(page: Page, dav: Dav, ready?: () => Promise<void>) {
+async function migration(page: Page, dav: Dav, ready?: () => Promise<void>, emptyPassword = false) {
     const modal = await dialog(page, dav);
     await modal.getByRole('button', { name: 'Check destination' }).click();
     await expect(modal.getByRole('button', { name: 'Save encrypted vault' })).toBeVisible();
     if (ready) await ready();
-    await modal.getByRole('button', { name: 'Save encrypted vault' }).click();
+    await withEmptyMasterPasswordConsent(page, emptyPassword, () =>
+        modal.getByRole('button', { name: 'Save encrypted vault' }).click());
     await expect(modal).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByText('Saved to WebDAV. Future saves use this connection; your original disk file is unchanged.')).toBeVisible();
 }
@@ -138,7 +140,7 @@ for (const width of [1280, 320]) test.describe(`save destination at ${width}px`,
         await migration(page, dav, async () => {
             expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
             await page.screenshot({ path: testInfo.outputPath(`save-as-confirm-${width}.png`) });
-        });
+        }, f.keyOnly);
         const record = await localRecord(page);
         expect(record.storage).toBe('webdav'); expect(record.path).toBe(dav.url);
         expect(JSON.stringify(record)).not.toContain('dav-password');

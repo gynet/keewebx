@@ -1,4 +1,5 @@
 import { activateVaultUtility } from './vault-utilities';
+import { withEmptyMasterPasswordConsent } from '../empty-master-password';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -60,10 +61,11 @@ async function settings(page: Page) {
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 
-async function download(page: Page, name: string) {
+async function download(page: Page, name: string, emptyPassword = false) {
     const pending = page.waitForEvent('download');
-    await page.getByRole('form', { name: `Database settings: ${name}`, exact: true })
-        .getByRole('button', { name: 'Download KDBX', exact: true }).click();
+    await withEmptyMasterPasswordConsent(page, emptyPassword, () =>
+        page.getByRole('form', { name: `Database settings: ${name}`, exact: true })
+            .getByRole('button', { name: 'Download KDBX', exact: true }).click());
     const result = await pending;
     expect(await result.failure()).toBeNull();
     const stream = await result.createReadStream();
@@ -321,7 +323,7 @@ for (const kind of ['local', 'WebDAV'] as const) {
                 await assertDraft(page);
                 await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
                 await settings(page);
-                const bytes = await download(page, 'B');
+                const bytes = await download(page, 'B', !b.password);
                 await assertExport(bytes, b, a, 'B original notes');
                 await expect(kdbx.Kdbx.load(new Uint8Array(bytes).buffer,
                     new kdbx.Credentials(b.password ? kdbx.ProtectedValue.fromString(b.password) : null))).rejects.toThrow();
