@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { expect, test } from '@playwright/test';
 
 for (const width of [1280, 390, 320]) test(`New default and essential actions at ${width}px`, async ({ page }) => {
@@ -13,7 +14,7 @@ for (const width of [1280, 390, 320]) test(`New default and essential actions at
     const appearance = page.getByRole('dialog', { name: 'Entry appearance', exact: true });
     await expect(appearance).toBeVisible();
     await appearance.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('button', { name: 'History', exact: true }).click();
+    await activateEntryAction(page, 'History');
     await page.getByRole('dialog', { name: 'Entry history', exact: true }).getByRole('button', { name: 'Close History', exact: true }).click();
     await expect(page.getByRole('button', { name: 'History', exact: true })).toBeFocused();
     const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
