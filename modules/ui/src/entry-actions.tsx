@@ -44,7 +44,8 @@ export function EntryActions({ children, label = t('More actions'), title = t('E
             if (!hasDialog() && !root.current?.contains(event.target as Node)) close();
         };
         const keydown = (event: KeyboardEvent) => {
-            if (hasDialog()) return;
+            // Effect cleanup may follow the render that already hid this panel.
+            if (panel.current?.hidden || hasDialog()) return;
             if (event.key === 'Escape') {
                 event.preventDefault(); event.stopPropagation(); close(true);
             }
