@@ -1,4 +1,6 @@
 .remote-key-notices { position: fixed; z-index: 40; right: 16px; bottom: 76px; width: min(380px, calc(100vw - 32px)); max-height: 35dvh; overflow: auto; }
+/* Settings has no bottom vault toolbar to reserve space for. */
+.remote-key-notices:has(~ .vault--settings) { bottom: max(16px, env(safe-area-inset-bottom)); }
 .remote-key-notice { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; margin-top: 8px; background: var(--kx-bg); color: var(--kx-text); border: 1px solid var(--kx-line); border-radius: var(--kx-radius-card); font-size: 13px; overflow-wrap: anywhere; }
 .remote-key-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; box-sizing: border-box; padding: 20px; border: 1px solid var(--kx-line); border-radius: var(--kx-radius-card); background: var(--kx-bg); color: var(--kx-text); }
 .remote-key-dialog::backdrop { background: #0008; }
