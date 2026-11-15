@@ -22,7 +22,7 @@ export function sortEntries(result: SearchResultCollection, sort: string, filter
 }
 
 export function EntrySort({ value, onChange }: { value: string; onChange: (sort: string) => boolean }) {
-    return <label style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 14px 8px', minWidth: 0 }}>
+    return <label class="entry-sort">
         <span>{t('Sort')}</span>
         <select aria-label={t('Sort entries')} class="input" value={value} style={{ flex: 1, minWidth: 0 }}
             onChange={event => {
