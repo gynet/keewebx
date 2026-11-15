@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Locator } from '@playwright/test';
 import { openGroups, password, kdbx } from './mobile-group-fixture';
 
@@ -97,8 +98,7 @@ for (const width of [320, 390]) {
         await page.screenshot({ path: test.info().outputPath(`moved-${width}.png`) });
         await sheet.getByRole('button', exact('Show entries')).tap();
         await expect(page.locator('#sync-state')).toHaveText('Up to date');
-        await page.getByRole('button', exact('Browse vault')).tap();
-        await page.locator('#open-settings').tap();
+        await activateVaultUtility(page, 'Settings', { touch: true });
         await page.getByRole('tab', exact('Database')).tap();
         const pending = page.waitForEvent('download'); await page.getByRole('button', exact('Download KDBX')).tap();
         const stream = await (await pending).createReadStream(); const chunks: Buffer[] = [];
@@ -139,7 +139,7 @@ for (const width of [320, 390]) {
 
 test('phone group keyboard activity postpones idle lock and nested delete never commits on lock', async ({ page }) => {
     await page.clock.install(); await page.setViewportSize({ width: 320, height: 740 }); await openGroups(page);
-    await page.getByRole('button', exact('Browse vault')).tap(); await page.locator('#open-settings').tap();
+    await activateVaultUtility(page, 'Settings', { touch: true });
     await page.getByRole('tab', exact('Security')).tap(); await page.locator('#setting-auto-lock').selectOption('5');
     await page.locator('#settings-back:visible, .settings__phone-back:visible').tap();
     await page.getByRole('button', exact('Browse vault')).tap();

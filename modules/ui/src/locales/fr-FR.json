@@ -1241,5 +1241,12 @@
   "This vault uses a key file.": "Ce coffre utilise un fichier clé.",
   "Use password": "Utiliser le mot de passe",
   "Use passkey": "Utiliser une clé d’accès",
-  "Tools": "Outils"
+  "Tools": "Outils",
+  "Show toolbar": "Afficher la barre d’outils",
+  "Move toolbar": "Déplacer la barre d’outils",
+  "Hide toolbar": "Masquer la barre d’outils",
+  "Vault tools": "Outils du coffre",
+  "Vault menu": "Menu du coffre",
+  "Menu": "Menu",
+  "Drag or click to move the toolbar. Arrow keys also work.": "Faites glisser ou cliquez pour déplacer la barre d’outils. Les touches fléchées fonctionnent aussi."
 }

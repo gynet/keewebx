@@ -34,7 +34,7 @@ async function upload(page: Page, source: Awaited<ReturnType<typeof fixture>>, t
 }
 async function click(control: Locator, touch: boolean) { if (touch) await control.tap(); else await control.click(); }
 async function closeDrawer(page: Page) {
-    const close = page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Close navigation', exact: true });
+    const close = page.getByRole('button', { name: 'Browse vault', exact: true });
     if (await close.isVisible()) await close.tap();
 }
 async function download(page: Page, name: string, touch: boolean) {

@@ -125,6 +125,6 @@ test.describe('phone contextual group actions', () => {
         await expect(sheet.locator('h3')).toHaveText('team');
         await sheet.getByRole('button', exact('Close groups')).tap();
         await expect(trigger).toHaveCount(0);
-        await expect(nav.getByRole('button', exact('Close navigation'))).toBeFocused();
+        await expect(page.getByRole('button', exact('Browse vault'))).toBeFocused();
     });
 });

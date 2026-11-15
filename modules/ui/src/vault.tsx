@@ -32,7 +32,7 @@ import { PanelResizer } from 'ui-kit/panel-resizer';
 import { usePanelLayout } from './panel-layout';
 import { SidebarToggle, SidebarPanelIcon, useSidebarCollapse } from './sidebar-collapse';
 import { t } from './i18n';
-import { ThemeToggle } from './theme';
+import { ThemeSelect, ThemeToggle } from './theme';
 import { confirmDiscardDrafts, hasPendingDrafts, savePendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { safeWebsiteUrl } from './website-url';
@@ -56,6 +56,7 @@ import { SearchControls, searchDefaults, type SearchOptions, type SearchScope } 
 import { commandKey, editingText, keyboardAvailable } from './keyboard';
 import { AttachmentPreview, attachmentBytes } from './attachment-preview';
 import './vault-switcher.css';
+import './mobile-toolbar.css';
 import { writableCreationGroup } from './creation-target';
 
 
@@ -101,10 +102,36 @@ function isWithinGroup(group: GroupModel | null | undefined, id: string): boolea
     return false;
 }
 
+function toolbarPreference(key: string): unknown {
+    try { return JSON.parse(localStorage.getItem(storageKey(key)) || 'null'); }
+    catch { return null; }
+}
+
+function saveToolbarPreference(key: string, value: unknown) {
+    try { localStorage.setItem(storageKey(key), JSON.stringify(value)); }
+    catch { /* Layout preferences are optional. */ }
+}
+
 export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void; onOpenAnother?: () => void; onSave: () => void; onGenerator: () => void; onCloseVault?: (file: FileModel) => void }) {
     const { model } = props;
     const layout = usePanelLayout();
     const sidebar = useSidebarCollapse('vault');
+    const [mobile, setMobile] = useState(() => matchMedia('(max-width: 760px)').matches);
+    const [toolbarDock, setToolbarDock] = useState<'top' | 'bottom'>(() => toolbarPreference('mobileToolbarDock') === 'top' ? 'top' : 'bottom');
+    const [toolbarHidden, setToolbarHidden] = useState(() => toolbarPreference('mobileToolbarHidden') === true);
+    const toolbar = useRef<HTMLDivElement>(null), revealToolbar = useRef<HTMLButtonElement>(null);
+    const toolbarDrag = useRef<{ y: number; top: number; height: number; moved: boolean } | null>(null);
+    const suppressToolbarClick = useRef(false);
+    const [toolbarOffset, setToolbarOffset] = useState(0);
+    const moveToolbar = (dock: 'top' | 'bottom') => { setToolbarDock(dock); saveToolbarPreference('mobileToolbarDock', dock); };
+    const hideToolbar = () => {
+        setToolbarHidden(true); saveToolbarPreference('mobileToolbarHidden', true); setNavigationOpen(false);
+        requestAnimationFrame(() => revealToolbar.current?.focus());
+    };
+    const showToolbar = () => {
+        setToolbarHidden(false); saveToolbarPreference('mobileToolbarHidden', false);
+        requestAnimationFrame(() => browse.current?.focus());
+    };
     const [navigationOpen, setNavigationOpen] = useState(false);
     const [phoneGroups, setPhoneGroups] = useState<{ initial?: string; actions: boolean; fromNavigation: boolean; trigger: HTMLElement | null } | null>(null);
     const navigation = useRef<HTMLElement>(null);
@@ -120,16 +147,17 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         }
         wasNavigationOpen.current = true;
         const background = [...(navigation.current?.parentElement?.children ?? [])]
-            .filter((element) => element !== navigation.current && !element.classList.contains('navigation-backdrop') && !element.hasAttribute('inert'));
+            .filter((element) => element !== navigation.current && element !== toolbar.current && !element.classList.contains('navigation-backdrop') && !element.hasAttribute('inert'));
         background.forEach((element) => element.setAttribute('inert', ''));
-        (groupReturnFocus.current ?? navigation.current?.querySelector<HTMLButtonElement>('.side__close'))?.focus();
+        (groupReturnFocus.current ?? browse.current)?.focus();
         groupReturnFocus.current = null;
         return () => background.forEach((element) => element.removeAttribute('inert'));
     }, [navigationOpen]);
     useEffect(() => {
-        const resized = () => { if (window.innerWidth > 760) setNavigationOpen(false); };
-        window.addEventListener('resize', resized);
-        return () => window.removeEventListener('resize', resized);
+        const media = matchMedia('(max-width: 760px)');
+        const resized = () => { setMobile(media.matches); if (!media.matches) setNavigationOpen(false); };
+        media.addEventListener('change', resized);
+        return () => media.removeEventListener('change', resized);
     }, []);
     const [filter, setFilter] = useState<SearchScope>({});
     const [options, setOptions] = useState<SearchOptions>(() => ({ ...searchDefaults, ...model.advancedSearch }));
@@ -402,13 +430,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 if ((event.isComposing || event.keyCode === 229) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); }
             }}
             class={`${entry || editing ? 'vault vault--detail' : 'vault'}${navigationOpen ? ' vault--navigation' : ''}${sidebar.collapsed ? ' sidebar-folded' : ''}`}
+            data-toolbar-dock={toolbarDock}
+            data-toolbar-hidden={toolbarHidden}
             style={{ '--sidebar-width': `${layout.sidebar}px`, '--list-width': `${layout.list}px` }}
             onKeyDown={(event) => {
                 IdleTracker.regUserAction();
                 if (!navigationOpen) return;
                 if (event.key === 'Escape') { event.preventDefault(); closeNavigation(); }
                 if (event.key === 'Tab') {
-                    const controls = [...(navigation.current?.querySelectorAll<HTMLInputElement>('button, summary, select, input, a[href], [tabindex="0"]') ?? [])]
+                    const controls = [navigation.current, toolbar.current].flatMap(root => [...(root?.querySelectorAll<HTMLInputElement>('button, summary, select, input, a[href], [tabindex="0"]') ?? [])])
                         .filter((button) => !button.disabled && button.getClientRects().length);
                     const first = controls[0]; const last = controls[controls.length - 1];
                     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -417,16 +447,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             }}
             onClick={() => IdleTracker.regUserAction()}
         >
-            <header class="mobile-vault-header">
-                <button ref={browse} type="button" class="round mobile-vault-header__toggle"
-                    aria-label={t('Browse vault')} title={t('Browse vault')} aria-expanded={navigationOpen}
-                    aria-controls="vault-navigation" onClick={() => setNavigationOpen(true)}>
-                    <SidebarPanelIcon open={false} />
-                </button>
-                <span class="mobile-vault-header__title">{selectedGroup?.group.title || (filter.trash ? t('Trash')
-                    : filter.tag || (files.length === 1 ? kdbxName(files[0].name) : t('All open vaults')))}</span>
-            </header>
-            {navigationOpen && <button class="navigation-backdrop" tabIndex={-1} aria-label={t('Close navigation')} onClick={closeNavigation} />}
+            {navigationOpen && <div class="navigation-backdrop" aria-hidden="true" onClick={closeNavigation} />}
             <nav ref={navigation} id="vault-navigation" class="side" aria-label={t('Vault')}>
                 <div class="side__vault">
                     <Mark size={30} />
@@ -437,9 +458,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             {t(SYNC_LABELS[sync] ?? sync)}
                         </span>
                     </span>
-                    <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="vault-sidebar-content" label={t('folders panel')} />
-                    <button type="button" class="round side__close" aria-label={t('Close navigation')} title={t('Close navigation')}
-                        aria-expanded={navigationOpen} aria-controls="vault-navigation" onClick={closeNavigation}><SidebarPanelIcon open /></button>
+                    {!mobile && <SidebarToggle collapsed={sidebar.collapsed} toggle={sidebar.toggle} controls="vault-sidebar-content" label={t('folders panel')} />}
                 </div>
                 <div id="vault-sidebar-content" class="side__content">
                 {allFiles.length > 1 && <section class="open-vaults" aria-label={t('Open vaults')}>
@@ -481,12 +500,12 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     ))}
                 </div>
                 </div>
-                <div class="sidebar-rail">
+                {!mobile && <div class="sidebar-rail">
                     <button type="button" class="round" aria-label={t('All items')} title={t('All items')} onClick={() => changeFilter({})}><Icon name="grid" size={18} /></button>
                     <button type="button" class="round" aria-label={t('Browse groups')} title={t('Browse groups')} onClick={sidebar.toggle}><Icon name="folder" size={18} /></button>
                     <button type="button" class="round" aria-label={t('Trash')} title={t('Trash')} onClick={() => changeFilter({ trash: true })}><Icon name="trash" size={18} /></button>
-                </div>
-                <div class="side__foot">
+                </div>}
+                {!mobile && <div class="side__foot">
                     <EntryActions compact label={t('Database actions')} title={t('Database actions')}>
                         {allFiles.length === 1 ? <>
                             <button type="button" aria-disabled={saving.includes(allFiles[0].id)}
@@ -508,7 +527,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <button class="round" aria-label={t('Lock')} title={t(model.settings.autoSave ? 'Save all vaults and lock' : 'Lock vaults')} id="lock" onClick={props.onLock}>
                         <Icon name="lock" size={17} />
                     </button>
-                </div>
+                </div>}
             </nav>
 
             <PanelResizer label={t('Resize folders panel')} value={layout.sidebar} min={180} max={layout.sidebarMax}
@@ -630,6 +649,70 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     {transferMessage && <p role="status" style={{ overflowWrap: 'anywhere' }}>{t(transferMessage)}</p>}
                 </main>
             )}
+            {mobile && <div ref={toolbar} class="mobile-toolbar-region">
+                {toolbarHidden ? <button ref={revealToolbar} type="button" class="round mobile-toolbar__reveal"
+                    aria-label={t('Show toolbar')} title={t('Show toolbar')} onClick={showToolbar}><SidebarPanelIcon open={false} /></button>
+                    : <div class="mobile-toolbar" role="group" aria-label={t('Vault tools')}
+                        style={toolbarOffset ? { transform: `translateY(${toolbarOffset}px)` } : undefined}>
+                        <button type="button" class="round mobile-toolbar__handle" aria-label={t('Move toolbar')}
+                            title={t('Drag or click to move the toolbar. Arrow keys also work.')}
+                            onClick={() => {
+                                if (suppressToolbarClick.current) { suppressToolbarClick.current = false; return; }
+                                moveToolbar(toolbarDock === 'bottom' ? 'top' : 'bottom');
+                            }}
+                            onKeyDown={event => {
+                                if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                                    event.preventDefault(); moveToolbar(event.key === 'ArrowUp' ? 'top' : 'bottom');
+                                }
+                            }}
+                            onPointerDown={event => {
+                                const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+                                toolbarDrag.current = { y: event.clientY, top: rect.top, height: rect.height, moved: false };
+                                suppressToolbarClick.current = false;
+                                event.currentTarget.setPointerCapture(event.pointerId);
+                            }}
+                            onPointerMove={event => {
+                                const drag = toolbarDrag.current;
+                                if (!drag) return;
+                                const offset = event.clientY - drag.y;
+                                if (Math.abs(offset) > 8) drag.moved = true;
+                                if (drag.moved) setToolbarOffset(Math.max(-drag.top, Math.min(innerHeight - drag.height - drag.top, offset)));
+                            }}
+                            onPointerUp={event => {
+                                const drag = toolbarDrag.current;
+                                if (drag?.moved) moveToolbar(event.clientY < innerHeight / 2 ? 'top' : 'bottom');
+                                suppressToolbarClick.current = !!drag?.moved;
+                                toolbarDrag.current = null; setToolbarOffset(0);
+                            }}
+                            onPointerCancel={() => { toolbarDrag.current = null; setToolbarOffset(0); }}
+                            onLostPointerCapture={() => { toolbarDrag.current = null; setToolbarOffset(0); }}>
+                            <span aria-hidden="true">⠿</span>
+                        </button>
+                        <button ref={browse} type="button" class="round mobile-toolbar__browse mobile-vault-header__toggle"
+                            aria-label={t('Browse vault')} title={navigationOpen ? t('Close navigation') : t('Browse vault')}
+                            aria-expanded={navigationOpen} aria-controls="vault-navigation" onClick={() => setNavigationOpen(open => !open)}>
+                            <SidebarPanelIcon open={navigationOpen} />
+                        </button>
+                        <span class="mobile-toolbar__title" title={selectedGroup?.group.title || files.map(file => kdbxName(file.name)).join(', ')}>
+                            {selectedGroup?.group.title || (filter.trash ? t('Trash') : filter.tag || (files.length === 1 ? kdbxName(files[0].name) : t('All open vaults')))}
+                        </span>
+                        {model.settings.canOpenGenerator && <button type="button" class="round" aria-label={t('Password generator')} title={t('Password generator')}
+                            onClick={() => { closeNavigation(); props.onGenerator(); }}><Icon name="key" size={17} /></button>}
+                        <EntryActions compact label={t('Menu')} title={t('Vault menu')}>
+                            {allFiles.length === 1 ? <>
+                                <button type="button" aria-disabled={saving.includes(allFiles[0].id)} aria-label={t('Save {}', vaultLabel(allFiles[0]))}
+                                    onClick={() => void saveFile(allFiles[0])}>{t('Save database')}</button>
+                                <button type="button" aria-label={t('Close {}', vaultLabel(allFiles[0]))}
+                                    onClick={() => { closeNavigation(); props.onCloseVault?.(allFiles[0]); }}>{t('Close database')}</button>
+                            </> : <button type="button" onClick={props.onSave}>{t('Save vaults')}</button>}
+                            {props.onOpenAnother && <button type="button" onClick={() => { closeNavigation(); props.onOpenAnother?.(); }}>{t('Open another vault')}</button>}
+                            {model.settings.canOpenSettings && <button type="button" id="open-settings" onClick={() => { closeNavigation(); props.onSettings(); }}>{t('Settings')}</button>}
+                            <button type="button" id="lock" onClick={() => { closeNavigation(); props.onLock(); }}>{t('Lock')}</button>
+                            <section class="mobile-toolbar__theme" aria-label={t('Theme')}><span>{t('Theme')}</span><ThemeSelect /></section>
+                            <button type="button" onClick={hideToolbar}>{t('Hide toolbar')}</button>
+                        </EntryActions>
+                    </div>}
+            </div>}
             {phoneGroups && <PhoneGroups model={model} files={files} onChanged={groupChanged} onLifecycleChanged={lifecycleChanged} initial={phoneGroups.initial} initialActions={phoneGroups.actions}
                 onClose={() => {
                     const returnTo = phoneGroups; setPhoneGroups(null);

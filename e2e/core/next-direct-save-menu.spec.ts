@@ -31,8 +31,11 @@ async function openNavigation(page: Page) {
 }
 async function closeNavigation(page: Page, width: number) {
     if (width < 760) {
-        const expanded = navigation(page).locator('.entry-more > button[aria-expanded=true]');
-        if (await expanded.count()) await page.keyboard.press('Escape');
+        const expanded = page.locator('.side .entry-more > button[aria-expanded=true], .mobile-toolbar .entry-more > button[aria-expanded=true]');
+        if (await expanded.count()) {
+            await page.keyboard.press('Escape');
+            await expect(expanded).toHaveCount(0);
+        }
         await page.keyboard.press('Escape');
         await expect(browse(page)).toBeFocused();
         await expect(browse(page)).toHaveAttribute('aria-expanded', 'false');
@@ -48,7 +51,7 @@ test('collapsed desktop sidebar and phone drawer never introduce a floating dupl
     await expect(page.getByRole('button', { name: 'Expand folders panel', exact: true })).toHaveAttribute('aria-expanded', 'false');
     for (const width of [1280, 390, 320]) {
         await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
-        await expect(page.locator('.phone-bar')).toHaveCount(0);
+        await expect(page.locator('.mobile-toolbar')).toHaveCount(width < 760 ? 1 : 0);
         await expect(page.getByRole('button', { name: /^(Move menu|Show menu)$/, includeHidden: true })).toHaveCount(0);
         for (const name of ['Settings', 'Lock', 'Open another vault']) {
             await expect(page.getByRole('button', { name, exact: true, includeHidden: true })).toHaveCount(1);
@@ -56,7 +59,7 @@ test('collapsed desktop sidebar and phone drawer never introduce a floating dupl
         if (width < 760) {
             await expect(browse(page)).toHaveCount(1);
             await openNavigation(page);
-            await expect(navigation(page).getByRole('button', { name: 'Database actions', exact: true })).toBeInViewport();
+            await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeInViewport();
             await closeNavigation(page, width);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -71,7 +74,7 @@ for (const width of [1280, 390, 320]) {
         await unlock(page); await openNavigation(page);
         await expect(navigation(page).locator('.side__content').getByRole('button', { name: /^Save |^Close / })).toHaveCount(0);
         const save = await revealDatabaseAction(page, /^Save Menu A/);
-        const close = navigation(page).getByRole('button', { name: /^Close Menu A/ });
+        const close = page.getByRole('button', { name: /^Close Menu A/ });
         await expect(save).toHaveText('Save database'); await expect(close).toHaveText('Close database');
         await expect(save).toBeInViewport(); await expect(close).toBeInViewport();
         await expect(page.getByRole('button', { name: 'Save vaults', exact: true })).toHaveCount(0);
@@ -95,7 +98,8 @@ for (const width of [1280, 390, 320]) {
         const dialog = page.getByRole('dialog', { name: 'Close vault: Menu A', exact: true });
         await expect(dialog).toBeVisible(); await page.keyboard.press('Escape');
         await expect(dialog).toHaveCount(0);
-        await expect(width < 760 ? browse(page) : close).toBeFocused();
+        // The bottom Menu remains visible after the drawer closes, so its original action regains focus.
+        await expect(close).toBeFocused();
         await openNavigation(page); await revealDatabaseAction(page, /^Close Menu A/); await close.focus(); await page.keyboard.press('Enter');
         await dialog.getByRole('button', { name: 'Save and close', exact: true }).click();
         await expect(page.locator('.vault')).toHaveCount(0, { timeout });
@@ -120,7 +124,7 @@ for (const width of [1280, 390, 320]) {
         await saveAll.focus(); await page.keyboard.press('Space');
         await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
         await expect(navigation(page).locator('.open-vaults__select')).toHaveCount(2);
-        const controls = await navigation(page).locator('.entry-more > button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-controls')));
+        const controls = await page.locator('.side .entry-more > button, .mobile-toolbar .entry-more > button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-controls')));
         expect(new Set(controls).size).toBe(3);
         for (const id of controls) await expect(page.locator(`[id="${id}"]`)).toHaveCount(1);
         await (await revealDatabaseAction(page, /^Save Menu A/)).click();
@@ -131,7 +135,7 @@ for (const width of [1280, 390, 320]) {
         await openNavigation(page);
         await expect(page.getByRole('button', { name: 'Save vaults', exact: true })).toHaveCount(0);
         await expect(await revealDatabaseAction(page, /^Save Menu A/)).toHaveText('Save database');
-        await expect(navigation(page).getByRole('button', { name: /^Close Menu A/ })).toHaveText('Close database');
+        await expect(page.getByRole('button', { name: /^Close Menu A/ })).toHaveText('Close database');
         await expect(navigation(page).locator('.open-vaults__select')).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });

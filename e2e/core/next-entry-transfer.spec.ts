@@ -77,7 +77,7 @@ async function back(page: Page, touch = false) {
 }
 async function downloads(page: Page, fixtures: Fixture[], touch = false) {
     await navigation(page, touch);
-    await click(nav(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activateVaultUtility(page, 'Settings', { touch });
     await click(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const result: kdbx.Kdbx[] = [];
     for (const source of fixtures) {
@@ -98,7 +98,7 @@ async function downloads(page: Page, fixtures: Fixture[], touch = false) {
 }
 async function reopenPair(page: Page, a: Fixture, b: Fixture, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await navigation(page, touch); await click(nav(page).getByRole('button', { name: 'Lock', exact: true }), touch);
+    await navigation(page, touch); await activateVaultUtility(page, 'Lock', { touch });
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload();
     await page.locator('.vault-row').filter({ has: page.getByText(`${a.name}.kdbx`, { exact: true }) }).click(); await unlock(page, a);
@@ -281,14 +281,14 @@ for (const failing of ['destination', 'source'] as const) test(`${failing} durab
     const message = failing === 'destination' ? 'Move not completed. The source entry is intact.' : 'The destination is saved. Source removal is not yet saved';
     await expect(page.getByRole('status').filter({ hasText: message })).toBeVisible({ timeout });
     await expect.poll(() => page.evaluate(() => (window as any).transferFault.hits)).toBeGreaterThan(0);
-    await nav(page).getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await recoverBoth(page, [a, b]);
     const [savedA, savedB] = await downloads(page, [a, b]);
     if (failing === 'destination') fidelity(savedA, a, a);
     else expect(all(savedA).some(item => item.uuid.id === a.id)).toBe(false);
     fidelity(savedB, a, b);
     await page.evaluate(() => (window as any).transferFault.restore());
-    await nav(page).getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload();
     await page.locator('.vault-row').filter({ has: page.getByText('Source.kdbx', { exact: true }) }).click(); await unlock(page, a);

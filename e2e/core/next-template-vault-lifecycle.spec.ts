@@ -35,7 +35,7 @@ async function unlock(page: Page) { await page.locator('#password').fill(passwor
 async function openBoth(page: Page, remote?: string) {
     const a = await fixture('A'), b = await fixture('B');
     await page.goto('/next.html'); await page.locator('#open-file-input').setInputFiles(payload(a.bytes, 'A')); await unlock(page);
-    await browse(page); await page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await browse(page); await activateVaultUtility(page, 'Open another vault');
     if (remote) {
         await page.locator('#open-webdav').click(); await page.locator('#webdav-url').fill(remote); await page.locator('#webdav-next').click();
     } else await page.locator('#open-file-input').setInputFiles(payload(b.bytes, 'B'));

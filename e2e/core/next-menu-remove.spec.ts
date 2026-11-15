@@ -42,7 +42,7 @@ test('mobile drawer utilities remain reachable after rotation without a floating
     await expect(browse).toHaveAttribute('aria-expanded', 'false');
     await page.setViewportSize({ width: 740, height: 390 });
     await expect(browse).toBeVisible();
-    await expect(page.locator('.phone-bar')).toHaveCount(0);
+    await expect(page.locator('.mobile-toolbar')).toHaveCount(1);
     await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();

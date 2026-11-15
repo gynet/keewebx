@@ -7,14 +7,20 @@ export async function activateVaultUtility(page: Page, name: string, options: { 
     else await expect(page.locator('.vault')).toBeAttached({ timeout: 30_000 });
     const action = page.getByRole('button', { name, exact: true }).filter({ visible: true });
     const browse = page.getByRole('button', { name: options.browseName ?? 'Browse vault', exact: true });
-    await expect.poll(async () => await action.isVisible() || await browse.isVisible()).toBe(true);
+    const reveal = page.locator('.mobile-toolbar__reveal');
+    const menu = page.locator('.mobile-toolbar > .entry-more > button');
+    await expect.poll(async () => await action.isVisible() || await browse.isVisible() || await reveal.isVisible()).toBe(true);
     if (!await action.isVisible()) {
         const closeActions = page.getByRole('group', { name: 'Entry actions', exact: true })
             .getByRole('button', { name: 'Close actions', exact: true });
         if (await closeActions.isVisible()) {
             if (options.touch) await closeActions.tap(); else await closeActions.click();
         }
-        if (options.touch) await browse.tap(); else await browse.click();
+        if (await reveal.isVisible()) {
+            if (options.touch) await reveal.tap(); else await reveal.click();
+        }
+        const launcher = await menu.isVisible() ? menu : browse;
+        if (options.touch) await launcher.tap(); else await launcher.click();
     }
     await expect(action).toHaveCount(1);
     if (options.touch) await action.tap();
@@ -26,4 +32,19 @@ export async function activateVaultUtility(page: Page, name: string, options: { 
         await expect(action).toBeFocused();
         await action.press('Enter');
     } else await action.click();
+}
+
+/** The small-screen utility menu contains the real inline selector; desktop retains its popover. */
+export async function revealVaultTheme(page: Page) {
+    const reveal = page.locator('.mobile-toolbar__reveal');
+    if (await reveal.isVisible()) await reveal.click();
+    const menu = page.locator('.mobile-toolbar > .entry-more > button');
+    if (await menu.isVisible()) {
+        const picker = page.locator('.mobile-toolbar').getByRole('combobox', { name: 'Theme', exact: true });
+        if (!await picker.isVisible()) await menu.click();
+        await expect(picker).toBeVisible();
+        return picker;
+    }
+    await activateVaultUtility(page, 'Theme');
+    return page.getByRole('dialog', { name: 'Theme', exact: true }).getByRole('combobox', { name: 'Theme', exact: true });
 }

@@ -2,6 +2,21 @@ import { expect, type Page } from '@playwright/test';
 
 /** Open the global or per-file database popover before using Save/Close. */
 export async function revealDatabaseAction(page: Page, name: string | RegExp, touch = false) {
+    const reveal = page.locator('.mobile-toolbar__reveal');
+    if (await reveal.isVisible()) { if (touch) await reveal.tap(); else await reveal.click(); }
+    const toolbar = page.locator('.mobile-toolbar');
+    const mobileAction = toolbar.getByRole('button', { name, exact: typeof name === 'string', includeHidden: true });
+    if (await mobileAction.count()) {
+        const action = toolbar.getByRole('button', { name, exact: typeof name === 'string' });
+        if (!await action.isVisible()) {
+            const menu = toolbar.locator(':scope > .entry-more > button');
+            if (touch) await menu.tap(); else await menu.click();
+        }
+        await expect(action).toBeVisible();
+        return action;
+    }
+    const mobileClose = toolbar.getByRole('button', { name: 'Close actions', exact: true });
+    if (await mobileClose.isVisible()) { if (touch) await mobileClose.tap(); else await mobileClose.click(); }
     const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
     if (!await nav.isVisible()) {
         const browse = page.getByRole('button', { name: 'Browse vault', exact: true });

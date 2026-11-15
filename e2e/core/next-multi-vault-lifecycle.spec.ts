@@ -568,11 +568,12 @@ for (const width of [1280, 320]) test(`single vault save and close use the foote
     if (width === 320) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
     const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
     await expect(cards(page)).toHaveCount(0);
-    await expect(nav.locator('.side__foot').getByRole('button', { name: 'Database actions', exact: true })).toBeVisible();
+    await expect(width === 320 ? page.getByRole('button', { name: 'Menu', exact: true })
+        : nav.locator('.side__foot').getByRole('button', { name: 'Database actions', exact: true })).toBeVisible();
     const save = await revealDatabaseAction(page, /^Save A\.kdbx/);
     await expect(save).toBeVisible();
     await expect(save).toBeInViewport();
-    await expect(nav.getByRole('button', { name: 'Lock', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Lock', exact: true, includeHidden: true })).toHaveCount(1);
     await save.click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date');
     await expect(save).toBeVisible();

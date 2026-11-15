@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { activateEntryAction, revealEntryAction, recycleEntry } from '../entry-actions';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
@@ -57,7 +58,7 @@ async function open(page: Page, source: Fixture) {
 }
 async function download(page: Page, saved = true) {
     if (saved) await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await nav(page).getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('form', { name: `Database settings: ${name}`, exact: true })
@@ -94,7 +95,7 @@ async function deleted(db: kdbx.Kdbx, source: Fixture) {
     expect(db.meta.recycleBinUuid?.id).toBe(source.binId);
 }
 async function reload(page: Page) {
-    await nav(page).getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
     await page.locator('.vault-row').filter({ has: page.getByText(`${name}.kdbx`, { exact: true }) }).click();
     await page.locator('#password').fill(password); await page.locator('#unlock').click();

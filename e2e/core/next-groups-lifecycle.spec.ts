@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -170,7 +171,7 @@ async function openFixture(page: Page, source: Fixture) {
 async function lock(page: Page, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await showNavigation(page, touch);
-    await activate(navigation(page).getByRole('button', { name: 'Lock', exact: true }), touch);
+    await activateVaultUtility(page, 'Lock', { touch });
     await expect(page.locator('#password')).toBeVisible({ timeout });
 }
 async function openRecent(page: Page, source: Fixture, touch = false) {
@@ -187,7 +188,7 @@ async function reopen(page: Page, source: Fixture, touch = false) {
 async function downloadVault(page: Page, source: Fixture, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await showNavigation(page, touch);
-    await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activateVaultUtility(page, 'Settings', { touch });
     await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const form = page.getByRole('form', { name: `Database settings: ${source.name}`, exact: true });
     await expect(form).toBeVisible();
@@ -850,7 +851,7 @@ test('group action cannot cross lock recovery or apply a retained hidden confirm
     // Autosave is disabled and the interrupted lock save failed. Explicitly retry
     // saving by locking again, then verify the persisted cache after reload.
     await showNavigation(page);
-    await navigation(page).getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload(); await openRecent(page, source);
     const saved = await downloadVault(page, source);

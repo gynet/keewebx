@@ -345,7 +345,7 @@ test('short 320px screen keeps search controls and filtered results reachable', 
     await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
     await expect(await revealDatabaseAction(page, /^Save /)).toBeVisible();
     await page.keyboard.press('Escape');
-    await page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Close navigation', exact: true }).click();
+    await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
     await activateVaultUtility(page, 'Password generator');
     await expect(page.getByRole('dialog', { name: 'Generate password', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');

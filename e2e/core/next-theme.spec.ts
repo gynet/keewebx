@@ -1,4 +1,4 @@
-import { activateVaultUtility } from './vault-utilities';
+import { activateVaultUtility, revealVaultTheme } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 
 const themePanel = (page: import('@playwright/test').Page) => page.getByRole('dialog', { name: 'Theme', exact: true });
@@ -84,9 +84,9 @@ test('phone theme picker stays reachable in entry details without replacing the 
     await page.goto('/next.html');
     await page.locator('#open-demo').click();
     await page.locator('.entry-row[data-entry="GitHub"]').click();
-    await activateVaultUtility(page, 'Theme');
-    const panel = themePanel(page);
-    await panel.getByRole('combobox', { name: 'Theme', exact: true }).selectOption('hc');
+    const picker = await revealVaultTheme(page);
+    await expect(themePanel(page)).toHaveCount(0);
+    await picker.selectOption('hc');
     await expect(page.locator('html')).toHaveAttribute('data-kx-palette', 'hc');
     await expect(page.locator('#entry-title')).toHaveText('GitHub');
     await page.screenshot({ path: test.info().outputPath('theme-picker-mobile-vault.png'), fullPage: true });

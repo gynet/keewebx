@@ -65,7 +65,7 @@ for (const width of [320, 390]) {
             expect(await page.getByRole('button', { name: 'New entry', exact: true, includeHidden: true }).evaluate((element) => !!element.closest('[inert]'))).toBe(true);
             await expectNativeSearchExposed(false);
             await search.focus();
-            await expect(navigation.getByRole('button', { name: 'Close navigation', exact: true })).toBeFocused();
+            await expect(browse).toBeFocused();
             await expectNoHorizontalOverflow(navigation.locator('.side__content'));
         };
         const expectClosed = async () => {
@@ -79,13 +79,15 @@ for (const width of [320, 390]) {
 
         await expect(navigation).toBeHidden();
         await openNavigation();
-        const close = navigation.getByRole('button', { name: 'Close navigation', exact: true });
+        const close = browse;
         await expect(close).toBeFocused();
         // Keyboard users must remain inside the drawer and return to its trigger.
+        const first = navigation.locator('.nav-row').first();
+        await first.focus();
         await page.keyboard.press('Shift+Tab');
-        await expect(navigation.getByRole('button', { name: 'Lock', exact: true })).toBeFocused();
+        await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeFocused();
         await page.keyboard.press('Tab');
-        await expect(close).toBeFocused();
+        await expect(first).toBeFocused();
         await page.keyboard.press('Escape');
         await expectClosed();
 

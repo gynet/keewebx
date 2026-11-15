@@ -36,7 +36,7 @@ test('mobile Browse drawer survives reload and keeps one settings action', async
     await page.reload();
     await page.click('#open-demo');
     await expect(page.getByRole('button', { name: 'Browse vault', exact: true })).toHaveCount(1);
-    await expect(page.locator('.phone-bar')).toHaveCount(0);
+    await expect(page.locator('.mobile-toolbar')).toHaveCount(1);
     await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();

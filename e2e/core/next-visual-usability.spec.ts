@@ -108,7 +108,7 @@ for (const colorScheme of ['light', 'dark'] as const) for (const width of [320, 
         await expect(generator.getByRole('button', { name: 'Copy password', exact: true })).toBeDisabled();
         await page.keyboard.press('Escape');
         await expect(generator).toHaveCount(0);
-        if (width < 760) await expect(page.getByRole('button', { name: 'Browse vault', exact: true })).toBeFocused();
+        if (width < 760) await expect(page.getByRole('button', { name: 'Password generator', exact: true })).toBeFocused();
         await page.getByRole('button', { name: 'Edit', exact: true }).click();
         const editor = page.locator('.entry-editor');
         await expect(editor.getByRole('textbox', { name: 'Title', exact: true })).toBeFocused();

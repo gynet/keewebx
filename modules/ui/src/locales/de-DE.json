@@ -1241,5 +1241,12 @@
   "This vault uses a key file.": "Dieser Tresor verwendet eine Schlüsseldatei.",
   "Use password": "Passwort verwenden",
   "Use passkey": "Passkey verwenden",
-  "Tools": "Werkzeuge"
+  "Tools": "Werkzeuge",
+  "Show toolbar": "Werkzeugleiste anzeigen",
+  "Move toolbar": "Werkzeugleiste verschieben",
+  "Hide toolbar": "Werkzeugleiste ausblenden",
+  "Vault tools": "Tresor-Werkzeuge",
+  "Vault menu": "Tresor-Menü",
+  "Menu": "Menü",
+  "Drag or click to move the toolbar. Arrow keys also work.": "Ziehen oder klicken Sie, um die Werkzeugleiste zu verschieben. Pfeiltasten funktionieren ebenfalls."
 }

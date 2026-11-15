@@ -1,4 +1,4 @@
-import { activateVaultUtility } from './vault-utilities';
+import { activateVaultUtility, revealVaultTheme } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 
 const choices = ['dark', 'light', 'sd', 'sl', 'fb', 'bl', 'db', 'lb', 'te', 'lt', 'dc', 'hc'];
@@ -35,8 +35,8 @@ test('six system pairs follow the OS and manual choices stay fixed', async ({ pa
     await picker.selectOption('db');
     await page.emulateMedia({ colorScheme: 'light' }); await expect(page.locator('html')).toHaveAttribute('data-kx-palette', 'db');
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
-    await activateVaultUtility(page, 'Theme');
-    await page.getByRole('dialog', { name: 'Theme', exact: true }).getByRole('combobox', { name: 'Theme', exact: true }).selectOption('lb');
+    const vaultTheme = await revealVaultTheme(page);
+    await vaultTheme.selectOption('lb');
     await page.keyboard.press('Escape');
     await expect(page.locator('html')).toHaveAttribute('data-kx-palette', 'lb');
 });

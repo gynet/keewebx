@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -39,20 +40,20 @@ async function browse(page: Page) {
         await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
 async function settings(page: Page, section = 'Appearance') {
-    await browse(page); await page.locator('#open-settings').click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: section, exact: true }).click();
 }
 async function back(page: Page) { await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); }
 async function reload(page: Page) {
-    await back(page); await browse(page); await page.locator('#lock').click();
+    await back(page); await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload(); await unlock(page);
 }
 async function stored(page: Page, name: string) {
     return page.evaluate(name => JSON.parse(localStorage.getItem('appSettings') || '{}')[name], name);
 }
 async function selectEntry(page: Page, title: string) {
-    const close = page.getByRole('button', { name: 'Close navigation', exact: true });
-    if (await close.isVisible()) await close.click();
+    const close = page.getByRole('button', { name: 'Browse vault', exact: true });
+    if (await close.getAttribute('aria-expanded') === 'true') await close.click();
     await page.locator(`.entry-row[data-entry="${title}"]`).click();
 }
 test('per-entry audit exclusion persists in encrypted storage and can be resumed', async ({ page }) => {

@@ -1,0 +1,26 @@
+/* Mobile utilities are rendered once, separately from the desktop footer. */
+.mobile-toolbar-region { display: none; }
+@media (max-width: 760px) {
+    .vault { --mobile-toolbar-height: calc(56px + env(safe-area-inset-bottom)); }
+    .vault[data-toolbar-dock="top"] { --mobile-toolbar-height: calc(56px + env(safe-area-inset-top)); }
+    .vault[data-toolbar-hidden="true"] { --mobile-toolbar-height: 0px; }
+    .mobile-toolbar-region { position: relative; display: flex; flex: 0 0 var(--mobile-toolbar-height); min-height: var(--mobile-toolbar-height); order: 10; z-index: 31; justify-content: flex-end; }
+    .vault[data-toolbar-dock="top"] > .mobile-toolbar-region { order: -1; }
+    .mobile-toolbar { display: flex; align-items: center; gap: 4px; width: 100%; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--kx-line); background: var(--kx-side); }
+    .vault[data-toolbar-dock="top"] .mobile-toolbar { padding-block: calc(4px + env(safe-area-inset-top)) 4px; border-top: 0; border-bottom: 1px solid var(--kx-line); }
+    .mobile-toolbar > .round, .mobile-toolbar > .entry-more > .round, .mobile-toolbar__reveal { flex: 0 0 44px; width: 44px; height: 44px; }
+    .mobile-toolbar__handle { touch-action: none; cursor: grab; font-size: 22px; }
+    .mobile-toolbar__handle:active { cursor: grabbing; }
+    .mobile-toolbar__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+    .mobile-toolbar__theme { padding: 8px 12px; display: grid; gap: 6px; }
+    .mobile-toolbar__theme select { width: 100%; min-height: 44px; font-size: 16px; }
+    .mobile-toolbar__reveal { position: absolute; right: 8px; bottom: max(4px, env(safe-area-inset-bottom)); background: var(--kx-side); box-shadow: 0 1px 6px #0002; }
+    .vault[data-toolbar-dock="top"] .mobile-toolbar__reveal { top: max(4px, env(safe-area-inset-top)); bottom: auto; }
+    .vault[data-toolbar-hidden="true"] > :is(.list, .detail) { padding-bottom: max(56px, env(safe-area-inset-bottom)); scroll-padding-bottom: 56px; }
+    .vault[data-toolbar-hidden="true"][data-toolbar-dock="top"] > .list .entry-list-controls__primary { padding-right: 48px; }
+    .vault[data-toolbar-hidden="true"][data-toolbar-dock="top"] > .detail .detail__head { padding-right: 56px; }
+    .vault--navigation[data-toolbar-dock="bottom"] > .side { bottom: var(--mobile-toolbar-height); padding-bottom: 12px; }
+    .vault--navigation[data-toolbar-dock="top"] > .side { top: var(--mobile-toolbar-height); padding-top: 12px; }
+    .vault--navigation[data-toolbar-dock="bottom"] > .navigation-backdrop { bottom: var(--mobile-toolbar-height); }
+    .vault--navigation[data-toolbar-dock="top"] > .navigation-backdrop { top: var(--mobile-toolbar-height); }
+}

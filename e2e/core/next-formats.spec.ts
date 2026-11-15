@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -38,7 +39,7 @@ async function open(page: Page, source: Awaited<ReturnType<typeof fixture>>) {
 async function settings(page: Page) {
     const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
     if (!await nav.isVisible()) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
-    await nav.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 const importer = (page: Page) => page.getByRole('region', { name: 'Import data', exact: true });
