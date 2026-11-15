@@ -1,0 +1,26 @@
+.theme-picker {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    width: min(280px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    overflow: auto;
+    box-sizing: border-box;
+    padding: 12px;
+    border: 1px solid var(--kx-line);
+    border-radius: var(--kx-radius-card);
+    background: var(--kx-bg);
+    color: var(--kx-text);
+    box-shadow: 0 8px 28px #0003;
+}
+.theme-picker__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+.theme-picker__heading .round { width: 44px; height: 44px; }
+.theme-picker .plain-select { width: 100%; min-height: 44px; }
+.theme-picker label { display: flex; flex-direction: column; gap: 6px; }

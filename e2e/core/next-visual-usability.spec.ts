@@ -64,8 +64,7 @@ for (const colorScheme of ['light', 'dark'] as const) for (const width of [320, 
         if (width < 760) {
             await touchTarget(startGenerator);
             await touchTarget(page.getByRole('button', { name: 'Settings', exact: true }));
-            await touchTarget(page.getByRole('button', { name: 'Switch to dark mode', exact: true }).or(
-                page.getByRole('button', { name: 'Switch to light mode', exact: true })));
+            await touchTarget(page.getByRole('button', { name: 'Theme', exact: true }));
         }
         await startGenerator.click();
         let generator = page.getByRole('dialog', { name: 'Generate password', exact: true });
