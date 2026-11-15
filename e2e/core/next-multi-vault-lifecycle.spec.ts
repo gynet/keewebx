@@ -1,3 +1,4 @@
+import { activateDatabaseAction, revealDatabaseAction } from '../database-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
@@ -72,7 +73,7 @@ async function edit(page: Page, name: string, notes: string) {
     await entry(page).getByLabel('Notes', { exact: true }).fill(notes);
 }
 async function close(page: Page, name: string) {
-    await card(page, name).getByRole('button', { name: /^Close / }).click();
+    await activateDatabaseAction(page, new RegExp(`^Close ${name}\\.kdbx`));
     await expect(closeDialog(page)).toBeVisible();
 }
 async function saveClose(page: Page) {
@@ -153,7 +154,7 @@ test('scoped switch/search/tag/group/trash and entry creation preserve independe
     await page.getByRole('button', { name: 'New entry', exact: true }).click();
     await entry(page).getByLabel('Title', { exact: true }).fill('Created only in B root');
     await entry(page).getByRole('button', { name: 'Save', exact: true }).click();
-    await card(page, 'B').getByRole('button', { name: /^Save / }).click();
+    await activateDatabaseAction(page, /^Save B\.kdbx/);
     await expect(card(page, 'B').getByRole('status')).toHaveText('Up to date');
     await settings(page);
     const exportA = await decrypt(await download(page, 'A'), a);
@@ -191,7 +192,7 @@ test('close nonselected B leaves A draft untouched; save last A closes to unlock
     const { a, b } = await openBoth(page);
     await edit(page, 'A', 'A close-last draft');
     await close(page, 'B'); await closeDialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(card(page, 'B')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Close B\.kdbx/, includeHidden: true })).toHaveCount(1);
     await expect(entry(page).getByLabel('Notes', { exact: true })).toHaveValue('A close-last draft');
     await close(page, 'B'); await saveClose(page);
     await expect(card(page, 'B')).toHaveCount(0);
@@ -207,7 +208,7 @@ test('close nonselected B leaves A draft untouched; save last A closes to unlock
     await page.locator('.vault-row[data-vault="B"]').click();
     await page.locator('#password').fill(b.password); await page.locator('#unlock').click();
     await expect(page.locator('#unlock-error')).toHaveText('Wrong password');
-    await unlock(page, b); await expect(card(page, 'B')).toBeVisible();
+    await unlock(page, b); await expect(page.getByRole('button', { name: /^Close B\.kdbx/, includeHidden: true })).toHaveCount(1);
 });
 
 for (const fresh of [false, true]) test(`failed save retains ${fresh ? 'new' : 'existing'} editor; corrected retry closes exactly one vault`, async ({ page }) => {
@@ -233,7 +234,7 @@ for (const fresh of [false, true]) test(`failed save retains ${fresh ? 'new' : '
     await entry(page).getByLabel('Notes', { exact: true }).fill('A corrected draft');
     await page.evaluate(() => (window as any).__restoreEncrypt());
     await close(page, 'A'); await saveClose(page);
-    await expect(card(page, 'A')).toHaveCount(0); await expect(card(page, 'B')).toBeVisible();
+    await expect(card(page, 'A')).toHaveCount(0); await expect(page.getByRole('button', { name: /^Close B\.kdbx/, includeHidden: true })).toHaveCount(1);
     await expect(rows(page)).toHaveCount(1); await expect(rows(page)).toContainText('B-account-marker');
     await expect(entry(page)).toHaveCount(0);
     await reopen(page, a); await settings(page);
@@ -364,7 +365,7 @@ for (const timeout of [false, true]) test(`held close ${timeout ? 'times out' : 
         await expect(entry(page).getByLabel('Notes', { exact: true })).toHaveValue('A stays an exact draft');
         held.release();
         await expect(card(page, 'B').getByRole('status')).not.toHaveText('Saving…');
-        await expect(card(page, 'B')).toBeVisible();
+        await expect(page.getByRole('button', { name: /^Close B\.kdbx/, includeHidden: true })).toHaveCount(1);
         await expect(entry(page).getByLabel('Notes', { exact: true })).toHaveValue('A stays an exact draft');
         await close(page, 'B'); await saveClose(page);
         expect((await decrypt(remote.bytes(), b)).found.fields.get('Notes')).toBe('B remote changes');
@@ -455,7 +456,7 @@ test('disabled browser storage cannot implicitly close a local vault with an uns
     await expect(closeDialog(page).getByRole('alert')).toContainText('Browser storage is disabled');
     await closeDialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(entry(page).getByLabel('Notes', { exact: true })).toHaveValue('A cache-disabled draft');
-    await expect(card(page, 'A')).toBeVisible(); await expect(card(page, 'B')).toBeVisible();
+    await expect(card(page, 'A')).toBeVisible(); await expect(page.getByRole('button', { name: /^Close B\.kdbx/, includeHidden: true })).toHaveCount(1);
 });
 
 test('idle lock cancels pending per-vault close; late upload cannot close a reopened session', async ({ page }) => {
@@ -533,7 +534,7 @@ test('per-vault close retains B passkey registration and required key file while
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#password')).toHaveCount(0);
     await expect(entry(page).getByLabel('Notes', { exact: true })).toHaveValue('A draft across B passkey close');
-    await expect(card(page, 'B')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Close B\.kdbx/, includeHidden: true })).toHaveCount(1);
 });
 
 test('manual Lock offers explicit saving for all vault drafts with automatic saving disabled', async ({ page }) => {
@@ -551,20 +552,20 @@ test('manual Lock offers explicit saving for all vault drafts with automatic sav
     expect((await decrypt(await download(page, 'B'), b)).found.fields.get('Notes')).toBe('B saved by explicit Lock');
 });
 
-for (const width of [1280, 320]) test(`single vault save and close are direct menu items without a duplicate name or status at ${width}px`, async ({ page }) => {
+for (const width of [1280, 320]) test(`single vault save and close use the footer database menu without a duplicate name or status at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 740 });
     const a = await fixture('A');
     await page.goto('/next.html');
     await page.locator('#open-file-input').setInputFiles(payload(a.buffer, a.name));
     await unlock(page, a);
     if (width === 320) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
-    const actions = card(page, 'A');
-    await expect(actions).toBeVisible();
-    await expect(cards(page).locator('.open-vaults__select')).toHaveCount(0);
-    await expect(cards(page).getByRole('status')).toHaveCount(0);
-    const save = actions.getByRole('button', { name: /^Save / });
+    const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
+    await expect(cards(page)).toHaveCount(0);
+    await expect(nav.locator('.side__foot').getByRole('button', { name: 'Database actions', exact: true })).toBeVisible();
+    const save = await revealDatabaseAction(page, /^Save A\.kdbx/);
     await expect(save).toBeVisible();
-    await expect(actions.locator('summary')).toHaveCount(0);
+    await expect(save).toBeInViewport();
+    await expect(nav.getByRole('button', { name: 'Lock', exact: true })).toHaveCount(1);
     await save.click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date');
     await expect(save).toBeVisible();

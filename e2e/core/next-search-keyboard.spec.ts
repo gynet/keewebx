@@ -1,3 +1,4 @@
+import { revealDatabaseAction } from '../database-actions';
 import { activateEntryAction } from '../entry-actions';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
@@ -339,7 +340,8 @@ test('short 320px screen keeps search controls and filtered results reachable', 
     await titles(page, ['Alpha blue sky', 'Beta sky blue', 'Shield']);
     await options(page).locator('summary').first().click();
     await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
-    await expect(page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: /^Save / })).toBeVisible();
+    await expect(await revealDatabaseAction(page, /^Save /)).toBeVisible();
+    await page.keyboard.press('Escape');
     await page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Close navigation', exact: true }).click();
     await activateVaultUtility(page, 'Password generator');
     await expect(page.getByRole('dialog', { name: 'Generate password', exact: true })).toBeVisible();
