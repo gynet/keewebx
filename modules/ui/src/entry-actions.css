@@ -16,6 +16,6 @@
 }
 .entry-more__panel button:hover { background: var(--kx-hover, #8882); }
 .entry-more__panel button:focus-visible { outline: 2px solid var(--kx-acc); outline-offset: -2px; }
-.entry-more__panel button.pill--danger { color: var(--kx-error); border-top: 1px solid var(--kx-line); border-radius: 0 0 6px 6px; }
+.entry-more__panel button.pill.pill--danger { color: var(--kx-error); border-top: 1px solid var(--kx-line); border-radius: 0 0 6px 6px; }
 
 .entry-more__heading .icon-btn { flex: none; width: 44px; height: 44px; }
