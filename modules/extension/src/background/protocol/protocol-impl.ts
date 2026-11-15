@@ -22,7 +22,7 @@ import {
     KeeWebConnectGetAnyFieldRequestPayload,
     KeeWebConnectGetAnyFieldResponsePayload
 } from './types';
-import { fromBase64, randomBase64, randomBytes, toBase64 } from 'background/utils';
+import { fromBase64, randomBase64, randomBytes, toBase64 } from '../utils';
 import { box as tweetnaclBox, sign as tweetnaclSign, BoxKeyPair } from 'tweetnacl';
 import { ProtocolError, ProtocolErrorCode } from './protocol-error';
 
@@ -53,6 +53,13 @@ declare interface ProtocolTransportAdapter {
     request(request: KeeWebConnectRequest): Promise<KeeWebConnectResponse>;
 }
 
+export interface ProtocolRuntimeAdapter {
+    getVersion(): string;
+    getMessage(key: string): string;
+    /** Set to false to suppress plaintext logging even when the global debug flag is enabled. */
+    allowDebug?: boolean;
+}
+
 declare global {
     interface Window {
         logDecryptedPayload: boolean;
@@ -63,13 +70,21 @@ class ProtocolImpl {
     private readonly _keySize = 24;
 
     private readonly _clientId: string;
+    private readonly _runtime: ProtocolRuntimeAdapter;
     private _transport: ProtocolTransportAdapter;
     private _keys: BoxKeyPair;
     private _keewebPublicKey: Uint8Array | undefined;
     private _connectedAppName: string | undefined;
 
-    constructor(transport: ProtocolTransportAdapter) {
+    constructor(
+        transport: ProtocolTransportAdapter,
+        runtime: ProtocolRuntimeAdapter = {
+            getVersion: () => chrome.runtime.getManifest().version,
+            getMessage: (key) => chrome.i18n.getMessage(key)
+        }
+    ) {
         this._transport = transport;
+        this._runtime = runtime;
         this._clientId = randomBase64(this._keySize);
         this._keys = tweetnaclBox.keyPair();
     }
@@ -80,8 +95,9 @@ class ProtocolImpl {
 
     private makeEncryptedRequest(payload: KeeWebConnectRequest): KeeWebConnectEncryptedRequest {
         if (
-            (typeof window !== 'undefined' && window.logDecryptedPayload) ||
-            (typeof self !== 'undefined' && self.logDecryptedPayload)
+            this._runtime.allowDebug !== false &&
+            ((typeof window !== 'undefined' && window.logDecryptedPayload) ||
+                (typeof self !== 'undefined' && self.logDecryptedPayload))
         ) {
             // eslint-disable-next-line no-console
             console.log('Request payload', payload);
@@ -144,8 +160,9 @@ class ProtocolImpl {
         const payload = <KeeWebConnectEncryptedResponse>JSON.parse(json);
 
         if (
-            (typeof window !== 'undefined' && window.logDecryptedPayload) ||
-            (typeof self !== 'undefined' && self.logDecryptedPayload)
+            this._runtime.allowDebug !== false &&
+            ((typeof window !== 'undefined' && window.logDecryptedPayload) ||
+                (typeof self !== 'undefined' && self.logDecryptedPayload))
         ) {
             // eslint-disable-next-line no-console
             console.log('Response payload', payload);
@@ -158,7 +175,7 @@ class ProtocolImpl {
             throw new Error("Response nonce doesn't match");
         }
 
-        return ProtocolImpl.checkResponseError(payload);
+        return this.checkResponseError(payload);
     }
 
     private static validateNonce(nonce: string, incrementedNonce: string) {
@@ -182,16 +199,16 @@ class ProtocolImpl {
 
     private async request(request: KeeWebConnectRequest): Promise<KeeWebConnectResponse> {
         const response = await this._transport.request(request);
-        return ProtocolImpl.checkResponseError(response);
+        return this.checkResponseError(response);
     }
 
-    private static checkResponseError(response: KeeWebConnectResponse): KeeWebConnectResponse {
+    private checkResponseError(response: KeeWebConnectResponse): KeeWebConnectResponse {
         if (response.error) {
             if (response.keeWebConnectError) {
-                const locErr = chrome.i18n.getMessage(response.keeWebConnectError);
+                const locErr = this._runtime.getMessage(response.keeWebConnectError);
                 throw new Error(locErr);
             } else {
-                const locErr = chrome.i18n.getMessage('errorAppReturnedError');
+                const locErr = this._runtime.getMessage('errorAppReturnedError');
                 if (response.errorCode) {
                     const errCodeStr = `[code=${response.errorCode}] `;
                     const resErr = `${errCodeStr}${response.error}`;
@@ -225,13 +242,18 @@ class ProtocolImpl {
             // (isKeeWebConnect() and UI extension-names registry).
             // Renaming this breaks the change-public-keys handshake.
             extensionName: 'KeeWeb Connect',
-            version: chrome.runtime.getManifest().version,
+            version: this._runtime.getVersion(),
             publicKey: toBase64(this._keys.publicKey),
             nonce: toBase64(this.generateNonce()),
             clientID: this._clientId
         };
         const response = <KeeWebConnectChangePublicKeysResponse>await this.request(request);
-        this._keewebPublicKey = fromBase64(response.publicKey);
+        ProtocolImpl.validateNonce(request.nonce, response.nonce);
+        const publicKey = ProtocolImpl.fieldFromBase64(response.publicKey, 'publicKey');
+        if (publicKey.length !== tweetnaclBox.publicKeyLength) {
+            throw new Error('Bad publicKey length: expected 32 bytes');
+        }
+        this._keewebPublicKey = publicKey;
         this._connectedAppName = response.appName;
     }
 
