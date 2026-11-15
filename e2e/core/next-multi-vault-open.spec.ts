@@ -240,7 +240,8 @@ for (const width of [320, 390]) for (const source of ['local', 'WebDAV'] as cons
             // The mobile layout puts file actions below the selected panel.
             const action = picker(page).locator(remote ? '#open-webdav' : '#open-file');
             await action.scrollIntoViewIfNeeded();
-            await expect(action).toBeInViewport({ ratio: 1 });
+            // WebKit can report a fractional edge pixel for a scrolled button.
+            await expect(action).toBeInViewport({ ratio: 0.99 });
             if (remote) {
                 await picker(page).locator('#open-webdav').click();
                 await picker(page).locator('#webdav-url').fill(remote.url);
