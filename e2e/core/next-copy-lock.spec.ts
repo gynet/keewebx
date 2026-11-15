@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
@@ -74,7 +75,7 @@ for (const [width, theme] of [[1280, 'light'], [320, 'dark']] as const) {
 test('copying the historical Password follows the same lock policy', async ({ page }) => {
     await page.clock.install();
     await open(page); await setting(page, true);
-    await page.getByRole('button', { name: 'History', exact: true }).click();
+    await activateEntryAction(page, 'History');
     await page.getByRole('button', { name: 'Copy Password', exact: true }).click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(secret);
     await page.clock.fastForward(2500);

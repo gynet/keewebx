@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -93,7 +94,7 @@ for (const touch of [false, true]) test.describe(touch ? '320px touch field work
     test.setTimeout(90_000);
     test('ranked suggestions, bounded additional URLs and empty fields survive encrypted cached reopen', async ({ page, browserName }) => {
         const source = await fixture(); await open(page, source, touch);
-        await click(page.getByRole('button', { name: 'Show empty fields', exact: true }), touch);
+        await activateEntryAction(page, 'Show empty fields', touch);
         await expect(page.locator('[data-field="field:Empty protected"]')).toContainText('(empty)');
         await expect(page.locator('[data-field="url"]').getByRole('button', { name: 'Copy', exact: true })).toHaveCount(1);
         await expect(page.locator('[data-field="field:KP2A_URL"]').getByRole('link')).toHaveCount(0);
@@ -137,25 +138,25 @@ for (const touch of [false, true]) test.describe(touch ? '320px touch field work
         await editor(page).getByLabel('Notes', { exact: true }).fill('Changed private\nnotes'); await apply(page, touch);
         await edit(page, touch); await editor(page).getByLabel('Website', { exact: true }).fill('https://unsaved.example'); await apply(page, touch);
         if (limit) {
-            await click(page.getByRole('button', { name: 'History', exact: true }), touch);
+            await activateEntryAction(page, 'History', touch);
             const history = page.getByRole('dialog', { name: 'Entry history', exact: true });
             await history.getByRole('combobox', { name: 'Version', exact: true }).selectOption('0');
             await click(history.getByRole('button', { name: 'Restore version', exact: true }), touch);
             await click(history.getByRole('button', { name: 'Confirm restore', exact: true }), touch);
         }
         const discard = page.getByRole('button', { name: 'Discard unsaved entry changes…', exact: true });
-        await click(discard, touch);
+        await activateEntryAction(page, 'Discard unsaved entry changes…', touch);
         const action = page.getByRole('dialog', { name: 'Discard unsaved entry changes', exact: true });
         await expect(action.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
         await click(action.getByRole('button', { name: 'Cancel', exact: true }), touch); await expect(discard).toBeVisible();
-        await click(discard, touch); await click(action.getByRole('button', { name: 'Discard entry changes', exact: true }), touch);
-        await expect(discard).toHaveCount(0);
+        await activateEntryAction(page, 'Discard unsaved entry changes…', touch); await click(action.getByRole('button', { name: 'Discard entry changes', exact: true }), touch);
+        await expect(page.getByRole('button', { name: 'Discard unsaved entry changes…', exact: true, includeHidden: true })).toHaveCount(0);
         await test.info().attach('discard-result', { body: await page.screenshot(), contentType: 'image/png' });
         if (!limit) {
             if (touch) await click(page.getByRole('button', { name: 'Back', exact: true }), touch);
             await click(page.getByRole('button', { name: 'New entry', exact: true }), touch);
             await editor(page).getByLabel('Title', { exact: true }).fill('Never saved child'); await apply(page, touch);
-            await click(page.getByRole('button', { name: 'Discard unsaved entry changes…', exact: true }), touch);
+            await activateEntryAction(page, 'Discard unsaved entry changes…', touch);
             await expect(action).toContainText('Discarding removes it.');
             await click(action.getByRole('button', { name: 'Discard entry changes', exact: true }), touch);
             await expect(row(page, 'Never saved child')).toHaveCount(0);
@@ -184,23 +185,23 @@ test('formatted copy warns, escapes HTML, share cancellation is inert, and real 
         const writeText = navigator.clipboard.writeText.bind(navigator.clipboard);
         navigator.clipboard.writeText = async value => { state.writes++; state.plain = value; if (/Chrome/.test(navigator.userAgent)) await writeText(value); };
     });
-    await page.getByRole('button', { name: 'Copy formatted entry…', exact: true }).click();
+    await activateEntryAction(page, 'Copy formatted entry…');
     const dialog = page.getByRole('dialog', { name: 'Copy formatted entry', exact: true });
     await expect(dialog).toContainText('including hidden secrets'); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(await page.evaluate(() => (window as any).fieldClipboard.writes)).toBe(0);
-    await page.getByRole('button', { name: 'Copy formatted entry…', exact: true }).click(); await dialog.getByRole('button', { name: 'Copy entry', exact: true }).click();
+    await activateEntryAction(page, 'Copy formatted entry…'); await dialog.getByRole('button', { name: 'Copy entry', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Entry copied.' })).toBeVisible();
     const clipboard = await page.evaluate(() => (window as any).fieldClipboard);
     expect(clipboard.plain).toContain('Password: secret<&>'); expect(clipboard.plain).toContain('Attachment: proof.bin');
     if (clipboard.html) { expect(clipboard.html).toContain('secret&lt;&amp;&gt;'); expect(clipboard.html).toContain('data:application/octet-stream;base64,AP+AAQ=='); }
     if (browserName === 'chromium') expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(clipboard.plain);
-    await page.getByRole('button', { name: 'Share password…', exact: true }).click();
+    await activateEntryAction(page, 'Share password…');
     await page.getByRole('dialog', { name: 'Share password', exact: true }).getByRole('button', { name: 'Share password', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Sharing canceled.' })).toBeVisible();
     expect(await page.evaluate(() => (window as any).fieldClipboard.writes)).toBe(1);
     expect(await page.evaluate(() => (window as any).fieldClipboard.shared)).toBe('secret<&>');
     await page.evaluate(() => Object.defineProperty(navigator, 'share', { configurable: true, value: undefined }));
-    await page.getByRole('button', { name: 'Share password…', exact: true }).click();
+    await activateEntryAction(page, 'Share password…');
     const fallback = page.getByRole('dialog', { name: 'Share password', exact: true });
     expect(await page.evaluate(() => (window as any).fieldClipboard.writes)).toBe(1);
     await fallback.getByRole('button', { name: 'Copy password instead', exact: true }).click();
@@ -216,5 +217,5 @@ test('formatted copy warns, escapes HTML, share cancellation is inert, and real 
     });
     await page.locator('[data-field="password"] .field__label').dragTo(page.getByRole('textbox', { name: 'External drop receiver', exact: true }));
     await expect(page.getByRole('textbox', { name: 'External drop receiver', exact: true })).toHaveValue('secret<&>');
-    await expect(page.getByRole('button', { name: 'Discard unsaved entry changes…', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Discard unsaved entry changes…', exact: true, includeHidden: true })).toHaveCount(0);
 });

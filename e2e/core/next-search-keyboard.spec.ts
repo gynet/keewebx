@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -132,7 +133,7 @@ for (const width of [1280, 320]) {
             await options(page).getByLabel('Search history', { exact: true }).check(); await titles(page, ['Alpha blue sky']);
             await expect(rows(page)).toContainText('Match in history');
             await rows(page).click();
-            await page.getByRole('button', { name: 'History', exact: true }).click();
+            await activateEntryAction(page, 'History');
             const history = page.getByRole('dialog', { name: 'Entry history', exact: true });
             await expect(history.getByRole('combobox', { name: 'Version', exact: true }).locator('option:checked')).toContainText('search match');
             await expect(history.locator('[aria-label="History field: Title"]')).toContainText('ArchiveOnly');

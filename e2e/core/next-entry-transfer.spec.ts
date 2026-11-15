@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -111,7 +112,7 @@ async function begin(page: Page, b: Fixture, touch = false) {
     await choose(page, b, touch);
 }
 async function choose(page: Page, b: Fixture, touch = false) {
-    await click(page.getByRole('button', { name: 'Move to another vault…', exact: true }), touch);
+    await activateEntryAction(page, 'Move to another vault…', touch);
     await expect(dialog(page)).toBeVisible();
     await expect(dialog(page).getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
     const option = await dialog(page).getByRole('option').filter({ hasText: `${b.name} (2) / "${b.name}" / "Accounts"` }).getAttribute('value');
@@ -159,7 +160,7 @@ for (const touch of [false, true]) test.describe(touch ? '320px touch' : 'deskto
         const notes = page.getByRole('region', { name: 'Notes', exact: true });
         await click(notes.getByRole('button', { name: 'Edit notes', exact: true }), touch);
         await notes.getByRole('textbox').fill('Uncommitted draft stays on cancel');
-        await click(page.getByRole('button', { name: 'Move to another vault…', exact: true }), touch);
+        await activateEntryAction(page, 'Move to another vault…', touch);
         await click(dialog(page).getByRole('button', { name: 'Cancel', exact: true }), touch);
         await expect(notes.getByRole('textbox')).toHaveValue('Uncommitted draft stays on cancel');
         await choose(page, b, touch);

@@ -1,3 +1,4 @@
+import { revealEntryAction } from '../entry-actions';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import * as kdbxweb from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -121,7 +122,7 @@ for (const width of [320, 390]) {
         await expect(page.locator('.entry-row')).toHaveCount(1);
         await expect(page.locator('.entry-row')).toHaveAttribute('data-entry', 'Trashed entry');
         await page.locator('.entry-row').click();
-        await expect(page.getByRole('button', { name: 'Restore', exact: true })).toBeVisible();
+        await expect(await revealEntryAction(page, 'Restore')).toBeVisible();
         await page.getByRole('button', { name: 'Back', exact: true }).click();
 
         await openNavigation();

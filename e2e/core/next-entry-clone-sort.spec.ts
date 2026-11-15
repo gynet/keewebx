@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
@@ -150,10 +151,10 @@ test.describe('New entry clone and sort', () => {
             await page.getByRole('combobox', { name: 'Sort entries', exact: true }).selectOption('-title');
             await expect(page.locator('.entry-row__title')).toHaveText(['needle', 'Beta', 'Alpha']);
             await page.screenshot({ path: test.info().outputPath('sort-list.png'), fullPage: true });
-            await activate(row(page), mobile); await activate(trigger(page), mobile);
+            await activate(row(page), mobile); await activateEntryAction(page, 'Clone…', mobile);
             await expect(dialog(page).getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
             await page.keyboard.press('Escape'); await expect(trigger(page)).toBeFocused();
-            await activate(trigger(page), mobile);
+            await activateEntryAction(page, 'Clone…', mobile);
             expect(await dialog(page).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
             await page.screenshot({ path: test.info().outputPath('clone-confirm.png'), fullPage: true });
             await activate(dialog(page).getByRole('button', { name: 'Clone', exact: true }), mobile);
@@ -211,9 +212,9 @@ test.describe('New entry clone and sort', () => {
         const notes = page.getByRole('region', { name: 'Notes', exact: true });
         await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
         await notes.getByRole('textbox').fill('Do not copy this unsaved note');
-        await trigger(page).click(); await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+        await activateEntryAction(page, 'Clone…'); await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         await expect(notes.getByRole('textbox')).toHaveValue('Do not copy this unsaved note');
-        await trigger(page).click(); page.once('dialog', prompt => prompt.dismiss());
+        await activateEntryAction(page, 'Clone…'); page.once('dialog', prompt => prompt.dismiss());
         await dialog(page).getByRole('button', { name: 'Clone', exact: true }).click();
         await expect(dialog(page)).toBeVisible(); await expect(page.locator('.entry-row')).toHaveCount(3);
         page.once('dialog', prompt => prompt.accept());
@@ -226,13 +227,13 @@ test.describe('New entry clone and sort', () => {
         const existing = seeded.createEntry(seeded.getGroup(source.groupId)!);
         existing.fields.set('Title', 'needle Copy'); existing.fields.set('Password', kdbx.ProtectedValue.fromString('existing copy secret'));
         const existingId = existing.uuid.id; source.data = Buffer.from(await seeded.save());
-        await open(page, source); await row(page).click(); await trigger(page).click();
+        await open(page, source); await row(page).click(); await activateEntryAction(page, 'Clone…');
         await dialog(page).getByRole('button', { name: 'Clone', exact: true }).click();
         await expect(page.locator('.entry-row--on')).toContainText('bravo');
         const copied = await download(page); const cloneId = await fidelity(copied.db, source);
-        await page.getByRole('button', { name: 'Recycle', exact: true }).click();
+        await activateEntryAction(page, 'Recycle');
         await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click();
-        await row(page, 'needle Copy').click(); await expect(trigger(page)).toHaveCount(0);
+        await row(page, 'needle Copy').click(); await expect(page.getByRole('button', { name: 'Clone…', exact: true, includeHidden: true })).toHaveCount(0);
         const after = (await download(page)).db;
         expect(entries(after)).toHaveLength(5);
         expect(entries(after).find(e => e.uuid.id === cloneId)!.parentGroup?.uuid.id).toBe(after.meta.recycleBinUuid!.id);
@@ -251,7 +252,7 @@ test.describe('New entry clone and sort', () => {
             await page.locator('#webdav-pass').fill('disposable'); await page.locator('#webdav-next').click();
             await page.locator('#password').fill(password); await page.locator('#unlock').click();
             await expect(row(page)).toBeVisible({ timeout }); await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-            await row(page).click(); await trigger(page).click();
+            await row(page).click(); await activateEntryAction(page, 'Clone…');
             const remote = await decrypt(dav.bytes()); remote.move(entries(remote).find(e => e.uuid.id === source.entryId)!, remote.getGroup(source.otherId)!);
             remote.createEntry(remote.groups[0]).fields.set('Title', 'Remote marker'); dav.replace(Buffer.from(await remote.save()));
             await page.clock.fastForward(61_000); await expect(row(page, 'Remote marker')).toHaveCount(1, { timeout });
@@ -276,7 +277,7 @@ test.describe('New entry clone and sort', () => {
         await page.getByRole('button', { name: 'Edit', exact: true }).click();
         await page.locator('.entry-editor').getByLabel('Title', { exact: true }).fill('Edited before lock');
         await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
-        await trigger(page).click();
+        await activateEntryAction(page, 'Clone…');
         let entered = false;
         let completed = false;
         await page.exposeFunction('sdetCloneEncryptEntered', () => { entered = true; });

@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer, type ServerResponse } from 'node:http';
@@ -55,7 +56,7 @@ async function exportDb(page: Page) {
     await back(page); return { db, data };
 }
 async function dialog(page: Page) {
-    await page.getByRole('button', { name: 'Download website icon…', exact: true }).click();
+    await activateEntryAction(page, 'Download website icon…');
     return page.getByRole('dialog', { name: 'Download website icon', exact: true });
 }
 for (const cap of [32, 64, 128]) test(`favicon ${cap}px is explicit, bounded and survives encrypted offline reopen`, async ({ page, icons }) => {

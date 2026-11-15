@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { test, expect } from '@playwright/test';
 import { open, download, find, kdbx, back, browse, password, timeout } from './presentation-lifecycle-fixture';
 
@@ -24,7 +25,7 @@ for (const width of [1280, 320]) for (const trash of [true, false]) {
             const removed = find(db, source.template);
             expect(removed.parentGroup?.uuid.id).toBe(db.meta.recycleBinUuid?.id); expect(removed.history).toHaveLength(1); expect(removed.binaries.has('proof.bin')).toBe(true);
             await back(page); await browse(page); await page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Trash', exact: true }).click();
-            await page.locator('[data-entry="Account template"]').click(); await page.getByRole('button', { name: 'Restore', exact: true }).click();
+            await page.locator('[data-entry="Account template"]').click(); await activateEntryAction(page, 'Restore');
             const restore = page.getByRole('dialog', { name: 'Restore entry to group', exact: true });
             await restore.getByRole('button', { name: 'Restore', exact: true }).click();
             db = await download(page); expect(find(db, source.template).parentGroup?.uuid.id).toBe(source.templateGroup);

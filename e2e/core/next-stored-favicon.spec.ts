@@ -1,3 +1,4 @@
+import { activateEntryAction, revealEntryAction } from '../entry-actions';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -22,7 +23,7 @@ const test = base.extend<{ icons: IconServer }>({ icons: async ({ page }, use) =
 } });
 async function select(page: Page) { await page.locator('[data-entry="Existing account"]').click(); }
 async function dialog(page: Page) {
-    await page.getByRole('button', { name: 'Download website icon…', exact: true }).click();
+    await activateEntryAction(page, 'Download website icon…');
     return page.getByRole('dialog', { name: 'Download website icon', exact: true });
 }
 function ico(png: Buffer) {
@@ -92,7 +93,7 @@ test('invalid website cannot start an import even through a dispatched disabled-
     await open(page); await select(page); await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.locator('.entry-editor').getByLabel('Website', { exact: true }).fill('javascript:alert(1)');
     await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
-    const button = page.getByRole('button', { name: 'Download website icon…', exact: true });
+    const button = await revealEntryAction(page, 'Download website icon…');
     await expect(button).toBeDisabled(); await button.evaluate(element => element.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     await expect(page.getByRole('dialog', { name: 'Download website icon', exact: true })).toHaveCount(0);
 });

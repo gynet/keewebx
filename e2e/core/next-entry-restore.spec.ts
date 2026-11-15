@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
@@ -199,21 +200,21 @@ test.describe('New chosen-group entry restore', () => {
         test.use({ viewport: mobile ? { width: 320, height: 350 } : { width: 1280, height: 800 }, hasTouch: mobile, colorScheme });
         test('cancel is inert; original or chosen group restores exact encrypted identity and content', async ({ page, browser }) => {
             const source = await fixture(); await open(page, source); await activate(row(page), mobile);
-            await activate(restoreTrigger(page), mobile);
+            await activateEntryAction(page, 'Restore', mobile);
             await expect(dialog(page).getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
             await expect(dialog(page)).toContainText('The original group is suggested.');
             await expect(dialog(page).getByRole('combobox').locator('option:checked')).toHaveText(`${name} / Source / Accounts`);
             await expect(dialog(page).getByRole('combobox').locator('option')).not.toContainText(['Recycle Bin']);
             await page.keyboard.press('Escape'); await expect(restoreTrigger(page)).toBeFocused();
             fidelity((await download(page, mobile)).db, source, source.ids.bin);
-            await activate(restoreTrigger(page), mobile);
+            await activateEntryAction(page, 'Restore', mobile);
             if (colorScheme === 'light') await choose(page);
             const parent = colorScheme === 'light' ? source.ids.target : source.ids.source;
             expect(await dialog(page).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
             await page.screenshot({ path: test.info().outputPath('restore-destination.png'), fullPage: true });
             await activate(dialog(page).getByRole('button', { name: 'Restore', exact: true }), mobile);
             await expect(page.locator('.detail__title')).toHaveText(title);
-            await expect(restoreTrigger(page)).toHaveCount(0);
+            await expect(page.getByRole('button', { name: 'Restore', exact: true, includeHidden: true })).toHaveCount(0);
             const result = await download(page, mobile); fidelity(result.db, source, parent);
             const fresh = await browser.newContext({ baseURL: page.url() });
             try {
@@ -232,7 +233,7 @@ test.describe('New chosen-group entry restore', () => {
             if (missing) entry.previousParentGroup = undefined;
             else db.remove(db.getGroup(source.ids.source)!);
             source.data = Buffer.from(await db.save());
-            await open(page, source); await row(page).click(); await restoreTrigger(page).click();
+            await open(page, source); await row(page).click(); await activateEntryAction(page, 'Restore');
             await expect(dialog(page)).toContainText('The original group is unavailable or was not recorded.');
             await expect(dialog(page).getByRole('combobox').locator('option:checked')).toHaveText(`${name} (1)`);
             // Identical full paths are disambiguated by sibling ordinals; values remain real IDs.
@@ -249,9 +250,9 @@ test.describe('New chosen-group entry restore', () => {
         const notes = page.getByRole('region', { name: 'Notes', exact: true });
         await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
         await notes.getByRole('textbox').fill('Unsaved restore draft');
-        await restoreTrigger(page).click(); await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+        await activateEntryAction(page, 'Restore'); await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         await expect(notes.getByRole('textbox')).toHaveValue('Unsaved restore draft');
-        await restoreTrigger(page).click(); await choose(page);
+        await activateEntryAction(page, 'Restore'); await choose(page);
         page.once('dialog', prompt => prompt.dismiss());
         await dialog(page).getByRole('button', { name: 'Restore', exact: true }).click();
         await expect(dialog(page)).toBeVisible();
@@ -271,7 +272,7 @@ test.describe('New chosen-group entry restore', () => {
             await expect(row(page, 'Unchanged sibling')).toBeVisible({ timeout });
             await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
             await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click();
-            await row(page).click(); await restoreTrigger(page).click(); await choose(page, 'restore / Team B / Accounts');
+            await row(page).click(); await activateEntryAction(page, 'Restore'); await choose(page, 'restore / Team B / Accounts');
             const remote = await decrypt(dav.bytes()); remote.move(remote.getGroup(source.ids.target)!, null);
             dav.replace(Buffer.from(await remote.save()));
             await page.clock.fastForward(61_000);
@@ -296,7 +297,7 @@ test.describe('New chosen-group entry restore', () => {
         const notes = page.getByRole('region', { name: 'Notes', exact: true });
         await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
         await notes.getByRole('textbox').fill('Edited before lock');
-        await restoreTrigger(page).click();
+        await activateEntryAction(page, 'Restore');
         await choose(page);
         let entered = false;
         let completed = false;

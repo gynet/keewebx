@@ -1,3 +1,4 @@
+import { activateEntryAction } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { createServer } from 'node:http';
@@ -77,7 +78,7 @@ async function open(page: Page, source: Fixture) {
     await target(page).click();
 }
 async function showHistory(page: Page, touch = false) {
-    await activate(page.getByRole('button', { name: 'History', exact: true }), touch);
+    await activateEntryAction(page, 'History', touch);
     await expect(history(page)).toBeVisible();
     await expect(history(page).getByRole('combobox', { name: 'Version', exact: true })).toBeFocused();
 }

@@ -1,3 +1,4 @@
+import { activateEntryAction, revealEntryAction } from '../entry-actions';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -127,14 +128,14 @@ async function peer(source: Fixture) {
 
 test.setTimeout(90_000);
 for (const mode of ['trash', 'disabled'] as const) test(`${mode}: cancel is inert; confirmed deletion persists one UUID tombstone and preserves siblings`, async ({ page }) => {
-    const source = await fixture(mode); await open(page, source); await trigger(page).click();
+    const source = await fixture(mode); await open(page, source); await activateEntryAction(page, 'Delete permanently…');
     await expect(dialog(page)).toContainText('This cannot be undone.');
     if (mode === 'disabled') await expect(dialog(page)).toContainText('The recycle bin is disabled.');
     await expect(dialog(page).getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
     await page.keyboard.press('Enter'); await expect(dialog(page)).toHaveCount(0); await expect(trigger(page)).toBeFocused();
-    await trigger(page).click(); await page.keyboard.press('Escape'); await expect(trigger(page)).toBeFocused();
+    await activateEntryAction(page, 'Delete permanently…'); await page.keyboard.press('Escape'); await expect(trigger(page)).toBeFocused();
     await unchanged((await download(page)).db, source);
-    await trigger(page).click();
+    await activateEntryAction(page, 'Delete permanently…');
     await page.screenshot({ path: test.info().outputPath('permanent-delete-confirmation.png'), fullPage: true });
     // Repeated delivery to the same button must not mutate twice before Preact unmounts it.
     await confirm(page).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
@@ -146,11 +147,11 @@ for (const mode of ['trash', 'disabled'] as const) test(`${mode}: cancel is iner
 
 test('normal Recycle remains reversible and creates no tombstone', async ({ page }) => {
     const source = await fixture('normal'); await open(page, source);
-    await expect(trigger(page)).toHaveCount(0);
-    await page.getByRole('button', { name: 'Recycle', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Delete permanently…', exact: true, includeHidden: true })).toHaveCount(0);
+    await activateEntryAction(page, 'Recycle');
     await expect(dialog(page)).toHaveCount(0); await expect(row(page)).toHaveCount(0);
     await nav(page).getByRole('button', { name: 'Trash', exact: true }).click(); await row(page).click();
-    await expect(trigger(page)).toBeVisible();
+    await expect(await revealEntryAction(page, 'Delete permanently…')).toBeVisible();
     const db = (await download(page)).db, before = await decrypt(source.data);
     expect(entries(db)).toHaveLength(3); expect(db.deletedObjects).toHaveLength(0);
     const moved = entries(db).find(entry => entry.uuid.id === source.id)!;
@@ -164,16 +165,16 @@ test('cancel and declined draft discard preserve Notes; accepted discard permits
     const notes = page.getByRole('region', { name: 'Notes', exact: true });
     await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
     await notes.getByRole('textbox').fill('Unsaved deletion draft');
-    await trigger(page).click(); await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await activateEntryAction(page, 'Delete permanently…'); await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(notes.getByRole('textbox')).toHaveValue('Unsaved deletion draft');
-    await trigger(page).click(); page.once('dialog', prompt => prompt.dismiss()); await confirm(page).click();
+    await activateEntryAction(page, 'Delete permanently…'); page.once('dialog', prompt => prompt.dismiss()); await confirm(page).click();
     await expect(dialog(page)).toBeVisible(); await expect(notes.getByRole('textbox')).toHaveValue('Unsaved deletion draft');
     page.once('dialog', prompt => prompt.accept()); await confirm(page).click();
     await deleted((await download(page)).db, source);
 });
 
 test('closed confirmation rejects stale button delivery without deleting', async ({ page }) => {
-    const source = await fixture(); await open(page, source); await trigger(page).click();
+    const source = await fixture(); await open(page, source); await activateEntryAction(page, 'Delete permanently…');
     await confirm(page).evaluate(button => { button.closest('dialog')!.close(); (button as HTMLButtonElement).click(); });
     await expect(row(page)).toBeVisible();
     await page.locator('dialog[aria-label="Permanently delete entry"]').evaluate(el => (el as HTMLDialogElement).showModal());
@@ -185,7 +186,7 @@ test('confirmation closed during draft discard cannot continue into deletion', a
     const source = await fixture(); await open(page, source);
     const notes = page.getByRole('region', { name: 'Notes', exact: true });
     await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
-    await notes.getByRole('textbox').fill('Discard only this draft'); await trigger(page).click();
+    await notes.getByRole('textbox').fill('Discard only this draft'); await activateEntryAction(page, 'Delete permanently…');
     await page.evaluate(() => {
         const original = window.confirm;
         window.confirm = () => {
@@ -209,7 +210,7 @@ for (const change of ['restore', 'update'] as const) test(`encrypted remote ${ch
         await page.locator('#password').fill(password); await page.locator('#unlock').click();
         await expect(row(page, 'Live sibling')).toBeVisible({ timeout });
         await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-        await nav(page).getByRole('button', { name: 'Trash', exact: true }).click(); await row(page).click(); await trigger(page).click();
+        await nav(page).getByRole('button', { name: 'Trash', exact: true }).click(); await row(page).click(); await activateEntryAction(page, 'Delete permanently…');
         const remote = await decrypt(dav.bytes());
         const target = entries(remote).find(entry => entry.uuid.id === source.id)!;
         if (change === 'restore') remote.move(target, remote.getGroup(source.groupId)!);
@@ -248,11 +249,11 @@ test('active save blocks deletion until it finishes without changing the selecte
     await notes.getByRole('textbox').fill('New applied note');
     await notes.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as any).deleteSaveEntered), { timeout }).toBe(true);
-    await trigger(page).click(); await expect(dialog(page)).toHaveCount(0);
+    await activateEntryAction(page, 'Delete permanently…'); await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByRole('status').filter({ hasText: 'A save is in progress.' })).toBeVisible();
     await page.evaluate(() => window.dispatchEvent(new Event('release-delete-save')));
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await trigger(page).click(); await expect(dialog(page)).toBeVisible();
+    await activateEntryAction(page, 'Delete permanently…'); await expect(dialog(page)).toBeVisible();
     await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
     const db = (await download(page)).db;
     expect(db.deletedObjects).toHaveLength(0); expect(entries(db)).toHaveLength(3);
@@ -264,7 +265,7 @@ test('lock recovery invalidates retained delete confirmation after authenticatio
     await page.locator('#open-settings').click(); await page.getByRole('tab', { name: 'Security', exact: true }).click(); await page.locator('#setting-auto-lock').selectOption('5'); await page.locator('#settings-back').click();
     const notes = page.getByRole('region', { name: 'Notes', exact: true });
     await notes.getByRole('button', { name: 'Edit notes', exact: true }).click(); await notes.getByRole('textbox').fill('Saved during lock');
-    await trigger(page).click();
+    await activateEntryAction(page, 'Delete permanently…');
     await page.evaluate(() => {
         const encrypt = SubtleCrypto.prototype.encrypt;
         (window as any).deleteGate = { entered: false, completed: false };

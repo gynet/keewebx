@@ -1,3 +1,4 @@
+import { activateEntryAction, revealEntryAction } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
@@ -80,7 +81,7 @@ async function duplicateFixture() {
 }
 const row = (page: Page, value = title) => page.locator('.entry-row').filter({ has: page.getByText(value, { exact: true }) });
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Move entry to group', exact: true });
-const moveTrigger = (page: Page) => page.getByRole('button', { name: 'Move…', exact: true });
+const moveTrigger = (page: Page) => page.getByRole('button', { name: 'Move to group…', exact: true });
 const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
 async function activate(control: Locator, touch = false) { if (touch) await control.tap(); else await control.click(); }
 async function browse(page: Page, touch = false) {
@@ -208,7 +209,7 @@ test.describe('New same-vault entry move', () => {
                 const source = await fixture();
                 await open(page, source);
                 await activate(row(page), mobile);
-                await activate(moveTrigger(page), mobile);
+                await activateEntryAction(page, 'Move to group…', mobile);
                 const select = dialog(page).getByRole('combobox', { name: 'Destination group', exact: true });
                 await expect(select).toBeFocused();
                 await expect(select).toHaveValue('');
@@ -246,7 +247,7 @@ test.describe('New same-vault entry move', () => {
                 } finally { await context.close(); }
                 // The completed move must also fit: a long unbroken destination
                 // previously overflowed detail__where after the modal closed.
-                await activate(moveTrigger(page), mobile);
+                await activateEntryAction(page, 'Move to group…', mobile);
                 await choose(page, `${name} / Team B / Accounts / ${longGroup}`);
                 await activate(dialog(page).getByRole('button', { name: 'Move', exact: true }), mobile);
                 await expect(page.locator('.detail__where')).toHaveText(longGroup);
@@ -266,11 +267,11 @@ test.describe('New same-vault entry move', () => {
         const source = await fixture();
         await open(page, source);
         await row(page).click();
-        await moveTrigger(page).click();
+        await activateEntryAction(page, 'Move to group…');
         await choose(page);
         await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         await expect(moveTrigger(page)).toBeFocused();
-        await moveTrigger(page).click();
+        await activateEntryAction(page, 'Move to group…');
         await choose(page);
         await page.keyboard.press('Escape');
         await expect(moveTrigger(page)).toBeFocused();
@@ -278,20 +279,20 @@ test.describe('New same-vault entry move', () => {
         await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
         await notes.getByRole('textbox').fill('Discard me, never persist');
         page.once('dialog', prompt => prompt.dismiss());
-        await moveTrigger(page).click();
+        await activateEntryAction(page, 'Move to group…');
         await expect(dialog(page)).toHaveCount(0);
         await expect(notes.getByRole('textbox')).toHaveValue('Discard me, never persist');
         page.once('dialog', prompt => prompt.accept());
-        await moveTrigger(page).click();
+        await activateEntryAction(page, 'Move to group…');
         await expect(dialog(page)).toBeVisible();
         await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         fidelity((await download(page)).db, source, source.ids.source);
         // Trash has a separate Restore workflow; normal move must not expose it as a destination/source.
-        await page.getByRole('button', { name: 'Recycle', exact: true }).click();
+        await activateEntryAction(page, 'Recycle');
         await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click();
         await row(page).click();
-        await expect(moveTrigger(page)).toHaveCount(0);
-        await expect(page.getByRole('button', { name: 'Restore', exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Move to group…', exact: true, includeHidden: true })).toHaveCount(0);
+        await expect(await revealEntryAction(page, 'Restore')).toBeVisible();
     });
 
     test('disambiguates exact duplicate sibling/root paths and literal separators, moving each to the exact UUID', async ({ page }) => {
@@ -299,7 +300,7 @@ test.describe('New same-vault entry move', () => {
         await open(page, source);
         await row(page).click();
         for (const target of source.targets) {
-            await moveTrigger(page).click();
+            await activateEntryAction(page, 'Move to group…');
             const select = dialog(page).getByRole('combobox');
             const labels = await select.locator('option').allTextContents();
             expect(new Set(labels).size).toBe(labels.length);
@@ -331,7 +332,7 @@ test.describe('New same-vault entry move', () => {
                 await expect(row(page)).toBeVisible({ timeout });
                 await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
                 await row(page).click();
-                await moveTrigger(page).click();
+                await activateEntryAction(page, 'Move to group…');
                 // The WebDAV filename is the file model's display name.
                 await choose(page, 'targets' in source ? source.targets[0].path.replace(name, 'move') : 'move / Team B / Accounts');
                 const remote = await decrypt(dav.bytes());
@@ -374,7 +375,7 @@ test.describe('New same-vault entry move', () => {
         await page.getByRole('button', { name: 'Edit', exact: true }).click();
         await page.locator('.entry-editor').getByLabel('Title', { exact: true }).fill('Edited before lock');
         await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
-        await moveTrigger(page).click();
+        await activateEntryAction(page, 'Move to group…');
         await choose(page);
         let entered = false;
         let completed = false;

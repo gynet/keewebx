@@ -6,6 +6,7 @@ for (const width of [320, 390, 1280]) test.describe(`Entry actions at ${width}px
     test('two top actions; bounded overflow, dismissal and child History retain focus', async ({ page }) => {
         const touch = width < 400;
         const activate = (button: ReturnType<typeof page.getByRole>) => touch ? button.tap() : button.click();
+        await page.addInitScript(() => localStorage.setItem('appSettings', JSON.stringify({ hideEmptyFields: true })));
         await page.goto('/next.html');
         await page.locator('#open-demo').click();
         await page.locator('.entry-row[data-entry="GitHub"]').click();
