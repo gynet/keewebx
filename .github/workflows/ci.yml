@@ -309,6 +309,7 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, firefox]
+        shard: [1, 2]
     env:
       KEEWEBX_NEW_EXTENSION: '1'
       KEEWEBX_E2E_PORT: '8112'
@@ -325,11 +326,11 @@ jobs:
       - name: Install headless browser dependencies
         run: bunx playwright install ${{ matrix.browser }} --with-deps
       - name: Run New core suite
-        run: bunx playwright test --config e2e/core-ci.playwright.config.ts --project=new-${{ matrix.browser }}
+        run: bunx playwright test --config e2e/core-ci.playwright.config.ts --project=new-${{ matrix.browser }} --shard=${{ matrix.shard }}/2
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: e2e-new-core-${{ matrix.browser }}
+          name: e2e-new-core-${{ matrix.browser }}-${{ matrix.shard }}
           path: |
             e2e/test-results-core-ci/
             playwright-report/core-ci/
