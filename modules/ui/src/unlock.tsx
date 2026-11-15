@@ -18,6 +18,7 @@ import { ProviderOpen, browsableProviders, type ProviderItem } from './provider-
 import { useStorageExtensions } from './storage-extensions';
 import { getSessionAccess } from 'comp/app/session-access';
 import { classifyStartFiles } from './start-files';
+import { databaseFileAccept } from './database-file-accept';
 import { readStartLink } from './start-link';
 import { StartTools } from './start-tools';
 import { removeRecent } from './recent-removal';
@@ -255,7 +256,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     <span class="add-row__icon"><Icon name="plus" /></span>{t('Create a vault')}
                 </button>}
                 {(model.settings.canImportXml || model.settings.canImportCsv) && <button class="add-row" disabled={busy} onClick={() => selectPane({ kind: 'import' })}>{t('Import XML or CSV')}</button>}
-                {model.settings.canOpen && <><input ref={fileInput} type="file" accept=".kdbx,.kdb" disabled={busy} hidden onChange={chooseFile} id="open-file-input" />
+                {model.settings.canOpen && <><input ref={fileInput} type="file" accept={databaseFileAccept(navigator)} disabled={busy} hidden onChange={chooseFile} id="open-file-input" />
                 <button class="add-row" id="open-file" disabled={busy} onClick={() => { if (localAllowed()) fileInput.current?.click(); }}>
                     <span class="add-row__icon">
                         <Icon name="file" />
