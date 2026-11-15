@@ -1,6 +1,6 @@
 .entry-more { position: relative; }
 .entry-more__panel {
-    position: fixed; z-index: 20;
+    position: fixed; z-index: 40;
     width: min(300px, calc(100vw - 32px)); max-height: min(520px, 65dvh); overflow-y: auto;
     padding: 8px; border: 1px solid var(--kx-line); border-radius: 12px;
     background: var(--kx-surface, var(--kx-bg)); color: var(--kx-text);

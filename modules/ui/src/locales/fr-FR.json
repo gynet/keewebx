@@ -1248,5 +1248,14 @@
   "Vault tools": "Outils du coffre",
   "Vault menu": "Menu du coffre",
   "Menu": "Menu",
-  "Drag or click to move the toolbar. Arrow keys also work.": "Faites glisser ou cliquez pour déplacer la barre d’outils. Les touches fléchées fonctionnent aussi."
+  "Drag or click to move the toolbar. Arrow keys also work.": "Faites glisser ou cliquez pour déplacer la barre d’outils. Les touches fléchées fonctionnent aussi.",
+  "Use a supported Chrome, Chromium, Edge, or Firefox desktop browser. For iOS Safari, see the Userscripts setup below.": "Utilisez un navigateur de bureau pris en charge : Chrome, Chromium, Edge ou Firefox. Pour Safari sous iOS, consultez les instructions de configuration de Userscripts ci-dessous.",
+  "iOS Safari with Userscripts (experimental)": "Safari sous iOS avec Userscripts (expérimental)",
+  "Install the Userscripts app, then save the KeeWebX Connect script in its script folder. Disable the old connection probes and allow Userscripts on KeeWebX and your login website.": "Installez l’application Userscripts, puis enregistrez le script KeeWebX Connect dans son dossier de scripts. Désactivez les anciens tests de connexion et autorisez Userscripts sur KeeWebX et sur votre site de connexion.",
+  "Download Connect userscript": "Télécharger le script utilisateur Connect",
+  "Userscripts setup guide": "Guide de configuration de Userscripts",
+  "On the login website, tap the key icon. A connection page finds existing KeeWebX tabs. For a self-hosted app, save its HTTPS address in the script’s Connection tab first.": "Sur le site de connexion, touchez l’icône de clé. Une page de connexion recherche les onglets KeeWebX existants. Pour une application auto-hébergée, enregistrez d’abord son adresse HTTPS dans l’onglet « Connexion » du script.",
+  "In the KeeWebX tab you want to use, choose Connect this tab and approve account listing. If no app responds, the connection page opens the app; unlock a database there and choose Authorize Connect.": "Dans l’onglet KeeWebX souhaité, choisissez « Connecter cet onglet » et autorisez l’affichage de la liste des comptes. Si aucune application ne répond, la page de connexion ouvre l’application ; déverrouillez-y une base de données et choisissez « Autoriser Connect ».",
+  "Choose Back to site. Focus a login field, tap the key and select a matching account. The script fills the form without submitting it.": "Choisissez « Retour au site ». Touchez un champ de connexion, puis l’icône de clé et sélectionnez un compte correspondant. Le script remplit le formulaire sans l’envoyer.",
+  "Keep the selected KeeWebX tab and connection page open. Discovery requires the Connect script in the app tab. Standalone Home Screen PWAs remain unverified. iOS can suspend background tabs; reconnect if the app stops replying.": "Gardez l’onglet KeeWebX sélectionné et la page de connexion ouverts. La recherche nécessite le script Connect dans l’onglet de l’application. Les PWA autonomes lancées depuis l’écran d’accueil n’ont pas encore été vérifiées. iOS peut suspendre les onglets en arrière-plan ; reconnectez-vous si l’application ne répond plus."
 }

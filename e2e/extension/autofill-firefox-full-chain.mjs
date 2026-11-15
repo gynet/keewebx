@@ -9,7 +9,7 @@
  * protocol; the harness only blocks submission, never supplies credentials.
  *
  * Prerequisites: geckodriver 0.36+, Firefox 149+, the built Firefox zip at
- * modules/extension/web-ext-artifacts/keewebx_connect-1.0.3.zip, and the
+ * modules/extension/web-ext-artifacts/keewebx_connect-<manifest-version>.zip, and the
  * classic UI dev server (bun run --filter @keewebx/ui-classic dev).
  *
  * Run: bun run e2e/extension/autofill-firefox-full-chain.mjs
@@ -25,9 +25,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
+const { version: extensionVersion } = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, 'modules/extension/manifest.json'), 'utf8')
+);
 const XPI = path.resolve(
     REPO_ROOT,
-    'modules/extension/web-ext-artifacts/keewebx_connect-1.0.3.zip'
+    `modules/extension/web-ext-artifacts/keewebx_connect-${extensionVersion}.zip`
 );
 const KEEWEBX_URL = process.env.KEEWEBX_URL || 'http://localhost:8085/classic.html';
 const FF_BIN_MAC = '/Applications/Firefox.app/Contents/MacOS/firefox';
