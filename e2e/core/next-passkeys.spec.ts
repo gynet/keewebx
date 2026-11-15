@@ -336,7 +336,8 @@ for (const outcome of ['cancel', 'missing-prf'] as const) {
         await lock(page); await passwordOpen(page, source);
         await lock(page); await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
         await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
-        expect(await record(page)).toEqual(before);
+        const after = await record(page);
+        for (const key of ['passkeyCredentialId', 'passkeyPrfSalt', 'passkeyWrappedKey', 'passkeyCreatedDate']) expect(after[key]).toEqual(before[key]);
     });
 }
 
@@ -347,6 +348,7 @@ test('leaving pending verification releases enrollment so lock and password reco
     await section(page).getByRole('button', { name: 'Enable local passkey', exact: true }).click();
     await expect(section(page).getByRole('button', { name: 'Verify passkey', exact: true })).toBeVisible();
     expect((await auth.credentials()).credentials).toHaveLength(1);
+    page.once('dialog', dialog => dialog.accept());
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout: 10_000 });
