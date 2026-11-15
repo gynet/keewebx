@@ -36,6 +36,13 @@ test.beforeAll(async () => {
         if (blocked) { req.socket.destroy(); return; }
         const pathname = decodeURIComponent(new URL(req.url!, 'http://x').pathname);
         const relative = pathname.replace(/^\/nested\//, '/');
+        const prefix = pathname.startsWith('/nested/') ? '/nested' : '';
+        if (relative === '/demo') {
+            res.writeHead(302, { location: prefix + '/app?demo=1' }).end(); return;
+        }
+        if (relative === '/landing') {
+            res.writeHead(200, { 'content-type': 'text/html' }).end(`<a href="${prefix}/demo">Try demo</a>`); return;
+        }
         if (failUpdate && relative === '/js/next.js') { res.writeHead(503).end(); return; }
         const target = relative === '/app' || relative === '/' ? '/index.html' : relative;
         const file = path.resolve(DIST, '.' + target);
@@ -127,6 +134,29 @@ async function denyOrigin() {
     blocked = true;
     await expect(fetch(origin + '/next.html')).rejects.toThrow();
 }
+
+for (const prefix of ['', '/nested']) test(`redirected demo cache survives repeated homepage navigation at ${prefix || '/'}`, async ({ page }) => {
+    await page.goto(origin + prefix + '/next.html');
+    await shell(page, prefix + '/next.html');
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+    await page.evaluate(async prefix => {
+        const response = await fetch(prefix + '/demo');
+        if (!response.redirected) throw new Error('The regression requires a real followed HTTP redirect');
+        const names = (await caches.keys()).filter(name => name.startsWith('keewebx-shell-'));
+        const cache = await caches.open(names[0]);
+        await cache.put(location.origin + prefix + '/demo', response);
+    }, prefix);
+    for (let visit = 0; visit < 3; visit++) {
+        await page.goto(origin + prefix + '/landing');
+        await page.getByRole('link', { name: 'Try demo', exact: true }).click();
+        await expect(page.locator('.entry-row').first()).toBeVisible();
+        expect(new URL(page.url()).pathname).toBe(prefix + '/app');
+    }
+    await denyOrigin();
+    await page.goto(origin + prefix + '/demo');
+    await expect(page.locator('.entry-row').first()).toBeVisible();
+});
 
 for (const prefix of ['', '/nested']) {
     test(`New-only first visit cold boots and unlocks cached KDBX offline at ${prefix || '/'}`, async ({ browser }, testInfo) => {

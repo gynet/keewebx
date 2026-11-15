@@ -60,6 +60,40 @@ async function fetchFresh(deps: ShellDeps, url: string): Promise<Response> {
     return deps.fetch(new Request(url, { cache: 'reload' }));
 }
 
+// Navigation requests use manual redirects. A followed network response cannot
+// be returned to them directly; retain the redirect and cache its final document.
+async function storeResponse(deps: ShellDeps, cache: Cache, key: string, response: Response): Promise<Response> {
+    if (!response.redirected) {
+        await cache.put(key, response.clone());
+        return response;
+    }
+    if (!response.url || !inScope(response.url, deps.scope)) {
+        throw new Error('Redirected shell response left its deployment scope');
+    }
+    const finalUrl = new URL(response.url);
+    finalUrl.hash = '';
+    const document = new Response(response.body, {
+        status: response.status, statusText: response.statusText, headers: response.headers
+    });
+    await cache.put(finalUrl.href, document.clone());
+    const entry = key === finalUrl.href ? document : Response.redirect(finalUrl.href, 302);
+    if (key !== finalUrl.href) await cache.put(key, entry.clone());
+    return entry;
+}
+
+async function cachedResponse(deps: ShellDeps, version: string, request: Request): Promise<Response> {
+    const cache = await deps.caches.open(cacheName(version, deps.scope));
+    const exact = new URL(request.url);
+    exact.hash = '';
+    const key = stripQuery(request.url);
+    const cached = await cache.match(exact.href) || await cache.match(key);
+    if (!cached) return deps.fetch(request);
+    if (!cached.redirected) return cached;
+    // Repair entries left by workers that cached a followed redirect unchanged.
+    try { return await storeResponse(deps, cache, key, cached); }
+    catch { return deps.fetch(request); }
+}
+
 // Precaches the static assets and refreshes every app page the previous
 // versions had cached, so pages and assets always come from one build.
 export async function install(deps: ShellDeps, version: string): Promise<void> {
@@ -86,7 +120,7 @@ export async function install(deps: ShellDeps, version: string): Promise<void> {
             if (!response.ok) {
                 throw new Error(`Precache failed for ${url}: ${response.status}`);
             }
-            await cache.put(url, response);
+            await storeResponse(deps, cache, url, response);
         }
     } catch (error) {
         await deps.caches.delete(name);
@@ -116,7 +150,7 @@ export async function cachePage(deps: ShellDeps, version: string, url: string): 
     const response = await fetchFresh(deps, target).catch(() => null);
     const type = response?.headers.get('content-type') || '';
     if (response && response.ok && type.includes('text/html')) {
-        await cache.put(target, response);
+        await storeResponse(deps, cache, target, response);
     }
 }
 
@@ -137,16 +171,10 @@ export function handleFetch(
     }
     const key = stripQuery(request.url);
     if (assetUrls(deps.scope).includes(key)) {
-        return deps.caches
-            .open(cacheName(version, deps.scope))
-            .then((cache) => cache.match(key))
-            .then((cached) => cached || deps.fetch(request));
+        return cachedResponse(deps, version, request);
     }
     if (request.mode === 'navigate') {
-        return deps.caches
-            .open(cacheName(version, deps.scope))
-            .then((cache) => cache.match(key))
-            .then((cached) => cached || deps.fetch(request));
+        return cachedResponse(deps, version, request);
     }
     return null;
 }

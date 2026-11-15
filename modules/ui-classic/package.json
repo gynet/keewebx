@@ -1,6 +1,6 @@
 {
   "name": "@keewebx/ui-classic",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "KeeWebX - Modern KeePass web client",
   "private": true,
   "scripts": {

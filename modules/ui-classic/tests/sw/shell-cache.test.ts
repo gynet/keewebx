@@ -11,6 +11,20 @@ import {
 
 const SCOPE = 'https://app.test/base/';
 
+function cloneResponse(response: Response): Response {
+    const clone = response.clone();
+    Object.defineProperties(clone, {
+        redirected: { value: response.redirected }, url: { value: response.url }
+    });
+    return clone;
+}
+
+function followedRedirect(url: string, body = 'redirected document'): Response {
+    const response = new Response(body, { headers: { 'content-type': 'text/html' } });
+    Object.defineProperties(response, { redirected: { value: true }, url: { value: url } });
+    return response;
+}
+
 class MemoryCache {
     entries = new Map<string, Response>();
     async match(request: RequestInfo, options?: CacheQueryOptions): Promise<Response | undefined> {
@@ -18,10 +32,11 @@ class MemoryCache {
         if (options?.ignoreSearch) {
             url = url.split('?')[0];
         }
-        return this.entries.get(url)?.clone();
+        const response = this.entries.get(url);
+        return response ? cloneResponse(response) : undefined;
     }
     async put(request: RequestInfo, response: Response): Promise<void> {
-        this.entries.set(typeof request === 'string' ? request : request.url, response.clone());
+        this.entries.set(typeof request === 'string' ? request : request.url, cloneResponse(response));
     }
     async keys(): Promise<Request[]> {
         return [...this.entries.keys()].map((url) => new Request(url));
@@ -102,6 +117,23 @@ describe('install', () => {
         );
         await expect(install(deps, 'v1')).rejects.toThrow('app.css');
     });
+
+    it('refreshes an old redirected alias without poisoning the next shell', async () => {
+        const finalUrl = SCOPE + 'app?demo=1';
+        const { caches, deps } = setup(url => url === SCOPE + 'demo'
+            ? followedRedirect(finalUrl) : new Response('asset'));
+        const old = await caches.open(cacheName('v1', SCOPE));
+        await old.put(SCOPE + 'demo', followedRedirect(finalUrl, 'old document'));
+        await install(deps, 'v2');
+        const cache = await caches.open(cacheName('v2', SCOPE));
+        const alias = await cache.match(SCOPE + 'demo');
+        expect(alias?.status).toBe(302);
+        expect(alias?.headers.get('location')).toBe(finalUrl);
+        expect(alias?.redirected).toBe(false);
+        const document = await cache.match(finalUrl);
+        expect(document?.redirected).toBe(false);
+        expect(await text(document)).toBe('redirected document');
+    });
 });
 
 describe('activate', () => {
@@ -116,6 +148,19 @@ describe('activate', () => {
 });
 
 describe('cachePage', () => {
+    it('keeps a followed redirect and its final document as navigation-safe entries', async () => {
+        const finalUrl = SCOPE + 'app?demo=1';
+        const { caches, deps } = setup(() => followedRedirect(finalUrl));
+        await cachePage(deps, 'v1', SCOPE + 'demo');
+        const cache = await caches.open(cacheName('v1', SCOPE));
+        const alias = await cache.match(SCOPE + 'demo');
+        expect(alias?.status).toBe(302);
+        expect(alias?.headers.get('location')).toBe(finalUrl);
+        expect(alias?.redirected).toBe(false);
+        const document = await cache.match(finalUrl);
+        expect(document?.redirected).toBe(false);
+        expect(await text(document)).toBe('redirected document');
+    });
     it('stores the page without its query string', async () => {
         const { caches, deps } = setup();
         await cachePage(deps, 'v1', SCOPE + 'app?demo=1#x');
@@ -138,6 +183,27 @@ describe('cachePage', () => {
 });
 
 describe('handleFetch', () => {
+    it('repairs a poisoned old redirect and serves its exact query target without a redirect loop', async () => {
+        const finalUrl = SCOPE + 'app?demo=1';
+        const { caches, deps, fetched } = setup();
+        const cache = await caches.open(cacheName('v1', SCOPE));
+        await cache.put(SCOPE + 'app', followedRedirect(finalUrl));
+        const alias = await handleFetch(deps, 'v1', req(SCOPE + 'app', { mode: 'navigate' }));
+        expect(alias?.status).toBe(302);
+        expect(alias?.headers.get('location')).toBe(finalUrl);
+        const document = await handleFetch(deps, 'v1', req(finalUrl, { mode: 'navigate' }));
+        expect(document?.redirected).toBe(false);
+        expect(await text(document)).toBe('redirected document');
+        expect(fetched).toHaveLength(0);
+    });
+
+    it('never replays an old redirected document from outside the deployment scope', async () => {
+        const { caches, deps, fetched } = setup();
+        const cache = await caches.open(cacheName('v1', SCOPE));
+        await cache.put(SCOPE + 'demo', followedRedirect('https://other.test/login', 'foreign document'));
+        expect(await text(await handleFetch(deps, 'v1', req(SCOPE + 'demo', { mode: 'navigate' })))).toBe(`net:${SCOPE}demo`);
+        expect(fetched).toHaveLength(1);
+    });
     it('serves shell assets from the cache, ignoring the query string', async () => {
         const { caches, deps, fetched } = setup();
         const cache = await caches.open(cacheName('v1', SCOPE));
