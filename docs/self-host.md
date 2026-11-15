@@ -2,7 +2,7 @@
 
 Download the web `.zip` or `.tar.gz` release and verify its accompanying SHA-256 checksum. Both archives contain the same static site and license notices.
 
-Extract the archive and double-click **index.html** to open New. **classic.html** opens Classic. The compatibility entries `next.html` (New), `classic/index.html` (Classic), and `index.html?ui=classic` remain available. Both interfaces can open the same KDBX vaults. Switching interfaces does not convert your database.
+Extract the archive and double-click **index.html** to open New. **classic.html** opens deprecated Classic for compatibility. On keewebx.app the retained Classic address is **https://keewebx.app/classic**. The compatibility entries `next.html` (New), `classic/index.html` (Classic), and `index.html?ui=classic` remain available. Both interfaces can open the same KDBX vaults. Switching interfaces does not convert your database.
 
 You can also serve the extracted directory with any static HTTP server, including under a nested path. For a local check:
 

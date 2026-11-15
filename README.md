@@ -14,7 +14,7 @@
   <img src="screenshots/phone-demo.png" alt="KeeWebX New interface showing the same demo entry on a phone" width="22%">
 </p>
 
-New is the default interface. Classic remains available, and both use the same vault, encryption and synchronization implementations. KeeWebX is a web-only fork of [KeeWeb](https://github.com/keeweb/keeweb), built with TypeScript, Preact and Bun.
+The current interface is the default for the app, demo, downloads and development server. [Classic is deprecated](https://keewebx.app/classic) and retained for compatibility. Both interfaces use the same vault, encryption and synchronization implementations. KeeWebX is a web-only fork of [KeeWeb](https://github.com/keeweb/keeweb), built with TypeScript, Preact and Bun.
 
 ## Use it locally
 
@@ -24,8 +24,8 @@ Download `keewebx-web-<version>.zip` or `.tar.gz` from [Releases](https://github
 | --- | --- |
 | `index.html` | New, the default |
 | `next.html` | New compatibility entry |
-| `classic.html` | Classic |
-| `classic/index.html` or `?ui=classic` | Classic compatibility routes |
+| `classic.html` | Deprecated Classic |
+| `classic/index.html` or `?ui=classic` | Deprecated Classic compatibility routes |
 
 Double-click `index.html`, or serve the extracted directory with any static HTTP server:
 
@@ -48,7 +48,7 @@ See [the self-host guide](docs/self-host.md) for deployment details.
 - Save to WebDAV, see per-vault synchronization state, recover from offline or failed saves, and explicitly save or discard when closing a vault.
 - Use browser autofill with KeeWebX Connect, with explicit access approval and session controls.
 
-Save and close databases from the sidebar. Use a group’s `⋯` menu to manage it, and click an entry’s icon to change its icon or color. On a phone, the panel button opens the same navigation and controls.
+Use the sidebar’s database menu to save or close a vault. The key icon in the bottom toolbar opens the password generator. Entry details keep Edit and More actions together; copy, reveal and website actions stay beside their fields. Use a group’s `⋯` menu to manage it, and click an entry’s icon or choose Change icon and color from More to set a color flag. On a phone, the panel button opens the same navigation and tools.
 
 Switching interfaces checks pending edits and saves before navigating. A failed save keeps the vault available for recovery.
 
@@ -66,12 +66,12 @@ bun run test
 bun run build
 ```
 
-The build writes both interfaces into `dist/`. Serve that directory to use New. `bun run dev` starts the Classic development server.
+The build writes both interfaces into `dist/`. Serve that directory to open the current interface by default. `bun run dev` starts the current interface at `http://localhost:8085`; `bun run dev:classic` explicitly starts the deprecated Classic development server.
 
 | Package | Purpose |
 | --- | --- |
 | `modules/ui` | New interface, built with Preact |
-| `modules/ui-classic` | Classic interface and browser shell |
+| `modules/ui-classic` | Deprecated Classic compatibility interface |
 | `modules/ui-kit` | Shared presentation helpers |
 | `modules/vault` | Vault models, storage, synchronization and application services |
 | `modules/db` | KDBX database library |
