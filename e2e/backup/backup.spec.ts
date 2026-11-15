@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { activateVaultUtility } from '../core/vault-utilities';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
 const password = 'backup-factor-password';
@@ -15,7 +16,7 @@ async function open(page: Page) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
 }
 async function settings(page: Page) {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    await activateVaultUtility(page, 'Settings'); await page.getByRole('tab', { name: 'Database', exact: true }).click();
     await expect(panel(page)).toBeVisible();
 }
 async function configure(page: Page, schedule = '') {
