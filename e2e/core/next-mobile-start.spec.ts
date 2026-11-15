@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 
 async function fits(page: Page) {
@@ -26,7 +27,7 @@ for (const width of [320, 390]) {
         await expect(page.getByRole('alert')).toHaveText('Passwords do not match.');
         await page.getByLabel('Confirm password', { exact: true }).fill('mobile password');
         await page.getByRole('button', { name: 'Create vault', exact: true }).click();
-        await page.getByRole('button', { name: 'Lock', exact: true }).click();
+        await activateVaultUtility(page, 'Lock');
         await expect(page.locator('#password')).toBeVisible();
         await fits(page);
         await page.fill('#password', 'wrong password');

@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer, type ServerResponse } from 'node:http';
 import { deflateSync } from 'node:zlib';
@@ -42,7 +43,7 @@ async function open(page: Page, icons: IconServer) {
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await page.locator('.entry-row[data-entry="Icon entry"]').click();
 }
-async function settings(page: Page) { await page.getByRole('button', { name: 'Settings', exact: true }).click(); }
+async function settings(page: Page) { await activateVaultUtility(page, 'Settings'); }
 async function back(page: Page) { await page.getByRole('button', { name: 'Back to vault', exact: true }).filter({ visible: true }).click(); }
 async function exportDb(page: Page) {
     await settings(page); await page.getByRole('tab', { name: 'Database', exact: true }).click();

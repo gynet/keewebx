@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -31,7 +32,6 @@ async function open(page: Page, foreground = false) {
     return { id: entry.uuid.id, sibling: sibling.uuid.id, icon: icon.id, png, history: entry.history.length };
 }
 async function browse(page: Page) {
-    const menu = page.getByRole('button', { name: 'Show menu', exact: true }); if (await menu.isVisible()) await menu.click();
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible()) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
 async function select(page: Page) { await page.locator('[data-entry="Appearance record"]').click(); }
@@ -40,7 +40,7 @@ async function appearance(page: Page) {
     return page.getByRole('dialog', { name: 'Entry appearance', exact: true });
 }
 async function download(page: Page) {
-    await browse(page); await page.locator('#open-settings').click(); await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    await browse(page); await activateVaultUtility(page, 'Settings'); await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const stream = await (await pending).createReadStream(); if (!stream) throw new Error('Missing encrypted data');
     const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));
@@ -107,7 +107,7 @@ for (const width of [1280, 390]) {
         expect(bytes.readUInt32BE(16)).toBe(128); expect(bytes.readUInt32BE(20)).toBe(43);
         expect(find(reopened, original.sibling).customIcon?.id).toBe(original.icon);
         expect(Buffer.from(reopened.meta.customIcons.get(original.icon)!.data!)).toEqual(original.png);
-        await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); await browse(page); await page.locator('#lock').click();
+        await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); await browse(page); await activateVaultUtility(page, 'Lock');
         await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
         await page.locator('#password').fill(password); await page.locator('#unlock').click(); await select(page);
         await expect(page.locator('.detail .tile img')).toBeVisible();

@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -90,27 +91,20 @@ const test = base.extend<{ dav: Dav }>({ dav: async ({}, use) => {
 const preferences = (page: Page) => page.getByRole('region', { name: 'Saving and content', exact: true });
 const status = (page: Page) => preferences(page).getByRole('status');
 async function browse(page: Page) {
-    const show = page.getByRole('button', { name: 'Show menu', exact: true });
-    if (await show.isVisible()) await show.click();
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible())
         await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
 async function settings(page: Page) {
-    await browse(page); await page.locator('#open-settings').click();
+    await browse(page); await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
 }
 async function back(page: Page) { await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); }
-async function collapse(page: Page) {
-    const menu = page.getByRole('button', { name: 'Move menu', exact: true });
-    if (await menu.isVisible()) await menu.click();
-}
 async function unlock(page: Page, key?: Uint8Array) {
     await page.locator('#password').fill(password);
     if (key) await page.locator('#unlock-key-file').setInputFiles({ name: 'preferences.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(key) });
     await page.locator('#unlock').click();
     await expect(page.locator('.entry-row').first()).toBeVisible({ timeout });
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await collapse(page);
 }
 async function open(page: Page, source: Fixture) {
     await page.goto('/next.html');
@@ -124,7 +118,7 @@ async function connect(page: Page, dav: Dav) {
     await unlock(page);
 }
 async function lockReload(page: Page) {
-    await browse(page); await page.locator('#lock').click();
+    await browse(page); await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload(); await expect(page.locator('#password')).toBeVisible();
 }
@@ -386,7 +380,7 @@ test.describe('New general preferences', () => {
             const db = await download(page); const saved = entries(db).find(e => e.uuid.id === source.id)!;
             expect(text(saved, 'Notes')).toBe(notes); expect(saved.fields.get('Notes')).toBeInstanceOf(kdbx.ProtectedValue);
             expect(saved.history).toHaveLength(1);
-            await page.locator('#setting-markdown').check(); await back(page); await collapse(page);
+            await page.locator('#setting-markdown').check(); await back(page);
             await page.locator(`.entry-row[data-entry="${title}"]`).click();
             await expect(page.locator('.entry-notes h1')).toHaveText('Heading');
         });

@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -43,7 +44,7 @@ for (const width of [1280, 320]) test(`batch upload, inert previews and encrypte
     await expect.poll(() => page.getByRole('dialog').locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
-    await page.getByRole('button', { name: 'Lock', exact: true }).filter({ visible: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('.entry-row')).toHaveCount(0);
     await page.reload();
     await page.locator('.vault-row[data-vault="KDBX4.1"]').click();

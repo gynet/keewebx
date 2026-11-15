@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -41,7 +42,7 @@ async function openA(page: Page, a: Fixture) {
 }
 
 async function openPicker(page: Page) {
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await expect(picker(page)).toBeVisible();
     // The modal excludes the existing editor (and its plaintext draft) from accessibility navigation.
     await expect(page.getByRole('main', { name: 'Edit entry', exact: true })).toHaveCount(0);
@@ -55,7 +56,7 @@ async function assertDraft(page: Page) {
 }
 
 async function settings(page: Page) {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 
@@ -259,7 +260,7 @@ for (const destination of ['cancel', 'different pane', 'lock'] as const) test(`l
         await assertDraft(page);
         if (destination === 'lock') {
             await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
-            await page.getByRole('button', { name: 'Lock', exact: true }).click();
+            await activateVaultUtility(page, 'Lock');
             await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible();
         }
     }
@@ -326,7 +327,7 @@ for (const kind of ['local', 'WebDAV'] as const) {
                     new kdbx.Credentials(b.password ? kdbx.ProtectedValue.fromString(b.password) : null))).rejects.toThrow();
                 await assertExport(await download(page, 'A'), a, b, notes);
                 await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
-                await page.getByRole('button', { name: 'Lock', exact: true }).click();
+                await activateVaultUtility(page, 'Lock');
                 await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible();
                 await page.reload();
                 await page.locator('.vault-row[data-vault="A"]').click();
@@ -355,7 +356,7 @@ for (const factors of ['password-key', 'key-only'] as const) test(`WebDAV: ${fac
         await page.goto('/next.html'); await connect(page, remote.url);
         await selectKey(page, b.key!); await passwordOpen(page, b.password);
         await expect(row(page, 'B')).toBeVisible();
-        await page.getByRole('button', { name: 'Lock', exact: true }).click();
+        await activateVaultUtility(page, 'Lock');
         await expect(page.locator('.vault-row[data-vault="B"]')).toBeVisible();
         await page.reload(); await page.locator('.vault-row[data-vault="B"]').click();
         await selectKey(page, b.key!);
@@ -452,7 +453,7 @@ test('passkey setup targets B without enrolling, then recent passkey open preser
     expect(records.find((info: any) => info.name === 'B').passkeyCredentialId).toBeTruthy();
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     await assertDraft(page);
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible();
     await page.locator('.vault-row[data-vault="A"]').click();
     await passwordOpen(page, a.password);

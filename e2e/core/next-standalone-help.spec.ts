@@ -8,7 +8,7 @@ for (const width of [1280, 320]) test.describe(`standalone help ${width}`, () =>
     test.use({ viewport: { width, height: 740 } });
     test('license and dependency notices are readable offline; browser tabs have no standalone reload', async ({ page, context }) => {
         await page.goto('/next.html');
-        await activateVaultUtility(page, 'Settings');
+        await activateVaultUtility(page, 'Settings', { start: true });
         await expect(page.getByRole('button', { name: 'Reload app', exact: true })).toHaveCount(0);
         await context.setOffline(true);
         await page.getByText('Help and about KeeWebX', { exact: true }).click();
@@ -54,7 +54,7 @@ for (const width of [1280, 320]) test.describe(`standalone help ${width}`, () =>
         expect((saved.fields.get('Password') as kdbx.ProtectedValue).getText()).toBe('Preserved secret');
         await page.getByRole('button', { name: 'Back to vault', exact: true }).filter({ visible: true }).click();
         await activateVaultUtility(page, 'Lock'); await expect(page.locator('#password')).toBeVisible();
-        await activateVaultUtility(page, 'Settings'); await expect(reload).toBeEnabled();
+        await activateVaultUtility(page, 'Settings', { start: true }); await expect(reload).toBeEnabled();
         page.once('dialog', dialog => dialog.dismiss()); await reload.click();
         await expect(reload).toBeEnabled();
         page.once('dialog', dialog => dialog.accept());

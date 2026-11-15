@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 
@@ -46,7 +47,7 @@ test.describe('New interface', () => {
 
     test('locks back to the start screen', async ({ page }) => {
         await openDemo(page);
-        await page.click('#lock');
+        await activateVaultUtility(page, 'Lock');
         await expect(page.locator('#open-demo')).toBeVisible({ timeout: 15000 });
         await expect(page.locator('.entry-row')).toHaveCount(0);
     });
@@ -91,7 +92,7 @@ test.describe('Switching between Classic and New', () => {
         await page.selectOption('#settings__general-ui', 'new');
         await page.waitForURL(/index\.html/);
         await page.click('#open-demo');
-        await page.click('#open-settings');
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
         await page.click('#use-classic');
         await page.getByRole('dialog', { name: 'Switch to Classic' })

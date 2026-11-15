@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -25,7 +26,7 @@ for (const width of [1280, 320]) test.describe(`language ${width}`, () => {
         await page.getByRole('button', { name: 'Bearbeiten', exact: true }).click();
         const notes = page.locator('.entry-editor textarea');
         await notes.fill('Draft $& {} <script> remains literal');
-        await page.getByRole('button', { name: 'Einstellungen', exact: true }).click();
+        await activateVaultUtility(page, 'Einstellungen', { browseName: 'Tresor durchsuchen' });
         await page.locator('#setting-locale').selectOption('fr-FR');
         await expect(page.getByRole('heading', { name: 'Paramètres', exact: true })).toBeVisible();
         await expect(page.locator('html')).toHaveAttribute('lang', 'fr-FR');
@@ -35,7 +36,7 @@ for (const width of [1280, 320]) test.describe(`language ${width}`, () => {
         await expect(notes).toHaveValue('Draft $& {} <script> remains literal');
         await page.locator('.entry-editor').getByRole('button', { name: 'Enregistrer', exact: true }).click();
         await expect(page.locator('#entry-title')).toHaveText(title);
-        await page.getByRole('button', { name: 'Paramètres', exact: true }).click();
+        await activateVaultUtility(page, 'Paramètres', { browseName: 'Parcourir le coffre' });
         await page.getByRole('tab', { name: 'Base de données', exact: true }).click();
         const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Télécharger le KDBX', exact: true }).click();
         const stream = await (await pending).createReadStream(); if (!stream) throw new Error('Missing encrypted file');
@@ -48,12 +49,12 @@ for (const width of [1280, 320]) test.describe(`language ${width}`, () => {
         expect(entries[0].fields.get('Password')).toBeInstanceOf(kdbx.ProtectedValue);
         expect((entries[0].fields.get('CustomName') as kdbx.ProtectedValue).getText()).toBe('$& {} <b>protected</b>');
         await page.getByRole('button', { name: 'Retour au coffre', exact: true }).filter({ visible: true }).click();
-        await page.getByRole('button', { name: 'Verrouiller', exact: true }).click();
+        await activateVaultUtility(page, 'Verrouiller', { browseName: 'Parcourir le coffre' });
         await expect(page.locator('#password')).toBeVisible(); await page.reload();
         await expect(page.locator('html')).toHaveAttribute('lang', 'fr-FR');
         await page.locator('#password').fill(password); await page.locator('#unlock').click();
         await expect(page.locator('.entry-row')).toHaveCount(1);
-        await page.getByRole('button', { name: 'Paramètres', exact: true }).click();
+        await activateVaultUtility(page, 'Paramètres', { browseName: 'Parcourir le coffre' });
         await expect(page.locator('#setting-locale')).toHaveValue('fr-FR');
         await page.locator('#setting-locale').selectOption('en-US');
         await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();

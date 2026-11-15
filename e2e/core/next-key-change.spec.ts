@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -40,7 +41,7 @@ async function open(page: Page, source: Fixture) {
     await unlock(page, source);
 }
 async function settings(page: Page) {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 async function exported(page: Page, name: string) {
@@ -76,7 +77,7 @@ test('an encrypted overdue key prompts on open; dismissal preserves data and reo
     expect(db.meta.keyChanged).toEqual(oldDate);
     expect([...db.getDefaultGroup().allEntries()].find(entry => entry.uuid.id === source.id)?.fields.get('Notes')).toBe('Overdue original notes');
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await page.locator('.vault-row[data-vault="Overdue"]').click(); await unlock(page, source);
     await expect(reminder(page)).toBeVisible();
 });
@@ -88,7 +89,7 @@ test('review routes to the overdue vault, preserves another draft and rotates on
     await page.locator('.entry-row').click();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.locator('.entry-editor').getByLabel('Notes', { exact: true }).fill('A retained editor draft');
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click(); await open(page, b);
+    await activateVaultUtility(page, 'Open another vault'); await open(page, b);
     await reminder(page).getByRole('button', { name: 'Review master key', exact: true }).click();
     const credentials = form(page, 'B').getByRole('region', { name: 'Database credentials', exact: true });
     await expect(credentials.getByLabel('New master password', { exact: true })).toBeFocused();
@@ -113,7 +114,7 @@ test('review routes to the overdue vault, preserves another draft and rotates on
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     await expect(page.locator('.entry-editor').getByLabel('Notes', { exact: true })).toHaveValue('A retained editor draft');
     await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await page.locator('.vault-row[data-vault="B"]').click(); await unlock(page, b, changedPassword);
     await expect(page.locator('.entry-row').filter({ hasText: 'B entry' })).toBeVisible();
     await expect(reminder(page)).toHaveCount(0);
@@ -132,7 +133,7 @@ for (const days of ['', '0', '-1']) test(`deadline ${days || 'blank'} normalizes
     expect(db.meta.keyChangeForce).toBe(-1); expect(db.meta.defaultUser).toBe('second save succeeds');
     expect(db.meta.keyChanged).toEqual(oldDate);
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await page.locator('.vault-row[data-vault="Deadline"]').click(); await unlock(page, source);
     await expect(page.locator('.entry-row')).toBeVisible(); await expect(reminder(page)).toHaveCount(0);
 });
@@ -154,7 +155,7 @@ test('per-vault details distinguish local copies from a failed remote save and r
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/Remote.kdbx?token=disposable-hidden-token`;
     try {
         await start(page); await open(page, a);
-        await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+        await activateVaultUtility(page, 'Open another vault');
         await page.locator('#open-webdav').click(); await page.locator('#webdav-url').fill(url);
         await page.locator('#webdav-user').fill('disposable-user'); await page.locator('#webdav-pass').fill('disposable-connection-password');
         await page.locator('#webdav-next').click(); await unlock(page, b);

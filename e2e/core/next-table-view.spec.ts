@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -24,7 +25,7 @@ test('desktop table uses shared search, sorting and keyboard selection and prese
     await page.goto('/next.html'); await page.locator('#open-file-input').setInputFiles({ name: 'table.kdbx', mimeType: 'application/octet-stream', buffer: Buffer.from(await db.save()) });
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(page.locator('.entry-row')).toHaveCount(2);
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByLabel('Show entries as a table on desktop', { exact: true }).check();
     await page.getByText('Table columns', { exact: true }).click();
     const columns = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Table columns' }) });
@@ -55,7 +56,7 @@ test('desktop table uses shared search, sorting and keyboard selection and prese
     await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
     await page.setViewportSize({ width: 1280, height: 900 }); await expect(table).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('table-desktop.png') });
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const downloadEvent = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const stream = await (await downloadEvent).createReadStream(); if (!stream) throw new Error('No encrypted download');

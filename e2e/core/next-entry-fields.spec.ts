@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -26,7 +27,7 @@ async function open(page: Page) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
 }
 async function decryptDownload(page: Page) {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();

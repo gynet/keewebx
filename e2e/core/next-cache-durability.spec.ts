@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -35,7 +36,7 @@ async function edit(page: Page, title = edited) {
     await editor.getByRole('button', { name: 'Save', exact: true }).click();
 }
 async function settings(page: Page) {
-    await page.locator('#open-settings').click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
 }
 async function download(page: Page, vaultName = name) {
@@ -159,13 +160,13 @@ for (const mode of ['quota', 'abort', 'unavailable'] as const) test(`local ${mod
     const source = await fixture(); await open(page, source.bytes); await fault(page, mode); await edit(page);
     await expect.poll(() => page.evaluate(() => (window as any).cacheFault.hits), { timeout }).toBeGreaterThan(0);
     await test.info().attach('state-after-cache-fault', { body: await page.locator('#sync-state').innerText(), contentType: 'text/plain' });
-    await page.locator('#lock').click(); await recover(page);
+    await activateVaultUtility(page, 'Lock'); await recover(page);
     await expect(page.locator('#sync-state')).not.toHaveText('Up to date');
     recoveryContent(await download(page), source.id);
     await page.evaluate(() => (window as any).cacheFault.restore()); await settings(page);
     await page.getByRole('region', { name: 'Saving and content', exact: true }).getByRole('button', { name: 'Save now', exact: true }).click();
     await page.locator('#settings-back').click(); await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await page.locator('#lock').click(); await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
+    await activateVaultUtility(page, 'Lock'); await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
     await page.locator('.vault-row').filter({ has: page.getByText(`${name}.kdbx`, { exact: true }) }).click();
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(page.locator('.entry-row').first()).toBeVisible({ timeout }); recoveryContent(await download(page), source.id);
@@ -174,7 +175,7 @@ for (const mode of ['quota', 'abort', 'unavailable'] as const) test(`local ${mod
 test('disabled optional cache still persists a newly imported local vault before lock', async ({ page }) => {
     const source = await fixture(); await classicDisable(page); await open(page, source.bytes);
     await expect.poll(() => cacheCount(page), { timeout: 5000 }).toBe(1);
-    await page.locator('#lock').click(); await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
+    await activateVaultUtility(page, 'Lock'); await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
     await page.locator('.vault-row').filter({ has: page.getByText(`${name}.kdbx`, { exact: true }) }).click();
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(page.locator('.entry-row').first()).toContainText('Before edit', { timeout });
@@ -185,7 +186,7 @@ test('remote disabled cache plus network failure retains unsaved edits and encry
     try {
         await classicDisable(page); await connect(page, dav.url); expect(await cacheCount(page)).toBe(0);
         dav.offline(true); await edit(page); await expect(page.locator('#sync-state')).toHaveText('Sync failed', { timeout });
-        await page.locator('#lock').click(); await recover(page, 'cache'); recoveryContent(await download(page, 'cache'), source.id);
+        await activateVaultUtility(page, 'Lock'); await recover(page, 'cache'); recoveryContent(await download(page, 'cache'), source.id);
         expect(dav.bytes().equals(source.bytes)).toBe(true); expect(await cacheCount(page)).toBe(0);
     } finally { await dav.close(); }
 });
@@ -233,7 +234,7 @@ test('disabling remote cache keeps the only unsynchronized encrypted copy across
         await settings(page); await toggle(page).check();
         await expect(storageRegion(page).getByRole('status')).toContainText('unsynchronized remote copies are kept');
         expect(await cacheCount(page)).toBe(1); await page.locator('#settings-back').click();
-        await page.locator('#lock').click(); await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
+        await activateVaultUtility(page, 'Lock'); await expect(page.locator('#password')).toBeVisible({ timeout }); await page.reload();
         await page.locator('.vault-row').filter({ has: page.getByText('cache.kdbx', { exact: true }) }).click();
         await page.locator('#password').fill(password); await page.locator('#unlock').click();
         await expect(page.locator('.entry-row').first()).toContainText(edited, { timeout });
@@ -247,13 +248,13 @@ test('unavailable cache at local import retains the only live copy and blocks lo
     await page.locator('#open-file-input').setInputFiles({ name: `${name}.kdbx`, mimeType: 'application/octet-stream', buffer: source.bytes });
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(page.locator('#sync-state')).toHaveText('Sync failed', { timeout });
-    await page.locator('#lock').click(); await recover(page);
+    await activateVaultUtility(page, 'Lock'); await recover(page);
     await edit(page); recoveryContent(await download(page), source.id);
 });
 
 
 async function reopenRemote(page: Page) {
-    await page.locator('#lock').click(); await expect(page.locator('#password')).toBeVisible({ timeout });
+    await activateVaultUtility(page, 'Lock'); await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload();
     await page.locator('.vault-row').filter({ has: page.getByText('cache.kdbx', { exact: true }) }).click();
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
@@ -277,7 +278,7 @@ test('remote network and cache failure cannot claim offline durability or close 
     try {
         await connect(page, dav.url); await fault(page, 'abort'); dav.offline(true); await edit(page);
         await expect(page.locator('#sync-state')).toHaveText('Sync failed', { timeout });
-        await page.locator('#lock').click(); await recover(page, 'cache');
+        await activateVaultUtility(page, 'Lock'); await recover(page, 'cache');
         recoveryContent(await download(page, 'cache'), source.id);
         expect(dav.bytes().equals(source.bytes)).toBe(true);
     } finally { await dav.close(); }
@@ -326,7 +327,7 @@ test('missing IndexedDB retains imported local data for credential-gated encrypt
     await page.addInitScript(() => Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true }));
     await open(page, source.bytes, false);
     await expect(page.locator('#sync-state')).toHaveText('Sync failed', { timeout });
-    await page.locator('#lock').click(); await recover(page);
+    await activateVaultUtility(page, 'Lock'); await recover(page);
     await edit(page); recoveryContent(await download(page), source.id);
 });
 

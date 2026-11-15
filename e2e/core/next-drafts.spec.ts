@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 
@@ -25,11 +26,11 @@ test('retains entry drafts across settings and saves them before manual lock', a
     const editor = page.locator('.entry-editor');
     await editor.getByLabel('Title', { exact: true }).fill('Draft saved on lock');
     await editor.getByLabel('Password', { exact: true }).fill('Draft protected password');
-    await page.click('#open-settings');
+    await activateVaultUtility(page, 'Settings');
     await page.click('#settings-back');
     await expect(editor.getByLabel('Title', { exact: true })).toHaveValue('Draft saved on lock');
     await expect(editor.getByLabel('Password', { exact: true })).toHaveValue('Draft protected password');
-    await page.click('#lock');
+    await activateVaultUtility(page, 'Lock');
     await reopen(page);
     await page.locator('.entry-row[data-entry="Draft saved on lock"]').click();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();

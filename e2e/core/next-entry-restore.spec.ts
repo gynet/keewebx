@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -86,8 +87,6 @@ const restoreTrigger = (page: Page) => page.getByRole('button', { name: 'Restore
 const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
 async function activate(control: Locator, touch = false) { if (touch) await control.tap(); else await control.click(); }
 async function browse(page: Page, touch = false) {
-    const show = page.getByRole('button', { name: 'Show menu', exact: true });
-    if (await show.isVisible()) await activate(show, touch);
     if (!await navigation(page).isVisible()) await activate(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
 }
 async function open(page: Page, source: Fixture, trash = true) {
@@ -98,8 +97,6 @@ async function open(page: Page, source: Fixture, trash = true) {
     await expect(row(page, 'Unchanged sibling')).toBeVisible({ timeout });
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     if (trash) { await browse(page); await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click(); }
-    const handle = page.getByRole('button', { name: 'Move menu', exact: true });
-    if (await handle.isVisible()) await handle.click();
     await expect(row(page)).toBeVisible({ timeout });
 }
 async function choose(page: Page, label = `${name} / Team B / Accounts`) {
@@ -243,7 +240,7 @@ test.describe('New chosen-group entry restore', () => {
             if (!missing) await choose(page, target.path);
             await dialog(page).getByRole('button', { name: 'Restore', exact: true }).click();
             fidelity((await download(page)).db, source, missing ? source.ids.root : target.id);
-            await page.locator('#lock').click(); await expect(page.locator('#password')).toBeVisible({ timeout });
+            await activateVaultUtility(page, 'Lock'); await expect(page.locator('#password')).toBeVisible({ timeout });
         }
     });
 
@@ -291,7 +288,7 @@ test.describe('New chosen-group entry restore', () => {
         const source = await fixture();
         await classicSyncSetting(page, '0');
         await open(page, source);
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#settings-back').click();

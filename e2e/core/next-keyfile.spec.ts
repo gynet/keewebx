@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbxweb from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -52,7 +53,7 @@ test('password plus key file rejects missing/wrong credentials, opens with the c
     await page.locator('#password').fill(secret);
     await page.locator('#unlock').click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout: 30_000 });
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible();
     await page.reload();
     await page.locator('#password').fill(secret);
@@ -71,7 +72,7 @@ test('key-only vault opens and reopens with an empty password', async ({ page })
     await selectKey(page, data.key);
     await page.locator('#unlock').click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout: 30_000 });
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible();
     await page.reload();
     await expect(page.locator('#password')).toHaveValue('');

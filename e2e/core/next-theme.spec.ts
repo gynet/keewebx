@@ -1,15 +1,16 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 
 test('one click switches appearance and remembers it without changing Classic preferences', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'light' });
     await page.goto('/next.html');
     const classicTheme = await page.evaluate(() => JSON.parse(localStorage.getItem('appSettings') || '{}').theme ?? null);
-    await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+    await activateVaultUtility(page, 'Switch to dark mode', { start: true });
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
     await page.reload();
     await expect(page.getByRole('button', { name: 'Switch to light mode' })).toBeVisible();
     await page.click('#open-demo');
-    await page.locator('#open-settings').click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toHaveValue('dark');
     await page.getByRole('combobox', { name: 'Theme' }).selectOption('light');
@@ -29,10 +30,10 @@ test('phone theme switch stays reachable in entry details and settings can retur
     await page.goto('/next.html');
     await page.click('#open-demo');
     await page.click('.entry-row[data-entry="GitHub"]');
-    await page.getByRole('button', { name: 'Switch to dark mode' }).click();
+    await activateVaultUtility(page, 'Switch to dark mode');
     await expect(page.locator('#entry-title')).toHaveText('GitHub');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(23, 25, 31)');
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();

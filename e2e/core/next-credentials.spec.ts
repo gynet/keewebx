@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Download } from '@playwright/test';
 import { createServer } from 'node:http';
 import { writeFileSync } from 'node:fs';
@@ -66,7 +67,7 @@ async function open(page: Page, source: Fixture, name = 'credentials.kdbx') {
     await page.locator('#open-file-input').setInputFiles(payload(source.bytes, name));
     await unlock(page, initial);
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 async function passwordDraft(page: Page, password: string, confirmation = password) {
@@ -101,11 +102,11 @@ async function save(page: Page) {
 async function reload(page: Page, factors: Factors) {
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     await expect(settings(page)).toHaveCount(0);
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload();
     await unlock(page, factors);
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 async function selectKey(page: Page, bytes: Uint8Array, name = 'replacement.keyx') {
@@ -277,7 +278,7 @@ test.describe('Database credential changes preserve encrypted access', () => {
             await page.locator('#webdav-url').fill(`http://127.0.0.1:${(server.address() as AddressInfo).port}/credentials.kdbx`);
             await page.locator('#webdav-next').click();
             await unlock(page, initial);
-            await page.getByRole('button', { name: 'Settings', exact: true }).click();
+            await activateVaultUtility(page, 'Settings');
             await page.getByRole('tab', { name: 'Database', exact: true }).click();
             await passwordDraft(page, changedPassword);
             await selectKey(page, key);

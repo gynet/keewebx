@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 
 test('creates an encrypted database and reopens it after reload', async ({ page }) => {
@@ -14,7 +15,7 @@ test('creates an encrypted database and reopens it after reload', async ({ page 
     await page.getByRole('button', { name: 'New entry', exact: true }).click();
     await page.locator('.entry-editor').getByLabel('Title', { exact: true }).fill('First saved entry');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await page.click('#lock');
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible();
     await page.reload();
     await page.fill('#password', 'wrong password');
@@ -25,24 +26,18 @@ test('creates an encrypted database and reopens it after reload', async ({ page 
     await expect(page.locator('.entry-row[data-entry="First saved entry"]')).toBeVisible();
 });
 
-test('mobile menu drags to either edge and remembers its dock', async ({ page }) => {
+test('mobile Browse drawer survives reload and keeps one settings action', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/next.html');
     await page.click('#open-demo');
-    const handle = page.getByRole('button', { name: 'Move menu', exact: true });
-    const bounds = (await handle.boundingBox())!;
-    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(25, bounds.y + bounds.height / 2, { steps: 10 });
-    await page.mouse.up();
-    await expect(page.locator('.phone-bar')).toHaveAttribute('data-side', 'left');
+    await activateVaultUtility(page, 'Settings');
+    await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
     await page.reload();
     await page.click('#open-demo');
-    await expect(page.locator('.phone-bar')).toHaveAttribute('data-side', 'left');
-    await handle.focus();
-    await page.keyboard.press('ArrowRight');
-    await expect(page.locator('.phone-bar')).toHaveAttribute('data-side', 'right');
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Browse vault', exact: true })).toHaveCount(1);
+    await expect(page.locator('.phone-bar')).toHaveCount(0);
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
 });

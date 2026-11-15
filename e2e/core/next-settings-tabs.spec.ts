@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -34,7 +35,7 @@ for (const mobile of [false, true]) test.describe(mobile ? 'Settings tabs at 320
 
     test('visible categories support pointer and roving keyboard navigation with one active panel', async ({ page }) => {
         await open(page);
-        await activate(page.getByRole('button', { name: 'Settings', exact: true }), mobile);
+        await activateVaultUtility(page, 'Settings', { touch: mobile });
         await expect(tab(page, 'Appearance')).toHaveAttribute('aria-selected', 'true');
         await expect(page.getByRole('combobox', { name: 'Theme', exact: true })).toBeVisible();
         await expect(page.getByRole('tablist', { name: 'Settings categories', exact: true })).toBeVisible();
@@ -69,7 +70,7 @@ for (const mobile of [false, true]) test.describe(mobile ? 'Settings tabs at 320
 
     test('database drafts survive all category switches and save/export retains encrypted content', async ({ page }) => {
         const entryId = await open(page);
-        await activate(page.getByRole('button', { name: 'Settings', exact: true }), mobile);
+        await activateVaultUtility(page, 'Settings', { touch: mobile });
         await activate(tab(page, 'Saving and content'), mobile);
         await page.locator('#setting-auto-save').selectOption('0');
         await activate(tab(page, 'Database'), mobile);
@@ -105,11 +106,11 @@ for (const mobile of [false, true]) test.describe(mobile ? 'Settings tabs at 320
         expect(entry.fields.get('Title')).toBe(title);
         expect((entry.fields.get('Password') as kdbx.ProtectedValue).getText()).toBe(secret);
         await activate(page.getByRole('button', { name: 'Back to vault', exact: true }), mobile);
-        await page.getByRole('button', { name: 'Lock', exact: true }).click();
+        await activateVaultUtility(page, 'Lock');
         await expect(page.locator('#password')).toBeVisible({ timeout: 30_000 });
         await page.reload();
         await page.locator('#password').fill(password); await page.locator('#unlock').click();
-        await activate(page.getByRole('button', { name: 'Settings', exact: true }), mobile);
+        await activateVaultUtility(page, 'Settings', { touch: mobile });
         await activate(tab(page, 'Database'), mobile);
         await expect(form.getByLabel('Vault name', { exact: true })).toHaveValue('Retained tabs draft');
         await form.getByText('Advanced', { exact: true }).click();

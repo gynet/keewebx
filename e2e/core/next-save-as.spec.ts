@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -102,7 +103,7 @@ async function open(page: Page, f: Fixture) {
     await unlock(page, f);
 }
 async function settings(page: Page, category = 'Database') {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: category, exact: true }).click();
     if (category === 'Database') await page.locator('.database-advanced summary').click();
 }

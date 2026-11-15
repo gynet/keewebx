@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -34,7 +35,7 @@ async function pair(page: Page, autoSave = false, idleMinutes = 0) {
     await page.goto('/next.html');
     await page.locator('#open-file-input').setInputFiles({ name: 'A.kdbx', mimeType: 'application/octet-stream', buffer: a.bytes });
     await unlock(page, a);
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await page.locator('#open-file-input').setInputFiles({ name: 'B.kdbx', mimeType: 'application/octet-stream', buffer: b.bytes });
     await unlock(page, b);
     return { a, b };
@@ -65,7 +66,7 @@ async function suspended(page: Page) {
     expect(await editor(page).evaluate(element => element.contains(document.activeElement))).toBe(false);
 }
 async function lockChoice(page: Page) {
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(decision(page)).toBeVisible();
     await suspended(page);
 }
@@ -79,9 +80,9 @@ async function verify(page: Page, source: Fixture) {
 async function reopenBoth(page: Page, a: Fixture, b: Fixture) {
     await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible();
     await page.locator('.vault-row[data-vault="A"]').click(); await unlock(page, a);
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await page.locator('.vault-row[data-vault="B"]').click(); await unlock(page, b);
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 async function downloaded(page: Page, source: Fixture) {
@@ -134,7 +135,7 @@ for (const keepAfterDiscard of [false, true]) test(`${keepAfterDiscard ? 'Keep c
     await expect(editor(page).getByLabel('Notes', { exact: true })).toHaveValue('A exact editor draft');
     await page.screenshot({ path: test.info().outputPath('lock-cancel-retained-320.png'), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     expect((await downloaded(page, b)).entry.fields.get('Notes')).toBe('B applied but unsaved');
 });
@@ -198,7 +199,7 @@ test('idle lock hides drafts immediately and keeps Cancel behind current credent
 
 test('clean vaults lock directly when automatic saving on lock is off', async ({ page }) => {
     const { a, b } = await pair(page);
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible();
     await expect(decision(page)).toHaveCount(0);
     await reopenBoth(page, a, b);
@@ -207,7 +208,7 @@ test('clean vaults lock directly when automatic saving on lock is off', async ({
 
 test('automatic saving on lock retains direct save-and-lock behavior', async ({ page }) => {
     const { a, b } = await pair(page, true); await drafts(page);
-    await page.getByRole('button', { name: 'Lock', exact: true }).click();
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('.vault-row[data-vault="A"]')).toBeVisible();
     await expect(decision(page)).toHaveCount(0);
     await reopenBoth(page, a, b);

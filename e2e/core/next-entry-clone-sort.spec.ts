@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -61,8 +62,6 @@ const trigger = (page: Page) => page.getByRole('button', { name: 'Clone…', exa
 const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
 async function activate(control: Locator, touch = false) { if (touch) await control.tap(); else await control.click(); }
 async function browse(page: Page, touch = false) {
-    const show = page.getByRole('button', { name: 'Show menu', exact: true });
-    if (await show.isVisible()) await activate(show, touch);
     if (!await navigation(page).isVisible()) await activate(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
 }
 async function open(page: Page, source: Fixture) {
@@ -71,9 +70,6 @@ async function open(page: Page, source: Fixture) {
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(row(page)).toBeVisible({ timeout });
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    // Use the existing visible menu toggle so the floating toolbar does not cover list rows.
-    const handle = page.getByRole('button', { name: 'Move menu', exact: true });
-    if (await handle.isVisible()) await handle.click();
 }
 async function download(page: Page, touch = false, waitSaved = true) {
     if (waitSaved) await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
@@ -272,7 +268,7 @@ test.describe('New entry clone and sort', () => {
         await page.locator('#open__icon-more').click(); await page.locator('#open__icon-settings').click();
         await page.locator('#settings__general-auto-save-interval').selectOption('0'); await page.clock.runFor(100);
         await open(page, source);
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#settings-back').click();

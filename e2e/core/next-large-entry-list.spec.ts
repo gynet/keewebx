@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -26,7 +27,7 @@ for (const width of [1280, 320]) test(`10,000 encrypted entries remain reachable
     await expect(page.locator('.list__meta')).toHaveText('10000 items', { timeout: 30_000 });
     await expect(page.locator('.entry-row')).toHaveCount(200);
     const openMs = Date.now() - opened; expect(openMs).toBeLessThan(30_000);
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByLabel('Show entries as a table on desktop', { exact: true }).check();
     await page.getByRole('button', { name: 'Back to vault', exact: true }).filter({ visible: true }).click();
     await expect(page.getByRole('table', { name: 'Entries table' })).toHaveCount(width > 900 ? 1 : 0);

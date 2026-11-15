@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -37,7 +38,7 @@ async function unlock(page: Page, source: Fixture) {
     await expect(page.locator('#password')).toHaveCount(0);
 }
 async function add(page: Page, source: Fixture, url?: string) {
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     if (url) {
         await page.locator('#open-webdav').click();
         await page.locator('#webdav-url').fill(url);
@@ -46,7 +47,7 @@ async function add(page: Page, source: Fixture, url?: string) {
     await unlock(page, source);
 }
 async function reopen(page: Page, source: Fixture) {
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await page.locator(`.vault-row[data-vault="${source.name}"]`).click();
     await unlock(page, source);
 }
@@ -79,7 +80,7 @@ async function saveClose(page: Page) {
     await expect(closeDialog(page)).toHaveCount(0);
 }
 async function settings(page: Page) {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
 }
 async function download(page: Page, name: string) {
@@ -192,7 +193,7 @@ test('close nonselected B leaves A draft untouched; save last A closes to unlock
     await settings(page);
     expect((await decrypt(await download(page, 'A'), a)).found.fields.get('Notes')).toBe('A close-last draft');
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await page.locator('.vault-row[data-vault="B"]').click();
     await page.locator('#password').fill(b.password); await page.locator('#unlock').click();
     await expect(page.locator('#unlock-error')).toHaveText('Wrong password');
@@ -244,7 +245,7 @@ test('database close saves only B settings and preserves A settings draft and st
     await aForm.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(rows(page)).toHaveCount(1); await expect(rows(page)).toContainText('A-account-marker');
     await expect(selector(page)).not.toHaveValue('');
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await page.locator('.vault-row[data-vault="B renamed"]').click(); await unlock(page, b);
     await settings(page);
     expect((await decrypt(await download(page, 'B renamed'), b)).db.meta.name).toBe('B renamed');
@@ -261,7 +262,7 @@ test('explicit discard cancel preserves draft; confirmed discard keeps saved cop
     await closeDialog(page).getByRole('button', { name: 'Discard remaining changes and close', exact: true }).click();
     await expect(closeDialog(page)).toHaveCount(0); await expect(card(page, 'B')).toHaveCount(0);
     await expect(rows(page)).toHaveCount(1); await expect(rows(page)).toContainText('A-account-marker');
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await page.locator('.vault-row[data-vault="B"]').click(); await unlock(page, b);
     await settings(page);
     expect((await decrypt(await download(page, 'B'), b)).found.fields.get('Notes')).toBe('B original notes');
@@ -514,7 +515,7 @@ test('per-vault close retains B passkey registration and required key file while
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     await edit(page, 'A', 'A draft across B passkey close');
     await close(page, 'B'); await saveClose(page);
-    await page.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(page, 'Open another vault');
     await page.locator('.vault-row[data-vault="B"]').click();
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('Select the key file first');

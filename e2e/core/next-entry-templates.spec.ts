@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -29,12 +30,11 @@ async function open(page: Page, templates = false) {
     return { work: work.uuid.id, source: source?.uuid.id, history: source?.history.length };
 }
 async function browse(page: Page) {
-    const menu = page.getByRole('button', { name: 'Show menu', exact: true }); if (await menu.isVisible()) await menu.click();
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible()) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
 async function download(page: Page) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await browse(page); await page.locator('#open-settings').click(); await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    await browse(page); await activateVaultUtility(page, 'Settings'); await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const stream = await (await pending).createReadStream(); if (!stream) throw new Error('Missing encrypted data');
     const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));

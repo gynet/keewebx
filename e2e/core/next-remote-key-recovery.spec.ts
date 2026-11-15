@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test as base, expect, type Page, type Browser } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -83,13 +84,11 @@ const test = base.extend<{ dav: Dav }>({ dav: async ({}, use) => { const dav = a
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Resolve remote master key', exact: true });
 const preferences = (page: Page) => page.getByRole('region', { name: 'Saving and content', exact: true });
 async function browse(page: Page) {
-    const show = page.getByRole('button', { name: 'Show menu', exact: true }); if (await show.isVisible()) await show.click();
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible()) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
-async function settings(page: Page) { await browse(page); await page.locator('#open-settings').click();
+async function settings(page: Page) { await browse(page); await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Saving and content', exact: true }).click(); }
 async function back(page: Page) { await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); }
-async function collapse(page: Page) { const menu = page.getByRole('button', { name: 'Move menu', exact: true }); if (await menu.isVisible()) await menu.click(); }
 async function connect(page: Page, dav: Dav, password = originalPassword, key?: Uint8Array) {
     await page.goto('/next.html'); await page.locator('#open-webdav').click();
     await page.locator('#webdav-url').fill(dav.url); await page.locator('#webdav-user').fill('tester'); await page.locator('#webdav-pass').fill('disposable');
@@ -99,7 +98,7 @@ async function connect(page: Page, dav: Dav, password = originalPassword, key?: 
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     await settings(page); await page.locator('#setting-auto-save').selectOption('0');
     await page.getByRole('tab', { name: 'Security', exact: true }).click(); await page.locator('#setting-auto-lock').selectOption('0');
-    await back(page); await collapse(page);
+    await back(page);
 }
 async function localEdit(page: Page, apply = true) {
     await page.locator('.entry-row[data-entry="Original record"]').click();

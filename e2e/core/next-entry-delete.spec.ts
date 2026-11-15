@@ -51,8 +51,6 @@ async function open(page: Page, source: Fixture) {
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(row(page, 'Live sibling')).toBeVisible({ timeout });
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    const menu = page.getByRole('button', { name: 'Move menu', exact: true });
-    if (await menu.isVisible()) await menu.click();
     if (source.mode === 'trash') await nav(page).getByRole('button', { name: 'Trash', exact: true }).click();
     await row(page).click();
 }

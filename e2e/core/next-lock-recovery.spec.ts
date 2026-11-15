@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator, type Download } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -113,7 +114,7 @@ test.describe('New suspended-session recovery', () => {
             const source = await fixture(mode);
             await open(page, source);
             const editor = await invalidEntry(page);
-            await page.locator('#lock').click();
+            await activateVaultUtility(page, 'Lock');
             await hiddenOriginal(page, editor);
             await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(draftTitle);
             const form = await recovery(page);
@@ -142,7 +143,7 @@ test.describe('New suspended-session recovery', () => {
             await expect(editor.getByLabel('Field value', { exact: true })).toHaveValue('Retained invalid custom value');
             await editor.getByLabel('Field name', { exact: true }).fill('Recovered field');
             await editor.getByRole('button', { name: 'Save', exact: true }).click();
-            await page.locator('#lock').click();
+            await activateVaultUtility(page, 'Lock');
             await expect(page.locator('#password')).toBeVisible({ timeout });
             await page.reload();
             await unlock(page, source);
@@ -154,7 +155,7 @@ test.describe('New suspended-session recovery', () => {
         await page.clock.install();
         const source = await fixture();
         await open(page, source);
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.getByRole('tab', { name: 'Database', exact: true }).click();
@@ -175,7 +176,7 @@ test.describe('New suspended-session recovery', () => {
         await expect(form.getByLabel('Memory, KiB', { exact: true })).toHaveValue('8');
         await expect(form.getByLabel('Parallelism', { exact: true })).toHaveValue('4');
         await form.getByRole('button', { name: 'Cancel', exact: true }).click();
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Database', exact: true }).click();
         await expect(page.getByLabel('Vault name', { exact: true })).toHaveValue('recovery');
     });
@@ -184,7 +185,7 @@ test.describe('New suspended-session recovery', () => {
         const source = await fixture();
         const name = 'W'.repeat(128);
         await open(page, source, `${name}.kdbx`);
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Database', exact: true }).click();
         const form = page.getByRole('form', { name: `Database settings: ${name}`, exact: true });
         const heading = form.getByRole('heading', { level: 3, name, exact: true });
@@ -219,7 +220,7 @@ test.describe('New suspended-session recovery', () => {
                 const notes = page.getByRole('region', { name: 'Notes', exact: true });
                 await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
                 await notes.getByRole('textbox', { name: 'Notes', exact: true }).fill(draftNotes);
-                await page.locator('#lock').click();
+                await activateVaultUtility(page, 'Lock');
                 await expect(page.getByRole('heading', { name: 'Securing your vaults', exact: true })).toBeVisible();
                 await hiddenOriginal(page, page.locator('main.detail'));
                 await gate.entered();
@@ -236,7 +237,7 @@ test.describe('New suspended-session recovery', () => {
                 await expect(restored).toBeVisible();
                 await expect(restored.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(draftNotes);
                 await restored.getByRole('button', { name: 'Save', exact: true }).click();
-                await page.locator('#lock').click();
+                await activateVaultUtility(page, 'Lock');
                 await expect(page.locator('#password')).toBeVisible({ timeout });
                 await page.reload();
                 await unlock(page, source);
@@ -250,7 +251,7 @@ test.describe('New suspended-session recovery', () => {
         await page.clock.install();
         const source = await fixture();
         await open(page, source);
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.getByRole('tab', { name: 'Database', exact: true }).click();
@@ -302,7 +303,7 @@ test.describe('New suspended-session recovery', () => {
         try {
             await page.getByLabel('Attachment file', { exact: true }).setInputFiles({ name: 'abandoned.bin', mimeType: 'application/octet-stream', buffer: payload });
             await expect.poll(() => entered, { timeout }).toBe(true);
-            await page.locator('#lock').click();
+            await activateVaultUtility(page, 'Lock');
             await expect(page.getByRole('heading', { name: 'Securing your vaults', exact: true })).toBeVisible();
             await hiddenOriginal(page, page.locator('main.detail'));
             await page.clock.fastForward(16_000);
@@ -313,7 +314,7 @@ test.describe('New suspended-session recovery', () => {
             await expect(page.getByRole('button', { name: 'Add attachment', exact: true })).toBeEnabled();
             await expect(page.locator('[data-attachment="abandoned.bin"]')).toHaveCount(0);
             await expect(page.locator('#password')).toHaveCount(0);
-            await page.locator('#open-settings').click();
+            await activateVaultUtility(page, 'Settings');
             await page.getByRole('tab', { name: 'Database', exact: true }).click();
             const pending = page.waitForEvent('download');
             await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();

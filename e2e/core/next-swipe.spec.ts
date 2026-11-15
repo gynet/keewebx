@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 
@@ -8,7 +9,7 @@ test('touch swipe reveals and hides local deletion without opening or deleting a
     await page.setInputFiles('#open-file-input', path.resolve(__dirname, '../../modules/db/resources/KDBX4.1.kdbx'));
     await page.fill('#password', 'test');
     await page.click('#unlock');
-    await page.click('#lock');
+    await activateVaultUtility(page, 'Lock');
     await page.setViewportSize({ width: 390, height: 844 });
     const row = page.locator('.vault-row-wrap');
     const remove = row.getByRole('button', { name: 'Remove KDBX4.1.kdbx from this browser', exact: true });

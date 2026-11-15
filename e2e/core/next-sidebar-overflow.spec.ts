@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 import * as kdbxweb from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -24,7 +25,7 @@ test('large navigation scrolls independently while footer actions stay visible a
     expect(await content.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     await content.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     expect((await footer.boundingBox())!.y).toBe(initial.y);
-    await page.locator('#open-settings').click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Theme' })).toBeVisible();
     await page.click('#settings-back');
@@ -32,6 +33,6 @@ test('large navigation scrolls independently while footer actions stay visible a
     const shorter = (await footer.boundingBox())!;
     expect(shorter.y).toBeGreaterThanOrEqual(0);
     expect(shorter.y + shorter.height).toBeLessThanOrEqual(320);
-    await page.click('#lock');
+    await activateVaultUtility(page, 'Lock');
     await expect(page.locator('#password')).toBeVisible();
 });

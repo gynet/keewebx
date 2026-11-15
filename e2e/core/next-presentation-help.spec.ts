@@ -1,10 +1,11 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
 
 for (const width of [1280, 320]) test(`extension guidance and diagnostics are usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/next.html'); await page.locator('#open-demo').click();
     await expect(page.locator('.entry-row').first()).toBeVisible();
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Browser extension', exact: true }).click();
     await page.getByText('Install and connect KeeWebX Connect', { exact: true }).click();
     const setup = page.getByRole('region', { name: 'Browser extension setup', exact: true });
@@ -47,7 +48,7 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     await page.screenshot({ path: test.info().outputPath(`help-${width}.png`), fullPage: true });
     await page.reload();
     await page.locator('#open-demo').click(); await expect(page.locator('.entry-row').first()).toBeVisible();
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Browser extension', exact: true }).click();
     await expect(locked).not.toBeChecked(); await expect(empty).not.toBeChecked();
 });

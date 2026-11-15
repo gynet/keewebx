@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Browser, type Download, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -78,7 +79,7 @@ async function editEntry(page: Page) {
 }
 
 async function openSettings(page: Page) {
-    await page.locator('#open-settings').click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const form = page.getByRole('form', { name: /^Database settings: / });
     await expect(form).toBeVisible();

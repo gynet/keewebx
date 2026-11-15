@@ -38,9 +38,8 @@ export async function open(page: Page, trash = true, website?: string) {
 }
 export async function browse(page: Page) {
     const settingsBack = page.getByRole('button', { name: 'Back to vault', exact: true });
-    await expect.poll(async () => await settingsBack.isVisible() || await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible() || await page.getByRole('button', { name: 'Show menu', exact: true }).isVisible() || await page.getByRole('button', { name: 'Browse vault', exact: true }).isVisible(), { timeout }).toBe(true);
+    await expect.poll(async () => await settingsBack.isVisible() || await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible() || await page.getByRole('button', { name: 'Browse vault', exact: true }).isVisible(), { timeout }).toBe(true);
     if (await settingsBack.isVisible()) await settingsBack.click();
-    const menu = page.getByRole('button', { name: 'Show menu', exact: true }); if (await menu.isVisible()) await menu.click();
     if (!await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible()) await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
 }
 export async function download(page: Page) {

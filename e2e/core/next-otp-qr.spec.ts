@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
 import * as kdbx from '../../modules/db/lib';
@@ -25,7 +26,7 @@ for (const width of [1280, 320]) test(`real QR image provisions protected OTP an
     await expect(secret).toHaveAttribute('type', 'password');
     await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.locator('[data-field="otp"] .field__value')).toHaveText(/\d{3} \d{3}/);
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(page, 'Settings');
     await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download KDBX', exact: true }).click();

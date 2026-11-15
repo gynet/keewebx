@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -333,7 +334,7 @@ test.describe('New entry history', () => {
         const source = await fixture();
         await page.clock.install();
         await open(page, source);
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#setting-clipboard').selectOption(String(ttl));
@@ -384,7 +385,7 @@ test.describe('New entry history', () => {
         const source = await fixture();
         await page.clock.install();
         await open(page, source);
-        await page.locator('#open-settings').click();
+        await activateVaultUtility(page, 'Settings');
         await page.getByRole('tab', { name: 'Security', exact: true }).click();
         await page.locator('#setting-auto-lock').selectOption('5');
         await page.locator('#settings-back').click();

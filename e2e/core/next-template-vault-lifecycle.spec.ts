@@ -1,3 +1,4 @@
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -50,7 +51,7 @@ async function decrypt(bytes: Buffer) {
     return kdbx.Kdbx.load(new Uint8Array(bytes).buffer, new kdbx.Credentials(kdbx.ProtectedValue.fromString(password)));
 }
 async function download(page: Page, name: string) {
-    await browse(page); await page.locator('#open-settings').click(); await page.getByRole('tab', { name: 'Database', exact: true }).click();
+    await browse(page); await activateVaultUtility(page, 'Settings'); await page.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('form', { name: `Database settings: ${name}`, exact: true }).getByRole('button', { name: 'Download KDBX', exact: true }).click();
     const stream = await (await pending).createReadStream(); if (!stream) throw new Error('Missing export');
