@@ -93,9 +93,18 @@ async function encryptedRecords(page: Page) {
     return page.evaluate(() => new Promise<string[]>((resolve, reject) => {
         const opening = indexedDB.open('FilesCache');
         opening.onerror = () => reject(opening.error);
+        opening.onupgradeneeded = () => {
+            opening.transaction?.abort();
+            reject(new Error('Encrypted records require an existing FilesCache database'));
+        };
         opening.onsuccess = () => {
             const db = opening.result;
-            const read = db.transaction('files', 'readonly').objectStore('files').getAll();
+            let read: ReturnType<IDBObjectStore['getAll']>;
+            try {
+                read = db.transaction('files', 'readonly').objectStore('files').getAll();
+            } catch (error) {
+                db.close(); reject(error); return;
+            }
             read.onerror = () => { db.close(); reject(read.error); };
             read.onsuccess = async () => {
                 try {
@@ -223,9 +232,12 @@ test('a failed New asset update keeps the old offline shell and encrypted vault'
     await page.goto(origin + '/next.html');
     await shell(page);
     await openFile(page);
+    await expect(page.locator('#sync-state')).toHaveText('Up to date');
+    const before = await encryptedRecords(page);
+    expect(before).toHaveLength(1);
     await page.getByRole('button', { name: 'Lock', exact: true }).click();
     await page.reload();
-    const before = await encryptedRecords(page);
+    expect(await encryptedRecords(page)).toEqual(before);
     const names = await page.evaluate(() => caches.keys());
     failUpdate = true;
     workerRevision++;
