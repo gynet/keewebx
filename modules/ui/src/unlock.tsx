@@ -124,6 +124,10 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
         try {
             const [data, keyData] = await Promise.all([file.arrayBuffer(), key?.arrayBuffer()]);
             if (version !== readVersion.current || !localAllowed() || !getSessionAccess(model).isCurrent(epoch)) return;
+            if (!data.byteLength || data.byteLength !== file.size) {
+                setFileError({ message: t('The database file could not be read completely. Download it to this device, then choose it again.'), retry: { file, key } });
+                return;
+            }
             // Match Classic's signature check before replacing the selected vault.
             const signature = data.byteLength >= 8 ? new DataView(data) : null;
             const magic = signature?.getUint32(0, true);
@@ -143,12 +147,17 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
             if (version === readVersion.current) setReadingFile(false);
         }
     };
-    const chooseFile = () => {
+    const chooseFile = async () => {
         if (!model.settings.canOpen) return;
         const input = fileInput.current;
         const file = input?.files?.[0];
-        if (input) input.value = '';
-        if (file) void readFile(file);
+        try {
+            if (file) await readFile(file);
+        } finally {
+            // Keep the native selection alive until the file read has finished.
+            // A newer selection must not be cleared by an older pending read.
+            if (input && input.files?.[0] === file) input.value = '';
+        }
     };
 
     const openDemo = () => {
