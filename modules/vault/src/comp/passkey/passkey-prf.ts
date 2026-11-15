@@ -328,8 +328,9 @@ export async function evaluatePrf(opts: EvaluatePrfOptions): Promise<Uint8Array>
         allowCredentials: [
             {
                 type: 'public-key',
-                id: toBufferSource(opts.credentialId),
-                transports: ['internal', 'usb', 'nfc', 'ble', 'hybrid']
+                // No transport metadata was saved at registration. Let the
+                // browser route this credential to its configured provider.
+                id: toBufferSource(opts.credentialId)
             }
         ],
         userVerification: 'required',
@@ -349,6 +350,11 @@ export async function evaluatePrf(opts: EvaluatePrfOptions): Promise<Uint8Array>
 
     if (!assertion) {
         throw new Error('navigator.credentials.get returned null');
+    }
+
+    const returnedId = new Uint8Array(assertion.rawId);
+    if (returnedId.length !== opts.credentialId.length || returnedId.some((byte, index) => byte !== opts.credentialId[index])) {
+        throw new Error('The selected passkey does not match this vault registration. Use your password and set up passkey unlock again.');
     }
 
     const clientExtensions = assertion.getClientExtensionResults() as {

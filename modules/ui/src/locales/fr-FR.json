@@ -1,4 +1,5 @@
 {
+  "The selected passkey does not match this vault registration. Use your password and set up passkey unlock again.": "La clé d’accès sélectionnée ne correspond pas à l’enregistrement de ce coffre. Utilisez votre mot de passe et configurez à nouveau le déverrouillage par clé d’accès.",
   "Passkey creation was not completed. It may have been canceled or refused by your browser or provider. A saved passkey still needs WebAuthn PRF support for encrypted unlock.": "La création de la clé d’accès n’a pas abouti. Elle a pu être annulée ou refusée par le navigateur ou le fournisseur. Même enregistrée, une clé d’accès doit prendre en charge WebAuthn PRF pour le déverrouillage chiffré.",
   "Verify passkey": "Vérifier la clé d’accès",
   "Cancel passkey setup": "Annuler la configuration de la clé d’accès",

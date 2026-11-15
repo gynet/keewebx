@@ -38,9 +38,9 @@ test('selected provider file opens through the ordinary password gate', async ({
     await start(page); await connect(page);
     await page.getByRole('button', {name: 'Vault.kdbx'}).click();
     await page.locator('#password').fill('wrong');
-    await page.getByRole('button', {name: 'Unlock', exact: true}).click();
+    await page.getByRole('button', {name: 'Unlock with password', exact: true}).click();
     await expect(page.getByRole('alert')).toHaveText('Wrong password');
     await page.locator('#password').fill('demo');
-    await page.getByRole('button', {name: 'Unlock', exact: true}).click();
+    await page.getByRole('button', {name: 'Unlock with password', exact: true}).click();
     await expect(page.locator('.entry-row').first()).toBeVisible();
 });

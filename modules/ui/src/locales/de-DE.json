@@ -1,4 +1,5 @@
 {
+  "The selected passkey does not match this vault registration. Use your password and set up passkey unlock again.": "Der ausgewählte Passkey stimmt nicht mit der Registrierung dieses Tresors überein. Verwenden Sie Ihr Passwort und richten Sie die Passkey-Entsperrung erneut ein.",
   "Passkey creation was not completed. It may have been canceled or refused by your browser or provider. A saved passkey still needs WebAuthn PRF support for encrypted unlock.": "Die Passkey-Erstellung wurde nicht abgeschlossen. Sie wurde möglicherweise abgebrochen oder vom Browser oder Anbieter abgelehnt. Auch ein gespeicherter Passkey benötigt WebAuthn PRF für die verschlüsselte Entsperrung.",
   "Verify passkey": "Passkey überprüfen",
   "Cancel passkey setup": "Passkey-Einrichtung abbrechen",

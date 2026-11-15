@@ -270,9 +270,15 @@ test('virtual PRF: saved credential waits for fresh verification; rejected get r
         const create = navigator.credentials.create.bind(navigator.credentials);
         const get = navigator.credentials.get.bind(navigator.credentials);
         const probe = (window as any).__verifyProbe = { creates: 0, gets: 0, active: [] as boolean[] };
+        (window as any).__verifyDiscovery = [];
         navigator.credentials.create = async (...args) => { probe.creates++; return create(...args); };
         navigator.credentials.get = async (...args) => {
             probe.gets++; probe.active.push(navigator.userActivation.isActive);
+            const descriptor = args[0]?.publicKey?.allowCredentials?.[0];
+            (window as any).__verifyDiscovery.push({
+                id: Array.from(new Uint8Array(descriptor?.id as ArrayBuffer)),
+                transportHint: !!descriptor && 'transports' in descriptor
+            });
             if (probe.gets === 1) throw new DOMException('Simulated post-create provider refusal', 'NotAllowedError');
             return get(...args);
         };
@@ -299,6 +305,10 @@ test('virtual PRF: saved credential waits for fresh verification; rejected get r
     await verify.click();
     await expect(section(page).getByRole('status')).toContainText('Passkey unlock saved in this browser', { timeout });
     expect(await page.evaluate(() => (window as any).__verifyProbe)).toEqual({ creates: 1, gets: 2, active: [true, true] });
+    const discovery = await page.evaluate(() => (window as any).__verifyDiscovery);
+    expect(discovery.map((request: any) => request.transportHint)).toEqual([false, false]);
+    expect(discovery[0].id).toEqual(discovery[1].id);
+    expect(Buffer.from(discovery[1].id).toString('base64')).toBe((await record(page)).passkeyCredentialId);
     const verified = (await auth.credentials()).credentials;
     expect(verified.map(value => value.credentialId)).toEqual(created.map(value => value.credentialId));
     expect(verified[0].signCount).toBeGreaterThan(created[0].signCount);
@@ -310,7 +320,7 @@ test('virtual PRF: saved credential waits for fresh verification; rejected get r
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
 });
 
-for (const outcome of ['cancel', 'missing-prf'] as const) {
+for (const outcome of ['cancel', 'missing-prf', 'different-credential'] as const) {
     test(`virtual PRF: ${outcome} during replacement verification retains old registration and password recovery`, async ({ page, context }) => {
         const auth = await authenticator(context, page), source = await fixture();
         await openFile(page, source); await openSettings(page); await enroll(page, source);
@@ -334,6 +344,30 @@ for (const outcome of ['cancel', 'missing-prf'] as const) {
             });
             await verify.click();
             await expect(section(page).getByRole('status')).toContainText('does not support passkey unlock');
+            expect(await record(page)).toEqual(before);
+        }
+        if (outcome === 'different-credential') {
+            await page.evaluate(() => {
+                const get = navigator.credentials.get.bind(navigator.credentials);
+                (window as any).__mismatchedPrfRead = false;
+                navigator.credentials.get = async (...args) => {
+                    navigator.credentials.get = get;
+                    const result = await get(...args);
+                    if (result) {
+                        const id = new Uint8Array((result as PublicKeyCredential).rawId).slice();
+                        id[0] ^= 1;
+                        Object.defineProperty(result, 'rawId', { value: id.buffer });
+                        Object.defineProperty(result, 'getClientExtensionResults', { value: () => {
+                            (window as any).__mismatchedPrfRead = true;
+                            return { prf: { results: { first: new Uint8Array(32).buffer } } };
+                        } });
+                    }
+                    return result;
+                };
+            });
+            await verify.click();
+            await expect(section(page).getByRole('status')).toContainText('selected passkey does not match');
+            expect(await page.evaluate(() => (window as any).__mismatchedPrfRead)).toBe(false);
             expect(await record(page)).toEqual(before);
         }
         const cancel = section(page).getByRole('button', { name: /Cancel (?:passkey(?: setup| enrollment)?|setup|enrollment)/i });
