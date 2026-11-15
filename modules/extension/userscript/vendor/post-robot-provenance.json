@@ -1,0 +1,9 @@
+{
+  "name": "@krakenjs/post-robot",
+  "version": "11.0.1",
+  "tarball": "https://registry.npmjs.org/@krakenjs/post-robot/-/post-robot-11.0.1.tgz",
+  "tarballIntegrity": "sha512-48+RX8MGaFAxDjk9KpYcLDGgBRTdUy41QqoZwG9qebsfJZrL4QlgjVfIgkhAdDBOJV/VngvYcuHyR6sbU46Mqw==",
+  "distribution": "package/dist/post-robot.min.js",
+  "distributionSha256": "7cc512fa9e25f4abcc30b199bcf96c6bc9683fd32d62db9f72c06a52fc50ff54",
+  "source": "https://github.com/krakenjs/post-robot"
+}

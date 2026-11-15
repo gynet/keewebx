@@ -1,4 +1,65 @@
-# Userscripts on iOS: background transport experiment
+# Userscripts on iOS: transport experiments
+
+## Post-robot probe — current experiment
+
+Install **`diagnostics/post-robot-probe.user.js`** to test event-driven
+cross-origin requests with the actual bundled `@krakenjs/post-robot` 11.0.1.
+The script does not read a database, passwords, form fields, or vault unlock
+state. It has no GM grants or runtime CDN dependencies.
+
+1. Stop and disable the older **KeeWebX background connection probe** so its
+   polling and controls do not affect the new experiment.
+2. Install the new script in Userscripts, and allow it on KeeWebX and the
+   chosen test website. Save database changes before the one-time page reload
+   needed to inject a newly installed script.
+3. In the original `https://keewebx.app/app` tab, open **Post-robot 测试**.
+   Leave the test URL as `https://example.com/` and tap **关联并打开网站**.
+4. In the newly opened website tab, open **Post-robot 测试** and tap
+   **测试后台回包**. This action sends messages without requesting tab focus.
+5. Stay on the website. Repeat after one and five minutes without visiting
+   KeeWebX in between. Note the elapsed time, `visible`/`hidden`, and page
+   marker shown in the result. A timeout is a test result, not a cue to
+   repeatedly switch tabs. A marker is not proof of an unlocked vault.
+
+The initial association opens a tab; subsequent test buttons do not open or
+focus windows. Both documents must run the script, and the website must retain
+its `window.opener` relationship. Independent tabs cannot be discovered this
+way. Address-bar cross-site navigation, `noopener`, or site isolation policies
+can break the association. Following an ordinary link may preserve it.
+
+The app-side **撤销关联** button rejects future requests without closing the
+website. Refreshing KeeWebX deliberately loses the association. Delayed or
+expired replies must not count as successful fresh requests. No polling or
+heartbeat was added by this probe; post-robot uses its own request timeout and
+window-closure detection timers.
+
+Build the standalone installer with:
+
+```sh
+node modules/extension/userscript/build-post-robot-probe.mjs
+```
+
+Vendored distribution and license hashes are verified by the builder. Npm
+tarball provenance/integrity is recorded in `vendor/post-robot-provenance.json`;
+the installer includes the Apache-2.0 license. Authored source is in
+`src/post-robot-probe.js`.
+
+Actual post-robot round trips, linked cross-origin navigation, missing/revoked
+associations, app reload and delayed/expired messages passed in desktop
+Chromium, desktop WebKit, and a real Chromium isolated content-script world:
+
+```sh
+node modules/extension/userscript/tests/post-robot-probe.mjs chromium
+node modules/extension/userscript/tests/post-robot-probe.mjs webkit
+node modules/extension/userscript/tests/post-robot-probe.mjs chromium-extension
+```
+
+The desktop fixtures remained `visible`. The delay test intercepts native
+MessageEvents temporarily; it is not an OS suspension test. These results do
+not prove iPhone/Userscripts background replies, automatic process wakeup, or
+an unlocked vault. Native iPhone results remain unverified.
+
+## Older GM mailbox probe
 
 This is a diagnostic prototype, **not KeeWebX Connect or an autofill release**.
 It tests whether a Userscripts instance on another website can exchange a
