@@ -462,10 +462,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         </EntryActions>
                     </div>)}
                 </section>}
-                {model.settings.canOpenGenerator && <button type="button" class="nav-row sidebar-generator"
-                    onClick={() => { closeNavigation(); props.onGenerator(); }}>
-                    <Icon name="key" size={17} /><span class="nav-row__label">{t('Password generator')}</span>
-                </button>}
                 <NavRow icon="grid" label={t('All items')} on={!Object.values(filter).some(Boolean)} onClick={() => changeFilter({})} />
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 <button type="button" class="nav-row" onClick={() => openGroupManager()}>
@@ -498,6 +494,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <button type="button" class="round" aria-label={t('Browse groups')} title={t('Browse groups')} onClick={sidebar.toggle}><Icon name="folder" size={18} /></button>
                     <button type="button" class="round" aria-label={t('Trash')} title={t('Trash')} onClick={() => changeFilter({ trash: true })}><Icon name="trash" size={18} /></button>
                 </div>
+                {model.settings.canOpenGenerator && <button type="button" class="nav-row sidebar-generator" aria-label={t('Password generator')} title={t('Password generator')}
+                    onClick={() => { closeNavigation(); props.onGenerator(); }}>
+                    <Icon name="key" size={17} /><span class="nav-row__label">{t('Password generator')}</span>
+                </button>}
                 <div class="side__foot">
                     <EntryActions compact label={t('Database actions')} title={t('Database actions')}>
                         {allFiles.length === 1 ? <>
