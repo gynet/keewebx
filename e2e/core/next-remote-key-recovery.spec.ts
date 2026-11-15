@@ -172,7 +172,7 @@ test.describe('New remote master-key recovery', () => {
     for (const appearance of ['desktop light', '320px dark', '320px light'] as const) test.describe(`${appearance} password${appearance.startsWith('320px') ? ' and key' : ''}`, () => {
         const mobile = appearance.startsWith('320px');
         test.use({ viewport: mobile ? { width: 320, height: 350 } : { width: 1280, height: 800 }, hasTouch: mobile, colorScheme: appearance.endsWith('dark') ? 'dark' : 'light' });
-        test('two peers: cancel and incorrect credentials retain local edits; correct retry merges without losing identity or content', async ({ page, browser, dav }) => {
+        test('two peers: cancel and incorrect credentials retain local edits; correct retry merges without losing identity or content', async ({ page, browser, browserName, dav }) => {
             await connect(page, dav); await localEdit(page);
             const key = mobile ? await kdbx.Credentials.createRandomKeyFile(2) : undefined;
             const remote = await changeOnOtherPeer(browser, page, dav, key); const writes = dav.writes();
@@ -205,7 +205,15 @@ test.describe('New remote master-key recovery', () => {
             }
             const local = await download(page);
             expect(field(all(local).find(entry => entry.uuid.id === dav.source.id)!, 'Notes')).toBe(localNotes);
-            await page.getByRole('button', { name: 'Resolve remote key', exact: true }).click();
+            const resolve = page.getByRole('button', { name: 'Resolve remote key', exact: true });
+            if (browserName === 'firefox' && !mobile) {
+                // Headless Firefox's native download panel can swallow footer pointer events.
+                // Exercise trusted keyboard activation on desktop; mobile keeps pointer coverage.
+                await resolve.focus();
+                await expect(resolve).toBeFocused();
+                await page.keyboard.press('Enter');
+            } else await resolve.click();
+            await expect(dialog(page)).toBeVisible();
             await retry(page, 'incorrect password', key);
             await expect(dialog(page).getByRole('alert')).toContainText('Could not synchronize', { timeout });
             expect(dav.bytes().equals(remote)).toBe(true); expect(dav.writes()).toBe(writes);
