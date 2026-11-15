@@ -262,6 +262,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         if (navigationOpen) closeNavigation();
     };
     const openGroupManager = (id?: string) => {
+        IdleTracker.regUserAction();
         if (!confirmDiscardDrafts()) return;
         setEditing(null);
         setSelected(undefined);
@@ -640,7 +641,10 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             {phoneGroups && <PhoneGroups model={model} files={files} onChanged={groupChanged} onLifecycleChanged={lifecycleChanged} initial={phoneGroups.initial} initialActions={phoneGroups.actions}
                 onClose={() => {
                     const returnTo = phoneGroups; setPhoneGroups(null);
-                    if (returnTo.fromNavigation) { groupReturnFocus.current = returnTo.trigger; setNavigationOpen(true); }
+                    if (returnTo.fromNavigation) {
+                        groupReturnFocus.current = returnTo.trigger?.isConnected ? returnTo.trigger : null;
+                        setNavigationOpen(true);
+                    }
                     requestAnimationFrame(() => {
                         if (!returnTo.fromNavigation) {
                             if (returnTo.trigger?.isConnected) returnTo.trigger.focus();
@@ -649,7 +653,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     });
                 }} onSelect={group => {
                     setPhoneGroups(null); changeFilter({ group: group.id }); setQuery(''); setSelected(undefined);
-                    requestAnimationFrame(() => browse.current?.focus());
+                    requestAnimationFrame(() => (window.innerWidth <= 760 ? browse.current : search.current)?.focus());
                 }} />}
             {transfer && <EntryTransfer model={model} request={transfer} onClose={() => setTransfer(null)} onResult={result => {
                 setTransferMessage(result.message);
@@ -674,7 +678,15 @@ function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle, onMa
     const expanded = expandedGroups.has(group.id);
     const children = Array.from(group.items ?? []).filter((child) => child.visible !== false);
     return <div class="group-branch">
-        <div class="group-branch__row" onContextMenu={event => { event.preventDefault(); onManage(group.id); }}>
+        <div class="group-branch__row" onContextMenu={event => {
+            event.preventDefault();
+            event.currentTarget.querySelector<HTMLButtonElement>('.nav-row')?.focus();
+            onManage(group.id);
+        }} onKeyDown={event => {
+            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                event.preventDefault(); event.stopPropagation(); onManage(group.id);
+            }
+        }}>
             {children.length > 0 ? <button class="group-branch__toggle" type="button"
                 aria-label={t(expanded ? 'Collapse {}' : 'Expand {}', group.title)} aria-expanded={expanded}
                 onClick={() => onToggle(group.id)}>
@@ -684,7 +696,7 @@ function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle, onMa
                 </svg>
             </button> : <span class="group-branch__spacer" />}
             <button class={selected === group.id ? 'nav-row nav-row--on' : 'nav-row'} onClick={() => onSelect(group.id)}><GroupIcon group={group} /><span class="nav-row__label">{group.title}</span></button>
-            <button type="button" class="group-branch__manage" aria-label={t('Manage {}', group.title)} onClick={() => onManage(group.id)}>⋯</button>
+            <button type="button" class="group-branch__manage" aria-label={t('Manage {}', group.title)} aria-haspopup="dialog" onClick={() => onManage(group.id)}>⋯</button>
         </div>
         {expanded && children.length > 0 && <div class="group-branch__children">
             {children.map((child) => <GroupBranch key={child.id} group={child} selected={selected} onSelect={onSelect}

@@ -6,7 +6,7 @@ import { argon2 } from '../../modules/db/test/test-support/argon2';
 
 // Follow next-groups/next-export's real encrypted fixture and download patterns.
 // No app-model injection: all mutations after uploading the fixture use visible UI.
-// Vault's Manage groups route exposes GroupActions for the selected group/root.
+// Sidebar contextual actions expose GroupActions; Manage groups browses roots.
 // Missing controls are failures, not skips or a fallback to model calls.
 const password = 'group lifecycle password';
 const timeout = 30_000;
@@ -147,7 +147,8 @@ async function openManager(page: Page, touch = false) {
     if (await more.isVisible() && await more.getAttribute('aria-expanded') !== 'true') await activate(more, touch);
 }
 async function actionBar(page: Page, group: string, touch = false) {
-    await openManager(page, touch);
+    await showNavigation(page, touch);
+    await activate(navigation(page).getByRole('button', { name: `Manage ${group}`, exact: true }), touch);
     const bar = actions(page, group);
     await expect(bar).toBeVisible();
     return bar;
@@ -388,7 +389,7 @@ test.describe('New interface group lifecycle', () => {
         await openFixture(page, source);
         await chooseGroup(page, ['All items']);
         await openManager(page);
-        const root = await actionBar(page, source.name);
+        const root = actions(page, source.name);
         await expect(root.getByRole('button', { name: 'New group', exact: true })).toBeEnabled();
         for (const action of ['Rename group', 'Delete group']) {
             await expect(root.getByRole('button', { name: action, exact: true })).toBeDisabled();
@@ -463,7 +464,7 @@ test.describe('New interface group lifecycle', () => {
 
 async function organize(page: Page, group: string, action: string, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await openManager(page, touch);
+    await actionBar(page, group, touch);
     await activate(page.getByRole('group', { name: `Organize group: ${group}`, exact: true })
         .getByRole('button', { name: action, exact: true }), touch);
     const dialog = page.getByRole('dialog', { name: action, exact: true });
@@ -767,14 +768,19 @@ for (const action of ['Move group', 'Restore group', 'Permanently delete group',
     });
 }
 
-test('group move preserves drafts on cancel and declined discard; closed confirmation cannot mutate', async ({ page }) => {
+test('group navigation respects draft discard; canceled and closed move confirmations cannot mutate', async ({ page }) => {
     test.setTimeout(120_000);
     const source = await fixture(); await openFixture(page, source);
-    await chooseGroup(page, ['Parent']); await openManager(page);
+    await chooseGroup(page, ['Parent']);
     await entryRow(page, 'Parent account').click();
     const notes = page.getByRole('region', { name: 'Notes', exact: true });
     await notes.getByRole('button', { name: 'Edit notes', exact: true }).click();
     await notes.getByRole('textbox').fill('Unapplied group draft');
+    const manage = navigation(page).getByRole('button', { name: 'Manage Parent', exact: true });
+    page.once('dialog', prompt => prompt.dismiss()); await manage.click();
+    await expect(page.getByRole('dialog', { name: 'Groups', exact: true })).toHaveCount(0);
+    await expect(notes.getByRole('textbox')).toHaveValue('Unapplied group draft');
+    page.once('dialog', prompt => prompt.accept()); await manage.click();
     const trigger = page.getByRole('group', { name: 'Organize group: Parent', exact: true }).getByRole('button', { name: 'Move group', exact: true });
     await trigger.click();
     const dialog = page.getByRole('dialog', { name: 'Move group', exact: true });
@@ -783,13 +789,13 @@ test('group move preserves drafts on cancel and declined discard; closed confirm
     await move.evaluate(button => { button.closest('dialog')!.close(); (button as HTMLButtonElement).click(); });
     const retained = page.locator('dialog[aria-label="Move group"]');
     await retained.evaluate(element => (element as HTMLDialogElement).showModal());
-    page.once('dialog', prompt => prompt.dismiss()); await move.click();
-    await expect(notes.getByRole('textbox')).toHaveValue('Unapplied group draft');
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(notes.getByRole('textbox')).toHaveValue('Unapplied group draft');
-    await trigger.click();
+    const canceled = await downloadVault(page, source);
+    expect(canceled.getGroup(source.ids.parent)?.parentGroup?.uuid.id).toBe(source.ids.root);
+    expect(text(allEntries(canceled).find(entry => entry.uuid.id === source.ids.parentEntry)!, 'Notes')).not.toBe('Unapplied group draft');
+    await organize(page, 'Parent', 'Move group');
     await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
-    page.once('dialog', prompt => prompt.accept()); await move.click();
+    await move.click();
     const saved = await downloadVault(page, source);
     expect(saved.getGroup(source.ids.parent)?.parentGroup?.uuid.id).toBe(source.ids.sibling);
     expect(text(allEntries(saved).find(entry => entry.uuid.id === source.ids.parentEntry)!, 'Notes')).not.toBe('Unapplied group draft');
@@ -806,9 +812,13 @@ test('group action cannot cross lock recovery or apply a retained hidden confirm
     await openFixture(page, source);
     await page.locator('#open-settings').click(); await page.getByRole('tab', { name: 'Security', exact: true }).click();
     await page.locator('#setting-auto-lock').selectOption('5'); await page.locator('#settings-back').click();
-    await chooseGroup(page, ['Parent']); await openManager(page); await entryRow(page, 'Parent account').click();
+    await chooseGroup(page, ['Parent']); await entryRow(page, 'Parent account').click();
     const notes = page.getByRole('region', { name: 'Notes', exact: true });
     await notes.getByRole('button', { name: 'Edit notes', exact: true }).click(); await notes.getByRole('textbox').fill('Saved during lock');
+    // Commit the notes through the UI before opening the modal. Autosave is
+    // disabled, so idle lock must still encrypt and persist this dirty change.
+    await notes.getByRole('button', { name: 'Save', exact: true }).click();
+    await actionBar(page, 'Parent');
     await page.getByRole('group', { name: 'Organize group: Parent', exact: true }).getByRole('button', { name: 'Move group', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Move group', exact: true });
     await chooseOptionBySuffix(dialog.getByRole('combobox', { name: 'Destination group', exact: true }), 'Sibling');
@@ -839,6 +849,7 @@ test('group action cannot cross lock recovery or apply a retained hidden confirm
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     // Autosave is disabled and the interrupted lock save failed. Explicitly retry
     // saving by locking again, then verify the persisted cache after reload.
+    await showNavigation(page);
     await navigation(page).getByRole('button', { name: 'Lock', exact: true }).click();
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload(); await openRecent(page, source);

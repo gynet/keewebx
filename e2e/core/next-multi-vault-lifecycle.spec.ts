@@ -131,7 +131,15 @@ test('scoped switch/search/tag/group/trash and entry creation preserve independe
     await nav.getByRole('button', { name: 'All items', exact: true }).click();
     await nav.getByRole('button', { name: 'Manage groups', exact: true }).click();
     const groupsDialog = page.getByRole('dialog', { name: 'Groups', exact: true });
-    await groupsDialog.locator(`[data-group-id="${b.root}"]`).click();
+    // A scoped vault opens at its root. Navigate to the root list explicitly
+    // before choosing by identity; names may be duplicated across vaults.
+    const parentGroup = groupsDialog.getByRole('button', { name: 'Parent group', exact: true });
+    await expect(groupsDialog).toBeVisible();
+    while (await parentGroup.isEnabled()) await parentGroup.click();
+    // UI group IDs include the open file ID before the persisted group UUID.
+    const bRoot = groupsDialog.locator(`[data-group-id$=":${b.root}"]`);
+    await expect(bRoot).toHaveCount(1);
+    await bRoot.click();
     await groupsDialog.getByRole('button', { name: 'Group actions', exact: true }).click();
     await page.getByRole('button', { name: 'New group', exact: true }).click();
     const groupDialog = page.getByRole('dialog', { name: 'New group', exact: true });

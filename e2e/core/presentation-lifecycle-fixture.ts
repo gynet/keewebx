@@ -59,8 +59,8 @@ export async function selectGroup(page: Page, name = 'Work') {
 }
 export async function groupActions(page: Page, name = 'Work') {
     await selectGroup(page, name); await browse(page);
-    await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: `Manage ${name}`, exact: true }).click();
     const sheet = page.getByRole('dialog', { name: 'Groups', exact: true });
-    if (await sheet.isVisible()) await sheet.getByRole('button', { name: 'Group actions', exact: true }).click();
-    return page.getByRole('group', { name: `Group actions: ${name}`, exact: true });
+    await expect(sheet).toBeVisible();
+    return sheet.getByRole('group', { name: `Group actions: ${name}`, exact: true });
 }
