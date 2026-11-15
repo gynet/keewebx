@@ -78,6 +78,7 @@ describe('actual backend and settings app location', () => {
         'https://keewebx.app', 'https://keewebx.app/?ui=classic', 'https://keewebx.app/?tenant=private',
         'https://keewebx.app/#custom', 'https://keewebx.app/classic.html',
         'https://keewebx.app/next.html?ui=classic', 'https://keewebx.app/app?tenant=private',
+        'https://keewebx.app/preview/', 'https://keewebx.app/preview/?tenant=private',
         'https://keewebx.app/team/index.html', 'https://vault.example/', 'http://localhost:8123/vault/'
     ]) test(`preserves explicit target ${url}`, async () => {
         stored.keeWebUrl = url;

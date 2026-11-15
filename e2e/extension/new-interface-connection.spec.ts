@@ -592,3 +592,53 @@ for (const migrated of [false, true])
         await expect(landing.getByRole('heading', { name: 'Marketing landing' })).toBeVisible();
         expect(context.pages().filter(page => page.url() === 'https://keewebx.app/app')).toHaveLength(1);
     });
+
+test('Legacy hosted preview connects after toolbar use on the configured app tab', async () => {
+    // This suite's Legacy fixture is the KeeWebX Connect fork, not the original
+    // Firefox add-on. Updating these guards requires a new extension package.
+    const url = 'https://keewebx.app/preview/';
+    await context.route('https://keewebx.app/preview/**', route => {
+        const pathname = new URL(route.request().url()).pathname.slice('/preview'.length);
+        const dist = path.join(ROOT, 'dist');
+        const file = path.resolve(dist, pathname === '/' ? 'index.html' : '.' + pathname);
+        if (!file.startsWith(dist + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile())
+            return route.fulfill({ status: 404, body: 'Not found' });
+        const types: Record<string, string> = { '.html': 'text/html', '.js': 'application/javascript',
+            '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+        return route.fulfill({ body: fs.readFileSync(file), contentType: types[path.extname(file)] || 'application/octet-stream' });
+    });
+    await sw.evaluate(url => chrome.storage.local.set({ keeWebUrl: url }), url);
+    const app = await appDemo(url);
+    await expect(app).toHaveURL(url);
+    // A toolbar click on the app invokes auto-fill discovery before its URL is
+    // excluded. Its content script must not suppress the later app port bridge.
+    await sw.evaluate(async url => {
+        const tab = (await chrome.tabs.query({})).find(tab => tab.url === url);
+        if (!tab) throw new Error('Missing configured app tab');
+        (chrome.action.onClicked as any).dispatch(tab);
+    }, url);
+    await expect.poll(() => sw.evaluate(async url => {
+        const tab = (await chrome.tabs.query({})).find(tab => tab.url === url);
+        const [injection] = await chrome.scripting.executeScript({ target: { tabId: tab!.id! },
+            func: () => chrome.runtime.onMessage.hasListeners() });
+        return injection.result;
+    }, url)).toBe(true);
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${id}/pages/options.html`);
+    const connectLabel = await sw.evaluate(() => chrome.i18n.getMessage('optionsConnectButton'));
+    await options.getByRole('button', { name: connectLabel, exact: true }).click();
+    await expect(options.locator('.success')).toHaveText('Connected');
+    const site = await sitePage();
+    await site.locator('#login_field').focus();
+    await sw.evaluate(async url => {
+        const tab = (await chrome.tabs.query({})).find(tab => tab.url === url);
+        if (!tab) throw new Error('Missing disposable site tab');
+        (chrome.action.onClicked as any).dispatch(tab);
+    }, site.url());
+    const consent = app.getByRole('dialog', { name: 'Allow browser extension access', exact: true });
+    await expect(consent).toBeVisible();
+    await consent.getByRole('button', { name: 'Allow', exact: true }).click();
+    await expect(site.locator('#login_field')).toHaveValue('demouser');
+    await expect(site.locator('#password')).not.toHaveValue('');
+    expect(context.pages().filter(page => page.url() === url)).toHaveLength(1);
+});

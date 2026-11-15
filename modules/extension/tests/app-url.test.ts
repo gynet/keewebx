@@ -33,6 +33,14 @@ describe('configured app tab identity', () => {
         expect(matchesAppUrl(configured, 'https://vault.example:8443/keewebx/')).toBe(true);
         expect(matchesAppUrl('https://vault.example/keewebx', 'https://vault.example/keewebx/')).toBe(true);
     });
+    test('the hosted preview directory selects its own app document', () => {
+        const preview = 'https://keewebx.app/preview/';
+        for (const candidate of [preview, preview + '#settings', preview + 'index.html'])
+            expect(matchesAppUrl(candidate, preview)).toBe(true);
+        for (const candidate of ['https://keewebx.app/app', 'https://keewebx.app/',
+            preview + 'next.html', preview + 'classic.html', 'https://keewebx.app/preview-other/'])
+            expect(matchesAppUrl(candidate, preview)).toBe(false);
+    });
     test('an explicit UI selector cannot select another interface or namespace', () => {
         for (const query of ['', '?ui=new', '?ui=classic&namespace=other', '?ui=classic&ui=new']) {
             expect(matchesAppUrl('https://vault.example:8443/keewebx/' + query, configured)).toBe(false);

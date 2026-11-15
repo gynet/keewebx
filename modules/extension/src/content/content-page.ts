@@ -6,12 +6,12 @@ import {
 
 declare global {
     interface Window {
-        kwExtensionInstalled: boolean;
+        kwAutofillInstalled: boolean;
     }
 }
 
-if (!window.kwExtensionInstalled) {
-    window.kwExtensionInstalled = true;
+if (!window.kwAutofillInstalled) {
+    window.kwAutofillInstalled = true;
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (sender.id !== chrome.runtime.id) {

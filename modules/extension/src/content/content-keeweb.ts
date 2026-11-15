@@ -1,6 +1,6 @@
 declare global {
     interface Window {
-        kwExtensionInstalled: boolean;
+        kwConnectBridgeInstalled: boolean;
     }
 }
 
@@ -9,8 +9,10 @@ interface KeeWebConnectTabMessage {
     kwConnection?: string;
 }
 
-if (!window.kwExtensionInstalled) {
-    window.kwExtensionInstalled = true;
+// Autofill discovery can run on the app tab before a connection is attempted.
+// Its listener and the app port bridge must be installed independently.
+if (!window.kwConnectBridgeInstalled) {
+    window.kwConnectBridgeInstalled = true;
 
     // The app posts a summary of its sync state; the toolbar badge shows it.
     window.addEventListener('message', (e: MessageEvent) => {
