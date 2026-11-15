@@ -5,10 +5,17 @@
 <label>Username <input name="login" value="new-user"></label>
 <label>Password <input name="password" type="password" value="new-secret"></label>
 <label>Entry UUID <input name="uuid"></label>
+<label>Entry handle <input name="handle"></label>
 <label>Group path <input name="groupName" value="Browser / Nested"></label>
 <button value="connect">Connect</button><button value="get-logins">Read logins</button>
 <button value="get-totp-by-url">Read OTP</button><button value="get-any-field">Read other field</button>
 <button value="set-login">Save login</button><button value="get-database-groups">Read groups</button>
 <button value="create-new-group">Create group</button><button value="kwx-features">Status</button>
 <button value="lock-database">Lock</button>
-</form><pre role="status" aria-label="Command result"></pre><script src="js/client.js"></script></html>
+<button value="kwx-get-entries">List entries</button><button value="kwx-get-entry-fields">Read entry fields</button>
+<button value="replay-fields">Replay old field request</button>
+<button value="backend-configure">Set backend target</button><button value="backend-connect">Connect backend</button>
+<button value="backend-list">Backend list</button><button value="backend-fields">Backend fields</button>
+<button value="backend-other">Backend other field</button><button value="backend-status">Backend status</button>
+<button value="reset-identity">Reset identity on next restart</button>
+</form><pre role="status" aria-label="Command result"></pre><ol aria-label="Command history"></ol><script src="js/client.js"></script></html>

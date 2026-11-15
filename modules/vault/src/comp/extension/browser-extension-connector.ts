@@ -42,6 +42,7 @@ const connections = new Map<number, ConnectionInfo>();
 const pendingBrowserMessages: ProtocolRequest[] = [];
 let processingBrowserMessage = false;
 let transportGeneration = 0;
+let webPort: string | undefined;
 let initVars: ProtocolInitVars | undefined;
 let unsubscribeInvalidation: (() => void) | undefined;
 let boundMessage: ((event: MessageEvent<BrowserWindowMessageEventData>) => void) | undefined;
@@ -81,6 +82,7 @@ const BrowserExtensionConnector = {
 
     stop(): void {
         ++transportGeneration;
+        webPort = undefined;
         unsubscribeInvalidation?.(); unsubscribeInvalidation = undefined;
         pendingBrowserMessages.length = 0;
         processingBrowserMessage = false;
@@ -128,12 +130,36 @@ const BrowserExtensionConnector = {
         if (location.origin !== 'null' && e.origin !== location.origin) {
             return;
         }
+        const port = typeof e.data?.kwConnection === 'string' && e.data.kwConnection ? e.data.kwConnection : undefined;
+        if (e.data?.kwConnect === 'disconnected') {
+            if (port && port === webPort) {
+                this.invalidateWebConnection();
+                webPort = undefined;
+            }
+            return;
+        }
         if (e?.data?.kwConnect !== 'request') {
             return;
+        }
+        // A bridge port is a transport lifetime, not an authentication identity.
+        // A new handshake must bypass abandoned work; old port notifications
+        // must not invalidate its replacement. Untagged legacy bridges still work.
+        if (port !== webPort) {
+            if (e.data.action !== 'ping' && e.data.action !== 'change-public-keys') return;
+            this.invalidateWebConnection();
+            webPort = port;
         }
         logger.debug('Extension -> KeeWeb', e.data);
         pendingBrowserMessages.push(e.data as unknown as ProtocolRequest);
         this.processBrowserMessages();
+    },
+
+    invalidateWebConnection(): void {
+        ++transportGeneration;
+        pendingBrowserMessages.length = 0;
+        processingBrowserMessage = false;
+        connections.delete(WebConnectionInfo.connectionId);
+        ProtocolImpl.deleteConnection(WebConnectionInfo.connectionId);
     },
 
     async processBrowserMessages(): Promise<void> {
@@ -171,6 +197,7 @@ const BrowserExtensionConnector = {
         response = ProtocolImpl.prepareResponse(response);
         logger.debug('KeeWeb -> Extension', response);
         response.kwConnect = 'response';
+        if (webPort) response.kwConnection = webPort;
         // On file:// in Firefox, location.origin is "null" which
         // postMessage rejects as targetOrigin. Fall back to "*" —
         // the content script's window-message listener additionally

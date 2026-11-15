@@ -6,6 +6,7 @@ declare global {
 
 interface KeeWebConnectTabMessage {
     kwConnect?: string;
+    kwConnection?: string;
 }
 
 if (!window.kwExtensionInstalled) {
@@ -43,19 +44,19 @@ if (!window.kwExtensionInstalled) {
                 return;
             }
             const data = e?.data as KeeWebConnectTabMessage;
-            if (data?.kwConnect === 'response') {
-                delete data.kwConnect;
-                port.postMessage(e.data);
+            if (data?.kwConnect === 'response' && (!data.kwConnection || data.kwConnection === port.name)) {
+                const { kwConnect: _kind, kwConnection: _connection, ...response } = e.data;
+                port.postMessage(response);
             }
         };
 
         window.addEventListener('message', onWindowMessage);
         port.onDisconnect.addListener(() => {
             window.removeEventListener('message', onWindowMessage);
+            window.postMessage({ kwConnect: 'disconnected', kwConnection: port.name }, targetOrigin);
         });
         port.onMessage.addListener((msg: KeeWebConnectTabMessage) => {
-            msg.kwConnect = 'request';
-            window.postMessage(msg, targetOrigin);
+            window.postMessage({ ...msg, kwConnect: 'request', kwConnection: port.name }, targetOrigin);
         });
     });
 }

@@ -223,7 +223,7 @@ async function delayOtp() {
             (window as any).otpPending = true;
             return new Promise<ArrayBuffer>(resolve => { (window as any).releaseOtp = () => {
                 crypto.subtle.sign = original; resolve(value);
-            }; });
+            }; }).then(value => { (window as any).otpCompleted = true; return value; });
         };
     });
     await start('Read OTP');
@@ -381,4 +381,186 @@ test('real locked-focus preference suppresses prompting or offers cancelable unl
     await start('Read logins');
     await app.getByRole('button', { name: 'Cancel extension request', exact: true }).click();
     expect((await result(false)).attention).toBeGreaterThan(denied.attention);
+});
+
+async function scopedListing(action = 'List entries') {
+    await start(action);
+    const dialog = app.getByRole('dialog', { name: 'Allow browser extension access', exact: true });
+    await dialog.getByRole('checkbox', { name: 'All databases, including ones opened later' }).uncheck();
+    await dialog.getByRole('checkbox', { name: 'B (2)', exact: true }).uncheck();
+    await dialog.getByRole('checkbox', { name: 'Allow listing and searching entries', exact: true }).check();
+    await dialog.getByRole('button', { name: 'Allow', exact: true }).click();
+    const listing = (await result()).value;
+    const entries = [...listing.suggested, ...listing.items];
+    expect(entries.map((entry: any) => entry.title)).toEqual(['A login']);
+    return entries[0].handle as string;
+}
+async function reopenRecent(name: string, additional = false) {
+    if (additional) await app.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await app.locator(`.vault-row[data-vault="${name}"]`).click();
+    await app.locator('#password').fill(password); await app.locator('#unlock').click();
+    await expect(app.locator('#password')).toHaveCount(0);
+}
+async function stopCommandWorker() {
+    const worker = context.serviceWorkers().find(worker => new URL(worker.url()).host === new URL(client.url()).host);
+    if (!worker) throw new Error('Missing installed command worker');
+    const cdp = await context.newCDPSession(client);
+    const versions = new Map<string, { versionId: string; scriptURL: string; runningStatus: string }>();
+    cdp.on('ServiceWorker.workerVersionUpdated', event => {
+        for (const version of event.versions) versions.set(version.versionId, version);
+    });
+    await cdp.send('ServiceWorker.enable');
+    await expect.poll(() => [...versions.values()].some(version => version.scriptURL === worker.url() && version.runningStatus === 'running')).toBe(true);
+    const version = [...versions.values()].find(version => version.scriptURL === worker.url() && version.runningStatus === 'running')!;
+    await cdp.send('ServiceWorker.stopWorker', { versionId: version.versionId });
+    await expect.poll(() => versions.get(version.versionId)?.runningStatus).toBe('stopped');
+    await cdp.detach();
+}
+
+for (const interruption of ['app reload', 'tab close', 'background restart', 'target navigation', 'target change'] as const) {
+    test(`physical ${interruption} rejects a pending command and renews keys without reusing handles or broadening approval`, async () => {
+        const a = await fixture('A'), b = await fixture('B');
+        await open(a); await open(b, true);
+        const original = (await command('Connect')).value;
+        const handle = await scopedListing();
+        await client.getByLabel('Entry handle', { exact: true }).fill(handle);
+        expect((await command('Read entry fields')).value.values.password).toBe('A-password');
+        await otherField();
+        let fresh: any;
+        if (interruption === 'background restart') {
+            await stopCommandWorker();
+        } else if (interruption === 'app reload') await app.reload();
+        else if (interruption === 'tab close') await app.close();
+        else if (interruption === 'target navigation') {
+            await app.goto(origin + '/index.html');
+            await client.getByLabel('App URL').fill(origin + '/index.html');
+        } else {
+            const previous = app;
+            app = await context.newPage(); await app.goto(origin + '/index.html');
+            await client.getByLabel('App URL').fill(origin + '/index.html');
+            fresh = (await command('Connect')).value;
+            await expect(previous.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
+        }
+        const interrupted = client.locator('li[data-action="get-any-field"]').last();
+        await expect(interrupted).toContainText('"ok":false');
+        await expect(interrupted).not.toContainText('Command timed out');
+        await expect(interrupted).not.toContainText('A-recovery');
+        if (interruption === 'tab close') { app = await context.newPage(); await app.goto(origin + '/next.html'); }
+        await expect(app.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
+        if (!fresh) fresh = (await command('Connect')).value;
+        expect(fresh.identity).toBe(original.identity);
+        if (interruption === 'background restart') expect(fresh.bootID).not.toBe(original.bootID);
+        for (const key of ['clientID', 'publicKey', 'serverKey']) expect(fresh[key]).not.toBe(original[key]);
+        if (interruption !== 'background restart') {
+            expect((await command('Status')).value.locked).toBe(true);
+            const locked = (await command('List entries')).value;
+            expect(locked).toMatchObject({ locked: true, items: [], suggested: [] });
+            await reopenRecent('A'); await reopenRecent('B', true);
+        }
+        const replay = await command('Replay old field request', false);
+        expect(replay.error).toContain('Client not connected');
+        expect(JSON.stringify(replay)).not.toContain('A-password');
+        const listed = (await command('List entries')).value;
+        const entries = [...listed.suggested, ...listed.items];
+        expect(entries.map((entry: any) => entry.title)).toEqual(['A login']);
+        await expect(app.getByRole('dialog', { name: 'Allow browser extension access', exact: true })).toHaveCount(0);
+        const expired = await command('Read entry fields', false);
+        expect(expired.error).toContain('kwx-expired-handle');
+        expect(JSON.stringify(expired)).not.toContain('A-password');
+        await client.getByLabel('Entry handle', { exact: true }).fill(entries[0].handle);
+        expect((await command('Read entry fields')).value.values.password).toBe('A-password');
+        const section = await sessions();
+        await expect(section.getByRole('checkbox', { name: 'A (1)', exact: true })).toBeChecked();
+        await expect(section.getByRole('checkbox', { name: 'B (2)', exact: true })).not.toBeChecked();
+    });
+}
+
+for (const interruption of ['app reload', 'background restart', 'target change'] as const) {
+    test(`production backend ${interruption} rejects the old pending command and reconnects with retained scoped identity`, async () => {
+        await open(await fixture('A')); await open(await fixture('B'), true);
+        await command('Set backend target');
+        const original = (await command('Connect backend')).value;
+        const handle = await scopedListing('Backend list');
+        await client.getByLabel('Entry handle', { exact: true }).fill(handle);
+        expect((await command('Backend fields')).value.password).toBe('A-password');
+        await start('Backend other field');
+        await app.getByRole('dialog', { name: 'Select an entry', exact: true })
+            .getByRole('option').filter({ hasText: 'A login' }).click();
+        await expect(app.getByRole('dialog', { name: 'Select a field', exact: true })).toBeVisible();
+        if (interruption === 'app reload') await app.reload();
+        else if (interruption === 'background restart') await stopCommandWorker();
+        else {
+            const previous = app;
+            app = await context.newPage(); await app.goto(origin + '/index.html');
+            await client.getByLabel('App URL').fill(origin + '/index.html');
+            await command('Set backend target');
+            await expect(previous.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
+        }
+        const interrupted = client.locator('li[data-action="backend-other"]').last();
+        await expect(interrupted).toContainText('"ok":false');
+        await expect(interrupted).not.toContainText('A-recovery');
+        await expect(interrupted).not.toContainText('timed out');
+        await expect(app.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
+        const fresh = (await command('Connect backend')).value;
+        expect(fresh.identity).toBe(original.identity);
+        if (interruption === 'background restart') expect(fresh.bootID).not.toBe(original.bootID);
+        else {
+            const status = (await command('Backend status')).value;
+            expect(status.locked).toBe(true); expect(status.features).toContain('entries-v1');
+            expect((await command('Backend list')).value).toMatchObject({ locked: true, items: [], suggested: [] });
+            await reopenRecent('A'); await reopenRecent('B', true);
+        }
+        const listed = (await command('Backend list')).value;
+        const entries = [...listed.suggested, ...listed.items];
+        expect(entries.map((entry: any) => entry.title)).toEqual(['A login']);
+        await expect(app.getByRole('dialog', { name: 'Allow browser extension access', exact: true })).toHaveCount(0);
+        const expired = await command('Backend fields', false);
+        expect(expired.error).toContain('kwx-expired-handle');
+        expect(JSON.stringify(expired)).not.toContain('A-password');
+        expect((await command('Backend status')).value.features).toContain('entries-v1');
+        await client.getByLabel('Entry handle', { exact: true }).fill(entries[0].handle);
+        expect((await command('Backend fields')).value.password).toBe('A-password');
+    });
+}
+
+test('a changed identity after actual worker restart cannot inherit the previous scoped approval', async () => {
+    await open(await fixture('A')); await open(await fixture('B'), true);
+    const original = (await command('Connect')).value;
+    await scopedListing(); await otherField();
+    await command('Reset identity on next restart');
+    await stopCommandWorker();
+    await expect(client.locator('li[data-action="get-any-field"]').last()).toContainText('"ok":false');
+    await expect(app.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
+    const fresh = (await command('Connect')).value;
+    expect(fresh.bootID).not.toBe(original.bootID); expect(fresh.identity).not.toBe(original.identity);
+    expect((await command('Status')).value.canList).toBe(false);
+    await start('List entries');
+    const permission = app.getByRole('dialog', { name: 'Allow browser extension access', exact: true });
+    await expect(permission).toBeVisible();
+    await expect(permission.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+    await expect(client.getByRole('status', { name: 'Command result' })).toHaveText('Pending');
+    await permission.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(JSON.stringify(await result(false))).not.toMatch(/A-password|B-password|A login|B login/);
+    expect((await command('Status')).value.canList).toBe(false);
+    const handle = await scopedListing();
+    await client.getByLabel('Entry handle', { exact: true }).fill(handle);
+    expect((await command('Read entry fields')).value.values.password).toBe('A-password');
+});
+
+test('a real HMAC finishing after background restart cannot complete the replacement command', async () => {
+    await open(await fixture('A')); await approveWithLogin();
+    await delayOtp(); await stopCommandWorker();
+    const old = client.locator('li[data-action="get-totp-by-url"]').last();
+    await expect(old).toContainText('"ok":false');
+    await expect(old).not.toContainText(expectedOtp());
+    await command('Connect');
+    const field = await otherField();
+    await app.evaluate(() => (window as any).releaseOtp());
+    await expect.poll(() => app.evaluate(() => (window as any).otpCompleted)).toBe(true);
+    await expect(field).toBeVisible();
+    await expect(client.getByRole('status', { name: 'Command result' })).toHaveText('Pending');
+    await field.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(JSON.stringify(await result(false))).not.toContain(expectedOtp());
+    await expect(old).not.toContainText(expectedOtp());
+    expect((await command('Read OTP')).value.totp).toBe(expectedOtp());
 });

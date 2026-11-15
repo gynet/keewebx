@@ -1413,8 +1413,10 @@ describe('extension transport lifecycle', () => {
     let cleanup: ReturnType<typeof spyOn<typeof ProtocolImpl, 'cleanup'>>;
     let handle: ReturnType<typeof spyOn<typeof ProtocolImpl, 'handleRequest'>>;
     let prepare: ReturnType<typeof spyOn<typeof ProtocolImpl, 'prepareResponse'>>;
-    const send = (action = 'get-logins') => connector.browserWindowMessage({ source: window, origin: location.origin,
-        data: { kwConnect: 'request', action, clientID: 'client' } } as MessageEvent);
+    const send = (action = 'get-logins', port?: string) => connector.browserWindowMessage({ source: window, origin: location.origin,
+        data: { kwConnect: 'request', kwConnection: port, action, clientID: 'client' } } as MessageEvent);
+    const disconnect = (port: string) => connector.browserWindowMessage({ source: window, origin: location.origin,
+        data: { kwConnect: 'disconnected', kwConnection: port } } as MessageEvent);
     const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
     beforeEach(async () => {
         ProtocolImpl.cleanup();
@@ -1466,6 +1468,64 @@ describe('extension transport lifecycle', () => {
         send(); connector.stop(); connector.start();
         finish({ action: 'get-logins', message: 'old ciphertext' }); await settle();
         expect(posted).not.toHaveBeenCalled();
+    });
+    test('physical disconnect drops queued and late work before a fresh handshake', async () => {
+        send('ping', 'old-port'); await settle(); posted.mockClear(); handle.mockClear();
+        const remove = spyOn(ProtocolImpl, 'deleteConnection');
+        try {
+            let finish!: (value: ProtocolResponse) => void;
+            handle.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+            send('get-logins', 'old-port'); send('set-login', 'old-port'); disconnect('old-port');
+            expect(remove).toHaveBeenCalledWith(1); expect(handle).toHaveBeenCalledTimes(1);
+            handle.mockImplementation(async () => ({ action: 'change-public-keys' }));
+            send('change-public-keys', 'new-port'); await settle();
+            expect(handle).toHaveBeenCalledTimes(2);
+            expect(posted.mock.calls[0][0]).toMatchObject({ action: 'change-public-keys', kwConnection: 'new-port' });
+            finish({ action: 'get-logins', message: 'old ciphertext' }); await settle();
+            expect(posted).toHaveBeenCalledTimes(1);
+        } finally { remove.mockRestore(); }
+    });
+    test('a new handshake bypasses abandoned work and ignores the old disconnect notification', async () => {
+        send('ping', 'old-port'); await settle(); posted.mockClear();
+        let finish!: (value: ProtocolResponse) => void;
+        handle.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+        send('get-logins', 'old-port');
+        handle.mockImplementation(async () => ({ action: 'change-public-keys' }));
+        send('change-public-keys', 'new-port'); await settle();
+        expect(posted.mock.calls[0][0]).toMatchObject({ action: 'change-public-keys', kwConnection: 'new-port' });
+        const remove = spyOn(ProtocolImpl, 'deleteConnection');
+        try {
+            disconnect('old-port'); expect(remove).not.toHaveBeenCalled();
+            finish({ action: 'get-logins', message: 'old ciphertext' }); await settle();
+            expect(posted).toHaveBeenCalledTimes(1);
+            send('get-logins', 'new-port'); await settle(); expect(posted).toHaveBeenCalledTimes(2);
+        } finally { remove.mockRestore(); }
+    });
+    test('an old port content request cannot take over a fresh connection', async () => {
+        send('ping', 'new-port'); await settle(); handle.mockClear(); posted.mockClear();
+        send('get-logins', 'old-port'); await settle();
+        expect(handle).not.toHaveBeenCalled(); expect(posted).not.toHaveBeenCalled();
+        send('get-logins', 'new-port'); await settle(); expect(handle).toHaveBeenCalledTimes(1);
+    });
+    test('legacy untagged handshakes cannot inherit a tagged lifetime disconnect', async () => {
+        send('ping', 'tagged'); await settle(); send('change-public-keys'); await settle();
+        const remove = spyOn(ProtocolImpl, 'deleteConnection');
+        try {
+            disconnect('tagged'); expect(remove).not.toHaveBeenCalled();
+            posted.mockClear(); send(); await settle();
+            expect(posted.mock.calls[0][0]).not.toHaveProperty('kwConnection');
+        } finally { remove.mockRestore(); }
+    });
+    test('foreign disconnect events cannot invalidate the active bridge', async () => {
+        send('ping', 'current'); await settle();
+        const remove = spyOn(ProtocolImpl, 'deleteConnection');
+        try {
+            connector.browserWindowMessage({ source: null, origin: location.origin,
+                data: { kwConnect: 'disconnected', kwConnection: 'current' } } as MessageEvent);
+            connector.browserWindowMessage({ source: window, origin: 'https://evil.example',
+                data: { kwConnect: 'disconnected', kwConnection: 'current' } } as MessageEvent);
+            expect(remove).not.toHaveBeenCalled();
+        } finally { remove.mockRestore(); }
     });
     test('other windows and origins cannot enter the queue', async () => {
         connector.browserWindowMessage({ source: null, origin: location.origin, data: { kwConnect: 'request' } } as MessageEvent);
