@@ -24,12 +24,12 @@ interface Selection {
 function unavailable(model: AppModel, selection: Selection): string {
     const { entry, file, group } = selection;
     const access = getSessionAccess(model);
-    if (access.state !== 'open' || !access.isCurrent(selection.epoch)) return t('The session changed. Cancel and open Make a copy again.');
+    if (access.state !== 'open' || !access.isCurrent(selection.epoch)) return t('The session changed. Cancel and open Clone again.');
     if (!file.active || model.files.get(file.id) !== file || file.db !== selection.db
         || entry.file !== file || file.getEntry(entry.id) !== entry || entry.entry !== selection.object
         || entry.group !== group || file.getGroup(group.id) !== group || group.group !== selection.groupObject
         || entry.entry.parentGroup !== group.group || !group.group.entries.includes(entry.entry)
-        || file.editSeq !== selection.editSeq) return t('This entry changed. Cancel and open Make a copy again.');
+        || file.editSeq !== selection.editSeq) return t('This entry changed. Cancel and open Clone again.');
     const visited = new Set<GroupModel>();
     for (let current: GroupModel | null = group; current; current = current.parentGroup) {
         if (visited.has(current) || current.file !== file || file.getGroup(current.id) !== current
@@ -61,7 +61,7 @@ export function EntryClone({ model, entry, onCloned }: {
         setError(''); setSelection(next);
     };
     return <div>
-        <button ref={trigger} type="button" class="pill pill--tinted" onClick={begin}>{t('Make a copy…')}</button>
+        <button ref={trigger} type="button" class="pill pill--tinted" onClick={begin}>{t('Clone…')}</button>
         {error && <p role="status">{error}</p>}
         {selection && <CloneDialog model={model} selection={selection} trigger={trigger}
             onCancel={() => setSelection(null)} onCloned={id => {
@@ -111,7 +111,7 @@ function CloneDialog({ model, selection, trigger, onCancel, onCloned }: {
         <p>{t('This browser cannot open the copy dialog. Use a browser that supports modal dialogs.')}</p>
         <button type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
     </div>;
-    return <dialog ref={dialog} aria-label={t('Make a copy')} aria-modal="true"
+    return <dialog ref={dialog} aria-label={t('Clone')} aria-modal="true"
         onCancel={event => { event.preventDefault(); onCancel(); }}
         onKeyDown={event => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         onClick={event => { IdleTracker.regUserAction(); event.stopPropagation(); }}
@@ -119,7 +119,7 @@ function CloneDialog({ model, selection, trigger, onCancel, onCloned }: {
             padding: '24px', margin: 'auto', overflow: 'auto', overflowWrap: 'anywhere',
             border: '1px solid var(--kx-line)', borderRadius: 'var(--kx-radius-card)',
             background: 'var(--kx-bg)', color: 'var(--kx-text)' }}>
-        <h2>{t('Make a copy')}</h2>
+        <h2>{t('Clone')}</h2>
         {reason ? <p role="alert" class="error">{reason}</p> : <>
             <p>{t('Create “{}” in the same group?', selection.entry.title + selection.suffix)}</p>
             <p>{t('Copies the current entry’s fields and attachments. Earlier history versions are not copied.')}</p>
@@ -127,7 +127,7 @@ function CloneDialog({ model, selection, trigger, onCancel, onCloned }: {
         </>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             <button ref={cancel} type="button" class="pill" onClick={onCancel}>{t('Cancel')}</button>
-            <button type="button" class="pill pill--primary" disabled={!!reason || applied.current} onClick={clone}>{t('Create copy')}</button>
+            <button type="button" class="pill pill--primary" disabled={!!reason || applied.current} onClick={clone}>{t('Clone')}</button>
         </div>
         {error && <p role="alert" class="error">{error}</p>}
     </dialog>;

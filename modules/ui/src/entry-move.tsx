@@ -100,13 +100,13 @@ function changed(model: AppModel, selection: Selection, destination?: Destinatio
     const { file, entry } = selection;
     const access = getSessionAccess(model);
     if (access.state !== 'open' || !access.isCurrent(selection.epoch)) {
-        return t(selection.restore ? 'The session changed. Cancel and open Restore again.' : 'The session changed. Cancel and open Move to group again.');
+        return t(selection.restore ? 'The session changed. Cancel and open Restore again.' : 'The session changed. Cancel and open Move again.');
     }
     const reason = unavailable(model, entry, selection.restore);
     if (reason) return reason;
     if (entry.file !== file || file.db !== selection.db || entry.entry !== selection.object
         || entry.group !== selection.source || file.editSeq !== selection.editSeq) {
-        return t(selection.restore ? 'This entry changed. Cancel and open Restore again.' : 'This entry changed. Cancel and open Move to group again.');
+        return t(selection.restore ? 'This entry changed. Cancel and open Restore again.' : 'This entry changed. Cancel and open Move again.');
     }
     if (destination) {
         const current = groupChain(file, destination.chain[destination.chain.length - 1].model);
@@ -149,7 +149,7 @@ export function EntryMove({ model, entry, onMoved, restore = false }: {
     };
     return <div>
         <button ref={trigger} type="button" class="pill pill--tinted" disabled={!!reason || !!selection}
-            title={reason || undefined} onClick={begin}>{t(restore ? 'Restore' : 'Move to group…')}</button>
+            title={reason || undefined} onClick={begin}>{t(restore ? 'Restore' : 'Move…')}</button>
         {message && <p role="status">{message}</p>}
         {selection && <MoveDialog model={model} selection={selection} trigger={trigger}
             onCancel={() => setSelection(null)} onMoved={(groupId) => {

@@ -113,4 +113,18 @@
     .entry-editor__custom-row {
         grid-template-columns: minmax(0, 1fr);
     }
+    /* Detail action row only: keep labels visible, shrink width not touch height. */
+    .entry-detail__actions {
+        gap: 6px;
+    }
+    .entry-detail__actions .pill--tinted {
+        padding: 10px 12px;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+}
+@media (max-width: 350px) {
+    .entry-detail__actions .pill--tinted {
+        padding: 10px 10px;
+    }
 }

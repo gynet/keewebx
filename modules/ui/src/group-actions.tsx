@@ -265,7 +265,7 @@ function GroupActionDialog({ model, selection, disabled, onCancel, onComplete, g
                 <button type="submit" disabled={disabled || applied.current}
                     class={action === 'delete' ? 'pill pill--tinted pill--danger' : 'pill pill--primary'}>
                     {t(action === 'create' ? 'Create group' : action === 'rename' ? 'Save name'
-                        : selection.trashed ? 'Move to trash' : 'Delete permanently')}
+                        : selection.trashed ? 'Recycle' : 'Delete permanently')}
                 </button>
             </div>
         </form>
