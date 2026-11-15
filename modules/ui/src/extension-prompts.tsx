@@ -85,7 +85,7 @@ export function PromptDialog({ title, icon, cancel, children, confirm, confirmLa
         };
     }, []);
     const titleNode = <h2 id={titleId} ref={heading} tabIndex={focusHeading ? -1 : undefined}
-        style={{ ...rowStyle, margin: closeLabel ? '0' : '0 0 12px', fontSize: '20px' }}>
+        style={{ ...rowStyle, margin: closeLabel ? '0' : '0 0 12px', fontSize: closeLabel ? 'clamp(17px, 5vw, 20px)' : '20px' }}>
         <Icon name={icon} /><span>{title}</span>
     </h2>;
     return <dialog ref={dialog} class={closeLabel ? 'prompt-dialog--closable' : undefined} data-extension-prompt aria-labelledby={titleId} aria-modal="true"
