@@ -16,7 +16,7 @@ export function FaviconQuality() {
             {[32, 64, 128].map(value => <option key={value} value={value}>{t('{} pixels', String(value))}</option>)}
         </select></label><p class="general-preferences__help">{t('Applies to website icons downloaded into a vault. Existing icons and remote icon display are unchanged.')}</p></div>;
 }
-interface Selection { file: FileModel; db: FileModel['db']; raw: EntryModel['entry']; epoch: number; editSeq: number; url: string; cap: number }
+interface Selection { file: FileModel; db: FileModel['db']; raw: EntryModel['entry']; epoch: number; editSeq: number; url: string; cap: number; service: boolean }
 export function canImportFavicon(model: AppModel, entry: EntryModel, selection?: Selection): boolean {
     const file = entry.file as FileModel;
     const access = getSessionAccess(model);
@@ -30,12 +30,14 @@ export function FaviconImport({ model, entry, disabled, onImage, onBusy }: {
     model: AppModel; entry: EntryModel; disabled: boolean; onImage(image: string): void; onBusy(busy: boolean): void;
 }) {
     const [selection, setSelection] = useState<Selection | null>(null);
-    let url = ''; try { url = faviconUrl(entry.url); } catch { /* Invalid websites cannot be fetched. */ }
+    const configuredService = (AppSettingsModel as typeof AppSettingsModel & { faviconServiceUrl?: string }).faviconServiceUrl;
+    const cap = faviconCap(AppSettingsModel.faviconSize);
+    let url = ''; try { url = faviconUrl(entry.url, configuredService, cap); } catch { /* Invalid websites cannot be fetched. */ }
     return <>
         {!selection && <button type="button" class="pill pill--tinted" disabled={disabled || !url || !canImportFavicon(model, entry)} onClick={() => {
             if (disabled || !url || !canImportFavicon(model, entry)) return;
             const file = entry.file as FileModel;
-            setSelection({ file, db: file.db, raw: entry.entry, editSeq: file.editSeq, epoch: getSessionAccess(model).epoch, url, cap: faviconCap(AppSettingsModel.faviconSize) });
+            setSelection({ file, db: file.db, raw: entry.entry, editSeq: file.editSeq, epoch: getSessionAccess(model).epoch, url, cap, service: !!configuredService });
         }}>{t('Download website icon…')}</button>}
         {selection && <FaviconDownload key={entry.id} model={model} entry={entry} selection={selection} disabled={disabled} onImage={onImage} onBusy={onBusy} />}
     </>;
@@ -67,7 +69,7 @@ function FaviconDownload({ model, entry, selection, disabled, onImage, onBusy }:
         } finally { clearTimeout(timeout); if (alive.current) { setBusy(false); onBusy(false); } }
     };
     return <section class="entry-appearance__website" role="group" aria-label={t('Download website icon')}>
-        <p>{t('This sends a request to the entry’s website. Only continue if you want to contact this server.')}</p>
+        <p>{t(selection.service ? 'This sends only the website domain to the configured icon service. Only continue if you trust this service.' : 'This sends a request to the entry’s website. Only continue if you want to contact this server.')}</p>
         <p style={{ overflowWrap: 'anywhere' }}>{selection.url}</p>
         <p>{t('The image will be stored in this encrypted vault as PNG, up to {} pixels.', String(selection.cap))}</p>
         <button type="button" class="pill" disabled={disabled || busy || !canImportFavicon(model, entry, selection)} onClick={() => void download()}>{t(busy ? 'Downloading…' : 'Download icon')}</button>

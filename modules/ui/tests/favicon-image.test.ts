@@ -18,3 +18,13 @@ test('icon download rejects unsupported and oversized bodies before decoding, wi
         expect(fake.mock.calls[0][1]).toMatchObject({ credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', cache: 'no-store', mode: 'cors' });
     } finally { fake.mockRestore(); }
 });
+test('an explicitly configured service receives only the hostname and bounded size threshold', () => {
+    expect(faviconUrl('https://Example.COM:8443/private?token=secret#value', '/icons/', 64)).toBe('/icons/example.com?min=64');
+    expect(faviconUrl('https://example.com/private', 'https://icons.example.test/lookup', 128)).toBe('https://icons.example.test/lookup/example.com?min=128');
+    expect(faviconUrl('example.com', '/icons/', 32)).toBe('/icons/example.com');
+    expect(faviconUrl('example.com', '/icons/', 999)).toBe('/icons/example.com');
+    expect(faviconUrl('example.com', '')).toBe('https://example.com/favicon.ico');
+    for (const service of ['//icons.example.test/', 'file:///icons/', 'https://user:pass@icons.example.test/', 'https://icons.example.test/?track=1', 'https://icons.example.test/#path']) {
+        expect(() => faviconUrl('example.com', service)).toThrow('Configure a valid');
+    }
+});

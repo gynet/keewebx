@@ -624,6 +624,7 @@
   "This permanently removes the selected history version. The current entry stays unchanged.": "Dies entfernt die ausgewählte Verlaufsversion dauerhaft. Der aktuelle Eintrag bleibt unverändert.",
   "This replaces the current entry. Its previous state will remain in history.": "Dies ersetzt den aktuellen Eintrag. Sein vorheriger Zustand bleibt im Verlauf erhalten.",
   "This sends a request to the entry’s website. Only continue if you want to contact this server.": "Dies sendet eine Anfrage an die Website des Eintrags. Fahren Sie nur fort, wenn Sie diesen Server kontaktieren möchten.",
+  "This sends only the website domain to the configured icon service. Only continue if you trust this service.": "Dies sendet nur die Domain der Website an den konfigurierten Symboldienst. Fahren Sie nur fort, wenn Sie diesem Dienst vertrauen.",
   "This session changed or access is suspended. Reopen extension settings to continue.": "Diese Sitzung hat sich geändert oder der Zugriff ist ausgesetzt. Öffnen Sie die Erweiterungseinstellungen erneut, um fortzufahren.",
   "This session changed unexpectedly. Access remains suspended.": "Diese Sitzung hat sich unerwartet geändert. Der Zugriff bleibt ausgesetzt.",
   "This vault or session changed. Cancel and reopen remote-key recovery.": "Dieser Tresor oder diese Sitzung hat sich geändert. Brechen Sie ab und öffnen Sie die Wiederherstellung mit entferntem Schlüssel erneut.",

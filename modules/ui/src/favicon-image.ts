@@ -1,9 +1,24 @@
 export const faviconCap = (value: number) => [32, 64, 128].includes(value) ? value : 32;
-export function faviconUrl(website: string): string {
+/** Build an explicit download destination; no service is used unless configured. */
+export function faviconUrl(website: string, service?: string, cap = 32): string {
     if (!website.trim() || /[\x00-\x20\\]/.test(website)) throw new Error('Enter a valid HTTP or HTTPS website first.');
     const url = new URL(website.includes('://') ? website : `https://${website}`);
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error('Enter a valid HTTP or HTTPS website first.');
-    return new URL('/favicon.ico', url.origin).href;
+    if (!service) return new URL('/favicon.ico', url.origin).href;
+    // An installation may provide a same-origin path or its own HTTP(S)
+    // service. Never infer a public service from the entry's website.
+    const relative = service.startsWith('/') && !service.startsWith('//');
+    let endpoint: URL;
+    try { endpoint = new URL(service, relative ? 'https://icon-service.invalid' : undefined); }
+    catch { throw new Error('Configure a valid HTTP or HTTPS icon service.'); }
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+        throw new Error('Configure a valid HTTP or HTTPS icon service.');
+    }
+    endpoint.pathname = `${endpoint.pathname.replace(/\/$/, '')}/${encodeURIComponent(url.hostname)}`;
+    // Request higher-quality source pixels only when the chosen cap needs it.
+    // The image decoder below still bounds the downloaded bytes and stored PNG.
+    if (faviconCap(cap) > 32) endpoint.searchParams.set('min', String(faviconCap(cap)));
+    return relative ? endpoint.pathname + endpoint.search : endpoint.href;
 }
 export async function fetchFavicon(url: string, cap: number, signal: AbortSignal): Promise<string> {
     const response = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', cache: 'no-store', mode: 'cors' });

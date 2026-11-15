@@ -624,6 +624,7 @@
   "This permanently removes the selected history version. The current entry stays unchanged.": "Cela supprime définitivement la version d’historique sélectionnée. L’entrée actuelle reste inchangée.",
   "This replaces the current entry. Its previous state will remain in history.": "Cela remplace l’entrée actuelle. Son état précédent restera dans l’historique.",
   "This sends a request to the entry’s website. Only continue if you want to contact this server.": "Cela envoie une requête au site de l’entrée. Continuez uniquement si vous souhaitez contacter ce serveur.",
+  "This sends only the website domain to the configured icon service. Only continue if you trust this service.": "Seul le domaine du site est envoyé au service d’icônes configuré. Continuez uniquement si vous faites confiance à ce service.",
   "This session changed or access is suspended. Reopen extension settings to continue.": "Cette session a changé ou l’accès est suspendu. Rouvrez les paramètres de l’extension pour continuer.",
   "This session changed unexpectedly. Access remains suspended.": "Cette session a changé de façon inattendue. L’accès reste suspendu.",
   "This vault or session changed. Cancel and reopen remote-key recovery.": "Ce coffre ou cette session a changé. Annulez et rouvrez la récupération avec clé distante.",
