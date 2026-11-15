@@ -130,13 +130,15 @@ test('scoped switch/search/tag/group/trash and entry creation preserve independe
     await entry(page).getByRole('button', { name: 'Save', exact: true }).click();
     await nav.getByRole('button', { name: 'All items', exact: true }).click();
     await nav.getByRole('button', { name: 'Manage groups', exact: true }).click();
-    const rootChoice = page.getByRole('combobox', { name: 'Choose a vault root', exact: true });
-    await rootChoice.selectOption((await rootChoice.locator('option').filter({ hasText: 'B.kdbx' }).getAttribute('value'))!);
+    const groupsDialog = page.getByRole('dialog', { name: 'Groups', exact: true });
+    await groupsDialog.locator(`[data-group-id="${b.root}"]`).click();
+    await groupsDialog.getByRole('button', { name: 'Group actions', exact: true }).click();
     await page.getByRole('button', { name: 'New group', exact: true }).click();
     const groupDialog = page.getByRole('dialog', { name: 'New group', exact: true });
     await groupDialog.getByLabel('Group name', { exact: true }).fill('B created group');
     await groupDialog.getByRole('button', { name: 'Create group', exact: true }).click();
     await expect(groupDialog).toHaveCount(0);
+    await groupsDialog.getByRole('button', { name: 'Show entries', exact: true }).click();
     await selector(page).selectOption('');
     const target = page.getByRole('combobox', { name: 'New entry vault', exact: true });
     await target.selectOption((await target.locator('option').filter({ hasText: 'B.kdbx' }).getAttribute('value'))!);

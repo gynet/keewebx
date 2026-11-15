@@ -38,10 +38,9 @@ import { EntryEditor, applyEntryDraft } from './entry-editor';
 import { EntryTemplates } from './entry-templates';
 import type { EntryDraft } from './entry-editor';
 import { PhoneGroups } from './phone-groups';
-import { GroupActions } from './group-actions';
 import { GroupIcon } from './group-appearance';
 import { FaviconImport } from './favicon-import';
-import { GroupLifecycle, TrashGroups } from './group-lifecycle';
+import { TrashGroups } from './group-lifecycle';
 import { TagActions } from './tag-actions';
 import type { GroupActionResult } from './group-actions';
 import { EntryMove } from './entry-move';
@@ -165,15 +164,12 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const editing = storedEditing && ('entry' in storedEditing ? storedEditing.entry.file as FileModel : storedEditing.group.file as FileModel).active ? storedEditing : null;
     const [expandedGroups, setExpandedGroups] = useState(readExpandedGroups);
     const [rootChoice, setRootChoice] = useState('');
-    const [groupMessage, setGroupMessage] = useState('');
     const [transfer, setTransfer] = useState<EntryTransferRequest | null>(null);
     const [transferMessage, setTransferMessage] = useState('');
     const beginTransfer = (entry: EntryModel) => {
         try { setTransfer(prepareEntryTransfer(model, entry)); setTransferMessage(''); }
         catch (error) { setTransferMessage(error instanceof Error ? error.message : t('Cannot move this entry.')); }
     };
-    const groupManager = useRef<HTMLDetailsElement>(null);
-    const groupSummary = useRef<HTMLElement>(null);
     const changeExpandedGroups = (update: (ids: Set<string>) => void) => {
         setExpandedGroups((current) => {
             const next = new Set(current);
@@ -193,7 +189,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const vaultLabel = (file: FileModel) => t('{} (vault {})', kdbxName(file.name), String(allFiles.indexOf(file) + 1));
     useEffect(() => {
         if (scopeId !== vaultId) {
-            setVaultId(scopeId); setFilter({}); setQuery(''); setRootChoice(''); setGroupMessage('');
+            setVaultId(scopeId); setFilter({}); setQuery(''); setRootChoice('');
         }
         if (selected && !allFiles.some(file => file.getEntry(selected))) {
             const retained = retainedEntry.current;
@@ -243,7 +239,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         try { savePendingDrafts(); }
         catch { setNavigationError(t('Resolve the current draft before switching vaults.')); return false; }
         setNavigationError(''); setEditing(null); setSelected(undefined);
-        setVaultId(id); setFilter({}); setQuery(''); setRootChoice(''); setGroupMessage('');
+        setVaultId(id); setFilter({}); setQuery(''); setRootChoice('');
         closeNavigation();
         return true;
     };
@@ -263,21 +259,14 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         setEditing(null);
         setFilter(next);
         setRootChoice('');
-        setGroupMessage('');
         if (navigationOpen) closeNavigation();
     };
     const openGroupManager = (id?: string) => {
         if (!confirmDiscardDrafts()) return;
         setEditing(null);
         setSelected(undefined);
-        if (window.matchMedia('(max-width: 760px)').matches) {
-            setPhoneGroups({ actions: !!id, initial: id ?? groupTarget?.group.id ?? (roots.length === 1 ? roots[0].group.id : undefined), fromNavigation: navigationOpen, trigger: document.activeElement as HTMLElement | null });
-            closeNavigation();
-            return;
-        }
+        setPhoneGroups({ actions: !!id, initial: id ?? groupTarget?.group.id ?? (roots.length === 1 ? roots[0].group.id : undefined), fromNavigation: navigationOpen, trigger: document.activeElement as HTMLElement | null });
         closeNavigation();
-        if (groupManager.current) groupManager.current.open = true;
-        requestAnimationFrame(() => groupSummary.current?.focus());
     };
     const groupChanged = (result: GroupActionResult) => {
         const file = model.files.get(result.fileId);
@@ -292,7 +281,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 setQuery('');
                 setSelected(undefined);
                 setRootChoice('');
-                setGroupMessage(t('Created group: {}', groupPath(created)));
             }
         } else if (result.action === 'delete') {
             const filtered = filter.group ? file?.getGroup(filter.group) : undefined;
@@ -306,9 +294,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 if (isWithinGroup(selectedEntry?.group as GroupModel | undefined, result.groupId)
                     || (!selectedEntry && retainedEntry.current?.file === file)) setSelected(undefined);
             }
-            setGroupMessage(t(result.trashed ? 'Group moved to trash.' : 'Group permanently deleted.'));
-        } else {
-            setGroupMessage(t('Group renamed: {}', file?.getGroup(result.groupId)?.title ?? ''));
         }
     };
     const lifecycleChanged = (group?: GroupModel) => {
@@ -463,6 +448,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </div>
                 <div id="vault-sidebar-content" class="side__content">
                 <section class="open-vaults" aria-label={t('Open vaults')}>
+                    {allFiles.length > 1 && <button type="button" class="nav-row" onClick={props.onSave}>
+                        <Icon name="save" size={17} /><span class="nav-row__label">{t('Save vaults')}</span>
+                    </button>}
                     {allFiles.length === 1 ? <div class="open-vaults__item open-vaults__single" data-vault-id={allFiles[0].id}>
                         <button type="button" class="nav-row" disabled={saving.includes(allFiles[0].id)}
                             onClick={() => void saveFile(allFiles[0])} aria-label={t('Save {}', vaultLabel(allFiles[0]))}>
@@ -563,7 +551,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <SearchControls model={model} files={files} options={options} scope={filter} change={changeSearch}
                     reset={() => { if (changeSearch({ ...searchDefaults, ...model.advancedSearch }, {})) setQuery(''); }} />
                 <div class="vault-commands">
-                    <button type="button" class="pill" onClick={props.onSave}>{t('Save vaults')}</button>
                     <button type="button" class="pill" hidden={!model.settings.canOpenGenerator} onClick={props.onGenerator}>{t('Password generator')}</button>
                 </div>
                 <EntrySort value={sort} onChange={next => {
@@ -584,39 +571,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <EntryTemplates model={model} groupId={filter.group || creationGroup?.id} fileId={scopeId || filter.file} onCloseVault={props.onCloseVault} onCreated={entry => {
                     setEditing(null); setFilter({ group: (entry.group as GroupModel).id }); setQuery(''); setSelected(entry.id);
                 }} />
-                <details class="desktop-group-manager" ref={groupManager} style={{ flex: '0 0 auto', margin: '0 14px 6px', minWidth: 0 }}>
-                    <summary ref={groupSummary} style={{ cursor: 'pointer', padding: '10px 0', fontWeight: 600 }}>
-                        {t('Manage groups')}
-                    </summary>
-                    <div style={{ maxHeight: 'min(360px, 50dvh)', overflowY: 'auto', padding: '4px 2px 10px', overflowWrap: 'anywhere' }}>
-                        {filter.group ? <p style={{ margin: '0 0 12px' }}>
-                            {groupTarget ? t('Selected group: {}', groupPath(groupTarget.group))
-                                : t('The selected group is no longer available. Select another group or All items.')}
-                        </p> : <label class="vault-form__field">{t('Choose a vault root')}
-                            <select class="input" value={groupTarget?.group.id ?? ''} onChange={(event) => {
-                                if (!confirmDiscardDrafts()) { event.currentTarget.value = rootChoice; return; }
-                                setRootChoice(event.currentTarget.value);
-                                setGroupMessage('');
-                            }}>
-                                <option value="">{t('Select a vault and root…')}</option>
-                                {roots.map(({ file, group, index }) => <option key={group.id} value={group.id}>
-                                    {t('{} (vault {}) — root {}: {}', kdbxName(file.name), String(allFiles.indexOf(file) + 1), String(index + 1), group.title)}
-                                </option>)}
-                            </select>
-                        </label>}
-                        {groupTarget && <>
-                            <p class="muted" style={{ margin: '0 0 12px' }}>
-                                {t('Database: {} (vault {})', kdbxName(groupTarget.file.name), String(allFiles.indexOf(groupTarget.file) + 1))}
-                            </p>
-                            <GroupActions key={groupTarget.group.id} model={model} file={groupTarget.file} group={groupTarget.group}
-                                onComplete={groupChanged} getReturnFocus={() => groupSummary.current} />
-                            <GroupLifecycle key={`organize-${groupTarget.group.id}`} model={model} file={groupTarget.file} group={groupTarget.group}
-                                onChanged={lifecycleChanged} />
-                        </>}
-                        {!filter.group && <p class="muted">{t('Choose a root to create a top-level group. Select a group in Browse vault to rename, delete or create a subgroup.')}</p>}
-                        {groupMessage && <p role="status">{groupMessage}</p>}
-                    </div>
-                </details>
                 {filter.trash && <TrashGroups model={model} onChanged={lifecycleChanged} />}
                 {filter.tag && <TagActions key={filter.tag} model={model} tag={filter.tag} onChanged={tag => {
                     setEditing(null); setSelected(undefined); setFilter(tag ? { tag } : {}); setQuery('');
@@ -683,12 +637,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     {transferMessage && <p role="status" style={{ overflowWrap: 'anywhere' }}>{t(transferMessage)}</p>}
                 </main>
             )}
-            {phoneGroups && <PhoneGroups model={model} files={files} initial={phoneGroups.initial} initialActions={phoneGroups.actions}
+            {phoneGroups && <PhoneGroups model={model} files={files} onChanged={groupChanged} onLifecycleChanged={lifecycleChanged} initial={phoneGroups.initial} initialActions={phoneGroups.actions}
                 onClose={() => {
                     const returnTo = phoneGroups; setPhoneGroups(null);
                     if (returnTo.fromNavigation) { groupReturnFocus.current = returnTo.trigger; setNavigationOpen(true); }
                     requestAnimationFrame(() => {
-                        if (!returnTo.fromNavigation && returnTo.trigger?.isConnected) returnTo.trigger.focus();
+                        if (!returnTo.fromNavigation) {
+                            if (returnTo.trigger?.isConnected) returnTo.trigger.focus();
+                            else navigation.current?.querySelector<HTMLButtonElement>('.nav-row')?.focus();
+                        }
                     });
                 }} onSelect={group => {
                     setPhoneGroups(null); changeFilter({ group: group.id }); setQuery(''); setSelected(undefined);
@@ -717,7 +674,7 @@ function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle, onMa
     const expanded = expandedGroups.has(group.id);
     const children = Array.from(group.items ?? []).filter((child) => child.visible !== false);
     return <div class="group-branch">
-        <div class="group-branch__row">
+        <div class="group-branch__row" onContextMenu={event => { event.preventDefault(); onManage(group.id); }}>
             {children.length > 0 ? <button class="group-branch__toggle" type="button"
                 aria-label={t(expanded ? 'Collapse {}' : 'Expand {}', group.title)} aria-expanded={expanded}
                 onClick={() => onToggle(group.id)}>
@@ -881,7 +838,9 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 <button class="round phone-only" aria-label={t('Back')} onClick={onBack} style={{ display: 'none' }}>
                     <Icon name="back" size={17} />
                 </button>
-                <PreferenceTile title={s.title} icon={s.icon} customIcon={entry.customIcon} url={s.url} large />
+                <EntryAppearance model={model} entry={entry}>
+                    <PreferenceTile title={s.title} icon={s.icon} customIcon={entry.customIcon} url={s.url} large />
+                </EntryAppearance>
                 <div style={{ flexGrow: 1, minWidth: 0 }}>
                     <h1 class="detail__title" id="entry-title">
                         {s.title || t('(no title)')}
@@ -891,7 +850,6 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 </div>
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
-                    <EntryAppearance model={model} entry={entry} />
                     <FaviconImport model={model} entry={entry} />
                     <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
                     {!inTrash && <button type="button" class="pill pill--tinted" onClick={onTransfer}>{t('Move to another vault…')}</button>}

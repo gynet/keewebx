@@ -27,15 +27,19 @@
 .phone-groups__actions > [role=group] > div:first-child > button { width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; justify-content: flex-start; border: 0; border-radius: 0; background: transparent; font-size: 14px; font-weight: 400; }
 .phone-groups__actions > [role=group] > div:first-child > button:hover { background: var(--kx-hover, #8881); }
 .phone-groups__actions > [role=group] > p { font-size: 12px; }
-.group-branch__manage { display: none; }
+.group-branch__manage { flex: 0 0 32px; width: 32px; height: 32px; background: transparent; color: inherit; font-size: 22px; border: 0; border-radius: 6px; opacity: 0; cursor: pointer; }
+.group-branch__row:hover .group-branch__manage, .group-branch__row:focus-within .group-branch__manage { opacity: 1; }
+.group-branch__manage:hover { background: var(--kx-hover, #8881); }
+@media (min-width: 761px) {
+    .phone-groups { width: min(440px, calc(100vw - 48px)); height: min(680px, calc(100dvh - 64px)); max-height: calc(100dvh - 64px); margin: auto; border: 1px solid var(--kx-line); border-radius: 12px; box-shadow: 0 16px 64px #0003; }
+}
 @media (max-width: 760px) {
-    .desktop-group-manager { display: none; }
     .group-branch__toggle, .group-branch__spacer { width: 44px; flex-basis: 44px; }
     .group-branch__toggle { height: 44px; }
     .group-branch__row .nav-row { min-height: 44px; padding: 8px 4px; }
     .group-branch__row .nav-row__label { white-space: normal; overflow-wrap: anywhere; }
     .group-branch__children { margin-left: 10px; }
     .group-branch__children .group-branch__children .group-branch__children { margin-left: 0; }
-    .group-branch__manage { display: block; flex: 0 0 44px; width: 44px; height: 44px; background: transparent; color: inherit; font-size: 22px; border: 0; }
+    .group-branch__manage { opacity: 1; display: block; flex: 0 0 44px; width: 44px; height: 44px; background: transparent; color: inherit; font-size: 22px; border: 0; }
 }
 .phone-groups__actions > [role=group] > div:first-child > .pill--danger { color: var(--kx-error); border-top: 1px solid var(--kx-line); }

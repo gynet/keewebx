@@ -141,15 +141,10 @@ async function chooseGroup(page: Page, path: string[], touch = false) {
 async function openManager(page: Page, touch = false) {
     await showNavigation(page, touch);
     await activate(navigation(page).getByRole('button', { name: 'Manage groups', exact: true }), touch);
-    if (await page.locator('.mobile-vault-header').isVisible()) {
-        const groups = page.getByRole('dialog', { name: 'Groups', exact: true });
-        await expect(groups).toBeVisible();
-        const more = groups.getByRole('button', { name: 'Group actions', exact: true });
-        if (await more.getAttribute('aria-expanded') !== 'true') await activate(more, touch);
-    } else {
-        await expect(page.locator('details').filter({ has: page.locator('summary', { hasText: /^Manage groups$/ }) }))
-            .toHaveAttribute('open', '');
-    }
+    const groups = page.getByRole('dialog', { name: 'Groups', exact: true });
+    await expect(groups).toBeVisible();
+    const more = groups.getByRole('button', { name: 'Group actions', exact: true });
+    if (await more.isVisible() && await more.getAttribute('aria-expanded') !== 'true') await activate(more, touch);
 }
 async function actionBar(page: Page, group: string, touch = false) {
     await openManager(page, touch);
@@ -393,12 +388,6 @@ test.describe('New interface group lifecycle', () => {
         await openFixture(page, source);
         await chooseGroup(page, ['All items']);
         await openManager(page);
-        // The wrapping label contains option text; use the combobox's accessible
-        // name (confirmed by the failure snapshot), not its full label text.
-        const rootChoice = page.getByRole('combobox', { name: 'Choose a vault root', exact: true });
-        await expect(rootChoice).toHaveValue('');
-        await expect(page.getByRole('group', { name: /^Group actions: / })).toHaveCount(0);
-        await rootChoice.selectOption({ label: `${source.name}.kdbx (vault 1) — root 1: ${source.name}` });
         const root = await actionBar(page, source.name);
         await expect(root.getByRole('button', { name: 'New group', exact: true })).toBeEnabled();
         for (const action of ['Rename group', 'Delete group']) {
@@ -408,10 +397,11 @@ test.describe('New interface group lifecycle', () => {
         await screenshot(page, 'group-root-protected');
         await chooseGroup(page, ['Trash']);
         await openManager(page);
-        // The bin is deliberately hidden by GroupModel. Trash may omit actions or
-        // render disabled ones, but must not expose an enabled root action fallback.
-        await expect(page.getByRole('group', { name: /^Group actions: / }).locator('button:enabled')).toHaveCount(0);
-        await expect(page.getByRole('dialog')).toHaveCount(0);
+        // Trash is not exposed as an editable group in the browser.
+        const sheet = page.getByRole('dialog', { name: 'Groups', exact: true });
+        await expect(sheet.getByRole('button', { name: 'Recycle Bin', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('group', { name: 'Group actions: Recycle Bin', exact: true })).toHaveCount(0);
+        await sheet.getByRole('button', { name: 'Close groups', exact: true }).click();
         await screenshot(page, 'group-recycle-bin-protected');
         await reopen(page, source);
         const saved = await downloadVault(page, source);

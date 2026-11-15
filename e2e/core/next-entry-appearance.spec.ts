@@ -36,7 +36,7 @@ async function browse(page: Page) {
 }
 async function select(page: Page) { await page.locator('[data-entry="Appearance record"]').click(); }
 async function appearance(page: Page) {
-    await page.getByRole('button', { name: 'Appearance…', exact: true }).click();
+    await page.getByRole('button', { name: 'Change icon and color', exact: true }).click();
     return page.getByRole('dialog', { name: 'Entry appearance', exact: true });
 }
 async function download(page: Page) {

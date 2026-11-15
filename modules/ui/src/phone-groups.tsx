@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { AppModel } from 'models/app-model';
 import type { FileModel } from 'models/file-model';
 import type { GroupModel } from 'models/group-model';
-import { GroupActions } from './group-actions';
+import { GroupActions, type GroupActionResult } from './group-actions';
 import { GroupLifecycle } from './group-lifecycle';
 import { GroupIcon } from './group-appearance';
 import { groupChain, inTrash } from './lifecycle-guard';
@@ -11,9 +11,10 @@ import { getSessionAccess } from 'comp/app/session-access';
 import { t } from './i18n';
 import './phone-groups.css';
 
-export function PhoneGroups({ model, files, initial, initialActions = false, onClose, onSelect }: {
+export function PhoneGroups({ model, files, initial, initialActions = false, onClose, onSelect, onChanged, onLifecycleChanged }: {
     model: AppModel; files: FileModel[]; initial?: string; initialActions?: boolean;
     onClose: () => void; onSelect: (group: GroupModel) => void;
+    onChanged: (result: GroupActionResult) => void; onLifecycleChanged: (group?: GroupModel) => void;
 }) {
     const epoch = getSessionAccess(model).epoch;
     const [current, setCurrent] = useState(initial ?? '');
@@ -60,18 +61,20 @@ export function PhoneGroups({ model, files, initial, initialActions = false, onC
             {group && file && <div id="phone-group-actions" class="phone-groups__actions" hidden={!actions}>
                 <GroupActions key={group.id} model={model} file={file} group={group} getReturnFocus={() => more.current}
                     onComplete={result => {
+                        onChanged(result);
                         if (result.action === 'create') navigate(file.getGroup(result.groupId));
                         else if (result.action === 'delete') navigate(file.getGroup(result.parentId));
                         setMessage(t('Group changes applied. Check the database sync status.'));
                     }} />
                 <GroupLifecycle key={`lifecycle-${group.id}`} model={model} file={file} group={group} onChanged={next => {
+                    onLifecycleChanged(next);
                     if (next) setCurrent(next.id);
                     setMessage(t('Group changes applied. Check the database sync status.'));
                 }} />
             </div>}
             <div hidden={actions && !!group}>
                 <p class="phone-groups__caption">{t(group ? 'Subgroups' : 'Choose a vault root')}</p>
-                {children.map(child => <button key={child.id} type="button" class="phone-groups__row" onClick={() => navigate(child)}>
+                {children.map(child => <button key={child.id} data-group-id={child.id} type="button" class="phone-groups__row" onClick={() => navigate(child)}>
                     <GroupIcon group={child} /><span>{child.title}{!group && <small>{(child.file as FileModel).name}</small>}</span>
                     <span aria-hidden="true">›</span>
                 </button>)}

@@ -23,7 +23,7 @@ test('group modal retains an invalid raw create draft through recovery; locking 
     await page.locator('#settings-back').click();
     const navigation = page.getByRole('navigation', { name: 'Vault', exact: true });
     await navigation.getByRole('button', { name: 'Guarded group', exact: true }).click();
-    await navigation.getByRole('button', { name: 'Manage groups', exact: true }).click();
+    await navigation.getByRole('button', { name: 'Manage Guarded group', exact: true }).click();
     const actions = page.getByRole('group', { name: 'Group actions: Guarded group', exact: true });
     await actions.getByRole('button', { name: 'New group', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New group', exact: true });

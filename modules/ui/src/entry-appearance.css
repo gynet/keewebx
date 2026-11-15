@@ -16,3 +16,8 @@
 .entry-flag { display: inline-block; height: 10px; width: 10px; border-radius: 50%; flex: 0 0 10px; vertical-align: middle; }
 .entry-color-filter { display: flex; align-items: center; gap: 10px; padding: 8px 16px; justify-content: space-between; }
 .entry-color-filter select { min-width: 0; max-width: 75%; }
+
+.entry-icon-trigger { display: inline-flex; flex: 0 0 auto; padding: 0; border: 0; border-radius: 10px; background: transparent; cursor: pointer; }
+.entry-icon-trigger:hover { outline: 2px solid var(--kx-accent); outline-offset: 3px; }
+.entry-icon-trigger:focus-visible { outline: 2px solid var(--kx-accent); outline-offset: 3px; }
+.entry-icon-trigger:disabled { cursor: default; opacity: .65; }

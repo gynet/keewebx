@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { AppModel } from 'models/app-model';
 import type { EntryModel } from 'models/entry-model';
@@ -38,16 +39,16 @@ function unavailable(model: AppModel, entry: EntryModel, selection?: Selection):
     if (file.syncing) return t('A save is in progress. Wait for it to finish.');
     return '';
 }
-export function EntryAppearance({ model, entry }: { model: AppModel; entry: EntryModel }) {
+export function EntryAppearance({ model, entry, children }: { model: AppModel; entry: EntryModel; children: ComponentChildren }) {
     const [selection, setSelection] = useState<Selection | null>(null);
     const trigger = useRef<HTMLButtonElement>(null);
     const reason = unavailable(model, entry);
     return <>
-        <button ref={trigger} class="pill pill--tinted" type="button" disabled={!!reason} title={reason || undefined} onClick={() => {
+        <button ref={trigger} class="entry-icon-trigger" type="button" disabled={!!reason} aria-label={t('Change icon and color')} title={reason || t('Change icon and color')} aria-haspopup="dialog" onClick={() => {
             if (unavailable(model, entry) || !confirmDiscardDrafts() || unavailable(model, entry)) return;
             const file = entry.file as FileModel;
             setSelection({ file, db: file.db, raw: entry.entry, epoch: getSessionAccess(model).epoch, editSeq: file.editSeq });
-        }}>{t('Appearance…')}</button>
+        }}>{children}</button>
         {selection && <AppearanceDialog model={model} entry={entry} selection={selection} close={() => setSelection(null)} trigger={trigger} />}
     </>;
 }

@@ -1,3 +1,4 @@
+import { activateVaultUtility } from '../core/vault-utilities';
 import { test, expect, chromium, type BrowserContext, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -31,7 +32,7 @@ async function fixture(name: string) {
     return { name, buffer: Buffer.from(await db.save()), uuid: kdbx.ByteUtils.bytesToHex(entry.uuid.bytes), group: group.uuid.id };
 }
 async function open(source: Awaited<ReturnType<typeof fixture>>, additional = false) {
-    if (additional) await app.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    if (additional) await activateVaultUtility(app, 'Open another vault');
     await app.locator('#open-file-input').setInputFiles({ name: source.name + '.kdbx', mimeType: 'application/octet-stream', buffer: source.buffer });
     await app.locator('#password').fill(password);
     await app.locator('#unlock').click();
@@ -57,13 +58,13 @@ async function consent() {
     await dialog.getByRole('button', { name: 'Allow', exact: true }).click();
 }
 async function sessions() {
-    await app.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(app, 'Settings');
     await app.getByRole('tab', { name: 'Browser extension', exact: true }).click();
     return app.getByRole('region', { name: 'Browser extension sessions', exact: true });
 }
 async function back() { await app.getByRole('button', { name: 'Back to vault', exact: true }).filter({ visible: true }).click(); }
 async function readExport(name: string) {
-    await app.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(app, 'Settings');
     await app.getByRole('tab', { name: 'Database', exact: true }).click();
     const pending = app.waitForEvent('download');
     await app.getByRole('form', { name: `Database settings: ${name}`, exact: true })
@@ -154,7 +155,7 @@ for (const width of [1280, 320]) test(`OTP, protected Other, selected Save/updat
     expect(login).toMatchObject({ login: 'new-user', password: 'new-secret' });
     // Shared history groups edits until synchronization. Finish the first save
     // through the UI before testing a separate update and its prior revision.
-    await app.getByRole('button', { name: 'Settings', exact: true }).click();
+    await activateVaultUtility(app, 'Settings');
     await app.getByRole('tab', { name: 'Saving and content', exact: true }).click();
     await app.getByRole('button', { name: 'Save now', exact: true }).click();
     await expect(app.getByRole('status').filter({ hasText: 'B: saved in this browser.' })).toBeVisible();
@@ -306,7 +307,7 @@ test('explicitly permitted closed recent vault can be revoked before reopening',
     await closed.click(); await expect(closed).toHaveCount(0);
     await expect(section.getByRole('checkbox', { name: 'A (1)', exact: true })).toBeChecked();
     await back();
-    await app.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    await activateVaultUtility(app, 'Open another vault');
     await app.getByRole('dialog', { name: 'Open another vault', exact: true }).locator('.vault-row[data-vault="B"]').click();
     await app.locator('#password').fill(password); await app.locator('#unlock').click();
     await expect(app.getByRole('dialog', { name: 'Open another vault', exact: true })).toHaveCount(0);
@@ -396,7 +397,7 @@ async function scopedListing(action = 'List entries') {
     return entries[0].handle as string;
 }
 async function reopenRecent(name: string, additional = false) {
-    if (additional) await app.getByRole('button', { name: 'Open another vault', exact: true }).click();
+    if (additional) await activateVaultUtility(app, 'Open another vault');
     await app.locator(`.vault-row[data-vault="${name}"]`).click();
     await app.locator('#password').fill(password); await app.locator('#unlock').click();
     await expect(app.locator('#password')).toHaveCount(0);

@@ -336,7 +336,9 @@ test('short 320px screen keeps search controls and filtered results reachable', 
     await find(page, ''); await options(page).getByRole('button', { name: 'Reset search and filters', exact: true }).click();
     await titles(page, ['Alpha blue sky', 'Beta sky blue', 'Shield']);
     await options(page).locator('summary').first().click();
-    await expect(page.getByRole('button', { name: 'Save vaults', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
+    await expect(page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: /^Save / })).toBeVisible();
+    await page.getByRole('button', { name: 'Close navigation', exact: true }).filter({ visible: true }).click();
     await expect(page.getByRole('button', { name: 'Password generator', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath('short-search.png') });
