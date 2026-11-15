@@ -162,7 +162,7 @@ test.describe('CRUD persistence across reload (IndexedDB cache path)', () => {
         // localStorage (fileInfos) and FilesCache so residual state
         // from prior runs can't mask a regression.
         await page.goto('/classic.html');
-        await page.waitForLoadState('networkidle');
+        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
         await page.evaluate(async () => {
             try {
                 localStorage.clear();
@@ -181,7 +181,7 @@ test.describe('CRUD persistence across reload (IndexedDB cache path)', () => {
             }
         });
         await page.reload();
-        await page.waitForLoadState('networkidle');
+        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
     });
 
     test('CREATE entry → save → reload → reopen → marker persists', async ({ page }) => {
@@ -214,7 +214,7 @@ test.describe('CRUD persistence across reload (IndexedDB cache path)', () => {
         // entry can survive is if syncFile actually persisted the
         // mutation to Storage.cache.save → IndexedDB.
         await page.reload();
-        await page.waitForLoadState('networkidle');
+        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
 
         await reopenFromRecent(page);
 
@@ -252,7 +252,7 @@ test.describe('CRUD persistence across reload (IndexedDB cache path)', () => {
         await expect(page.locator('.footer__db-sign')).toHaveCount(0, { timeout: 15_000 });
 
         await page.reload();
-        await page.waitForLoadState('networkidle');
+        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
         await reopenFromRecent(page);
         await expect(page.locator('.list__item').filter({ hasText: marker })).toBeVisible({
             timeout: 10_000
@@ -293,7 +293,7 @@ test.describe('CRUD persistence across reload (IndexedDB cache path)', () => {
         await triggerSaveAndWait(page);
 
         await page.reload();
-        await page.waitForLoadState('networkidle');
+        await expect(page.locator('#open__icon-open')).toBeVisible({ timeout: 15_000 });
 
         await reopenFromRecent(page);
 
