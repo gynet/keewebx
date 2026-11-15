@@ -157,6 +157,7 @@ export class RelayClientBridge implements ConnectBridge {
     private epoch = 0;
     private ready = false;
     private discoveryDeadline = Date.now() + DISCOVERY_TTL;
+    private discoveryTimer?: ReturnType<typeof setInterval>;
     private live = true;
     private pending = new Map<string, { deadline: number; epoch: number; resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
     onLocked = () => {};
@@ -171,12 +172,24 @@ export class RelayClientBridge implements ConnectBridge {
         if (this.live) this.channel.postMessage(frame(kind, this, { host: this.selected?.host, token: this.selected?.token, ...detail }));
     }
     get connected(): boolean { return this.ready && !!this.selected; }
-    discover(): void { this.update('searching', 0); this.send('discover', { site: this.site, deadline: this.discoveryDeadline }); }
+    discover(): void {
+        this.update('searching', 0);
+        this.send('discover', { site: this.site, deadline: this.discoveryDeadline });
+        clearInterval(this.discoveryTimer);
+        // Retry only active discovery: a resumed app may have missed the first broadcast.
+        this.discoveryTimer = setInterval(() => {
+            if (!this.live || this.selected || this.candidates.size || Date.now() >= this.discoveryDeadline) {
+                clearInterval(this.discoveryTimer); return;
+            }
+            this.send('discover', { site: this.site, deadline: this.discoveryDeadline });
+        }, 1000);
+    }
     private receive = (event: MessageEvent) => {
         if (!this.live || !event.isTrusted || event.origin !== location.origin || !valid(event.data)) return;
         const data = event.data;
         if (data.helper !== this.helper || data.discovery !== this.discovery || !isId(data.host)) return;
         if (data.kind === 'available' && !this.selected) {
+            clearInterval(this.discoveryTimer);
             this.candidates.add(data.host); this.update('available', this.candidates.size); return;
         }
         if (data.kind === 'decline' && !this.selected) { this.candidates.delete(data.host); this.update('available', this.candidates.size); return; }
@@ -221,6 +234,7 @@ export class RelayClientBridge implements ConnectBridge {
     }
     dispose(): void {
         if (!this.live) return;
+        clearInterval(this.discoveryTimer);
         this.reset(); this.send('leave'); this.live = false;
         this.channel.removeEventListener('message', this.receive); this.channel.close();
     }

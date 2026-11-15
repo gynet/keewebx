@@ -35,7 +35,7 @@ const origin = 'https://relay-transport.example';
 const report = { scope: 'Actual relay classes, independent HTTPS pages, native BroadcastChannel; transport only',
     nativeIOSVerified: false, nativeAuthorizationVerified: false, sourceHashes, engines: {} };
 
-async function fixture(browser, run) {
+async function fixture(browser, run, { delayFirstDiscovery = false } = {}) {
     const context = await browser.newContext({ serviceWorkers: 'block' });
     try {
         await context.route(`${origin}/**`, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html lang="en"><title>Relay transport fixture</title><body>Transport test only</body></html>' }));
@@ -114,9 +114,12 @@ async function fixture(browser, run) {
                 };
             }, { source, role, origin });
         }
+        if (delayFirstDiscovery) await host.evaluate(() => { transport.state.holdKinds = ['discover']; });
         await helper.evaluate(() => transport.instance.discover());
-        await expect.poll(() => host.evaluate(() => !!transport.state.pairing), { timeout: 5000 }).toBe(true);
-        await expect.poll(() => helper.evaluate(() => transport.instance.candidateCount), { timeout: 5000 }).toBe(1);
+        if (!delayFirstDiscovery) {
+            await expect.poll(() => host.evaluate(() => !!transport.state.pairing), { timeout: 5000 }).toBe(true);
+            await expect.poll(() => helper.evaluate(() => transport.instance.candidateCount), { timeout: 5000 }).toBe(1);
+        }
         await run({ host, helper });
     } finally { await context.close(); }
 }
@@ -142,11 +145,25 @@ for (const engine of engines) {
         ...(executablePath ? { executablePath } : {}),
         ...(engine === 'webkit' && lib ? { env: { ...process.env, LD_LIBRARY_PATH: [lib, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') } } : {}) });
     const tests = report.engines[engine] = [];
-    const run = async (name, test) => {
-        try { await fixture(browser, test); tests.push({ name, passed: true }); console.log(`PASS ${engine}: ${name}`); }
+    const run = async (name, test, options) => {
+        try { await fixture(browser, test, options); tests.push({ name, passed: true }); console.log(`PASS ${engine}: ${name}`); }
         catch (error) { tests.push({ name, passed: false, error: error.message }); console.error(`FAIL ${engine}: ${name}: ${error.message}`); }
     };
     try {
+        await run('a resumed app is discovered after missing the first broadcast; retries stop on availability', async ({ host, helper }) => {
+            await expect.poll(() => host.evaluate(() => transport.state.held.length), { timeout: 5000 }).toBeGreaterThan(0);
+            assert.equal(await helper.evaluate(() => transport.instance.candidateCount), 0);
+            // Keep the first original event undelivered, then resume native delivery.
+            await host.evaluate(() => { transport.state.holdKinds = []; });
+            await expect.poll(() => helper.evaluate(() => transport.instance.candidateCount), { timeout: 5000 }).toBe(1);
+            const before = await snapshot(helper);
+            const attempts = before.sent.filter(frame => frame.kind === 'discover').length;
+            assert(attempts >= 2, 'A single broadcast cannot discover this resumed app');
+            await helper.waitForTimeout(1300);
+            assert.equal((await snapshot(helper)).sent.filter(frame => frame.kind === 'discover').length, attempts,
+                'Discovery retries continued after a candidate responded');
+            assert((await snapshot(host)).received.filter(event => event.kind === 'discover').every(event => event.trusted));
+        }, { delayFirstDiscovery: true });
         await run('independent same-origin discovery and committed reservation (no native authorization)', async ({ host, helper }) => {
             await reserve(host);
             const h = await snapshot(host), c = await snapshot(helper);

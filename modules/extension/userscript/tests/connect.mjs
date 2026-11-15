@@ -3,6 +3,8 @@
 // node modules/extension/userscript/tests/connect.mjs
 // Optional: KWX_APP_SERVER, KWX_BUN, KWX_CHROMIUM_EXECUTABLE, KWX_USERSCRIPT,
 // KWX_REPO_ROOT, KWX_DB_ROOT, KWX_E2E_OUTPUT_DIR, KWX_E2E_REPORT, KWX_SCENARIO.
+// Focused helper regressions: relay-late-readiness, relay-repeated-lookup,
+// relay-helper-reuse, relay-two-origin; regressions runs these plus origin/consent checks.
 import { chromium, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -30,6 +32,8 @@ const SITE = 'https://login.example.org/';
 // Cross-site browsing-instance changes can drop delivery before the origin guard is exercised.
 const SECOND_SITE = 'https://second-login.example.org/';
 const APP = 'https://keewebx.app/app';
+const SETUP_MARK = 'keewebx-connect-relay-setup-v1';
+const helperName = url => `KeeWebXUserscriptConnect:${new URL(url).origin}`;
 const report = { started: new Date().toISOString(), artifactDirectory: OUT, appServer: APP_SERVER,
     scope: 'Plain Chromium BrowserContext.addInitScript MAIN WORLD; shared simulated GM via exposeBinding; actual bundle and real app/protocol',
     gmMock: true, executionWorld: 'main', extensionLoaded: false,
@@ -37,6 +41,9 @@ const report = { started: new Date().toISOString(), artifactDirectory: OUT, appS
     independentTabRelayVerified: false, relayNoPrematureFieldReadVerified: false,
     relayLateApprovalCannotStealVerified: false, relayLockedAppFailsClosedVerified: false,
     relayOriginBindingVerified: false, relayPendingConsentCancellationVerified: false,
+    relayRepeatedLookupVerified: false, relayClosedSiteReuseVerified: false,
+    relayLateReadinessVerified: false, relayTwoOriginIsolationVerified: false,
+    unrelatedOpenerRejectedVerified: false,
     realManagerVerified: false, nativeIOSVerified: false, backgroundBehaviorVerified: false,
     steps: [], scenarios: [], errors: [], payloadLogCount: 0 };
 let browser, context, app, site, relayHelper, relayOther, activeScenario, bundle;
@@ -129,7 +136,7 @@ async function scenario(name, run) {
         const start = () => {
             if (location.protocol !== 'https:' || window.top !== window) return;
             // Observe action names only. Never retain a decrypted response or credential.
-            const observations = { documentBoot: crypto.randomUUID(), wireRequests: {}, nativeReplies: [], holdBroadcast: false, heldBroadcasts: [] };
+            const observations = { documentBoot: crypto.randomUUID(), wireRequests: {}, nativeReplies: [], setupMessages: [], holdBroadcast: false, heldBroadcasts: [] };
             globalThis.__kwxConnectTest = observations;
             addEventListener('message', event => {
                 if (event.source === window && event.origin === location.origin && event.data?.kwConnect === 'request') {
@@ -139,7 +146,44 @@ async function scenario(name, run) {
                 if (event.data?.marker === 'keewebx-userscript-connect-v1' && event.data.direction === 'response') {
                     observations.nativeReplies.push({ id: event.data.id, operation: event.data.operation, success: !event.data.error });
                 }
+                if (event.data?.marker === ${JSON.stringify(SETUP_MARK)}) {
+                    observations.setupMessages.push({ kind: event.data.kind, nonce: event.data.nonce, origin: event.origin,
+                        trusted: event.isTrusted, sourceIsOpener: event.source === window.opener });
+                }
             });
+            if (${name === 'relay-late-readiness'} && location.pathname === '/connect.html') {
+                // Delay only native website proofs at the helper's real listener. The original
+                // MessageEvent, source WindowProxy, origin and isTrusted remain untouched.
+                const nativeAdd = window.addEventListener, nativeRemove = window.removeEventListener;
+                const wrappers = new WeakMap();
+                observations.holdSetupProofs = true; observations.heldSetupProofs = [];
+                const deliver = (listener, event) => typeof listener === 'function' ? listener.call(window, event) : listener.handleEvent(event);
+                window.addEventListener = function (type, listener, options) {
+                    if (type !== 'message' || !listener) return nativeAdd.call(this, type, listener, options);
+                    let wrapped = wrappers.get(listener);
+                    if (!wrapped) {
+                        wrapped = event => {
+                            if (observations.holdSetupProofs && event.data?.marker === ${JSON.stringify(SETUP_MARK)} && event.data.kind === 'site') {
+                                observations.heldSetupProofs.push({ listener, event, receivedAt: Date.now() });
+                                return;
+                            }
+                            deliver(listener, event);
+                        };
+                        wrappers.set(listener, wrapped);
+                    }
+                    return nativeAdd.call(this, type, wrapped, options);
+                };
+                window.removeEventListener = function (type, listener, options) {
+                    return nativeRemove.call(this, type, type === 'message' ? wrappers.get(listener) || listener : listener, options);
+                };
+                observations.releaseSetupProof = nonce => {
+                    const index = observations.heldSetupProofs.findIndex(item => item.event.data.nonce === nonce);
+                    if (index < 0) throw new Error('No native website proof retained for this challenge');
+                    const { listener, event, receivedAt } = observations.heldSetupProofs.splice(index, 1)[0];
+                    deliver(listener, event);
+                    return { trusted: event.isTrusted, origin: event.origin, nonce: event.data.nonce, age: Date.now() - receivedAt };
+                };
+            }
             if (${name === 'relay-late-approval'}) {
                 // Queue real BroadcastChannel posts from the unselected app during a trusted pair click.
                 // Releasing them later exercises stale approval delivery without inventing protocol replies.
@@ -276,14 +320,14 @@ const documentState = page => page.evaluate(() => ({
     href: location.href, timeOrigin: performance.timeOrigin, boot: globalThis.__kwxConnectTest.documentBoot
 }));
 
-async function expectPairCard(page) {
+async function expectPairCard(page, url = SITE) {
     await expect.poll(() => shadowValue(page, '.pairing-card', 'hidden'), { timeout: 12000 }).toBe(false);
-    expect(await shadowValue(page, '#kwx-pairing-origin')).toBe(new URL(SITE).origin);
+    expect(await shadowValue(page, '#kwx-pairing-origin')).toBe(new URL(url).origin);
     expect(await shadowValue(page, '[data-action="pair"]')).toBe('Connect this tab');
     expect(await shadowValue(page, '[data-action="decline"]')).toBe('Decline');
 }
 
-async function relaySetup() {
+async function relaySetup({ waitForPairing = true } = {}) {
     await step('open and unlock two independent original app tabs with distinct KDBX entries', async () => {
         relayOther = await context.newPage(); await relayOther.goto(APP); await ready(relayOther);
         await unlock(relayOther, RELAY_FIRST.file);
@@ -298,19 +342,19 @@ async function relaySetup() {
         chosen: await documentState(app), other: await documentState(relayOther),
         navigationCount: activeScenario.appNavigationRequests
     };
-    await step('missing site link opens lightweight same-origin helper and discovers original apps', async () => {
+    await step('missing site link opens lightweight same-origin helper', async () => {
         site = await context.newPage(); await site.goto(SITE); await ready(site);
         expect(await site.evaluate(() => window.opener === null)).toBe(true);
         await site.locator('#username').click();
         const popup = site.waitForEvent('popup'); await action(site, 'toggle'); relayHelper = await popup;
         await relayHelper.waitForURL(url => url.origin === new URL(APP).origin && url.pathname === '/connect.html' && url.searchParams.get('kwx-connect-relay') === '1');
         await ready(relayHelper);
-        await expectPairCard(app); await expectPairCard(relayOther);
+        if (waitForPairing) { await expectPairCard(app); await expectPairCard(relayOther); }
         expect(context.pages()).toHaveLength(4);
         expect(await documentState(app)).toEqual(originals.chosen);
         expect(await documentState(relayOther)).toEqual(originals.other);
         await expect(relayHelper.locator('.vault, #open-file-input, #kdbx-file-input')).toHaveCount(0);
-        return { helperUrl: relayHelper.url(), exactSiteOriginOnBothCards: true, originalDocumentsUnchanged: true, lightweightHelper: true };
+        return { helperUrl: relayHelper.url(), exactSiteOriginOnBothCards: waitForPairing, originalDocumentsUnchanged: true, lightweightHelper: true };
     });
     return originals;
 }
@@ -344,6 +388,201 @@ async function assertOriginalsPreserved(originals) {
     expect(activeScenario.appNavigationRequests).toBe(originals.navigationCount + 1);
     expect(new URL(relayHelper.url()).pathname).toBe('/connect.html');
     return { originalDocumentsAndUnlockPreserved: true, helperRemainsProxy: true };
+}
+
+async function repeatedRelayCycles(count) {
+    const readsBefore = await fieldReads(app);
+    for (let cycle = 1; cycle <= count; cycle++) {
+        await site.locator('#username').fill(''); await site.locator('#login-password').fill('');
+        await relayLookup();
+        expect(await fieldReads(app), `Cycle ${cycle}: lookup must not read credential fields`).toBe(readsBefore + cycle - 1);
+        await relayFill();
+        expect(await fieldReads(app), `Cycle ${cycle}: one field read follows the explicit account choice`).toBe(readsBefore + cycle);
+        await expect(consentDialog()).toHaveCount(0);
+    }
+    return { completedCycles: count, credentialReads: count, noAdditionalConsent: true, formSubmits: 0 };
+}
+
+async function repeatedRelayLookup() {
+    const originals = await relaySetup();
+    await step('connect the chosen app through real pairing and native Allow', async () => {
+        await action(app, 'pair'); return allowConsent();
+    });
+    await step('four consecutive lookup and explicit fill cycles use the same website and selected app', async () => {
+        const result = await repeatedRelayCycles(4);
+        await assertOriginalsPreserved(originals);
+        report.relayRepeatedLookupVerified = true;
+        return result;
+    });
+}
+
+async function relatedWebsite(opener, url, beforeNavigation = async () => {}) {
+    // A trusted click creates a related browsing context without changing production controls.
+    await opener.evaluate(() => {
+        document.getElementById('kwx-e2e-related-website')?.remove();
+        const button = document.createElement('button'); button.id = 'kwx-e2e-related-website'; button.textContent = 'Open related login website';
+        button.style.cssText = 'position:fixed;top:16px;right:16px;z-index:2147483647';
+        button.onclick = event => { if (event.isTrusted) window.open('about:blank', '_blank'); };
+        document.body.append(button);
+    });
+    await opener.bringToFront();
+    const popup = opener.waitForEvent('popup'); await opener.locator('#kwx-e2e-related-website').click();
+    const page = await popup;
+    await beforeNavigation(page);
+    // Chromium can reuse the initial same-origin popup context without rerunning
+    // Playwright's init script. A separate real navigation installs the harness
+    // while retaining the native opener and named-window relationship under test.
+    await page.goto(url);
+    try { await ready(page); }
+    catch (error) {
+        activeScenario.relatedWebsiteInitialization = await page.evaluate(() => ({
+            url: location.href, readyState: document.readyState, observedBoot: globalThis.__kwxConnectTest?.documentBoot,
+            gmBinding: typeof globalThis.__kwxSmokeGM, topLevel: window.top === window,
+            text: document.body?.innerText.slice(0, 1000)
+        }));
+        throw error;
+    }
+    expect(await page.evaluate(() => !!window.opener)).toBe(true);
+    return page;
+}
+
+async function closedWebsiteHelperReuse() {
+    const originals = await relaySetup();
+    await step('authorize the chosen app and fill twice before replacing the website', async () => {
+        await action(app, 'pair'); await allowConsent();
+        return repeatedRelayCycles(2);
+    });
+    const helperBefore = await documentState(relayHelper);
+    const helperMessageCount = await relayHelper.evaluate(() => globalThis.__kwxConnectTest.setupMessages.length);
+    await step('related same-origin website outlives the old website and rediscovers its helper', async () => {
+        const oldSite = site;
+        // Chromium permits named lookup from the helper's own related child after
+        // the old site closes. Sibling windows lose that permission with their opener.
+        site = await relatedWebsite(relayHelper, new URL('/replacement-login', SITE).href, async replacement => {
+            expect(await replacement.evaluate(() => window.opener.name)).toBe(helperName(SITE));
+            expect(await relayHelper.evaluate(() => !!window.opener && !window.opener.closed)).toBe(true);
+            await oldSite.close();
+            expect(await relayHelper.evaluate(() => !window.opener || window.opener.closed)).toBe(true);
+        });
+        expect(oldSite.isClosed()).toBe(true);
+        await panel(site, 'config'); await action(site, 'open');
+        await untilStatus(site, /KeeWebX opened/, 8000);
+        await untilStatus(relayHelper, /Connected to the selected KeeWebX tab/, 10000);
+        await expect.poll(() => relayHelper.evaluate(start => globalThis.__kwxConnectTest.setupMessages.slice(start)
+            .some(message => message.kind === 'site' && message.trusted && !message.sourceIsOpener), helperMessageCount),
+            { message: 'Replacement website proves a fresh native source and nonce to the existing helper' }).toBe(true);
+        const proof = await relayHelper.evaluate(start => globalThis.__kwxConnectTest.setupMessages.slice(start)
+            .find(message => message.kind === 'site' && message.trusted && !message.sourceIsOpener), helperMessageCount);
+        expect(proof.origin).toBe(new URL(SITE).origin);
+        const challenges = await site.evaluate(() => globalThis.__kwxConnectTest.setupMessages
+            .filter(message => message.kind === 'ready' && message.trusted).map(message => message.nonce));
+        expect(challenges).toContain(proof.nonce);
+        expect(context.pages()).toHaveLength(4);
+        expect(await documentState(relayHelper)).toEqual(helperBefore);
+        expect(await relayHelper.evaluate(() => window.name)).toBe(helperName(SITE));
+        await assertOriginalsPreserved(originals);
+        return { oldWebsiteClosed: true, originalHelperDocumentReused: true, freshNativeWebsiteProof: true, selectedAppPreserved: true };
+    });
+    await step('rebound helper completes three new lookup and fill cycles without approval or app navigation', async () => {
+        const result = await repeatedRelayCycles(3);
+        expect(await documentState(relayHelper)).toEqual(helperBefore);
+        await assertOriginalsPreserved(originals);
+        report.relayClosedSiteReuseVerified = true;
+        return result;
+    });
+}
+
+async function lateHelperReadiness() {
+    const originals = await relaySetup({ waitForPairing: false });
+    let expiredNonce;
+    await step('withhold original native website proofs until the helper setup deadline expires', async () => {
+        await expect.poll(() => relayHelper.evaluate(() => globalThis.__kwxConnectTest.heldSetupProofs.length)).toBeGreaterThan(0);
+        expiredNonce = await relayHelper.evaluate(() => globalThis.__kwxConnectTest.heldSetupProofs[0].event.data.nonce);
+        await untilStatus(relayHelper, /Waiting for the login website|The login website did not reply/, 12000);
+        await expect.poll(() => relayHelper.evaluate(() => Date.now() - globalThis.__kwxConnectTest.heldSetupProofs[0].receivedAt),
+            { timeout: 2000, message: 'Retain the original native proof for at least the full setup timeout' }).toBeGreaterThanOrEqual(8000);
+        expect(await shadowValue(app, '.pairing-card', 'hidden')).toBe(true);
+        expect(await fieldReads(app)).toBe(0); expect(await fieldReads(relayOther)).toBe(0);
+        return { setupExpired: true, originalNativeProofRetained: true, noDiscoveryOrAuthorizationBeforeProof: true };
+    });
+    let freshNonce;
+    await step('late original proof triggers a fresh challenge without accepting the expired nonce', async () => {
+        const released = await relayHelper.evaluate(nonce => globalThis.__kwxConnectTest.releaseSetupProof(nonce), expiredNonce);
+        activeScenario.lateReadiness = { expiredProofAgeMs: released.age, originalProofTrusted: released.trusted,
+            originalProofOrigin: released.origin, freshChallengeObserved: false };
+        expect(released.trusted).toBe(true); expect(released.origin).toBe(new URL(SITE).origin);
+        expect(released.age).toBeGreaterThanOrEqual(8000);
+        await expect.poll(() => site.evaluate(expired => globalThis.__kwxConnectTest.setupMessages
+            .filter(message => message.kind === 'ready' && message.trusted && message.nonce !== expired).map(message => message.nonce), expiredNonce),
+            { timeout: 5000, message: 'Expired native website proof must trigger a new readiness nonce' }).not.toEqual([]);
+        freshNonce = await site.evaluate(expired => globalThis.__kwxConnectTest.setupMessages
+            .find(message => message.kind === 'ready' && message.trusted && message.nonce !== expired).nonce, expiredNonce);
+        activeScenario.lateReadiness.freshChallengeObserved = true;
+        expect(await shadowValue(app, '.pairing-card', 'hidden')).toBe(true);
+        expect(await shadowValue(relayOther, '.pairing-card', 'hidden')).toBe(true);
+        expect(await fieldReads(app)).toBe(0); expect(await fieldReads(relayOther)).toBe(0);
+        return { lateProofTrusted: true, lateProofAgeMs: released.age, newNonceRequired: true, expiredProofDidNotStartDiscovery: true };
+    });
+    await step('only the fresh original native proof enables discovery and actual consent', async () => {
+        await expect.poll(() => relayHelper.evaluate(nonce => globalThis.__kwxConnectTest.heldSetupProofs
+            .some(item => item.event.data.nonce === nonce), freshNonce)).toBe(true);
+        const released = await relayHelper.evaluate(nonce => globalThis.__kwxConnectTest.releaseSetupProof(nonce), freshNonce);
+        expect(released.trusted).toBe(true); expect(released.nonce).not.toBe(expiredNonce);
+        await expectPairCard(app); await expectPairCard(relayOther);
+        await action(app, 'pair'); return allowConsent();
+    });
+    await step('recovered helper supports repeated real encrypted lookup and explicit fill', async () => {
+        const result = await repeatedRelayCycles(2);
+        await assertOriginalsPreserved(originals);
+        report.relayLateReadinessVerified = true;
+        return result;
+    });
+}
+
+async function twoOriginHelperIsolation() {
+    const originals = await relaySetup();
+    await step('authorize and fill the first website while retaining its helper', async () => {
+        await action(app, 'pair'); await allowConsent(); await relayLookup(); await relayFill();
+        // Clear the unselected app's first pending card so the second origin is observable.
+        await action(relayOther, 'decline');
+        return { firstWebsiteApproved: true, firstWebsiteFilled: true };
+    });
+    const firstSite = site, firstHelper = relayHelper;
+    const firstHelperBefore = await documentState(firstHelper);
+    let secondHelper;
+    await step('second origin ignores its ordinary website opener and opens a separate helper', async () => {
+        site = await relatedWebsite(firstSite, SECOND_SITE);
+        expect(await site.evaluate(() => window.opener.closed)).toBe(false);
+        await site.locator('#username').click();
+        const popup = site.waitForEvent('popup', { timeout: 10000 });
+        await action(site, 'toggle'); secondHelper = await popup; await ready(secondHelper);
+        await secondHelper.waitForURL(url => url.pathname === '/connect.html' && url.searchParams.get('kwx-connect-relay') === '1');
+        expect(secondHelper).not.toBe(firstHelper);
+        expect(await firstHelper.evaluate(() => window.name)).toBe(helperName(SITE));
+        expect(await secondHelper.evaluate(() => window.name)).toBe(helperName(SECOND_SITE));
+        await expectPairCard(relayOther, SECOND_SITE);
+        expect(context.pages()).toHaveLength(6);
+        expect(await documentState(firstHelper)).toEqual(firstHelperBefore);
+        expect(await fieldReads(relayOther)).toBe(0);
+        await expect(site.locator('#username')).toHaveValue(''); await expect(site.locator('#login-password')).toHaveValue('');
+        report.unrelatedOpenerRejectedVerified = true;
+        return { ordinaryWebsiteOpenerAlive: true, separateOriginNamedHelpers: true, secondOriginRequiresConfirmation: true, secondOriginFieldsRead: 0 };
+    });
+    await step('restarting second-origin discovery cannot reset the first-origin approval', async () => {
+        await action(secondHelper, 'revoke');
+        await untilStatus(secondHelper, /Found \d+ KeeWebX tab/, 12000);
+        const secondSite = site; site = firstSite;
+        await repeatedRelayCycles(2);
+        expect(await documentState(firstHelper)).toEqual(firstHelperBefore);
+        expect(await documentState(app)).toEqual(originals.chosen);
+        expect(await documentState(relayOther)).toEqual(originals.other);
+        expect(activeScenario.appNavigationRequests).toBe(originals.navigationCount + 2);
+        expect(await fieldReads(relayOther)).toBe(0);
+        await expect(secondSite.locator('#username')).toHaveValue(''); await expect(secondSite.locator('#login-password')).toHaveValue('');
+        expect(await secondSite.evaluate(() => window.formSubmits)).toBe(0);
+        report.relayTwoOriginIsolationVerified = true;
+        return { firstOriginStillListsAndFills: true, noAdditionalConsent: true, secondOriginUnapproved: true, originalAppsUnchanged: true };
+    });
 }
 
 async function relayAcceptance() {
@@ -568,7 +807,8 @@ try {
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
         ...(process.env.KWX_CHROMIUM_EXECUTABLE ? { executablePath: process.env.KWX_CHROMIUM_EXECUTABLE } : {}) });
     const choice = process.env.KWX_SCENARIO || 'all';
-    if (!['all', 'app-first', 'site-first', 'relay', 'relay-late-approval', 'regressions', 'relay-origin-binding', 'relay-consent-cancel'].includes(choice)) throw new Error('Unknown KWX_SCENARIO');
+    if (!['all', 'app-first', 'site-first', 'relay', 'relay-late-approval', 'regressions', 'relay-origin-binding', 'relay-consent-cancel',
+        'relay-late-readiness', 'relay-repeated-lookup', 'relay-helper-reuse', 'relay-two-origin'].includes(choice)) throw new Error('Unknown KWX_SCENARIO');
     if (choice === 'all' || choice === 'app-first') await scenario('app-first', async () => {
         await step('launch public New UI with closed-shadow widget', async () => {
             app = await context.newPage(); await app.goto(`${APP}?kwx-connect=1`); await ready(app);
@@ -606,7 +846,7 @@ try {
             // With no independent app discovered, the lightweight helper keeps its window and navigates to the app.
             await app.waitForURL(`${APP}?kwx-connect=1`, { timeout: 15000 }); await ready(app);
             expect(app.url()).toBe(`${APP}?kwx-connect=1`);
-            expect(await app.evaluate(() => window.name)).toBe('KeeWebXUserscriptConnect');
+            expect(await app.evaluate(() => window.name)).toBe(helperName(SITE));
             expect(await app.evaluate(() => !!window.opener)).toBe(true);
             return { appUrl: app.url(), openedByActualWidget: true, hasRealOpener: true };
         });
@@ -654,6 +894,10 @@ try {
     if (choice === 'all' || choice === 'relay-late-approval') await scenario('relay-late-approval', lateRelayApproval);
     if (['all', 'regressions', 'relay-origin-binding'].includes(choice)) await scenario('relay-origin-binding', relayOriginBinding);
     if (['all', 'regressions', 'relay-consent-cancel'].includes(choice)) await scenario('relay-consent-cancel', relayConsentCancellation);
+    if (['all', 'regressions', 'relay-late-readiness'].includes(choice)) await scenario('relay-late-readiness', lateHelperReadiness);
+    if (['all', 'regressions', 'relay-repeated-lookup'].includes(choice)) await scenario('relay-repeated-lookup', repeatedRelayLookup);
+    if (['all', 'regressions', 'relay-helper-reuse'].includes(choice)) await scenario('relay-helper-reuse', closedWebsiteHelperReuse);
+    if (['all', 'regressions', 'relay-two-origin'].includes(choice)) await scenario('relay-two-origin', twoOriginHelperIsolation);
     report.fullFlowVerified = report.scenarios.length > 0 && report.scenarios.every(item => item.passed);
     report.ok = report.fullFlowVerified;
 } catch (error) {
@@ -675,6 +919,11 @@ try {
         relayLockedAppFailsClosedVerified: report.relayLockedAppFailsClosedVerified,
         relayOriginBindingVerified: report.relayOriginBindingVerified,
         relayPendingConsentCancellationVerified: report.relayPendingConsentCancellationVerified,
+        relayRepeatedLookupVerified: report.relayRepeatedLookupVerified,
+        relayClosedSiteReuseVerified: report.relayClosedSiteReuseVerified,
+        relayLateReadinessVerified: report.relayLateReadinessVerified,
+        relayTwoOriginIsolationVerified: report.relayTwoOriginIsolationVerified,
+        unrelatedOpenerRejectedVerified: report.unrelatedOpenerRejectedVerified,
         errors: report.errors, payloadLogCount: report.payloadLogCount, report: reportPath }, null, 2));
     process.exitCode = report.ok ? 0 : 1;
 }

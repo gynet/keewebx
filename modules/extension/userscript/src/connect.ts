@@ -5,11 +5,12 @@ import { AppBridge, AppBroker } from './app-bridge';
 import { ConnectUI } from './connect-ui';
 import { identity } from './identity';
 import { RelayHost } from './relay';
-import { SETUP_MARK, startRelayHelper } from './relay-helper';
+import { startRelayHelper } from './relay-helper';
+import { SETUP_MARK, SiteLink } from './site-link';
 import { DEFAULT_ENDPOINT, WINDOW_NAME, findOrOpenApp, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const runtime = { getVersion: () => '0.3.0', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
+const runtime = { getVersion: () => '0.3.1', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function start(): Promise<void> {
@@ -19,7 +20,7 @@ async function start(): Promise<void> {
     if (location.origin === endpoint.origin && location.pathname === new URL('connect.html', endpoint).pathname && new URL(location.href).searchParams.has('kwx-connect-relay')) { startRelayHelper(endpoint); return; }
     const app = location.origin === endpoint.origin && location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '');
     const ui = new ConnectUI(app, endpoint.href);
-    let original: Window | undefined = app ? undefined : window.opener || undefined;
+    let original: Window | undefined;
     let openedByUs = false;
     let knownIdentity = false;
     let selected: HTMLInputElement | undefined;
@@ -52,7 +53,7 @@ async function start(): Promise<void> {
     };
 
     if (app) {
-        if (window.opener) window.name = WINDOW_NAME;
+        if (window.opener && !window.name) window.name = WINDOW_NAME;
         let bridge = new AppBridge();
         let broker = new AppBroker(bridge);
         let authorizationGeneration = 0;
@@ -66,6 +67,14 @@ async function start(): Promise<void> {
         ui.onClose = () => { clean(); if (broker.authorizing || relayPairing) cancelAuthorization(); };
         ui.address.readOnly = true; ui.save.hidden = true;
         if (window.opener && window.opener !== window) broker.associate(window.opener);
+        const siteLink = new SiteLink(window.opener, (site, origin) => {
+            if (window.opener) window.name = `${WINDOW_NAME}:${origin}`;
+            if (broker.child !== site) {
+                if (broker.authorizing) cancelAuthorization();
+                broker.associate(site, origin);
+            }
+        });
+        siteLink.restart();
         ui.open.textContent = 'Open linked website';
         ui.open.onclick = event => {
             if (!event.isTrusted) return;
@@ -74,7 +83,7 @@ async function start(): Promise<void> {
                 if (target.protocol !== 'https:' || target.username || target.password || target.origin === location.origin) throw new Error('Enter a different HTTPS login website.');
                 const site = window.open(target.href, `KeeWebXLogin-${crypto.randomUUID()}`);
                 if (!site) throw new Error('Safari blocked the new tab. Allow pop-ups and try again.');
-                broker.associate(site);
+                broker.associate(site, target.origin); siteLink.expect(site, target.origin);
                 ui.state(State.ReadyToConnect, 'Website opened. Authorize Connect here before using it for the first time.');
             } catch (error) { ui.state(State.Error, message(error)); }
         };
@@ -139,6 +148,7 @@ async function start(): Promise<void> {
             showAfterUnlock();
         }
         addEventListener('pagehide', () => {
+            siteLink.pause();
             authorizationGeneration++; resumeChild = broker.child;
             setupObserver?.disconnect();
             relayHost.dispose(); broker.dispose(); bridge.dispose(); ui.authorize.disabled = false;
@@ -148,6 +158,7 @@ async function start(): Promise<void> {
                 bridge = new AppBridge(); broker = new AppBroker(bridge);
                 relayHost = new RelayHost(endpoint, request => { ui.pairing(request?.site); ui.authorize.hidden = !!request; }, () => { if (relayPairing) cancelAuthorization(); }); relayPairing = false; ui.pair.disabled = false;
                 if (resumeChild && !resumeChild.closed) broker.associate(resumeChild);
+                siteLink.restart();
                 ui.state(State.ReadyToConnect, 'Page restored. Return to the website and find accounts again.');
             }
         });
@@ -155,11 +166,17 @@ async function start(): Promise<void> {
     }
 
     addEventListener('message', event => {
-        if (event.isTrusted && event.source === original && event.origin === endpoint.origin && event.data?.marker === SETUP_MARK &&
+        if (event.isTrusted && (event.source === original || (!original && event.source === window.opener)) && event.origin === endpoint.origin && event.data?.marker === SETUP_MARK &&
             event.data.kind === 'ready' && typeof event.data.nonce === 'string') {
+            original = event.source as Window;
             original?.postMessage({ marker: SETUP_MARK, kind: 'site', nonce: event.data.nonce }, endpoint.origin);
         }
     });
+    const resumeLink = () => {
+        const peer = original || window.opener;
+        if (peer && !peer.closed) peer.postMessage({ marker: SETUP_MARK, kind: 'reconnect' }, endpoint.origin);
+    };
+    resumeLink();
 
     const openApp = () => {
         clean();
@@ -275,8 +292,9 @@ async function start(): Promise<void> {
     addEventListener('pagehide', clean);
     addEventListener('visibilitychange', () => {
         if (document.hidden) { clean(); ui.state(State.ReadyToConnect, 'Find accounts again when you return.'); }
+        else resumeLink();
     });
-    addEventListener('pageshow', event => { if (event.persisted) { clean(); ui.state(State.ReadyToConnect, 'Page restored. Find accounts again.'); } });
+    addEventListener('pageshow', event => { if (event.persisted) { clean(); resumeLink(); ui.state(State.ReadyToConnect, 'Page restored. Find accounts again.'); } });
 }
 
 void start().catch(error => {

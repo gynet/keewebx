@@ -2,6 +2,13 @@
 
 ## Native Connect (experimental)
 
+[Version 0.3.1](https://github.com/gynet/keewebx/releases/tag/userscript-v0.3.1) fixes stale helper-window ownership, delayed Safari setup replies
+and missed initial app-discovery messages. Replace the existing script file
+with the new download; do not keep both versions enabled. Save database changes,
+close old connection-helper pages, and reload the website and KeeWebX tabs once
+so that all of them run the updated script. Reinstalling the Userscripts app
+or deleting its private identity is unnecessary.
+
 Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/master/modules/extension/userscript/keewebx-connect.user.js) for account lookup
 and explicit autofill using native `window.postMessage` plus a same-origin
 `BroadcastChannel` relay for independent app tabs. This installer
@@ -59,6 +66,12 @@ storage partition. Their original document, database and unlock state remain
 in place. Keep both the selected app and connection page open. Closing or
 reloading either can require discovery and confirmation again.
 
+Connection windows have separate names for each login website origin. A new
+tab for the same website must answer a fresh native origin/nonce challenge
+before it can reuse that website's helper and selected app. A normal website
+opener is never assumed to be KeeWebX. Setup discovery retries stop when an
+app responds; they are not an idle background heartbeat.
+
 The website must retain its relationship with its helper. `noopener`,
 Cross-Origin-Opener-Policy and browser isolation can break it. A previously
 related named window is reused when the browser permits. This is not a
@@ -89,6 +102,12 @@ that its connection page is still open. Use **Connection → Open KeeWebX**
 to reach the connection page. **Find app tabs again** restarts discovery;
 confirm in the intended app, return to the site and **Find accounts** again. Do not reinstall or rename the script
 as a normal reconnection step. Save unsaved database changes before any reload.
+
+If the helper says it is waiting for the login website, select the website
+tab once; returning to a visible page restarts its handshake. Delayed replies
+trigger a fresh challenge instead of permanently failing or reusing expired
+proof. During app discovery, open the existing KeeWebX tab you want to use so
+that Safari can resume it, then confirm **Connect this tab** there.
 
 ### Verification
 

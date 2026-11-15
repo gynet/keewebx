@@ -1,5 +1,45 @@
 # Native Connect 0.3.0 implementation and acceptance report
 
+## Connection recovery update: 0.3.1
+
+The standalone 0.3.1 installer fixes intermittent setup failure after repeated
+use. A global helper-window name and a permanently captured initial opener
+could route setup replies to an old website tab. A single discovery broadcast
+also missed app tabs that resumed later; the helper fell back to opening an
+app after only 2.5 seconds.
+
+Helpers now have origin-specific names. Native source/origin/nonce challenges
+associate the current website window, including a replacement tab after the
+original closes. A same-origin replacement retains the selected app, original
+vault document and existing permission. A different origin uses a separate
+helper and requires its own app confirmation. An ordinary website opener is
+never assumed to be KeeWebX.
+
+An expired setup proof triggers a fresh challenge instead of granting access
+or leaving a permanent failure. Returning to the website resumes setup.
+Discovery retries are bounded and stop at the first candidate; the missing-app
+fallback waits eight seconds. There is no idle heartbeat or automatic iOS wakeup.
+
+Acceptance uses the exact 0.3.1 installer and actual encrypted disposable KDBX
+files. It adds repeated explicit lookup/fill, closed-opener replacement,
+delayed native proof, ordinary-opener rejection and simultaneous-origin
+isolation to the original scenarios. Chromium and desktop WebKit transport
+checks both verify recovery after the first discovery broadcast is withheld,
+and verify that discovery stops after an app responds. The old implementation
+fails that new discovery test. The accepted 0.3.0 bundle also fails the fresh
+challenge requirement after its setup timeout.
+
+The same-origin popup harness performs a separate native navigation because
+Chromium can reuse its initial popup context without rerunning Playwright's
+init script. This preserves real window references and native trusted events;
+it does not load the actual Userscripts manager. Native iPhone execution and
+long suspension remain outside the automated certification.
+
+Install 0.3.1 over the existing script file, close old helper pages and reload
+website/app tabs once after saving database changes. Keep one installed
+script version. The original 0.3.0 release record below is retained with its
+original artifact checksum.
+
 ## Delivered behavior
 
 KeeWebX Connect now has an experimental standalone Userscripts installer for

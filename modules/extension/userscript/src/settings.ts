@@ -21,7 +21,8 @@ export async function saveEndpoint(value: string): Promise<URL> {
 /** Call synchronously in a trusted tap. Navigate only a newly created blank window. */
 export function findOrOpenApp(url: URL, known?: Window): Window {
     if (known && !known.closed) { known.focus(); return known; }
-    const target = window.open('', WINDOW_NAME);
+    // Different websites must never inherit another website's helper/opener.
+    const target = window.open('', `${WINDOW_NAME}:${location.origin}`);
     if (!target) throw new Error('Safari blocked the window. Allow pop-ups and try again.');
     try {
         if (target.location.href === 'about:blank') {

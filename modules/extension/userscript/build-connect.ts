@@ -16,7 +16,7 @@ const license = await readFile(path.join(import.meta.dir, '../../..', 'LICENSE')
 const metadata = `// ==UserScript==
 // @name         KeeWebX Connect (experimental)
 // @namespace    https://keewebx.app/
-// @version      0.3.0
+// @version      0.3.1
 // @description  Native postMessage bridge for KeeWebX Connect. Reuses the existing encrypted protocol and form-fill helpers. Experimental iOS Safari support.
 // @match        https://*/*
 // @noframes

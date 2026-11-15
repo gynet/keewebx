@@ -101,6 +101,7 @@ export class AppBroker {
             !validEnvelope(event.data) || event.data.direction !== 'request') return;
         const request = event.data;
         if (Date.now() >= request.deadline) return;
+        this.childOrigin ||= event.origin;
         try {
             if (this.authorizing) throw new Error('Complete the current authorization in KeeWebX first.');
             if (request.operation === 'cancel') {
