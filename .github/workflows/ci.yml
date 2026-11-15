@@ -231,7 +231,7 @@ jobs:
       - name: Full-chain firefox E2E
         env:
           HEADLESS: '1'
-          KEEWEBX_URL: http://localhost:8085/
+          KEEWEBX_URL: http://localhost:8085/classic.html
         run: bun run e2e/extension/autofill-firefox-full-chain.mjs
       - name: Dump dev server log on failure
         if: failure()

@@ -230,13 +230,15 @@ for (const variant of [
         const url = ORIGIN + variant.route;
         await configure(url);
         const app = await appDemo(url, variant.classic);
+        const canonicalUrl = app.url();
+        expect(new URL(canonicalUrl).search).toBe(new URL(url).search);
         const other = await context.newPage();
         await other.goto(ORIGIN + (variant.classic ? '/next.html' : '/index.html?ui=classic'));
         const site = await sitePage();
         const p = await popup(site);
         await approve(app, variant.classic);
         await connected(p);
-        expect(context.pages().filter((p) => p.url() === url)).toHaveLength(1);
+        expect(context.pages().filter((p) => p.url() === canonicalUrl)).toHaveLength(1);
         expect(await other.locator('dialog[open],.modal:visible').count()).toBe(0);
         await p.locator('#search').fill('gmail');
         await expect(p.locator('.row__title').first()).toContainText(/gmail/i);
@@ -256,7 +258,7 @@ for (const variant of [
         const again = await popup(site);
         await connected(again);
         await expect(reopened.locator('dialog[open],.modal:visible')).toHaveCount(0);
-        expect(context.pages().filter((p) => p.url() === url)).toHaveLength(1);
+        expect(context.pages().filter((p) => p.url() === canonicalUrl)).toHaveLength(1);
     });
 async function sessions(app: Page) {
     await app.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -566,13 +568,14 @@ for (const migrated of [false, true])
         const landing = await context.newPage(); await landing.goto('https://keewebx.app/');
         const options = await context.newPage(); await options.goto(`chrome-extension://${id}/pages/options.html`);
         await expect(options.locator('form input[type="text"]').first()).toHaveAttribute('placeholder', 'https://keewebx.app/app');
-        const opened = context.waitForEvent('page');
-        const linkName = await sw.evaluate(() => chrome.i18n.getMessage('optionsConnectionModeWebLink'));
-        await options.getByRole('link', { name: linkName, exact: true }).click();
-        const app = await opened;
-        await expect(app).toHaveURL('https://keewebx.app/app');
+        // Navigate the browser to the package's actual default. Chrome's initial
+        // extension-created tab request bypasses Playwright routing; navigation
+        // here keeps every application byte local while testing real discovery.
+        const defaultUrl = await options.locator('form input[type="text"]').first().getAttribute('placeholder');
+        const app = await context.newPage(); await app.goto(defaultUrl!);
         await app.locator('#open-demo').click();
         await expect(app.locator('.entry-row').first()).toBeVisible();
+        await expect(app).toHaveURL('https://keewebx.app/app');
         const site = await sitePage(); await site.locator('#login_field').focus();
         await expect.poll(() => sw.evaluate(() => (chrome.action.onClicked as any).hasListeners())).toBe(true);
         await sw.evaluate(async url => {

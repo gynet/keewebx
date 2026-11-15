@@ -29,7 +29,7 @@ const XPI = path.resolve(
     REPO_ROOT,
     'modules/extension/web-ext-artifacts/keewebx_connect-1.0.3.zip'
 );
-const KEEWEBX_URL = process.env.KEEWEBX_URL || 'http://localhost:8085/';
+const KEEWEBX_URL = process.env.KEEWEBX_URL || 'http://localhost:8085/classic.html';
 const FF_BIN_MAC = '/Applications/Firefox.app/Contents/MacOS/firefox';
 
 function fail(msg) {

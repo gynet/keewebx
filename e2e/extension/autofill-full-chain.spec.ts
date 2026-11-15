@@ -61,7 +61,7 @@ import fs from 'node:fs';
  */
 
 const EXT_PATH = path.resolve(__dirname, '../../modules/extension/dist/chrome');
-const NEOWEB_URL = 'http://localhost:8085/';
+const NEOWEB_URL = 'http://localhost:8085/classic.html';
 
 async function waitForServiceWorker(context: BrowserContext): Promise<Worker> {
     let [sw] = context.serviceWorkers();
@@ -116,7 +116,7 @@ test.describe('Extension full-chain autofill (chromium)', () => {
             await sw.evaluate(async () => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 await (chrome as any).storage.local.set({
-                    keeWebUrl: 'http://localhost:8085/'
+                    keeWebUrl: 'http://localhost:8085/classic.html'
                 });
             });
 
