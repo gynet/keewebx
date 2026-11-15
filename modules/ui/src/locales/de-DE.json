@@ -1200,5 +1200,7 @@
   "More actions": "Weitere Aktionen",
   "More": "Mehr",
   "Entry actions": "Eintragsaktionen",
-  "Close actions": "Aktionen schließen"
+  "Close actions": "Aktionen schließen",
+  "Copy password…": "Passwort kopieren…",
+  "Copy the password to the clipboard?": "Das Passwort in die Zwischenablage kopieren?"
 }

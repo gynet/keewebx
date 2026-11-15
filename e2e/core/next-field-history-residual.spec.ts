@@ -202,9 +202,9 @@ test('formatted copy warns, escapes HTML, share cancellation is inert, and real 
     expect(await page.evaluate(() => (window as any).fieldClipboard.shared)).toBe('secret<&>');
     await page.evaluate(() => Object.defineProperty(navigator, 'share', { configurable: true, value: undefined }));
     await activateEntryAction(page, 'Share password…');
-    const fallback = page.getByRole('dialog', { name: 'Share password', exact: true });
+    const fallback = page.getByRole('dialog', { name: 'Copy password', exact: true });
     expect(await page.evaluate(() => (window as any).fieldClipboard.writes)).toBe(1);
-    await fallback.getByRole('button', { name: 'Copy password instead', exact: true }).click();
+    await fallback.getByRole('button', { name: 'Copy password', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Password copied.' })).toBeVisible();
     expect(await page.evaluate(() => (window as any).fieldClipboard.plain)).toBe('secret<&>');
     expect(await page.evaluate(() => (window as any).fieldClipboard.writes)).toBe(2);

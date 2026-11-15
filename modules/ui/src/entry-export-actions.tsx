@@ -37,7 +37,7 @@ export function EntryExportActions({ model, entry }: { model: AppModel; entry: E
     return <div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             <button type="button" class="pill pill--tinted" onClick={() => begin(false)}>{t('Copy formatted entry…')}</button>
-            <button type="button" class="pill pill--tinted" disabled={!entry.password?.getText()} onClick={() => begin(true)}>{t('Share password…')}</button>
+            <button type="button" class="pill pill--tinted" disabled={!entry.password?.getText()} onClick={() => begin(true)}>{t(typeof navigator.share === 'function' ? 'Share password…' : 'Copy password…')}</button>
         </div>
         {message && <p role="status">{message}</p>}
         {request && <ExportDialog model={model} entry={entry} request={request} onClose={() => setRequest(null)}
@@ -91,28 +91,28 @@ function ExportDialog({ model, entry, request, onClose, onDone }: {
             if (!available()) return;
             if (request.share && !fallback) {
                 if ((error as { name?: string }).name === 'AbortError') { onDone(t('Sharing canceled.')); return; }
-                setFallback(true); setError(t('Sharing is unavailable. You can copy the password instead.'));
+                setFallback(true); setError('');
             } else setError(t('Could not copy. Check clipboard permission and try again.'));
             submitted.current = false;
         } finally { setBusy(false); }
     };
-    return <dialog ref={dialog} aria-label={t(request.share ? 'Share password' : 'Copy formatted entry')} aria-modal="true"
+    const title = request.share ? fallback ? 'Copy password' : 'Share password' : 'Copy formatted entry';
+    return <dialog ref={dialog} aria-label={t(title)} aria-modal="true"
         onCancel={event => { event.preventDefault(); onClose(); }}
         onClick={event => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         onKeyDown={event => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         style={{ width: 'min(440px, calc(100vw - 32px))', boxSizing: 'border-box', maxHeight: 'calc(100dvh - 32px)',
             margin: 'auto', padding: '20px', overflow: 'auto', overflowWrap: 'anywhere', border: '1px solid var(--kx-line)',
             borderRadius: 'var(--kx-radius-card)', background: 'var(--kx-bg)', color: 'var(--kx-text)' }}>
-        <h2>{t(request.share ? 'Share password' : 'Copy formatted entry')}</h2>
-        <p>{t(request.share ? 'The password will be shared as plain text with the app you choose.'
+        <h2>{t(title)}</h2>
+        <p>{t(request.share ? fallback ? 'Copy the password to the clipboard?' : 'The password will be shared as plain text with the app you choose.'
             : 'Copy this entry as unencrypted content, including hidden secrets and attachment download links? Plain-text paste includes fields and attachment names. Only applied entry content is included.')}</p>
-        {request.share && fallback && <p>{t('Sharing is unavailable in this browser. Copy the password instead?')}</p>}
         {!request.check() && <p role="alert">{t('The entry or session changed. Cancel and reopen this action.')}</p>}
         {error && <p role="alert">{error}</p>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             <button ref={cancel} type="button" class="pill" onClick={onClose}>{t('Cancel')}</button>
             <button type="button" class="pill pill--primary" disabled={busy || !request.check()} onClick={() => void apply()}>
-                {t(request.share ? fallback ? 'Copy password instead' : 'Share password' : 'Copy entry')}
+                {t(request.share ? fallback ? 'Copy password' : 'Share password' : 'Copy entry')}
             </button>
         </div>
     </dialog>;
