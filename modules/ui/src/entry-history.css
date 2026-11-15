@@ -1,15 +1,20 @@
 .entry-history {
     width: min(680px, calc(100vw - 32px));
     max-height: calc(100dvh - 32px);
-    padding: 24px;
+    padding: 0;
     margin: auto;
-    overflow: auto;
+    overflow: hidden;
     overflow-wrap: anywhere;
     border: 1px solid var(--kx-line);
     border-radius: var(--kx-radius-card);
     background: var(--kx-bg);
     color: var(--kx-text);
 }
+/* Keep the native closed-dialog display:none behavior. Only the body scrolls. */
+.entry-history[open] { display: flex; flex-direction: column; }
+.entry-history__header { flex: none; padding: 16px 24px; border-bottom: 1px solid var(--kx-line); }
+.entry-history__close { flex: none; min-width: 44px; min-height: 44px; }
+.entry-history__body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 24px 24px; }
 .entry-history h2 { margin: 0; flex-grow: 1; }
 .entry-history select { width: 100%; min-width: 0; }
 .entry-history__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

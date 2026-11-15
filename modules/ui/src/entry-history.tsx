@@ -196,10 +196,11 @@ function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged, search
         onCancel={(event) => { event.preventDefault(); if (confirmation) setConfirmation(null); else onClose(); }}
         onKeyDown={(event) => { IdleTracker.regUserAction(); event.stopPropagation(); }}
         onClick={(event) => { IdleTracker.regUserAction(); event.stopPropagation(); }}>
-        <div class="entry-history__actions">
+        <div class="entry-history__header entry-history__actions">
             <h2>{t('Entry history')}</h2>
-            <button type="button" class="pill" onClick={onClose}>{t('Close History')}</button>
+            <button type="button" class="pill entry-history__close" onClick={onClose}>{t('Close History')}</button>
         </div>
+        <div class="entry-history__body">
         {reason ? <p role="alert" class="error">{reason}</p> : confirmation ? <>
             <h3>{t(confirmation === 'restore' ? 'Restore this version?' : 'Delete this history version?')}</h3>
             <p>{t('Revision {} — {}', String(index + 1), DateFormat.dtStr(record.updated))}</p>
@@ -268,5 +269,6 @@ function HistoryDialog({ snapshot, hasDraft, trigger, onClose, onChanged, search
             </div>}
             {writeReason && <p role="status">{writeReason}</p>}
         </>}
+        </div>
     </dialog>;
 }

@@ -19,7 +19,7 @@ async function decode(data: Buffer) {
     kdbx.CryptoEngine.setArgon2Impl(argon2);
     return kdbx.Kdbx.load(new Uint8Array(data).buffer, credentials());
 }
-async function fixture() {
+async function fixture(longContent = false) {
     kdbx.CryptoEngine.setArgon2Impl(argon2);
     const db = kdbx.Kdbx.create(credentials(), vaultName);
     const group = db.createGroup(db.groups[0], 'Accounts');
@@ -30,6 +30,7 @@ async function fixture() {
     entry.fields.set('Notes', kdbx.ProtectedValue.fromString('Old protected notes\nsecond line'));
     entry.fields.set('Old field', 'Only in first version');
     entry.fields.set('Protection change', 'unchanged value');
+    if (longContent) entry.fields.set('Long public text', 'Synthetic history content. '.repeat(500));
     entry.tags = ['old'];
     entry.times.creationTime = new Date('2019-01-01T00:00:00Z');
     entry.times.lastModTime = new Date('2020-01-01T00:00:00Z');
@@ -167,6 +168,76 @@ async function peer(source: Fixture) {
 
 test.describe('New entry history', () => {
     test.setTimeout(90_000);
+    for (const viewport of [{ width: 320, height: 350 }, { width: 390, height: 844 }, { width: 1280, height: 800 }]) {
+        test.describe(`reachable close at ${viewport.width}px`, () => {
+            const touch = viewport.width < 400;
+            test.use({ viewport, hasTouch: touch });
+            test('Close stays reachable after scrolling; pointer and Escape preserve focus and cancel changes', async ({ page }) => {
+                const source = await fixture(true);
+                await open(page, source);
+                const close = history(page).getByRole('button', { name: 'Close History', exact: true });
+                const assertCloseReachable = async () => {
+                    await expect(close).toBeInViewport({ ratio: 1 });
+                    return close.evaluate(button => {
+                        const rect = button.getBoundingClientRect();
+                        const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+                        if (!button.contains(document.elementFromPoint(x, y))) {
+                            throw new Error('Close must be an unobscured touch target');
+                        }
+                        return { x, y };
+                    });
+                };
+                const scrollToEnd = async () => {
+                    await history(page).evaluate(dialog => {
+                        const body = dialog.querySelector('.entry-history__body') ?? dialog;
+                        body.scrollTop = body.scrollHeight;
+                    });
+                    await expect.poll(() => history(page).evaluate(dialog => {
+                        const body = dialog.querySelector('.entry-history__body') ?? dialog;
+                        return body.scrollTop > 0 && body.scrollTop + body.clientHeight >= body.scrollHeight - 1;
+                    })).toBe(true);
+                    await expect(field(page, 'Password').locator('dd')).toHaveText('••••••••••••');
+                };
+                await showHistory(page, touch);
+                await assertCloseReachable();
+                await scrollToEnd();
+                await page.screenshot({ path: test.info().outputPath('history-close-scrolled.png') });
+                const point = await assertCloseReachable();
+                const bounds = await close.boundingBox();
+                expect(bounds!.width).toBeGreaterThanOrEqual(44);
+                expect(bounds!.height).toBeGreaterThanOrEqual(44);
+                // Coordinate input cannot auto-scroll an otherwise unreachable close button.
+                if (touch) await page.touchscreen.tap(point.x, point.y);
+                else await page.mouse.click(point.x, point.y);
+                await expect(history(page)).toHaveCount(0);
+                await expect(page.getByRole('button', { name: 'History', exact: true })).toBeFocused();
+                await showHistory(page, touch);
+                await scrollToEnd();
+                await page.keyboard.press('Escape');
+                await expect(history(page)).toHaveCount(0);
+                await expect(page.getByRole('button', { name: 'History', exact: true })).toBeFocused();
+                await showHistory(page, touch);
+                await version(page, 0);
+                for (const action of ['Restore version', 'Delete version']) {
+                    const button = history(page).getByRole('button', { name: action, exact: true });
+                    await activate(button, touch);
+                    await expect(history(page).getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+                    await assertCloseReachable();
+                    await activate(history(page).getByRole('button', { name: 'Cancel', exact: true }), touch);
+                    await expect(button).toBeFocused();
+                    await assertCloseReachable();
+                    await activate(button, touch);
+                    await page.keyboard.press('Escape');
+                    await expect(button).toBeFocused();
+                    await assertCloseReachable();
+                }
+                await activate(close, touch);
+                await expect(page.getByRole('button', { name: 'History', exact: true })).toBeFocused();
+                expect(entries((await download(page, touch)).db).map(semantic)).toEqual(entries(await decode(source.data)).map(semantic));
+            });
+        });
+    }
+
     test('direct history is read-only, masks secrets, shows differences, and preserves an editor draft', async ({ page, browserName }) => {
         const source = await fixture();
         await open(page, source);
