@@ -78,7 +78,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
     };
 
     return (
-        <div class="vault">
+        <div class="vault vault--settings">
             <nav class="side" aria-label={t('Settings')}>
                 <button class="nav-row" id="settings-back" onClick={onBack}>
                     <Icon name="back" size={17} />
@@ -87,6 +87,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
             </nav>
             <main class="settings" ref={content}>
                 <div class="settings__inner">
+                    <header class="settings__header">
                     <div class="settings__titlebar">
                         <button class="round settings__phone-back" aria-label={t('Back to vault')} onClick={onBack}>
                             <Icon name="back" />
@@ -107,6 +108,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                                 event.preventDefault(); select(SECTIONS[next][0], true);
                             }}>{t(label)}</button>)}
                     </div>
+                    </header>
                     {/* Keep editors mounted across tabs so unsaved drafts and lock guards stay intact. */}
                     <section id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden={section !== 'appearance'}>
                     <h2 class="group-title">{t('Appearance')}</h2>
