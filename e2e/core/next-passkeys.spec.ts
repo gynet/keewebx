@@ -684,6 +684,7 @@ for (const theme of ['light', 'dark']) {
         await expect.poll(() => page.evaluate(() => !!(window as any).__passkeyHeld)).toBe(true);
         await expect(input).toBeDisabled();
         await releaseCeremony(page);
+        await section(page).getByRole('button', { name: 'Verify passkey', exact: true }).click();
         await expect(section(page).getByRole('status')).toContainText('Passkey unlock saved in this browser');
         await expect(input).toBeEnabled();
         expect(await input.evaluate((element: HTMLInputElement) => element.files?.length)).toBe(0);
