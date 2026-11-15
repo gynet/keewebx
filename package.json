@@ -8,7 +8,7 @@
     "modules/*"
   ],
   "scripts": {
-    "dev": "bun run --filter @keewebx/ui-classic dev",
+    "dev": "bun run --filter @keewebx/db build && bun run --filter @keewebx/ui-classic build && bun run --filter @keewebx/ui dev",
     "build": "bun run check:boundaries && bun run --filter @keewebx/db build && bun run --filter @keewebx/ui-classic build && bun run --filter @keewebx/ui build",
     "check:boundaries": "bun scripts/check-boundaries.ts",
     "test": "bun run --filter @keewebx/db build && bun run --filter '*' test",
@@ -20,7 +20,8 @@
     "test:e2e": "bunx playwright test",
     "test:e2e:live": "bunx playwright test --project=live",
     "test:e2e:ext": "cd modules/extension && bunx playwright test",
-    "report": "bunx playwright show-report"
+    "report": "bunx playwright show-report",
+    "dev:classic": "bun run --filter @keewebx/ui-classic dev"
   },
   "author": "gynet",
   "repository": {

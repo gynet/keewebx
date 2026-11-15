@@ -30,6 +30,13 @@ module.exports = (env, argv) => {
             clean: false
         },
         target: 'web',
+        devServer: {
+            host: '127.0.0.1',
+            port: Number(process.env.PORT || 8085),
+            static: { directory: path.resolve(rootDir, '../../dist') },
+            open: false,
+            historyApiFallback: false
+        },
         performance: { hints: false },
         resolve: {
             extensions: ['.tsx', '.ts', '.js', '.json'],
