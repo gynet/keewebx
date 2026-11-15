@@ -19,9 +19,10 @@
 .entry-list-controls__secondary > .entry-list__create { width: 100%; font-size: 12px; }
 .entry-list-controls .vault-filter { margin: 0 0 6px; }
 .entry-list-controls .vault-filter select { min-height: 44px; }
-.sidebar-generator { min-height: 44px; flex: none; margin-top: auto; }
-.sidebar-generator + .side__foot { margin-top: 0; }
-@media (min-width: 761px) {
-    .sidebar-folded > .side > .sidebar-generator { justify-content: center; padding: 10px; }
-    .sidebar-folded > .side > .sidebar-generator .nav-row__label { display: none; }
+.side__foot .sidebar-generator { min-width: 36px; min-height: 36px; }
+
+.vault .side__foot { gap: 1px; padding: 10px 0 0; flex-wrap: wrap; }
+@media (max-width: 760px) {
+    .vault .side__foot { gap: 0; margin-inline: -1px; }
+    .vault .side__foot .round { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
 }

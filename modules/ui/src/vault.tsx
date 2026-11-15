@@ -494,10 +494,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <button type="button" class="round" aria-label={t('Browse groups')} title={t('Browse groups')} onClick={sidebar.toggle}><Icon name="folder" size={18} /></button>
                     <button type="button" class="round" aria-label={t('Trash')} title={t('Trash')} onClick={() => changeFilter({ trash: true })}><Icon name="trash" size={18} /></button>
                 </div>
-                {model.settings.canOpenGenerator && <button type="button" class="nav-row sidebar-generator" aria-label={t('Password generator')} title={t('Password generator')}
-                    onClick={() => { closeNavigation(); props.onGenerator(); }}>
-                    <Icon name="key" size={17} /><span class="nav-row__label">{t('Password generator')}</span>
-                </button>}
                 <div class="side__foot">
                     <EntryActions compact label={t('Database actions')} title={t('Database actions')}>
                         {allFiles.length === 1 ? <>
@@ -510,6 +506,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     <span style={{ flexGrow: 1 }} />
                     {props.onOpenAnother && <button class="round" aria-label={t('Open another vault')} title={t('Open another vault')}
                         onClick={() => { setNavigationOpen(false); props.onOpenAnother?.(); }}><Icon name="plus" size={17} /></button>}
+                    {model.settings.canOpenGenerator && <button type="button" class="round sidebar-generator"
+                        aria-label={t('Password generator')} title={t('Password generator')}
+                        onClick={() => { closeNavigation(); props.onGenerator(); }}><Icon name="key" size={17} /></button>}
                     <ThemeToggle />
                     <button hidden={!model.settings.canOpenSettings} class="round" aria-label={t('Settings')} title={t('Settings')} id="open-settings" onClick={() => { setNavigationOpen(false); props.onSettings(); }}>
                         <Icon name="gear" size={17} />
