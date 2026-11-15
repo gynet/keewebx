@@ -48,7 +48,7 @@ handle the initial window readiness handshake.
 - The installer includes its MIT license and requires only `GM.getValue` and
   `GM.setValue`; it runs on HTTPS top-level documents in the content context.
 
-## Validation completed before publication
+## Validation completed
 
 | Check | Result and scope |
 | --- | --- |
@@ -56,7 +56,7 @@ handle the initial window readiness handshake.
 | Chrome, Edge and Firefox package builds | Passed; Firefox build package is unsigned |
 | Userscripts strict TypeScript and JavaScript syntax | Passed |
 | Desktop extension unit tests | 225 passed, including 25 protocol-runtime/crypto validation cases |
-| Real-app Chromium acceptance | Four scenarios, 33 passing stages using the exact installer above |
+| Real-app Chromium acceptance | Six scenarios, 43 passing stages using the exact installer above |
 | Form destination/lifetime tests | 16 passed across Chromium and desktop WebKit |
 | Native BroadcastChannel transport | Eight passed across Chromium and desktop WebKit, including delayed trusted commits with withheld timers and discovery expiry |
 | App and disconnected extension setup instructions | Rendered successfully; download/guide URLs checked |
@@ -74,6 +74,11 @@ New interface and approves its actual native Connect dialog. It covers:
 4. A delayed genuine confirmation from the other app cannot steal the chosen
    connection. Locking the selected database stops filling and never falls
    back to the other app.
+5. A different HTTPS origin in the same website window cannot cancel or
+   bootstrap a connection approved for the original origin. The fixture
+   preserves actual native message delivery so the origin guard is exercised.
+6. Restarting or closing the helper cancels native authorization; stale Allow
+   actions cannot grant access. A fresh explicit approval enables normal fill.
 
 The harness simulates Userscripts' GM storage/injection and runs the bundle
 in Chromium's main world. App, KDBX, permissions, encrypted protocol and form

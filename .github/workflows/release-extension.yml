@@ -99,7 +99,7 @@ jobs:
           echo "Short SHA: ${SHORT_SHA}"
           echo "Manifest version: ${MANIFEST_VER}"
 
-          mkdir -p artifacts
+          mkdir -p artifacts unpacked
 
           # Chrome + Edge: zip the dist/<browser>/ contents (no wrapping
           # folder — web stores expect manifest.json at the zip root).

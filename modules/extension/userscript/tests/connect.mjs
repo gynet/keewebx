@@ -26,7 +26,9 @@ const RELAY_CHOSEN = { file: 'relay-chosen.kdbx', title: 'Selected relay login',
 const LOGIN_USERS = [LOGIN_USER, RELAY_FIRST.user, RELAY_CHOSEN.user];
 const LOGIN_PASSWORDS = [LOGIN_PASSWORD, RELAY_FIRST.password, RELAY_CHOSEN.password];
 const SITE = 'https://login.example.org/';
-const SECOND_SITE = 'https://second-login.example.net/';
+// A distinct HTTPS origin within the same site preserves Chromium's live opener route.
+// Cross-site browsing-instance changes can drop delivery before the origin guard is exercised.
+const SECOND_SITE = 'https://second-login.example.org/';
 const APP = 'https://keewebx.app/app';
 const report = { started: new Date().toISOString(), artifactDirectory: OUT, appServer: APP_SERVER,
     scope: 'Plain Chromium BrowserContext.addInitScript MAIN WORLD; shared simulated GM via exposeBinding; actual bundle and real app/protocol',
@@ -49,6 +51,13 @@ async function step(name, fn) {
         console.log(JSON.stringify(result));
         return detail;
     } catch (error) {
+        if (activeScenario?.name === 'relay-origin-binding' && site && !site.isClosed()) {
+            activeScenario.originProbe = await site.evaluate(() => {
+                const probe = globalThis.__kwxConnectTest;
+                return { hasHelperProxy: !!probe?.testHelper, barrierAcknowledged: probe?.barrierAcknowledged,
+                    messages: probe?.originProbeMessages, requestIds: probe?.probeIds, replies: probe?.nativeReplies };
+            }).catch(() => undefined);
+        }
         report.steps.push({ scenario: prefix, name, state: 'failed', error: redact(error.message) });
         throw error;
     }
@@ -177,7 +186,7 @@ async function scenario(name, run) {
         <script>window.formSubmits=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.formSubmits++});</script>`
     });
     await context.route('https://login.example.org/**', loginFixture);
-    await context.route('https://second-login.example.net/**', loginFixture);
+    await context.route('https://second-login.example.org/**', loginFixture);
     try {
         await run();
         state.passed = true;
@@ -423,10 +432,15 @@ async function relayOriginBinding() {
         await site.goto(SECOND_SITE); await ready(site);
         await site.evaluate(appOrigin => {
             const observations = globalThis.__kwxConnectTest;
+            observations.originProbeMessages = [];
+            addEventListener('message', event => {
+                if (String(event.data?.marker).startsWith('kwx-e2e-')) observations.originProbeMessages.push({ marker: event.data.marker, origin: event.origin, trusted: event.isTrusted });
+                if (event.isTrusted && event.origin === appOrigin && event.data?.marker === 'kwx-e2e-helper-reference') observations.testHelper = event.source;
+            });
             const button = document.createElement('button'); button.id = 'try-previous-helper'; button.textContent = 'Try previous Connect link';
             button.onclick = event => {
                 if (!event.isTrusted) return;
-                const helper = window.open('', 'KeeWebXUserscriptConnect');
+                const helper = observations.testHelper;
                 if (!helper) throw new Error('The existing related helper was not found');
                 const nonce = crypto.randomUUID();
                 observations.probeIds = [];
@@ -445,8 +459,16 @@ async function relayOriginBinding() {
             };
             document.body.append(button);
         }, new URL(APP).origin);
+        // Reacquire the actual old helper proxy from a native MessageEvent.source. Named-window
+        // lookup after a cross-origin navigation may instead create an unrelated blank window.
+        activeScenario.helperReference = await relayHelper.evaluate(origin => {
+            const opener = window.opener;
+            opener?.postMessage({ marker: 'kwx-e2e-helper-reference' }, origin);
+            return { hasOpener: !!opener, openerClosed: opener?.closed, targetOrigin: origin, helperOrigin: location.origin };
+        }, new URL(SECOND_SITE).origin);
+        await expect.poll(() => site.evaluate(() => !!globalThis.__kwxConnectTest.testHelper), { message: 'Receive actual helper WindowProxy after cross-origin navigation' }).toBe(true);
         await site.locator('#try-previous-helper').click();
-        await expect.poll(() => site.evaluate(() => !!globalThis.__kwxConnectTest.barrierAcknowledged)).toBe(true);
+        await expect.poll(() => site.evaluate(() => !!globalThis.__kwxConnectTest.barrierAcknowledged), { message: 'Receive FIFO barrier from the actual helper' }).toBe(true);
         const replies = await site.evaluate(() => {
             const observations = globalThis.__kwxConnectTest;
             return observations.nativeReplies.filter(reply => observations.probeIds.includes(reply.id));
@@ -636,6 +658,7 @@ try {
     report.ok = report.fullFlowVerified;
 } catch (error) {
     report.ok = false; report.blocker = redact(error.message);
+    report.blockerStack = redact(error.stack);
 } finally {
     if (context) await context.close();
     if (browser) await browser.close();
