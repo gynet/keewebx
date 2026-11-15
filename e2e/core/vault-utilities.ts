@@ -17,5 +17,13 @@ export async function activateVaultUtility(page: Page, name: string, options: { 
         if (options.touch) await browse.tap(); else await browse.click();
     }
     await expect(action).toHaveCount(1);
-    if (options.touch) await action.tap(); else await action.click();
+    if (options.touch) await action.tap();
+    else if (page.context().browser()?.browserType().name() === 'firefox' &&
+        await action.evaluate(button => !!button.closest('.side__foot'))) {
+        // Firefox can report a bottom-edge click without delivering native pointer
+        // events. Use the footer button's real keyboard activation in that driver.
+        await action.focus();
+        await expect(action).toBeFocused();
+        await action.press('Enter');
+    } else await action.click();
 }
