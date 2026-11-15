@@ -27,7 +27,7 @@ for (const width of [320, 390, 1280]) test.describe(`Entry actions at ${width}px
         await expect(top.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
         await expect(more).toHaveAttribute('aria-expanded', 'false');
         await expect(actions).toBeHidden();
-        for (const name of ['History', 'Clone…', 'Move…', 'Recycle', 'Share password…', 'Download website icon…', 'Show empty fields']) {
+        for (const name of ['History', 'Clone…', 'Move to group…', 'Recycle', 'Share password…', 'Download website icon…', 'Show empty fields']) {
             await expect(page.getByRole('button', { name, exact: true })).toBeHidden();
         }
 

@@ -1,3 +1,4 @@
+import { Icon } from 'ui-kit/mark';
 import { useState } from 'preact/hooks';
 import { ProtectedValue } from 'kdbxweb';
 import { GeneratorPresetEditor } from './generator-preset-editor';
@@ -42,7 +43,7 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
     }));
     const [result, setResult] = useState(() => generate(options));
     const [reveal, setReveal] = useState(false);
-    const select = (next: Options) => { setOptions({ ...next }); setResult(generate(next)); setReveal(false); };
+    const select = (next: Options) => { setOptions({ ...next }); setResult(generate(next)); };
     const derive = (password: string) => {
         const next = { ...PasswordGenerator.deriveOpts(ProtectedValue.fromString(password)), name: 'Derived' };
         setDeriveSource(''); select(next);
@@ -58,6 +59,18 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
             <div class="password-generator__head">
                 <h2 class="section-title">{t('Password generator')}</h2>
                 <button class="link" type="button" onClick={onClose}>{t('Close generator')}</button>
+            </div>
+            <div class="password-generator__preview">
+                <label class="field-label" for="generated-password-result">{t('Generated password')}</label>
+                <div class="password-generator__output">
+                    <input id="generated-password-result" class="input password-generator__result" type={reveal ? 'text' : 'password'}
+                        value={result.password} readOnly autoComplete="off" spellcheck={false} />
+                    <button class="icon-btn password-generator__reveal" type="button" aria-controls="generated-password-result"
+                        aria-label={t(reveal ? 'Hide generated password' : 'Show generated password')} aria-pressed={reveal}
+                        title={t(reveal ? 'Hide generated password' : 'Show generated password')} onClick={() => setReveal(!reveal)}>
+                        <Icon name="eye" size={18} />
+                    </button>
+                </div>
             </div>
             <div class="password-generator__options">
                 <label class="field-label">
@@ -113,14 +126,6 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
                 <button type="button" class="pill" disabled={!deriveSource} onClick={() => derive(deriveSource)}>{t('Derive options')}</button>
             </details>
             <GeneratorPresetEditor options={options} select={preset => select({ ...preset })} changed={() => setPresets(GeneratorPresets.enabled)} />
-            <label class="field-label">
-                <span>{t('Generated password')}</span>
-                <input class="input password-generator__result" type={reveal ? 'text' : 'password'}
-                    value={result.password} readOnly autoComplete="off" spellcheck={false} />
-            </label>
-            <button class="link password-generator__reveal" type="button" onClick={() => setReveal(!reveal)}>
-                {reveal ? t('Hide generated password') : t('Show generated password')}
-            </button>
             {result.error && <p class="error" role="alert">{result.error}</p>}
             <div class="password-generator__actions">
                 <button class="pill" type="button" onClick={() => setResult(generate(options))}>{t('Generate again')}</button>

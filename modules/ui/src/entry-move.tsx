@@ -149,7 +149,7 @@ export function EntryMove({ model, entry, onMoved, restore = false }: {
     };
     return <div>
         <button ref={trigger} type="button" class="pill pill--tinted" disabled={!!reason || !!selection}
-            title={reason || undefined} onClick={begin}>{t(restore ? 'Restore' : 'Move…')}</button>
+            title={reason || undefined} onClick={begin}>{t(restore ? 'Restore' : 'Move to group…')}</button>
         {message && <p role="status">{message}</p>}
         {selection && <MoveDialog model={model} selection={selection} trigger={trigger}
             onCancel={() => setSelection(null)} onMoved={(groupId) => {

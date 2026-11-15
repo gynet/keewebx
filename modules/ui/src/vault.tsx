@@ -1,3 +1,4 @@
+import { EntryActions } from './entry-actions';
 import { EntryAppearance, EntryFlag, EntryColorFilter } from './entry-appearance';
 import { EntryListing } from './entry-listing';
 import { EntryListControls } from './entry-list-controls';
@@ -866,21 +867,23 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 </div>
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
-                    <FaviconImport model={model} entry={entry} />
-                    <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
-                    {!inTrash && <button type="button" class="pill pill--tinted" onClick={onTransfer}>{t('Move to another vault…')}</button>}
-                    {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
-                    <EntryHistory entry={entry} searchFilter={historyFilter} onRestore={() => setNotesVersion(value => value + 1)} />
-                    <EntryDelete model={model} entry={entry} onDeleted={onDeleted} />
-                    <EntryExportActions model={model} entry={entry} />
-                    <EntryDiscard model={model} entry={entry} onDeleted={onDeleted} onChanged={() => setNotesVersion(value => value + 1)} />
+                    <EntryActions>
+                        <FaviconImport model={model} entry={entry} />
+                        <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
+                        {!inTrash && <button type="button" class="pill pill--tinted" onClick={onTransfer}>{t('Move to another vault…')}</button>}
+                        {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}
+                        <EntryHistory entry={entry} searchFilter={historyFilter} onRestore={() => setNotesVersion(value => value + 1)} />
+                        <EntryExportActions model={model} entry={entry} />
+                        <EntryDelete model={model} entry={entry} onDeleted={onDeleted} />
+                        <EntryDiscard model={model} entry={entry} onDeleted={onDeleted} onChanged={() => setNotesVersion(value => value + 1)} />
+                        <button type="button" class="link" onClick={() => {
+                            AppSettingsModel.hideEmptyFields = showEmpty; setShowEmpty(!showEmpty);
+                        }}>{t(showEmpty ? 'Hide empty fields' : 'Show empty fields')}</button>
+                    </EntryActions>
                 </div>
             </div>
 
             <PasswordAudit model={model} entry={entry} />
-            <button type="button" class="link" onClick={() => {
-                AppSettingsModel.hideEmptyFields = showEmpty; setShowEmpty(!showEmpty);
-            }}>{t(showEmpty ? 'Hide empty fields' : 'Show empty fields')}</button>
             {(rows.length > 0 || entry.url || showEmpty) && (
                 <div class="fields">
                     {rows.map((r) => (

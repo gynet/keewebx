@@ -1,0 +1,19 @@
+.entry-more { position: relative; }
+.entry-more__panel {
+    position: fixed; z-index: 20;
+    width: min(300px, calc(100vw - 32px)); max-height: min(520px, 65dvh); overflow-y: auto;
+    padding: 8px; border: 1px solid var(--kx-line); border-radius: 12px;
+    background: var(--kx-surface, var(--kx-bg)); color: var(--kx-text);
+    box-shadow: 0 8px 28px #0003;
+}
+.entry-more__panel[hidden] { display: none; }
+.entry-more__heading { display: flex; align-items: center; justify-content: space-between; padding-left: 10px; font-size: 12px; color: var(--kx-muted); }
+.entry-more__panel > div:not(.entry-more__heading), .entry-more__panel > div > div:not([role]) { display: contents !important; }
+.entry-more__panel > button, .entry-more__panel > div > button, .entry-more__panel > div > div > button {
+    display: flex; align-items: center; width: 100%; min-height: 44px; margin: 0;
+    padding: 10px 12px; border: 0; border-radius: 6px; text-align: left; justify-content: flex-start;
+    background: transparent; color: inherit; font-size: 14px; white-space: normal;
+}
+.entry-more__panel button:hover { background: var(--kx-hover, #8882); }
+.entry-more__panel button:focus-visible { outline: 2px solid var(--kx-acc); outline-offset: -2px; }
+.entry-more__panel button.pill--danger { color: var(--kx-error); border-top: 1px solid var(--kx-line); border-radius: 0 0 6px 6px; }

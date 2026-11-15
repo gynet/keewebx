@@ -1,0 +1,27 @@
+import { test, expect } from '@playwright/test';
+for (const width of [320, 1280]) test(`Generator visibility keeps the same password at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 740 });
+    await page.goto('/next.html');
+    await page.getByRole('button', { name: 'Password generator', exact: true }).click();
+    const generator = page.getByRole('region', { name: 'Password generator', exact: true });
+    const result = generator.getByLabel('Generated password', { exact: true });
+    await expect(result).toBeInViewport();
+    const original = await result.inputValue();
+    expect(original.length).toBeGreaterThan(0);
+    await expect(result).toHaveAttribute('type', 'password');
+    await generator.getByRole('button', { name: 'Show generated password', exact: true }).click();
+    await expect(result).toHaveAttribute('type', 'text');
+    await expect(result).toHaveValue(original);
+    await generator.getByRole('button', { name: 'Hide generated password', exact: true }).click();
+    await expect(result).toHaveAttribute('type', 'password');
+    await expect(result).toHaveValue(original);
+    await generator.getByRole('button', { name: 'Show generated password', exact: true }).click();
+    await generator.getByLabel('Length', { exact: true }).fill('24');
+    await expect(result).toHaveAttribute('type', 'text');
+    await expect(result).toHaveValue(/^.{24}$/);
+    await generator.getByLabel('Preset', { exact: true }).selectOption('Pin4');
+    await expect(result).toHaveAttribute('type', 'text');
+    await expect(result).toHaveValue(/^\d{4}$/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`generator-preview-${width}.png`), fullPage: true });
+});
