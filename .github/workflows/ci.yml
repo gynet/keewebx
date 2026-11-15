@@ -5,6 +5,11 @@ on:
     branches: [master]
   pull_request:
 
+# Only the newest commit on a branch needs to finish acceptance.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   e2e-embedded-vault:
     runs-on: ubuntu-latest
