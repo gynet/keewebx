@@ -138,6 +138,13 @@ test.describe('Next database settings edge cases', () => {
     for (const invalid of invalidParameters) {
         test(`rejects ${invalid.name} before applying any database edits`, async ({ page }) => {
             await createVault(page);
+            // Isolate validation from the creation-triggered background save: it can
+            // disable Save between pointer-down and pointer-up. Keep real UI submission.
+            await page.locator('#open-settings').click();
+            await page.getByRole('tab', { name: 'Saving and content', exact: true }).click();
+            await page.locator('#setting-auto-save').selectOption('0');
+            await expect(page.locator('#setting-auto-save')).toHaveValue('0');
+            await page.locator('#settings-back').click();
             const form = await openSettings(page);
             await form.getByLabel('Vault name', { exact: true }).fill('Must not be applied');
             await form.getByLabel('Default user', { exact: true }).fill('must-not-be-applied');
