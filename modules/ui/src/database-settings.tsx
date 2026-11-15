@@ -7,7 +7,7 @@ import { getSessionAccess } from 'comp/app/session-access';
 import { DatabaseSettingsFields } from './database-settings-fields';
 import { DatabaseCredentialsEditor } from './database-credentials';
 import { runCredentialOperation } from './credential-operations';
-import { savePendingDrafts, usePendingDraft } from './pending-drafts';
+import { hasPendingDrafts, savePendingDrafts, usePendingDraft } from './pending-drafts';
 import { t } from './i18n';
 import { PlaintextExport } from './plaintext-export';
 import { DatabasePasskey } from './database-passkey';
@@ -51,7 +51,10 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
     usePendingDraft(JSON.stringify(draft) !== baseline, apply, reset, 'database', file.id);
     const download = async () => {
         if (busy || credentialBusy || !model.settings.canSaveTo) return;
-        if (!available() || getSessionAccess(model).state !== 'open') return;
+        if (!mounted.current || model.files.get(file.id) !== file || !file.active || getSessionAccess(model).state !== 'open') return;
+        if (!available() && hasPendingDrafts(file.id)) {
+            setMessage(t('Cancel read-only drafts before downloading the saved database.')); return;
+        }
         if (credentialDraft.current) {
             setMessage(t('Apply or discard credential edits before downloading.')); return;
         }
