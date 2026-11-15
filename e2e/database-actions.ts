@@ -9,7 +9,7 @@ export async function revealDatabaseAction(page: Page, name: string | RegExp, to
     }
     const action = nav.getByRole('button', { name, exact: typeof name === 'string' });
     if (!await action.isVisible()) {
-        const popover = nav.locator('.entry-more').filter({ has: nav.getByRole('button', { name, exact: typeof name === 'string', includeHidden: true }) });
+        const popover = nav.locator('.entry-more').filter({ has: page.getByRole('button', { name, exact: typeof name === 'string', includeHidden: true }) });
         const trigger = popover.locator(':scope > button');
         if (touch) await trigger.tap(); else await trigger.click();
     }
