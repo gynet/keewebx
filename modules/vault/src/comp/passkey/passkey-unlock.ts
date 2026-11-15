@@ -88,6 +88,9 @@ export interface PasskeyEnableResult {
     createdDate: Date;
 }
 
+/** A UI may request a fresh user action for each native WebAuthn ceremony. */
+export type PasskeyCeremony = <T>(stage: 'create' | 'verify', request: () => Promise<T>) => Promise<T>;
+
 /**
  * Register a fresh passkey for a given KDBX file and wrap its master
  * password string under a PRF-derived AES-256 key. The returned base64
@@ -108,14 +111,16 @@ export interface PasskeyEnableResult {
 export async function enablePasskeyForFile(
     fileId: string,
     fileName: string,
-    masterPasswordText: string
+    masterPasswordText: string,
+    runCeremony?: PasskeyCeremony
 ): Promise<PasskeyEnableResult> {
+    const run: PasskeyCeremony = runCeremony ?? ((_stage, request) => request());
     const userId = randomBytes(USER_HANDLE_BYTES);
-    const registration = await registerPasskey({
+    const registration = await run('create', () => registerPasskey({
         rpName: PASSKEY_RP_NAME,
         userName: fileName,
         userId
-    });
+    }));
 
     let prfOutput = registration.prfOutput;
     if (!prfOutput) {
@@ -123,10 +128,10 @@ export async function enablePasskeyForFile(
         // this is legal (e.g. older YubiKey firmware) — do a second
         // get() with the same salt to materialize the bytes before we
         // try to wrap anything.
-        prfOutput = await evaluatePrf({
+        prfOutput = await run('verify', () => evaluatePrf({
             credentialId: registration.credentialId,
             prfSalt: registration.prfSalt
-        });
+        }));
     }
 
     try {

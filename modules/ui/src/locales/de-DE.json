@@ -1,4 +1,11 @@
 {
+  "Passkey creation was not completed. It may have been canceled or refused by your browser or provider. A saved passkey still needs WebAuthn PRF support for encrypted unlock.": "Die Passkey-Erstellung wurde nicht abgeschlossen. Sie wurde möglicherweise abgebrochen oder vom Browser oder Anbieter abgelehnt. Auch ein gespeicherter Passkey benötigt WebAuthn PRF für die verschlüsselte Entsperrung.",
+  "Verify passkey": "Passkey überprüfen",
+  "Cancel passkey setup": "Passkey-Einrichtung abbrechen",
+  "Your passkey was created. Verify it to finish enabling encrypted unlock.": "Ihr Passkey wurde erstellt. Überprüfen Sie ihn, um die Einrichtung der verschlüsselten Entsperrung abzuschließen.",
+  "Your passkey was created, but encryption verification did not finish. Retry verification with the same passkey. Your provider must support WebAuthn PRF.": "Ihr Passkey wurde erstellt, aber die Verschlüsselungsprüfung wurde nicht abgeschlossen. Wiederholen Sie die Prüfung mit demselben Passkey. Ihr Anbieter muss WebAuthn PRF unterstützen.",
+  "Passkey setup stopped. Your password still works. The new passkey may remain in your provider.": "Die Passkey-Einrichtung wurde beendet. Ihr Passwort funktioniert weiterhin. Der neue Passkey kann bei Ihrem Anbieter verbleiben.",
+  "Passkey request was not completed. It may have been canceled, timed out, or refused by the browser or provider. You can still use your password.": "Die Passkey-Anfrage wurde nicht abgeschlossen. Sie wurde möglicherweise abgebrochen, ist abgelaufen oder wurde vom Browser oder Anbieter abgelehnt. Sie können weiterhin Ihr Passwort verwenden.",
   "The database file could not be read completely. Download it to this device, then choose it again.": "Die Datenbankdatei konnte nicht vollständig gelesen werden. Laden Sie sie auf dieses Gerät herunter und wählen Sie sie erneut aus.",
   " (current applied state)": " (aktuell angewendet)",
   " (search match)": " (Suchtreffer)",

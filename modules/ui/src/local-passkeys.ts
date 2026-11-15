@@ -6,6 +6,7 @@ import { getSessionAccess } from 'comp/app/session-access';
 import { SettingsStore } from 'comp/settings/settings-store';
 import { isPasskeyPrfSupported } from 'comp/passkey/passkey-prf';
 import { enablePasskeyForFile, unlockFileWithPasskey } from 'comp/passkey/passkey-unlock';
+import type { PasskeyCeremony } from 'comp/passkey/passkey-unlock';
 import { credentialChangeVersion, isSupportedCredentialShape, waitForCredentialChanges } from 'util/kdbxweb/credential-changes';
 import { beginPendingOperation } from './pending-operations';
 
@@ -78,7 +79,8 @@ export function forgetLocalPasskey(model: AppModel, id: string, current: () => b
 
 /** Caller supplies a live mount predicate. Pending-operation tracking starts before the first await. */
 export async function enrollLocalPasskey(
-    model: AppModel, file: FileModel, password: string, keyFile: File | undefined, current: () => boolean
+    model: AppModel, file: FileModel, password: string, keyFile: File | undefined, current: () => boolean,
+    runCeremony?: PasskeyCeremony
 ): Promise<void> {
     requireSupport();
     const info = model.fileInfos.get(file.id);
@@ -122,7 +124,9 @@ export async function enrollLocalPasskey(
             !matches(passwordHash, candidate.passwordHash) || !matches(keyHash, candidate.keyFileHash)) {
             throw new Error('Wrong password or key file.');
         }
-        const result = await enablePasskeyForFile(file.id, file.name, password);
+        const guardedCeremony: PasskeyCeremony | undefined = runCeremony && ((stage, request) =>
+            runCeremony(stage, () => { checkFactors(); return request(); }));
+        const result = await enablePasskeyForFile(file.id, file.name, password, guardedCeremony);
         checkFactors();
         persist(model, info, {
             passkeyCredentialId: result.credentialIdBase64, passkeyPrfSalt: result.prfSaltBase64,
@@ -176,7 +180,7 @@ export async function unlockWithLocalPasskey(
 
 export function localPasskeyError(error: unknown): string {
     const name = (error as { name?: string })?.name;
-    if (name === 'NotAllowedError' || name === 'AbortError') return 'Passkey request canceled. You can still use your password.';
+    if (name === 'NotAllowedError' || name === 'AbortError') return 'Passkey request was not completed. It may have been canceled, timed out, or refused by the browser or provider. You can still use your password.';
     if (name === 'PasskeyPrfNotSupportedError') return 'This authenticator does not support passkey unlock. Use your password or try another authenticator.';
     if ((error as { code?: string })?.code === 'InvalidKey') return 'Wrong password or key file. Use your current password and any required key file.';
     return error instanceof Error && !(error instanceof DOMException) ? error.message : 'Passkey request failed. Use your password and any required key file.';
