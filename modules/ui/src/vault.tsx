@@ -868,6 +868,10 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                 <div class="entry-detail__actions">
                     <button class="pill pill--tinted" onClick={onEdit}><Icon name="edit" size={16} />{t('Edit')}</button>
                     <EntryActions>
+                        <button type="button" class="pill" aria-haspopup="dialog"
+                            onClick={() => detail.current?.querySelector<HTMLButtonElement>('.entry-icon-trigger')?.click()}>
+                            {t('Change icon and color')}
+                        </button>
                         <FaviconImport model={model} entry={entry} />
                         <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
                         {!inTrash && <button type="button" class="pill pill--tinted" onClick={onTransfer}>{t('Move to another vault…')}</button>}
