@@ -104,8 +104,7 @@ async function choose(page: Page, label = `${name} / Team B / Accounts`) {
     await dialog(page).getByRole('combobox', { name: 'Destination group', exact: true }).selectOption({ label });
 }
 async function download(page: Page, touch = false) {
-    await browse(page, touch);
-    await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activateVaultUtility(page, 'Settings', { touch });
     await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const form = page.getByRole('form', { name: `Database settings: ${name}`, exact: true });
     const waiting = page.waitForEvent('download');
