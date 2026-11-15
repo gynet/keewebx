@@ -48,7 +48,47 @@ async function download(page: Page) {
 }
 const find = (db: kdbx.Kdbx, id: string) => [...db.groups[0].allEntries()].find(entry => entry.uuid.id === id)!;
 
-for (const width of [1280, 390]) {
+for (const width of [1280, 390, 320]) {
+    test(`entry icon is the only appearance action, supports keyboard and restores focus at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
+        await open(page); await select(page);
+        const trigger = page.getByRole('button', { name: 'Change icon and color', exact: true });
+        await expect(trigger).toHaveCount(1);
+        await expect(page.locator('.detail').getByRole('button', { name: /^Appearance/ })).toHaveCount(0);
+        const originalImage = await trigger.locator('img').getAttribute('src');
+        await trigger.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+        await expect(trigger).toBeFocused();
+        await expect(trigger).toHaveCSS('outline-style', 'solid');
+        await expect(trigger).toHaveCSS('outline-width', '2px');
+        await page.keyboard.press('Enter');
+        const dialog = page.getByRole('dialog', { name: 'Entry appearance', exact: true });
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole('radio', { name: 'Icon: Star', exact: true }).check();
+        await page.keyboard.press('Escape');
+        await expect(trigger).toBeFocused();
+        await expect(trigger.locator('img')).toHaveAttribute('src', originalImage!);
+        await page.keyboard.press('Space');
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole('radio', { name: 'Custom icon 1', exact: true }).check();
+        await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(trigger).toBeFocused();
+        await page.keyboard.press('Enter');
+        await dialog.getByRole('radio', { name: 'Icon: Star', exact: true }).check();
+        const apply = dialog.getByRole('button', { name: 'Apply appearance', exact: true });
+        await expect(apply).toBeInViewport();
+        expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        await apply.focus(); await page.keyboard.press('Enter');
+        await expect(trigger).toBeFocused();
+        await expect(trigger.locator('img')).toHaveCount(0);
+        await expect(trigger.locator('svg')).toBeVisible();
+        await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+        await expect(trigger).toBeFocused();
+        await page.keyboard.press('Space');
+        await expect(dialog.getByRole('radio', { name: 'Icon: Star', exact: true })).toBeChecked();
+        await page.keyboard.press('Escape');
+        await expect(trigger).toBeFocused();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
     test(`icon and every color flag apply, filter, clear and round-trip at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 }); const original = await open(page); await select(page);
         let dialog = await appearance(page);
@@ -97,10 +137,13 @@ for (const width of [1280, 390]) {
         await page.locator('#settings-back:visible, .settings__phone-back:visible').click(); dialog = await appearance(page);
         await dialog.getByLabel('Upload icon', { exact: true }).setInputFiles({ name: 'icon.png', mimeType: 'image/png', buffer: png });
         await expect(dialog.getByRole('img', { name: 'New icon preview', exact: true })).toBeVisible();
+        const preview = await dialog.getByRole('img', { name: 'New icon preview', exact: true }).getAttribute('src');
         await page.screenshot({ path: test.info().outputPath(`appearance-dialog-${width}.png`), fullPage: true });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await dialog.getByRole('button', { name: 'Apply appearance', exact: true }).click();
         await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
+        await expect(page.locator('.entry-icon-trigger img')).toHaveAttribute('src', preview!);
+        await expect(page.locator('[data-entry="Appearance record"] .tile img')).toHaveAttribute('src', preview!);
         reopened = await download(page); const entry = find(reopened, original.id);
         expect(entry.customIcon?.id).not.toBe(original.icon);
         const bytes = Buffer.from(reopened.meta.customIcons.get(entry.customIcon!.id)!.data!);
@@ -122,6 +165,41 @@ test('idle lock with an appearance draft never applies it or bypasses authentica
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
     const reopened = await download(page); expect(find(reopened, original.id).customIcon?.id).toBe(original.icon);
+    expect(find(reopened, original.id).history).toHaveLength(original.history);
+});
+
+test('read-only capability disables the icon and blocks an already open appearance draft', async ({ page }) => {
+    const original = await open(page); await select(page);
+    const trigger = page.getByRole('button', { name: 'Change icon and color', exact: true });
+    // There is no user-facing read-only toggle. Change the real mounted model's
+    // capability via Preact's tree; keep the component and mutation handlers real.
+    const readOnly = async (value: boolean, render: boolean) => page.evaluate(({ value, render }) => {
+        type Node = { props?: { model?: unknown; entry?: { file: { readOnly?: boolean } } }; __k?: Node[]; __e?: Element; __c?: { forceUpdate(): void } };
+        const visit = (node?: Node): Node | undefined => {
+            if (node?.props?.model && node.props.entry && node.__c && node.__e?.classList?.contains('entry-icon-trigger')) return node;
+            for (const child of node?.__k ?? []) { const found = visit(child); if (found) return found; }
+        };
+        const node = visit((document.querySelector('#root') as Element & { __k?: Node }).__k);
+        if (!node?.props?.entry) throw new Error('Mounted entry component not found');
+        Object.defineProperty(node.props.entry.file, 'readOnly', { value, writable: true, configurable: true });
+        if (render) node.__c!.forceUpdate();
+    }, { value, render });
+    await readOnly(true, true);
+    await expect(trigger).toBeDisabled();
+    await expect(trigger).toHaveAttribute('title', 'This database is read-only.');
+    await trigger.evaluate(button => (button as HTMLButtonElement).click());
+    await expect(page.getByRole('dialog', { name: 'Entry appearance', exact: true })).toHaveCount(0);
+    await readOnly(false, true); await expect(trigger).toBeEnabled();
+    const dialog = await appearance(page);
+    await dialog.getByRole('radio', { name: 'Icon: Star', exact: true }).check();
+    await readOnly(true, false);
+    await dialog.getByRole('button', { name: 'Apply appearance', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('This database is read-only.');
+    await expect(dialog.getByRole('button', { name: 'Apply appearance', exact: true })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await readOnly(false, true);
+    const reopened = await download(page);
+    expect(find(reopened, original.id).customIcon?.id).toBe(original.icon);
     expect(find(reopened, original.id).history).toHaveLength(original.history);
 });
 

@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
+import { activateVaultUtility } from './vault-utilities';
 
 const password = 'disposable search password';
 const timeout = 30_000;
@@ -338,8 +339,10 @@ test('short 320px screen keeps search controls and filtered results reachable', 
     await options(page).locator('summary').first().click();
     await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: /^Save / })).toBeVisible();
-    await page.getByRole('button', { name: 'Close navigation', exact: true }).filter({ visible: true }).click();
-    await expect(page.getByRole('button', { name: 'Password generator', exact: true })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Vault', exact: true }).getByRole('button', { name: 'Close navigation', exact: true }).click();
+    await activateVaultUtility(page, 'Password generator');
+    await expect(page.getByRole('dialog', { name: 'Generate password', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath('short-search.png') });
 });

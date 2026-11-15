@@ -43,8 +43,11 @@ export function EntryAppearance({ model, entry, children }: { model: AppModel; e
     const [selection, setSelection] = useState<Selection | null>(null);
     const trigger = useRef<HTMLButtonElement>(null);
     const reason = unavailable(model, entry);
+    // Autosave can start just after Apply returns focus here. Keep the trigger
+    // focusable during that temporary pause; the click guard still blocks it.
+    const saving = reason === t('A save is in progress. Wait for it to finish.');
     return <>
-        <button ref={trigger} class="entry-icon-trigger" type="button" disabled={!!reason} aria-label={t('Change icon and color')} title={reason || t('Change icon and color')} aria-haspopup="dialog" onClick={() => {
+        <button ref={trigger} class="entry-icon-trigger" type="button" disabled={!!reason && !saving} aria-disabled={!!reason || undefined} aria-label={t('Change icon and color')} title={reason || t('Change icon and color')} aria-haspopup="dialog" onClick={() => {
             if (unavailable(model, entry) || !confirmDiscardDrafts() || unavailable(model, entry)) return;
             const file = entry.file as FileModel;
             setSelection({ file, db: file.db, raw: entry.entry, epoch: getSessionAccess(model).epoch, editSeq: file.editSeq });
