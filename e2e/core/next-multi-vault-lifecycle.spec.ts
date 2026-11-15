@@ -522,6 +522,8 @@ test('per-vault close retains B passkey registration and required key file while
     await region.getByLabel('Current master password', { exact: true }).fill(b.password);
     await region.getByLabel('Current key file (if required)', { exact: true }).setInputFiles({ name: 'B.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(b.key!) });
     await region.getByRole('button', { name: 'Enable local passkey', exact: true }).click();
+    await expect(region.getByRole('status')).toContainText('Your passkey was created. Verify it to finish enabling encrypted unlock.');
+    await region.getByRole('button', { name: 'Verify passkey', exact: true }).click();
     await expect(region.getByRole('status')).toContainText('Passkey unlock saved in this browser');
     await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     await edit(page, 'A', 'A draft across B passkey close');

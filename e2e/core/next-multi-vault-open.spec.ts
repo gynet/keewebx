@@ -451,6 +451,7 @@ test('passkey setup targets B without enrolling, then recent passkey open preser
         name: 'B.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(b.key!)
     });
     await region.getByRole('button', { name: 'Enable local passkey', exact: true }).click();
+    await expect(region.getByRole('status')).toContainText('Your passkey was created. Verify it to finish enabling encrypted unlock.');
     await region.getByRole('button', { name: 'Verify passkey', exact: true }).click();
     await expect(region.getByRole('status')).toContainText('Passkey unlock saved in this browser');
     const records = await page.evaluate(() => JSON.parse(localStorage.getItem('fileInfo') || '[]'));
