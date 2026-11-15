@@ -140,14 +140,13 @@ test.describe('New interface entry tools', () => {
         await expect(row).toHaveCount(0);
     });
 
-    test('shows arbitrary website text and only opens normalized HTTP or HTTPS links', async ({ page }) => {
+    test('shows arbitrary website text and opens supported protocols while rejecting dangerous schemes', async ({ page }) => {
         await openFixture(page);
         const website = page.locator('[data-field="url"]');
         for (const value of [
             'javascript:window.websiteExecuted=true',
             'JaVaScRiPt:alert(1)',
             'data:text/html,<script>alert(1)</script>',
-            'mailto:test@example.com',
             'java\tscript:alert(1)'
         ]) {
             const form = await startEdit(page);
@@ -159,7 +158,10 @@ test.describe('New interface entry tools', () => {
         for (const [value, normalized] of [
             [' HTTPS://Example.com/a b?q=1 ', 'https://example.com/a%20b?q=1'],
             ['example.com/new', 'https://example.com/new'],
-            ['http://example.com/plain', 'http://example.com/plain']
+            ['http://example.com/plain', 'http://example.com/plain'],
+            ['mailto:test@example.com', 'mailto:test@example.com'],
+            [' FTP://Example.com/a b ', 'ftp://example.com/a%20b'],
+            ['ftps://example.com/private', 'ftps://example.com/private']
         ]) {
             const form = await startEdit(page);
             await form.getByLabel('Website', { exact: true }).fill(value);
