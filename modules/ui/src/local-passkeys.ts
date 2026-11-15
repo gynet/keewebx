@@ -124,8 +124,10 @@ export async function enrollLocalPasskey(
             !matches(passwordHash, candidate.passwordHash) || !matches(keyHash, candidate.keyFileHash)) {
             throw new Error('Wrong password or key file.');
         }
-        const guardedCeremony: PasskeyCeremony | undefined = runCeremony && ((stage, request) =>
-            runCeremony(stage, () => { checkFactors(); return request(); }));
+        const guardedCeremony: PasskeyCeremony | undefined = runCeremony && ((stage, request) => {
+            checkFactors();
+            return runCeremony(stage, () => { checkFactors(); return request(); });
+        });
         const result = await enablePasskeyForFile(file.id, file.name, password, guardedCeremony);
         checkFactors();
         persist(model, info, {
