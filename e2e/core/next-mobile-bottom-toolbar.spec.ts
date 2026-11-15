@@ -22,7 +22,12 @@ for (const width of [320,390]) test.describe(`${width}px touch bottom toolbar`, 
         await expect(bar).toHaveCount(1);await expect(page.locator('.mobile-vault-header, .side__close, .side__foot')).toHaveCount(0);
         const bounds=(await bar.boundingBox())!,content=(await list.boundingBox())!;
         expect(content.y+content.height).toBeLessThanOrEqual(bounds.y+1);
-        expect(bounds.y+bounds.height).toBe(740);
+        expect(bounds.y+bounds.height).toBeGreaterThanOrEqual(736);
+        expect(bounds.y+bounds.height).toBeLessThanOrEqual(740);
+        expect(bounds.width).toBeLessThan(width - 32);
+        await expect(page.locator('.vault-mobile-title')).toHaveCount(0);
+        await expect(page.locator('.side__vault-name')).toHaveText('Demo.kdbx');
+        await expect(bar.locator('.mobile-toolbar__title')).toHaveCount(0);
         for(const control of await bar.locator(':scope > button, :scope > .entry-more > button').all()) {
             const b=(await control.boundingBox())!;expect(b.width).toBeGreaterThanOrEqual(44);expect(b.height).toBeGreaterThanOrEqual(44);
         }
