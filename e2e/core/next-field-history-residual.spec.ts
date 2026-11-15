@@ -1,4 +1,6 @@
 import { activateEntryAction } from '../entry-actions';
+import { activateDatabaseAction } from '../database-actions';
+import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -36,9 +38,6 @@ async function fixture(history = 10) {
     return { bytes: Buffer.from(await db.save()), id: entry.uuid.id, history };
 }
 async function click(control: Locator, touch: boolean) { if (touch) await control.tap(); else await control.click(); }
-async function browse(page: Page, touch: boolean) {
-    if (!await nav(page).isVisible()) await click(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
-}
 async function select(page: Page, touch: boolean, title = 'Field account') {
     if (!await row(page, title).isVisible()) {
         const back = page.getByRole('button', { name: 'Back', exact: true });
@@ -61,16 +60,17 @@ async function field(page: Page, name: string) {
     throw new Error(`Missing custom field ${name}`);
 }
 async function savedReopen(page: Page, touch: boolean) {
-    await browse(page, touch); await click(nav(page).getByRole('button', { name: /^Save Fields/ }), touch);
+    await activateDatabaseAction(page, /^Save Fields/, touch);
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
-    await click(nav(page).getByRole('button', { name: 'Lock', exact: true }), touch);
+    await click(nav(page).getByRole('button', { name: 'Close actions', exact: true }), touch);
+    await activateVaultUtility(page, 'Lock', { touch });
     await expect(page.locator('#password')).toBeVisible(); await page.reload();
     await click(page.locator('.vault-row').filter({ has: page.getByText('Fields.kdbx', { exact: true }) }), touch);
     await page.locator('#password').fill(password); await click(page.locator('#unlock'), touch);
     await expect(row(page)).toBeVisible();
 }
 async function download(page: Page, touch: boolean) {
-    await browse(page, touch); await click(nav(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activateVaultUtility(page, 'Settings', { touch });
     await click(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const pending = page.waitForEvent('download'); await click(page.getByRole('button', { name: 'Download KDBX', exact: true }), touch);
     const output = await pending; expect(await output.failure()).toBeNull();
@@ -95,6 +95,8 @@ for (const touch of [false, true]) test.describe(touch ? '320px touch field work
     test('ranked suggestions, bounded additional URLs and empty fields survive encrypted cached reopen', async ({ page, browserName }) => {
         const source = await fixture(); await open(page, source, touch);
         await activateEntryAction(page, 'Show empty fields', touch);
+        await click(page.getByRole('group', { name: 'Entry actions', exact: true })
+            .getByRole('button', { name: 'Close actions', exact: true }), touch);
         await expect(page.locator('[data-field="field:Empty protected"]')).toContainText('(empty)');
         await expect(page.locator('[data-field="url"]').getByRole('button', { name: 'Copy', exact: true })).toHaveCount(1);
         await expect(page.locator('[data-field="field:KP2A_URL"]').getByRole('link')).toHaveCount(0);
@@ -208,6 +210,8 @@ test('formatted copy warns, escapes HTML, share cancellation is inert, and real 
     await expect(page.getByRole('status').filter({ hasText: 'Password copied.' })).toBeVisible();
     expect(await page.evaluate(() => (window as any).fieldClipboard.plain)).toBe('secret<&>');
     expect(await page.evaluate(() => (window as any).fieldClipboard.writes)).toBe(2);
+    await page.getByRole('group', { name: 'Entry actions', exact: true })
+        .getByRole('button', { name: 'Close actions', exact: true }).click();
     await page.evaluate(() => {
         const target = document.createElement('textarea'); target.setAttribute('aria-label', 'External drop receiver');
         target.style.cssText = 'position:fixed;top:0;left:0;width:160px;height:60px;z-index:10000';
