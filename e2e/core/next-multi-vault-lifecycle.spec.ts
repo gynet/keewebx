@@ -254,7 +254,7 @@ test('database close saves only B settings and preserves A settings draft and st
     await expect(aForm.getByRole('heading', { level: 3, name: 'A', exact: true })).toHaveText('A');
     await aForm.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(rows(page)).toHaveCount(1); await expect(rows(page)).toContainText('A-account-marker');
-    await expect(selector(page)).not.toHaveValue('');
+    await expect(selector(page)).toHaveCount(0);
     await activateVaultUtility(page, 'Open another vault');
     await page.locator('.vault-row[data-vault="B renamed"]').click(); await unlock(page, b);
     await settings(page);

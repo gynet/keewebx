@@ -1,5 +1,6 @@
 import { EntryAppearance, EntryFlag, EntryColorFilter } from './entry-appearance';
 import { EntryListing } from './entry-listing';
+import { EntryListControls } from './entry-list-controls';
 import { ProtectedValue } from 'kdbxweb';
 import { EntryExportActions, dragField } from './entry-export-actions';
 import { EntryDiscard } from './entry-discard';
@@ -453,7 +454,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         <Icon name="save" size={17} /><span class="nav-row__label">{t('Save vaults')}</span>
                     </button>}
                     {allFiles.length === 1 ? <div class="open-vaults__item open-vaults__single" data-vault-id={allFiles[0].id}>
-                        <button type="button" class="nav-row" disabled={saving.includes(allFiles[0].id)}
+                        <button type="button" class="nav-row" aria-disabled={saving.includes(allFiles[0].id)}
                             onClick={() => void saveFile(allFiles[0])} aria-label={t('Save {}', vaultLabel(allFiles[0]))}>
                             <Icon name="save" size={17} /><span class="nav-row__label">{t('Save database')}</span>
                         </button>
@@ -467,11 +468,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             <span role="status">{hasPendingDrafts(file.id) ? t('Unsaved draft') : fileSyncState(file) === 'pending' ? t('Unsaved changes') : t(SYNC_LABELS[fileSyncState(file)])}</span>
                         </button>
                         <div class="open-vaults__actions">
-                            <button type="button" class="link" disabled={saving.includes(file.id)} onClick={() => void saveFile(file)} aria-label={t('Save {}', vaultLabel(file))}>{t('Save')}</button>
+                            <button type="button" class="link" aria-disabled={saving.includes(file.id)} onClick={() => void saveFile(file)} aria-label={t('Save {}', vaultLabel(file))}>{t('Save')}</button>
                             <button type="button" class="link" onClick={() => { closeNavigation(); props.onCloseVault?.(file); }} aria-label={t('Close {}', vaultLabel(file))}>{t('Close')}</button>
                         </div>
                     </div>)}
                 </section>
+                {model.settings.canOpenGenerator && <button type="button" class="nav-row sidebar-generator"
+                    onClick={() => { closeNavigation(); props.onGenerator(); }}>
+                    <Icon name="key" size={17} /><span class="nav-row__label">{t('Password generator')}</span>
+                </button>}
                 <NavRow icon="grid" label={t('All items')} on={!Object.values(filter).some(Boolean)} onClick={() => changeFilter({})} />
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
                 <button type="button" class="nav-row" onClick={() => openGroupManager()}>
@@ -522,15 +527,23 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 onChange={(width) => layout.set('sidebar', width)} onReset={() => layout.reset('sidebar')} />
 
             <section class="list" aria-label={t('Entries')}>
-                <label class="vault-filter">{t('Vault filter')}
-                    <select class="input" aria-label={t('Vault filter')} value={scopeId} onChange={event => { if (!switchVault(event.currentTarget.value)) event.currentTarget.value = scopeId; }}>
-                        <option value="">{t('All open vaults')}</option>
-                        {allFiles.map(file => <option key={file.id} value={file.id}>{vaultLabel(file)}</option>)}
-                    </select>
-                </label>
-                {navigationError && <p class="error vault-filter" role="alert">{navigationError}</p>}
-                <div class="list__bar">
-                    <label class="search">
+                <EntryListControls
+                    scope={<>
+                        {allFiles.length > 1 && <label class="vault-filter">{t('Vault filter')}
+                            <select class="input" aria-label={t('Vault filter')} value={scopeId} onChange={event => { if (!switchVault(event.currentTarget.value)) event.currentTarget.value = scopeId; }}>
+                                <option value="">{t('All open vaults')}</option>
+                                {allFiles.map(file => <option key={file.id} value={file.id}>{vaultLabel(file)}</option>)}
+                            </select>
+                        </label>}
+                        {navigationError && <p class="error vault-filter" role="alert">{navigationError}</p>}
+                        {files.length > 1 && !selectedGroup && <label class="vault-filter">{t('New entry vault')}
+                            <select class="input" aria-label={t('New entry vault')} value={rootChoice} onChange={event => setRootChoice(event.currentTarget.value)}>
+                                <option value="">{t('Select a vault and root…')}</option>
+                                {roots.map(({ file, group }) => <option key={group.id} value={group.id}>{vaultLabel(file)} · {group.title}</option>)}
+                            </select>
+                        </label>}
+                    </>}
+                    search={<label class="search">
                         <Icon name="search" size={15} />
                         <input
                             ref={search}
@@ -546,37 +559,28 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                                 setEditing(null); setQuery(e.currentTarget.value);
                             }}
                         />
-                    </label>
-                </div>
-                {searchError && <p id="search-error" class="error" role="alert" style={{ margin: '0 14px 6px' }}>{searchError}</p>}
-                <SearchControls model={model} files={files} options={options} scope={filter} change={changeSearch}
-                    reset={() => { if (changeSearch({ ...searchDefaults, ...model.advancedSearch }, {})) setQuery(''); }} />
-                <div class="vault-commands">
-                    <button type="button" class="pill" hidden={!model.settings.canOpenGenerator} onClick={props.onGenerator}>{t('Password generator')}</button>
-                </div>
-                <EntrySort value={sort} onChange={next => {
-                    const access = getSessionAccess(model);
-                    if (access.state !== 'open' || !access.isCurrent(viewEpoch)) return false;
-                    // Sorting changes presentation only: retain selection and the mounted draft.
-                    setSort(next); return true;
-                }} />
-                {files.length > 1 && !selectedGroup && <label class="vault-filter">{t('New entry vault')}
-                    <select class="input" aria-label={t('New entry vault')} value={rootChoice} onChange={event => setRootChoice(event.currentTarget.value)}>
-                        <option value="">{t('Select a vault and root…')}</option>
-                        {roots.map(({ file, group }) => <option key={group.id} value={group.id}>{vaultLabel(file)} · {group.title}</option>)}
-                    </select>
-                </label>}
-                <button class="pill entry-list__create" disabled={!!editing || !canCreate} onClick={newEntry}>
-                    {t('New entry')}
-                </button>
-                <EntryTemplates model={model} groupId={filter.group || creationGroup?.id} fileId={scopeId || filter.file} onCloseVault={props.onCloseVault} onCreated={entry => {
-                    setEditing(null); setFilter({ group: (entry.group as GroupModel).id }); setQuery(''); setSelected(entry.id);
-                }} />
+                    </label>}
+                    create={<button class="pill entry-list__create" disabled={!!editing || !canCreate} onClick={newEntry}>
+                        {t('New entry')}
+                    </button>}
+                    error={searchError && <p id="search-error" class="error" role="alert" style={{ margin: '0 14px 6px' }}>{searchError}</p>}
+                    sort={<EntrySort value={sort} onChange={next => {
+                        const access = getSessionAccess(model);
+                        if (access.state !== 'open' || !access.isCurrent(viewEpoch)) return false;
+                        // Sorting changes presentation only: retain selection and the mounted draft.
+                        setSort(next); return true;
+                    }} />}
+                    color={<EntryColorFilter value={filter.color === true ? 'any' : filter.color || undefined} onChange={color => changeFilter({ ...filter, color: color === 'any' ? true : color || undefined })} />}
+                    options={<SearchControls model={model} files={files} options={options} scope={filter} change={changeSearch}
+                        reset={() => { if (changeSearch({ ...searchDefaults, ...model.advancedSearch }, {})) setQuery(''); }} />}
+                    templates={<EntryTemplates model={model} groupId={filter.group || creationGroup?.id} fileId={scopeId || filter.file} onCloseVault={props.onCloseVault} onCreated={entry => {
+                        setEditing(null); setFilter({ group: (entry.group as GroupModel).id }); setQuery(''); setSelected(entry.id);
+                    }} />}
+                />
                 {filter.trash && <TrashGroups model={model} onChanged={lifecycleChanged} />}
                 {filter.tag && <TagActions key={filter.tag} model={model} tag={filter.tag} onChanged={tag => {
                     setEditing(null); setSelected(undefined); setFilter(tag ? { tag } : {}); setQuery('');
                 }} />}
-                <EntryColorFilter value={filter.color === true ? 'any' : filter.color || undefined} onChange={color => changeFilter({ ...filter, color: color === 'any' ? true : color || undefined })} />
                 <p class="list__meta">{t('{} items', String(entries.length))}</p>
                 <EntryListing entries={entries} selected={selected} choose={chooseEntry} historyMatch={entry => !!historyFilter && !entry.matches(historyFilter)}>
                     {entries.map((e) => {
