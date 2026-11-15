@@ -153,7 +153,13 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             const button = event.currentTarget as HTMLButtonElement;
             const element = button.closest<HTMLElement>('.mobile-toolbar') ?? button;
             const rect = element.getBoundingClientRect();
-            toolbarDrag.current = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, width: rect.width, height: rect.height, moved: false };
+            const controls = [...element.querySelectorAll<HTMLButtonElement>(':scope > button, :scope > .entry-more > button')];
+            const index = controls.indexOf(button), hit = button.getBoundingClientRect();
+            const width = index >= 0 ? controls.length * 36 + 10 : rect.width;
+            const height = index >= 0 ? 46 : rect.height;
+            const left = index >= 0 ? event.clientX - (5 + index * 36 + (event.clientX - hit.left) * 36 / hit.width) : rect.left;
+            const top = index >= 0 ? event.clientY - (5 + (event.clientY - hit.top) * 36 / hit.height) : rect.top;
+            toolbarDrag.current = { x: event.clientX, y: event.clientY, left, top, width, height, moved: false };
             suppressToolbarClick.current = false; button.setPointerCapture(event.pointerId);
         },
         onPointerMove: (event: PointerEvent) => {
@@ -506,6 +512,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             class={`${entry || editing ? 'vault vault--detail' : 'vault'}${navigationOpen ? ' vault--navigation' : ''}${sidebar.collapsed ? ' sidebar-folded' : ''}`}
             data-toolbar-dock={toolbarDock}
             data-toolbar-hidden={toolbarHidden}
+            data-toolbar-dragging={!!toolbarPreview}
             style={{ '--sidebar-width': `${layout.sidebar}px`, '--list-width': `${layout.list}px` }}
             onKeyDown={(event) => {
                 IdleTracker.regUserAction();
@@ -728,6 +735,20 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     style={toolbarStyle} {...dragHandlers} aria-label={t('Show toolbar')} title={t('Show toolbar')}
                     onClick={() => { if (suppressToolbarClick.current) { suppressToolbarClick.current = false; return; } showToolbar(); }}><Icon name="grid" size={17} /></button>
                     : <div class="mobile-toolbar" role="group" aria-label={t('Vault tools')} style={toolbarStyle}>
+                        <button ref={browse} type="button" class="round mobile-toolbar__browse mobile-vault-header__toggle"
+                            aria-label={t('Browse vault')} title={navigationOpen ? t('Close navigation') : t('Browse vault')}
+                            aria-expanded={navigationOpen} aria-controls="vault-navigation" onClick={() => setNavigationOpen(open => !open)}>
+                            <SidebarPanelIcon open={navigationOpen} />
+                        </button>
+                        {props.onOpenAnother && <button type="button" class="round" aria-label={t('Open another vault')} title={t('Open another vault')}
+                            onClick={() => { closeNavigation(); props.onOpenAnother?.(); }}><Icon name="plus" size={17} /></button>}
+                        {model.settings.canOpenGenerator && <button type="button" class="round sidebar-generator" aria-label={t('Password generator')} title={t('Password generator')}
+                            onClick={() => { closeNavigation(); props.onGenerator(); }}><Icon name="key" size={17} /></button>}
+                        <ThemeToggle />
+                        {model.settings.canOpenSettings && <button type="button" class="round" id="open-settings" aria-label={t('Settings')} title={t('Settings')}
+                            onClick={() => { closeNavigation(); props.onSettings(); }}><Icon name="gear" size={17} /></button>}
+                        <button type="button" class="round" id="lock" aria-label={t('Lock')} title={t(model.settings.autoSave ? 'Save all vaults and lock' : 'Lock vaults')}
+                            onClick={() => { closeNavigation(); props.onLock(); }}><Icon name="lock" size={17} /></button>
                         <button type="button" class="round mobile-toolbar__handle" aria-label={t('Move toolbar')}
                             title={t('Drag or click to move the toolbar. Arrow keys also work.')} {...dragHandlers}
                             onClick={() => {
@@ -746,11 +767,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                                 <path d="M7 21V3m-4 4 4-4 4 4M17 3v18m-4-4 4 4 4-4" />
                             </svg>
                         </button>
-                        <button ref={browse} type="button" class="round mobile-toolbar__browse mobile-vault-header__toggle"
-                            aria-label={t('Browse vault')} title={navigationOpen ? t('Close navigation') : t('Browse vault')}
-                            aria-expanded={navigationOpen} aria-controls="vault-navigation" onClick={() => setNavigationOpen(open => !open)}>
-                            <SidebarPanelIcon open={navigationOpen} />
-                        </button>
                         <EntryActions compact label={t('Database actions')} title={t('Database actions')}>
                             {allFiles.length === 1 ? <>
                                 <button type="button" aria-disabled={saving.includes(allFiles[0].id)} aria-label={t('Save {}', vaultLabel(allFiles[0]))}
@@ -760,15 +776,6 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                             </> : <button type="button" onClick={props.onSave}>{t('Save vaults')}</button>}
                             <button type="button" onClick={hideToolbar}>{t('Hide toolbar')}</button>
                         </EntryActions>
-                        {props.onOpenAnother && <button type="button" class="round" aria-label={t('Open another vault')} title={t('Open another vault')}
-                            onClick={() => { closeNavigation(); props.onOpenAnother?.(); }}><Icon name="plus" size={17} /></button>}
-                        {model.settings.canOpenGenerator && <button type="button" class="round sidebar-generator" aria-label={t('Password generator')} title={t('Password generator')}
-                            onClick={() => { closeNavigation(); props.onGenerator(); }}><Icon name="key" size={17} /></button>}
-                        <ThemeToggle />
-                        {model.settings.canOpenSettings && <button type="button" class="round" id="open-settings" aria-label={t('Settings')} title={t('Settings')}
-                            onClick={() => { closeNavigation(); props.onSettings(); }}><Icon name="gear" size={17} /></button>}
-                        <button type="button" class="round" id="lock" aria-label={t('Lock')} title={t(model.settings.autoSave ? 'Save all vaults and lock' : 'Lock vaults')}
-                            onClick={() => { closeNavigation(); props.onLock(); }}><Icon name="lock" size={17} /></button>
                     </div>}
             </div>}
             {phoneGroups && <PhoneGroups model={model} files={files} onChanged={groupChanged} onLifecycleChanged={lifecycleChanged} initial={phoneGroups.initial} initialActions={phoneGroups.actions}

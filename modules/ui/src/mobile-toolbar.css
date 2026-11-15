@@ -8,7 +8,14 @@
     .vault[data-toolbar-dock="top"] > .mobile-toolbar-region { order: -1; }
     .mobile-toolbar { position: fixed; left: 0; right: 0; bottom: max(6px, env(safe-area-inset-bottom)); margin-inline: auto; display: flex; align-items: center; gap: 0; width: max-content; max-width: calc(100% - 12px); padding: 4px; border: 1px solid var(--kx-line); border-radius: 12px; background: var(--kx-side); box-shadow: 0 2px 8px #0002; }
     .vault[data-toolbar-dock="top"] .mobile-toolbar { top: max(6px, env(safe-area-inset-top)); bottom: auto; }
+    .vault:not([data-toolbar-dock="floating"]):not([data-toolbar-dragging="true"]) .mobile-toolbar { width: 100%; max-width: none; bottom: 0; padding: 4px max(6px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); border-inline: 0; border-bottom: 0; border-radius: 0; box-shadow: none; }
+    .vault[data-toolbar-dock="top"]:not([data-toolbar-dragging="true"]) .mobile-toolbar { top: 0; bottom: auto; padding-top: calc(4px + env(safe-area-inset-top)); padding-bottom: 4px; border-top: 0; border-bottom: 1px solid var(--kx-line); }
     .mobile-toolbar > .round, .mobile-toolbar > .entry-more > .round { flex: 0 0 36px; width: 36px; height: 36px; min-width: 36px; min-height: 36px; border: 0; background: transparent; }
+    .mobile-toolbar > .round > svg { width: 22px; height: 22px; }
+    .mobile-toolbar > .entry-more > .round > span { font-size: 26px; line-height: 1; }
+    .vault:not([data-toolbar-dock="floating"]):not([data-toolbar-dragging="true"]) .mobile-toolbar > :is(.round, .entry-more) { flex: 1 1 0; width: auto; }
+    .vault:not([data-toolbar-dock="floating"]):not([data-toolbar-dragging="true"]) .mobile-toolbar > .round,
+    .vault:not([data-toolbar-dock="floating"]):not([data-toolbar-dragging="true"]) .mobile-toolbar > .entry-more > .round { width: 100%; height: 44px; min-height: 44px; }
     .mobile-toolbar > .round:hover, .mobile-toolbar > .entry-more > .round:hover { background: var(--kx-sub); }
     .mobile-toolbar__handle, .mobile-toolbar__reveal { touch-action: none; cursor: grab; }
     .mobile-toolbar__handle:active, .mobile-toolbar__reveal:active { cursor: grabbing; }
