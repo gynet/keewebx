@@ -84,9 +84,6 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: 'Move entry to g
 const moveTrigger = (page: Page) => page.getByRole('button', { name: 'Move to group…', exact: true });
 const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
 async function activate(control: Locator, touch = false) { if (touch) await control.tap(); else await control.click(); }
-async function browse(page: Page, touch = false) {
-    if (!await navigation(page).isVisible()) await activate(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
-}
 async function open(page: Page, source: Fixture) {
     await page.goto('/next.html');
     await page.locator('#open-file-input').setInputFiles({ name: `${name}.kdbx`, mimeType: 'application/octet-stream', buffer: source.data });
@@ -99,8 +96,7 @@ async function choose(page: Page, label = `${name} / Team B / Accounts`) {
     await dialog(page).getByRole('combobox', { name: 'Destination group', exact: true }).selectOption({ label });
 }
 async function download(page: Page, touch = false) {
-    await browse(page, touch);
-    await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activateVaultUtility(page, 'Settings', { touch });
     await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const form = page.getByRole('form', { name: `Database settings: ${name}`, exact: true });
     const waiting = page.waitForEvent('download');
@@ -149,8 +145,7 @@ function fidelity(db: kdbx.Kdbx, source: Fixture, parent = source.ids.target) {
 }
 async function saveReopen(page: Page, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await browse(page, touch);
-    await activate(navigation(page).getByRole('button', { name: 'Lock', exact: true }), touch);
+    await activateVaultUtility(page, 'Lock', { touch });
     await expect(page.locator('#password')).toBeVisible({ timeout });
     await page.reload();
     await activate(page.locator('.vault-row').filter({ has: page.getByText(`${name}.kdbx`, { exact: true }) }), touch);
@@ -242,7 +237,7 @@ test.describe('New same-vault entry move', () => {
                     const fresh = await context.newPage();
                     await open(fresh, { ...source, data: bytes });
                     await row(fresh).click();
-                    await moveTrigger(fresh).click();
+                    await activateEntryAction(fresh, 'Move to group…');
                     await expect(dialog(fresh).getByRole('combobox').locator('option:disabled')).toHaveText(`${name} / Team B / Accounts (current group)`);
                 } finally { await context.close(); }
                 // The completed move must also fit: a long unbroken destination

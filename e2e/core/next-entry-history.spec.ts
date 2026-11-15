@@ -61,13 +61,9 @@ async function fixture(longContent = false) {
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 const history = (page: Page) => page.getByRole('dialog', { name: 'Entry history', exact: true });
 const editor = (page: Page) => page.locator('.entry-editor');
-const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
 const target = (page: Page) => page.locator('.entry-row').filter({ has: page.getByText(title, { exact: true }) });
 const field = (page: Page, name: string) => history(page).locator(`[aria-label="History field: ${name}"]`);
 async function activate(control: Locator, touch = false) { if (touch) await control.tap(); else await control.click(); }
-async function browse(page: Page, touch = false) {
-    if (!await navigation(page).isVisible()) await activate(page.getByRole('button', { name: 'Browse vault', exact: true }), touch);
-}
 async function open(page: Page, source: Fixture) {
     await page.goto('/next.html');
     await page.locator('#open-file-input').setInputFiles({ name: `${vaultName}.kdbx`, mimeType: 'application/octet-stream', buffer: source.data });
@@ -87,8 +83,7 @@ async function version(page: Page, value: number) {
 }
 async function download(page: Page, touch = false) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
-    await browse(page, touch);
-    await activate(navigation(page).getByRole('button', { name: 'Settings', exact: true }), touch);
+    await activateVaultUtility(page, 'Settings', { touch });
     await activate(page.getByRole('tab', { name: 'Database', exact: true }), touch);
     const pending = page.waitForEvent('download');
     await activate(page.getByRole('button', { name: 'Download KDBX', exact: true }), touch);

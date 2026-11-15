@@ -9,6 +9,11 @@ export async function activateVaultUtility(page: Page, name: string, options: { 
     const browse = page.getByRole('button', { name: options.browseName ?? 'Browse vault', exact: true });
     await expect.poll(async () => await action.isVisible() || await browse.isVisible()).toBe(true);
     if (!await action.isVisible()) {
+        const closeActions = page.getByRole('group', { name: 'Entry actions', exact: true })
+            .getByRole('button', { name: 'Close actions', exact: true });
+        if (await closeActions.isVisible()) {
+            if (options.touch) await closeActions.tap(); else await closeActions.click();
+        }
         if (options.touch) await browse.tap(); else await browse.click();
     }
     await expect(action).toHaveCount(1);
