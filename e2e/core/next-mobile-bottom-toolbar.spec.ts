@@ -87,3 +87,17 @@ test('desktop keeps the existing footer, responsive changes never duplicate util
         await expect(page.locator('.side__foot')).toHaveCount(width<=760?0:1);
     }
 });
+test('generator returns focus to its visible launcher after responsive replacement', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 740 });
+    await demo(page);
+    for (const width of [1280, 390]) {
+        await page.getByRole('button', { name: 'Password generator', exact: true }).click();
+        const generator = page.getByRole('dialog', { name: 'Generate password', exact: true });
+        await expect(generator).toBeVisible();
+        await page.setViewportSize({ width, height: 740 });
+        await expect(page.locator(width > 760 ? '.side__foot' : '.mobile-toolbar')).toBeVisible();
+        await generator.getByRole('button', { name: 'Close generator', exact: true }).click();
+        await expect(generator).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Password generator', exact: true })).toBeFocused();
+    }
+});

@@ -696,7 +696,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                         <span class="mobile-toolbar__title" title={selectedGroup?.group.title || files.map(file => kdbxName(file.name)).join(', ')}>
                             {selectedGroup?.group.title || (filter.trash ? t('Trash') : filter.tag || (files.length === 1 ? kdbxName(files[0].name) : t('All open vaults')))}
                         </span>
-                        {model.settings.canOpenGenerator && <button type="button" class="round" aria-label={t('Password generator')} title={t('Password generator')}
+                        {model.settings.canOpenGenerator && <button type="button" class="round sidebar-generator" aria-label={t('Password generator')} title={t('Password generator')}
                             onClick={() => { closeNavigation(); props.onGenerator(); }}><Icon name="key" size={17} /></button>}
                         <EntryActions compact label={t('Menu')} title={t('Vault menu')}>
                             {allFiles.length === 1 ? <>

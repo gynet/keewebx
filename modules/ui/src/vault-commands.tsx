@@ -99,7 +99,14 @@ export function useVaultCommands(model: AppModel, surface: { current: HTMLElemen
         content: <>
             {message && <div class="command-status" role="status">{message} <button type="button" class="link" onClick={() => setMessage('')}>{t('Dismiss')}</button></div>}
             {generator && model.settings.canOpenGenerator && <PromptDialog title={t('Generate password')} icon="key" focusHeading closeLabel={t('Close generator')}
-                getReturnFocus={() => document.querySelector<HTMLButtonElement>('.mobile-vault-header__toggle')}
+                getReturnFocus={() => {
+                    // Resizing can replace the generator's original launcher.
+                    for (const selector of ['.sidebar-generator', '.mobile-toolbar__browse', '.mobile-toolbar__reveal', '#search']) {
+                        const target = document.querySelector<HTMLElement>(selector);
+                        if (target?.getClientRects().length && !target.closest('[inert], [hidden]') && !target.matches(':disabled')) return target;
+                    }
+                    return null;
+                }}
                 cancel={() => setGenerator(false)}>
                 <PasswordGeneratorPanel inDialog actionLabel={t('Copy password')} onUse={password => void copy(password)} onClose={() => setGenerator(false)} />
                 {copyMessage && <p role="status">{copyMessage}</p>}
