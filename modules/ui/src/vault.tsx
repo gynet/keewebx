@@ -42,7 +42,6 @@ import { EntryTemplates } from './entry-templates';
 import type { EntryDraft } from './entry-editor';
 import { PhoneGroups } from './phone-groups';
 import { GroupIcon } from './group-appearance';
-import { FaviconImport } from './favicon-import';
 import { TrashGroups } from './group-lifecycle';
 import { TagActions } from './tag-actions';
 import type { GroupActionResult } from './group-actions';
@@ -862,7 +861,6 @@ function EntryDetail({ model, entry, onBack, onEdit, onMoved, onCloned, onDelete
                             onClick={() => detail.current?.querySelector<HTMLButtonElement>('.entry-icon-trigger')?.click()}>
                             {t('Change icon and color')}
                         </button>
-                        <FaviconImport model={model} entry={entry} />
                         <EntryMove model={model} entry={entry} onMoved={onMoved} restore={inTrash} />
                         {!inTrash && <button type="button" class="pill pill--tinted" onClick={onTransfer}>{t('Move to another vault…')}</button>}
                         {!inTrash && <EntryClone model={model} entry={entry} onCloned={onCloned} />}

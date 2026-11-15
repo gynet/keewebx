@@ -1,4 +1,3 @@
-import { activateEntryAction } from '../entry-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer, type ServerResponse } from 'node:http';
@@ -56,8 +55,10 @@ async function exportDb(page: Page) {
     await back(page); return { db, data };
 }
 async function dialog(page: Page) {
-    await activateEntryAction(page, 'Download website icon…');
-    return page.getByRole('dialog', { name: 'Download website icon', exact: true });
+    await page.getByRole('button', { name: 'Change icon and color', exact: true }).click();
+    const appearance = page.getByRole('dialog', { name: 'Entry appearance', exact: true });
+    await appearance.getByRole('button', { name: 'Download website icon…', exact: true }).click();
+    return appearance;
 }
 for (const cap of [32, 64, 128]) test(`favicon ${cap}px is explicit, bounded and survives encrypted offline reopen`, async ({ page, icons }) => {
     await page.setViewportSize({ width: cap === 32 ? 320 : 1280, height: 900 });
@@ -68,7 +69,7 @@ for (const cap of [32, 64, 128]) test(`favicon ${cap}px is explicit, bounded and
     await prompt.getByRole('button', { name: 'Download icon', exact: true }).click();
     await expect(prompt.getByRole('img', { name: 'Website icon preview', exact: true })).toBeVisible();
     await prompt.screenshot({ path: test.info().outputPath(`favicon-${cap}.png`) });
-    await prompt.getByRole('button', { name: 'Use website icon', exact: true }).click();
+    await prompt.getByRole('button', { name: 'Apply appearance', exact: true }).click();
     const { db, data } = await exportDb(page);
     const entry = [...db.getDefaultGroup().allEntries()][0];
     expect(entry.fields.get('Password')).toBeInstanceOf(kdbx.ProtectedValue);
@@ -90,7 +91,7 @@ for (const cap of [32, 64, 128]) test(`favicon ${cap}px is explicit, bounded and
 test('favicon errors and canceled delayed requests preserve the previous icon', async ({ page, icons }) => {
     await open(page, icons); icons.mode = 'missing';
     let prompt = await dialog(page); await prompt.getByRole('button', { name: 'Download icon', exact: true }).click();
-    await expect(prompt.getByRole('alert')).toBeVisible(); await expect(prompt.getByRole('button', { name: 'Use website icon', exact: true })).toBeDisabled();
+    await expect(prompt.getByRole('alert')).toBeVisible(); await expect(prompt.getByRole('img', { name: 'Website icon preview', exact: true })).toHaveCount(0);
     await prompt.getByRole('button', { name: 'Cancel', exact: true }).click();
     icons.mode = 'hold';
     prompt = await dialog(page); await prompt.getByRole('button', { name: 'Download icon', exact: true }).click(); await expect.poll(() => icons.calls.length).toBe(2);

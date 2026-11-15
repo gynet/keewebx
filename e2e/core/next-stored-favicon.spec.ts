@@ -1,4 +1,3 @@
-import { activateEntryAction, revealEntryAction } from '../entry-actions';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -23,8 +22,10 @@ const test = base.extend<{ icons: IconServer }>({ icons: async ({ page }, use) =
 } });
 async function select(page: Page) { await page.locator('[data-entry="Existing account"]').click(); }
 async function dialog(page: Page) {
-    await activateEntryAction(page, 'Download website icon…');
-    return page.getByRole('dialog', { name: 'Download website icon', exact: true });
+    await page.getByRole('button', { name: 'Change icon and color', exact: true }).click();
+    const appearance = page.getByRole('dialog', { name: 'Entry appearance', exact: true });
+    await appearance.getByRole('button', { name: 'Download website icon…', exact: true }).click();
+    return appearance;
 }
 function ico(png: Buffer) {
     const header = Buffer.alloc(22); header.writeUInt16LE(1, 2); header.writeUInt16LE(1, 4);
@@ -47,7 +48,7 @@ for (const width of [1280, 320]) {
         await expect(modal.getByRole('img', { name: 'Website icon preview', exact: true })).toBeVisible();
         await page.screenshot({ path: test.info().outputPath(`stored-favicon-${width}.png`), fullPage: true });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await modal.getByRole('button', { name: 'Use website icon', exact: true }).click();
+        await modal.getByRole('button', { name: 'Apply appearance', exact: true }).click();
         db = await download(page); const icon = find(db, source.entry).customIcon!.id;
         expect(icon).not.toBe(source.icon); const saved = Buffer.from(db.meta.customIcons.get(icon)!.data!); expect(saved.readUInt32BE(16)).toBe(64); expect(saved.readUInt32BE(20)).toBe(20);
         expect(db.getGroup(source.work)?.customIcon?.id).toBe(source.icon); expect(Buffer.from(db.meta.customIcons.get(source.icon)!.data!)).toEqual(source.png);
@@ -62,13 +63,13 @@ test('ICO image decodes and stores as PNG; 404, bad MIME and oversized data neve
     const modal = await dialog(page);
     for (const value of ['404', 'mime', 'size'] as const) {
         icons.mode = value; await modal.getByRole('button', { name: 'Download icon', exact: true }).click();
-        await expect(modal.getByRole('alert')).toBeVisible(); await expect(modal.getByRole('button', { name: 'Use website icon', exact: true })).toBeDisabled();
+        await expect(modal.getByRole('alert')).toBeVisible(); await expect(modal.getByRole('img', { name: 'Website icon preview', exact: true })).toHaveCount(0);
     }
     await modal.getByRole('button', { name: 'Cancel', exact: true }).click();
     let db = await download(page); expect(find(db, source.entry).customIcon?.id).toBe(source.icon); expect(db.meta.customIcons.size).toBe(1);
     await back(page); icons.mode = 'ico'; const retry = await dialog(page); await retry.getByRole('button', { name: 'Download icon', exact: true }).click();
     await expect(retry.getByRole('img', { name: 'Website icon preview', exact: true })).toBeVisible();
-    await retry.getByRole('button', { name: 'Use website icon', exact: true }).click(); db = await download(page);
+    await retry.getByRole('button', { name: 'Apply appearance', exact: true }).click(); db = await download(page);
     expect(Buffer.from(db.meta.customIcons.get(find(db, source.entry).customIcon!.id)!.data!).subarray(0, 8)).toEqual(Buffer.from([137,80,78,71,13,10,26,10]));
 });
 test('a real cross-origin response without CORS leaves the stored icon unchanged', async ({ page, icons }) => {
@@ -93,7 +94,9 @@ test('invalid website cannot start an import even through a dispatched disabled-
     await open(page); await select(page); await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.locator('.entry-editor').getByLabel('Website', { exact: true }).fill('javascript:alert(1)');
     await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
-    const button = await revealEntryAction(page, 'Download website icon…');
+    await page.getByRole('button', { name: 'Change icon and color', exact: true }).click();
+    const appearance = page.getByRole('dialog', { name: 'Entry appearance', exact: true });
+    const button = appearance.getByRole('button', { name: 'Download website icon…', exact: true });
     await expect(button).toBeDisabled(); await button.evaluate(element => element.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    await expect(page.getByRole('dialog', { name: 'Download website icon', exact: true })).toHaveCount(0);
+    await expect(appearance.getByRole('group', { name: 'Download website icon', exact: true })).toHaveCount(0);
 });

@@ -21,3 +21,7 @@
 .entry-icon-trigger:hover { outline: 2px solid var(--kx-acc); outline-offset: 3px; }
 .entry-icon-trigger:focus-visible { outline: 2px solid var(--kx-acc); outline-offset: 3px; }
 .entry-icon-trigger:disabled, .entry-icon-trigger[aria-disabled="true"] { cursor: default; opacity: .65; }
+
+.entry-appearance__website { margin: 12px 0 20px; padding: 12px; border: 1px solid var(--kx-line); border-radius: 8px; overflow-wrap: anywhere; }
+.entry-appearance__website p { margin: 0 0 12px; }
+.entry-appearance__website p:last-child { margin-bottom: 0; }

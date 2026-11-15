@@ -7,6 +7,7 @@ import { ENTRY_ICONS } from 'const/icon-registry';
 import { Colors, type ColorName } from 'const/colors';
 import { Events } from 'framework/events';
 import { getSessionAccess } from 'comp/app/session-access';
+import { FaviconImport, canImportFavicon } from './favicon-import';
 import { IconChoices } from './icon-choices';
 import { normalizeIcon } from './icon-image';
 import { confirmDiscardDrafts } from './pending-drafts';
@@ -63,6 +64,8 @@ function AppearanceDialog({ model, entry, selection, close, trigger }: {
     const [color, setColor] = useState(entry.color ?? '');
     const [upload, setUpload] = useState('');
     const [loading, setLoading] = useState(false);
+    const [downloading, setDownloading] = useState(false);
+    const [website, setWebsite] = useState('');
     const [error, setError] = useState('');
     const dialog = useRef<HTMLDialogElement>(null);
     const reading = useRef(0);
@@ -72,8 +75,9 @@ function AppearanceDialog({ model, entry, selection, close, trigger }: {
     useLayoutEffect(() => {
         const element = dialog.current!;
         element.showModal();
+        const unsubscribe = getSessionAccess(model).subscribeInvalidation(close);
         return () => {
-            ++reading.current; element.close();
+            unsubscribe(); ++reading.current; element.close();
             requestAnimationFrame(() => {
                 if (getSessionAccess(model).state === 'open' && trigger.current?.isConnected && !trigger.current.closest('[hidden], [inert]')) trigger.current.focus();
             });
@@ -92,15 +96,19 @@ function AppearanceDialog({ model, entry, selection, close, trigger }: {
         finally { if (version === reading.current) setLoading(false); }
     };
     const apply = () => {
-        if (loading || applied.current) return;
+        if (loading || downloading || applied.current) return;
         const reason = unavailable(model, entry, selection);
         if (reason) { setError(reason); return; }
         const [kind, value] = icon.split(':');
-        if ((kind === 'custom' && !file.db.meta.customIcons.has(value)) || (kind === 'builtin' && !ENTRY_ICONS[Number(value)]) || (kind === 'upload' && !upload)) {
+        if ((kind === 'custom' && !file.db.meta.customIcons.has(value)) || (kind === 'builtin' && !ENTRY_ICONS[Number(value)]) || (kind === 'upload' && !upload) || (kind === 'website' && !website)) {
             setError(t('Choose an available icon.')); return;
         }
+        if (kind === 'website' && !canImportFavicon(model, entry)) {
+            setError(t('This entry changed. Cancel and reopen the icon download.')); return;
+        }
         applied.current = true;
-        if (kind === 'upload') entry.setCustomIcon(file.addCustomIcon(upload));
+        if (kind === 'website') entry.setCustomIcon(file.addCustomIcon(website));
+        else if (kind === 'upload') entry.setCustomIcon(file.addCustomIcon(upload));
         else if (kind === 'custom' && entry.entry.customIcon?.id !== value) entry.setCustomIcon(value);
         else if (kind === 'builtin' && (entry.entry.customIcon || entry.iconId !== Number(value))) entry.setIcon(Number(value));
         if (file.supportsColors && color !== (entry.color ?? '')) {
@@ -113,10 +121,16 @@ function AppearanceDialog({ model, entry, selection, close, trigger }: {
     return <dialog ref={dialog} class="entry-appearance" aria-label={t('Entry appearance')} onCancel={event => { event.preventDefault(); close(); }}>
         <h2>{t('Entry appearance')}</h2>
         <div class="entry-appearance__scroll">
-            {file.supportsColors && <label class="vault-form__field">{t('Color flag')}<select class="input" value={color} disabled={loading || !!reason} onChange={event => setColor(event.currentTarget.value)}>
+            {file.supportsColors && <label class="vault-form__field">{t('Color flag')}<select class="input" value={color} disabled={loading || downloading || !!reason} onChange={event => setColor(event.currentTarget.value)}>
                 <option value="">{t('None')}</option>{Colors.AllColors.map(color => <option key={color} value={color}>{t(names(color))}</option>)}
             </select></label>}
-            <IconChoices value={icon} customIcons={customIcons} disabled={loading || !!reason} onChange={setIcon} onUpload={image => void readImage(image)} />
+            <FaviconImport model={model} entry={entry} disabled={loading || !!reason} onBusy={setDownloading} onImage={image => {
+                setWebsite(image);
+                if (image) setIcon('website');
+                else if (icon === 'website') setIcon(entry.entry.customIcon ? `custom:${entry.entry.customIcon.id}` : `builtin:${entry.iconId}`);
+                setError('');
+            }} />
+            <IconChoices value={icon} customIcons={customIcons} disabled={loading || downloading || !!reason} onChange={setIcon} onUpload={image => void readImage(image)} />
             <p class="muted">{t('PNG, JPEG, or WebP up to 1 MB. Stored locally in the vault as PNG, up to 128 pixels. Choose a built-in icon to remove the custom icon from this entry.')}</p>
             {upload && icon === 'upload' && <img class="entry-appearance__preview" src={`data:image/png;base64,${upload}`} alt={t('New icon preview')} />}
 
@@ -124,6 +138,6 @@ function AppearanceDialog({ model, entry, selection, close, trigger }: {
             {loading && <p role="status">{t('Reading image…')}</p>}
         </div>
         <div class="entry-appearance__actions"><button type="button" class="pill" onClick={close}>{t('Cancel')}</button>
-            <button type="button" class="pill pill--primary" disabled={loading || !!reason} onClick={apply}>{t('Apply appearance')}</button></div>
+            <button type="button" class="pill pill--primary" disabled={loading || downloading || !!reason} onClick={apply}>{t('Apply appearance')}</button></div>
     </dialog>;
 }
