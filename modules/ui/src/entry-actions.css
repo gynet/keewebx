@@ -9,7 +9,7 @@
 .entry-more__panel[hidden] { display: none; }
 .entry-more__heading { display: flex; align-items: center; justify-content: space-between; padding-left: 10px; font-size: 12px; color: var(--kx-muted); }
 .entry-more__panel > div:not(.entry-more__heading), .entry-more__panel > div > div:not([role]) { display: contents !important; }
-.entry-more__panel > button, .entry-more__panel > div > button, .entry-more__panel > div > div > button {
+.entry-more__panel > button, .entry-more__panel > div:not(.entry-more__heading) > button, .entry-more__panel > div > div > button {
     display: flex; align-items: center; width: 100%; min-height: 44px; margin: 0;
     padding: 10px 12px; border: 0; border-radius: 6px; text-align: left; justify-content: flex-start;
     background: transparent; color: inherit; font-size: 14px; white-space: normal;
@@ -17,3 +17,5 @@
 .entry-more__panel button:hover { background: var(--kx-hover, #8882); }
 .entry-more__panel button:focus-visible { outline: 2px solid var(--kx-acc); outline-offset: -2px; }
 .entry-more__panel button.pill--danger { color: var(--kx-error); border-top: 1px solid var(--kx-line); border-radius: 0 0 6px 6px; }
+
+.entry-more__heading .icon-btn { flex: none; width: 44px; height: 44px; }
