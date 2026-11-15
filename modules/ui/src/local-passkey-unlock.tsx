@@ -1,21 +1,26 @@
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { AppModel } from 'models/app-model';
 import { canUseLocalPasskeys, forgetLocalPasskey, hasLocalPasskey, hasLocalPasskeyData, localPasskeyError, unlockWithLocalPasskey } from './local-passkeys';
 import { t } from './i18n';
 
-export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage, onAttempt, setupAfterUnlock, onSetupChange, canOpen, onOpened, options, optionsOpen, onForgot }: {
+export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessage, onAttempt, setupAfterUnlock, onSetupChange, canOpen, onOpened, options, optionsOpen, onForgot, passwordVisible, onPasswordMode }: {
     model: AppModel; id?: string; keyFile: { name: string; data: string } | null;
     busy: boolean; setBusy: (busy: boolean) => void; setMessage: (message: string) => void;
     canOpen?(): boolean; onOpened?(): void;
     onAttempt(): void; setupAfterUnlock: boolean; onSetupChange(value: boolean): void;
     options: ComponentChildren; optionsOpen: boolean; onForgot(): void;
+    passwordVisible: boolean; onPasswordMode(value: boolean): void;
 }) {
     const mounted = useRef(true), running = useRef(false);
+    const passkeyButton = useRef<HTMLButtonElement>(null);
+    useLayoutEffect(() => {
+        if (!passwordVisible) passkeyButton.current?.focus();
+    }, [passwordVisible]);
     useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
     const info = id ? model.fileInfos.get(id) : undefined;
     return <>
-        {hasLocalPasskey(info) && <button type="button" class="pill pill--primary pill--block unlock-card__action"
+        {!passwordVisible && hasLocalPasskey(info) && <button ref={passkeyButton} type="button" class="pill pill--primary pill--block unlock-card__action"
             disabled={busy || !canUseLocalPasskeys()} onClick={async () => {
                 if (!info || running.current) return;
                 onAttempt();
@@ -24,10 +29,12 @@ export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessa
                     await unlockWithLocalPasskey(model, info.id, keyFile, () => mounted.current && (!canOpen || canOpen()));
                     if (mounted.current && (!canOpen || canOpen())) onOpened?.();
                 }
-                catch (error) { if (mounted.current) setMessage(t(localPasskeyError(error))); }
+                catch (error) { if (mounted.current) { setMessage(t(localPasskeyError(error))); onPasswordMode(true); } }
                 finally { running.current = false; if (mounted.current) setBusy(false); }
             }}>{t('Unlock with passkey')}</button>}
-        {hasLocalPasskeyData(info) && <p class="unlock-card__help">{t('Your master password remains available. A required key file is still needed with a passkey.')}</p>}
+        {hasLocalPasskey(info) && canUseLocalPasskeys() && <button type="button" class="link unlock-card__mode" disabled={busy}
+            aria-controls="unlock-password-fields" aria-expanded={passwordVisible}
+            onClick={() => onPasswordMode(!passwordVisible)}>{passwordVisible ? t('Use passkey') : t('Use password')}</button>}
         {hasLocalPasskeyData(info) && !canUseLocalPasskeys() && <p role="status">{t('Passkey unlock is unavailable here. Use your password and any required key file.')}</p>}
         <details class="unlock-card__options" open={optionsOpen}>
             <summary>{t('Unlock options')}</summary>

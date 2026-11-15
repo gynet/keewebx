@@ -11,6 +11,7 @@
 .unlock-card .unlock-key-file > .link { display: inline-flex; align-items: center; min-height: 44px; }
 .unlock-card .unlock-card__forget { min-height: 44px; color: var(--kx-error); text-align: left; }
 .unlock-card__cancel { min-height: 44px; margin-top: 4px; }
+.unlock-card__mode { min-height: 44px; margin-top: 4px; }
 .unlock-card :is(summary, label, button, p) { max-width: 100%; overflow-wrap: anywhere; }
 @media (pointer: coarse), (max-width: 600px) {
     .unlock-card__password > .input { font-size: 16px; }

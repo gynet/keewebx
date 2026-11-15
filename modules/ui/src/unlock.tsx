@@ -13,6 +13,7 @@ import { ImportVault } from './import-vault';
 import { CreateVault } from './create-vault';
 import { SwipeVaultRow } from './swipe-vault-row';
 import { LocalPasskeyUnlock } from './local-passkey-unlock';
+import { canUseLocalPasskeys, hasLocalPasskey } from './local-passkeys';
 import { SidebarToggle, useSidebarCollapse } from './sidebar-collapse';
 import { PanelResizer } from 'ui-kit/panel-resizer';
 import { ProviderOpen, browsableProviders, type ProviderItem } from './provider-open';
@@ -350,6 +351,10 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
         (pane.kind === 'recent' || (pane.kind === 'file' ? model.settings.canOpen : canOpenProvider(pane.kind === 'provider-unlock' ? pane.provider : 'webdav')));
     const [setupAfterUnlock, setSetupAfterUnlock] = useState(false);
     const [password, setPassword] = useState('');
+    const info = pane.kind === 'recent' ? model.fileInfos.get(pane.file.id) : undefined;
+    const passkeyAvailable = hasLocalPasskey(info) && canUseLocalPasskeys();
+    const [passwordMode, setPasswordMode] = useState(false);
+    const passwordVisible = !passkeyAvailable || passwordMode;
     const [show, setShow] = useState(false);
     const [capsLock, setCapsLock] = useState(false);
     const updateCapsLock = (event: KeyboardEvent) => {
@@ -358,6 +363,9 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const passwordInput = useRef<HTMLInputElement>(null);
+    useLayoutEffect(() => {
+        if (passwordVisible && !busy) passwordInput.current?.focus();
+    }, [passwordVisible, busy]);
     useLayoutEffect(() => {
         if (!busy && error === t('Wrong password') && document.activeElement === document.body) passwordInput.current?.focus();
     }, [busy, error]);
@@ -423,7 +431,6 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
         }
     };
 
-    const info = pane.kind === 'recent' ? model.fileInfos.get(pane.file.id) : undefined;
     const keyRequired = !!(info?.keyFileName || info?.keyFileHash);
     const keyVisible = keyRequired || !!keyFile;
     const keyControl = (
@@ -450,12 +457,12 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
     );
 
     return (
-        <form class="card unlock-card" onSubmit={unlock}>
+        <form class="card unlock-card" onSubmit={event => passwordVisible ? unlock(event) : event.preventDefault()}>
             <Mark size={76} />
             <h1 class="card__title">{kdbxName(name)}</h1>
             <p class="card__sub">{sub}</p>
-            <label class="sr-only" for="password">{t('Master password')}</label>
-            <div class="unlock-card__password">
+            <div class="unlock-card__password" id="unlock-password-fields" hidden={!passwordVisible}>
+                <label class="sr-only" for="password">{t('Master password')}</label>
                 <input
                     id="password" ref={passwordInput}
                     class={error ? 'input input--error' : 'input'}
@@ -468,16 +475,15 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
                     onBlur={() => setCapsLock(false)}
                     aria-describedby={[capsLock && 'unlock-caps-lock', error && 'unlock-error'].filter(Boolean).join(' ') || undefined}
                     aria-invalid={!!error}
-                    disabled={busy}
-                    autoFocus
+                    disabled={busy || !passwordVisible}
                 />
-                <button type="button" class="icon-btn" disabled={busy}
+                <button type="button" class="icon-btn" disabled={busy || !passwordVisible}
                     aria-label={show ? t('Hide password') : t('Show password')}
                     onClick={() => setShow(!show)}>
                     <Icon name="eye" size={18} />
                 </button>
             </div>
-            {capsLock && <p id="unlock-caps-lock" role="status">{t('Caps Lock is on')}</p>}
+            {passwordVisible && capsLock && <p id="unlock-caps-lock" role="status">{t('Caps Lock is on')}</p>}
             {keyRequired && <p class="unlock-card__help">{t('This vault uses a key file.')}</p>}
             {keyVisible && keyControl}
             {error && (
@@ -491,13 +497,14 @@ function UnlockCard({ model, pane, onUnlock, onCancel, capturePasskeySetup, canO
             </details>}
             {error && (pane.kind === 'webdav-unlock' || (pane.kind === 'recent' && pane.file.storage === 'webdav')) &&
                 <button type="button" class="pill" onClick={() => onEditConnection(pane.kind === 'webdav-unlock' ? pane.url : pane.file.path ?? '')}>{t('Edit connection')}</button>}
-            <button class="pill pill--primary pill--block unlock-card__action" id="unlock" disabled={busy || readingKey}>
+            {passwordVisible && <button class="pill pill--primary pill--block unlock-card__action" id="unlock" disabled={busy || readingKey}>
                 {busy ? t('Unlocking…') : t('Unlock with password')}
-            </button>
+            </button>}
             <LocalPasskeyUnlock model={model} id={pane.kind === 'recent' ? pane.file.id : undefined}
                 setupAfterUnlock={setupAfterUnlock} onSetupChange={setSetupAfterUnlock} canOpen={admission} onOpened={onOpened}
                 keyFile={keyFile} busy={busy || readingKey} setBusy={setBusy} setMessage={setMessage} onAttempt={onUnlock}
-                optionsOpen={!!error} onForgot={() => passwordInput.current?.focus()}
+                passwordVisible={passwordVisible} onPasswordMode={setPasswordMode}
+                optionsOpen={!!error} onForgot={() => { setPasswordMode(true); passwordInput.current?.focus(); }}
                 options={!keyVisible && keyControl} />
             <button type="button" class="link unlock-card__cancel" onClick={() => {
                 canceled.current = true;

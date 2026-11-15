@@ -1,3 +1,4 @@
+import { choosePasswordUnlock, choosePasskeyUnlock } from './unlock-mode';
 import { activateVaultUtility } from './vault-utilities';
 import { withEmptyMasterPasswordConsent } from '../empty-master-password';
 import { test, expect, type Page } from '@playwright/test';
@@ -29,6 +30,7 @@ async function fixture(name: string, factors: 'password' | 'password-key' | 'key
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
 async function passwordOpen(page: Page, password: string) {
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(password);
     await page.locator('#unlock').click();
 }
@@ -467,10 +469,12 @@ test('passkey setup targets B without enrolling, then recent passkey open preser
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await openPicker(page);
     await picker(page).locator('.vault-row[data-vault="B"]').click();
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('Select the key file first');
     await selectKey(page, b.key!);
     await holdDecrypt(page);
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect.poll(() => page.evaluate(() => !!(window as any).__held)).toBe(true);
     await picker(page).getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -480,6 +484,7 @@ test('passkey setup targets B without enrolling, then recent passkey open preser
     await openPicker(page);
     await picker(page).locator('.vault-row[data-vault="B"]').click();
     await selectKey(page, b.key!);
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await assertDraft(page);
     await expect(row(page, 'B')).toHaveCount(1);

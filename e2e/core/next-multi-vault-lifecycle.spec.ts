@@ -1,3 +1,4 @@
+import { choosePasswordUnlock, choosePasskeyUnlock } from './unlock-mode';
 import { activateDatabaseAction, revealDatabaseAction } from '../database-actions';
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect, type Page } from '@playwright/test';
@@ -33,6 +34,7 @@ async function fixture(name: string) {
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 async function unlock(page: Page, source: Fixture) {
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(source.password);
     if (source.key) await page.locator('#unlock-key-file').setInputFiles({ name: 'B.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(source.key) });
     await page.locator('#unlock').click();
@@ -530,9 +532,11 @@ test('per-vault close retains B passkey registration and required key file while
     await close(page, 'B'); await saveClose(page);
     await activateVaultUtility(page, 'Open another vault');
     await page.locator('.vault-row[data-vault="B"]').click();
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('Select the key file first');
     await page.locator('#unlock-key-file').setInputFiles({ name: 'B.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(b.key!) });
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#password')).toHaveCount(0);
     await expect(entry(page).getByLabel('Notes', { exact: true })).toHaveValue('A draft across B passkey close');

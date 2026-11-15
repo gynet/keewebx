@@ -1237,5 +1237,7 @@
   "Could not reach or read the WebDAV file. Check the network, HTTPS certificate and server CORS settings, then retry or edit the connection. Your cached copies are retained.": "Le fichier WebDAV n’a pas pu être joint ou lu. Vérifiez le réseau, le certificat HTTPS et les paramètres CORS du serveur, puis réessayez ou modifiez la connexion. Vos copies en cache sont conservées.",
   "Unlock options": "Options de déverrouillage",
   "Unlock with password": "Déverrouiller avec le mot de passe",
-  "This vault uses a key file.": "Ce coffre utilise un fichier clé."
+  "This vault uses a key file.": "Ce coffre utilise un fichier clé.",
+  "Use password": "Utiliser le mot de passe",
+  "Use passkey": "Utiliser une clé d’accès"
 }

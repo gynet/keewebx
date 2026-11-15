@@ -1,3 +1,4 @@
+import { choosePasswordUnlock, choosePasskeyUnlock, expectUnlockScreen } from './unlock-mode';
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -43,6 +44,7 @@ async function infos(page: Page): Promise<any[]> {
 }
 async function record(page: Page, name = 'passkey-one') { return (await infos(page)).find((value) => value.name === name); }
 async function passwordOpen(page: Page, source: Fixture) {
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(password);
     if (source.key) await page.locator('#unlock-key-file').setInputFiles(payload(source.key, 'fixture.keyx'));
     await page.locator('#unlock').click();
@@ -71,7 +73,7 @@ async function lock(page: Page) {
         await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     }
     await activateVaultUtility(page, 'Lock');
-    await expect(page.locator('#password')).toBeVisible({ timeout });
+    await expectUnlockScreen(page);
 }
 async function screenshot(page: Page, name: string) {
     const path = test.info().outputPath(`${name}.png`);
@@ -118,6 +120,7 @@ test('virtual PRF: fresh password verification, durable unlock, forget preserves
     expect((await auth.credentials()).credentials).toHaveLength(1);
     await provesExport(page, source); await screenshot(page, 'enrolled-verified-settings');
     await lock(page); await page.reload();
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
     await lock(page);
@@ -144,11 +147,13 @@ test('password unlock setup choice opens the selected passkey region without enr
     await unlockOptions(page);
     const setup = page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true });
     await setup.check();
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill('wrong password'); await page.locator('#unlock').click();
     await expect(page.locator('#unlock-error')).toBeVisible();
     await expect(setup).toBeChecked();
     await expect(page.getByRole('tab', { name: 'Database', exact: true })).toHaveCount(0);
     expect((await auth.credentials()).credentials).toHaveLength(0);
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect(page.getByRole('tab', { name: 'Database', exact: true })).toHaveAttribute('aria-selected', 'true');
     await expect(section(page)).toBeVisible();
@@ -164,6 +169,7 @@ test('password unlock setup choice opens the selected passkey region without enr
     expect((await auth.credentials()).credentials).toHaveLength(1);
     await provesExport(page, source);
     await lock(page); await page.reload();
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
 });
@@ -190,6 +196,7 @@ for (const unlockSecond of [false, true]) test(`late setup-requested decrypt can
             return result;
         };
     });
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(password); await page.locator('#unlock').click();
     await expect.poll(() => page.evaluate(() => !!(window as any).__setupRaceHeld)).toBe(true);
     try {
@@ -199,6 +206,7 @@ for (const unlockSecond of [false, true]) test(`late setup-requested decrypt can
         await unlockOptions(page);
         await expect(page.getByRole('checkbox', { name: 'Set up passkey after unlocking', exact: true })).not.toBeChecked();
         if (unlockSecond) {
+            await choosePasswordUnlock(page);
             await page.locator('#password').fill(password); await page.locator('#unlock').click();
             await page.locator('.entry-row[data-entry="Setup race entry B"]').click();
             await expect(page.locator('#entry-title')).toHaveText('Setup race entry B');
@@ -248,11 +256,13 @@ test('simulated cancellation preserves registration and password fallback', asyn
             throw new Error('Injected unlock diagnostic');
         };
     });
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(password);
     await page.locator('#unlock').click();
     await expect(page.locator('#unlock-error-details pre')).toHaveText('Error: Injected unlock diagnostic');
     await expect(page.locator('#unlock-error-details pre')).toBeHidden();
     await page.evaluate(() => { navigator.credentials.get = async () => { throw new DOMException('Simulated user cancellation', 'NotAllowedError'); }; });
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('canceled');
     await expect(page.locator('#unlock-error-details')).toHaveCount(0);
@@ -316,6 +326,7 @@ test('virtual PRF: saved credential waits for fresh verification; rejected get r
     expect(saved.passkeyCredentialId).toBe(created[0].credentialId);
     expect(saved.passkeyPrfSalt).toBeTruthy(); expect(saved.passkeyWrappedKey).toBeTruthy(); expect(saved.passkeyCreatedDate).toBeTruthy();
     await lock(page); await page.reload();
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
 });
@@ -452,12 +463,14 @@ test('virtual PRF registration survives a failed credential save; retry invalida
     await verify(await cached(), nextPassword, password);
     await lock(page); await page.reload();
     await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toHaveCount(0);
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(nextPassword);
     await page.locator('#unlock-key-file').setInputFiles(payload(source.key!, 'fixture.keyx'));
     await page.locator('#unlock').click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
     await openSettings(page); await enroll(page, source, nextPassword); await lock(page);
     await page.locator('#unlock-key-file').setInputFiles(payload(source.key!, 'fixture.keyx'));
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
 });
@@ -471,6 +484,7 @@ test('corrupt local wrapping keeps password recovery, explicit forget and real r
         localStorage.setItem('fileInfo', JSON.stringify(rows));
     });
     await page.reload();
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('unwrapKey: input too short');
     expect((await record(page)).passkeyWrappedKey).toBe('AAAA');
@@ -479,6 +493,7 @@ test('corrupt local wrapping keeps password recovery, explicit forget and real r
     await section(page).getByRole('button', { name: 'Forget local passkey', exact: true }).click();
     await expect(section(page).getByRole('status')).toContainText('registration forgotten');
     await enroll(page, source); await lock(page);
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
 });
@@ -513,9 +528,11 @@ test('key-file vault rejects missing/wrong enrollment factors and still requires
     await section(page).getByRole('button', { name: 'Enable local passkey', exact: true }).click();
     await expect(section(page).getByRole('status')).toHaveText('Wrong password or key file.');
     await enroll(page, source); await lock(page);
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('Select the key file');
     await page.locator('#unlock-key-file').setInputFiles(payload(source.key!, 'fixture.keyx'));
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible({ timeout });
     await openSettings(page); await provesExport(page, source); await screenshot(page, 'keyfile-still-required');
@@ -549,6 +566,7 @@ for (const failRead of [false, true]) {
         await authenticator(context, page); const source = await fixture();
         await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page);
         const saved = await record(page);
+        await choosePasswordUnlock(page);
         await page.locator('#password').fill('Keep this password fallback draft');
         await holdCeremony(page, 'get');
         await page.evaluate(() => {
@@ -565,8 +583,10 @@ for (const failRead of [false, true]) {
                 return result;
             };
         });
+        await choosePasskeyUnlock(page);
         await page.locator('#open-file-input').setInputFiles(payload(source.bytes, 'incoming.kdbx'));
         await expect(page.locator('.start__side').getByRole('status')).toHaveText('Reading file…');
+        await choosePasskeyUnlock(page);
         await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
         await expect.poll(() => page.evaluate(() => !!(window as any).__passkeyHeld)).toBe(true);
         // Complete the file read while the genuine virtual-authenticator result is still held.
@@ -609,6 +629,7 @@ test('switching vault while virtual unlock result is held prevents stale admissi
     await authenticator(context, page); const source = await fixture();
     await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page);
     await holdCeremony(page, 'get');
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect.poll(() => page.evaluate(() => !!(window as any).__passkeyHeld)).toBe(true);
     await expect(page.locator('#open-webdav')).toBeDisabled();
@@ -668,6 +689,7 @@ test('switching selection during real KDBX decrypt rejects admission after succe
             return new Promise((resolve) => { (window as any).__releaseKdbx = () => resolve(result); });
         };
     });
+    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect.poll(() => page.evaluate(() => !!(window as any).__kdbxHeld)).toBe(true);
     await expect(page.locator('#open-webdav')).toBeDisabled();

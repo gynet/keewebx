@@ -1,3 +1,4 @@
+import { choosePasswordUnlock, choosePasskeyUnlock, expectUnlockScreen } from './unlock-mode';
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
@@ -42,6 +43,7 @@ async function infos(page: Page): Promise<any[]> {
 }
 async function record(page: Page, name = 'passkey-one') { return (await infos(page)).find((value) => value.name === name); }
 async function passwordOpen(page: Page, source: Fixture) {
+    await choosePasswordUnlock(page);
     await page.locator('#password').fill(password);
     if (source.key) await page.locator('#unlock-key-file').setInputFiles(payload(source.key, 'fixture.keyx'));
     await page.locator('#unlock').click();
@@ -70,7 +72,7 @@ async function lock(page: Page) {
         await page.getByRole('button', { name: 'Back to vault', exact: true }).click();
     }
     await activateVaultUtility(page, 'Lock');
-    await expect(page.locator('#password')).toBeVisible({ timeout });
+    await expectUnlockScreen(page);
 }
 async function screenshot(page: Page, name: string) {
     const path = test.info().outputPath(`${name}.png`);
@@ -86,27 +88,48 @@ test.beforeEach(async ({ page }) => {
 });
 
 
-test('registered vault: matching actions, collapsed management, real PRF, decline and forget, Enter fallback', async ({ page, context }) => {
+test('registered vault: passkey first, one primary, explicit keyboard recovery, declined forget and Enter', async ({ page, context }) => {
     const auth = await authenticator(context, page), source = await fixture();
     await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page); await page.reload();
     const passkey = page.getByRole('button', { name: 'Unlock with passkey', exact: true });
-    const passwordAction = page.getByRole('button', { name: 'Unlock with password', exact: true });
+    await expect(passkey).toBeFocused();
+    await expect(page.locator('#password')).toBeHidden();
+    await expect(page.locator('#password')).toBeDisabled();
+    await expect(page.locator('#unlock')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Forget local passkey', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Cancel unlock', exact: true })).toBeVisible();
     for (const width of [1280, 390, 320]) {
         await page.setViewportSize({ width, height: 844 });
-        const geometry = await page.locator('.unlock-card__action').evaluateAll(buttons => buttons.map(button => {
-            const rect = button.getBoundingClientRect(), css = getComputedStyle(button);
-            return { x: rect.x, width: rect.width, height: rect.height, background: css.backgroundColor, radius: css.borderRadius };
-        }));
-        expect(geometry).toHaveLength(2); expect(geometry[0]).toEqual(geometry[1]);
-        expect(geometry[0].height).toBeGreaterThanOrEqual(44);
+        await expectUnlockScreen(page);
+        expect((await passkey.boundingBox())!.height).toBe(46);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await screenshot(page, `after-registered-${width}`);
+        await screenshot(page, `after-passkey-first-${width}`);
     }
-    await passkey.click();
+    // A native form submit cannot invoke the password pipeline while its input is folded.
+    await page.locator('.unlock-card').evaluate(form => (form as HTMLFormElement).requestSubmit());
+    await expect(page.locator('#unlock-error')).toHaveCount(0);
+    await expect(page.locator('.entry-row')).toHaveCount(0);
+    await expect(passkey).toBeEnabled();
+    await passkey.press('Enter');
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
     await lock(page);
+    const fallback = page.getByRole('button', { name: 'Use password', exact: true });
+    await fallback.focus(); await fallback.press('Enter');
+    await expect(fallback).toHaveCount(0);
+    await expect(page.locator('#password')).toBeFocused();
+    await expect(passkey).toHaveCount(0);
+    await expectUnlockScreen(page);
+    await page.getByRole('button', { name: 'Show password', exact: true }).click();
+    await expect(page.locator('#password')).toHaveAttribute('type', 'text');
+    await page.getByRole('button', { name: 'Hide password', exact: true }).click();
+    await expect(page.locator('#password')).toHaveAttribute('type', 'password');
+    await screenshot(page, 'after-explicit-password-mode');
+    await page.locator('#password').fill('wrong'); await page.locator('#password').press('Enter');
+    await expect(page.locator('#unlock-error')).toHaveText('Wrong password');
+    await page.locator('#password').fill(password); await page.locator('#password').press('Enter');
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
+    await lock(page); // mode resets per newly mounted vault card
+    await expect(passkey).toBeVisible(); await expect(page.locator('#password')).toBeHidden();
     const before = await record(page);
     await unlockOptions(page);
     page.once('dialog', dialog => dialog.dismiss());
@@ -117,6 +140,7 @@ test('registered vault: matching actions, collapsed management, real PRF, declin
     await page.getByRole('button', { name: 'Forget local passkey', exact: true }).click();
     await expect(passkey).toHaveCount(0);
     await expect(page.locator('#password')).toBeFocused();
+    await expectUnlockScreen(page);
     expect((await auth.credentials()).credentials).toHaveLength(1);
     await expect(page.locator('#unlock-error')).toContainText('authenticator credential was not deleted');
     await page.locator('#password').fill(password); await page.locator('#password').press('Enter');
@@ -130,15 +154,24 @@ test('key file stays visible with options closed; missing and wrong keys fail; c
     await expect(page.locator('.unlock-card__options')).not.toHaveAttribute('open');
     await expect(page.getByRole('button', { name: 'Use a key file', exact: true })).toBeVisible();
     const passkey = page.getByRole('button', { name: 'Unlock with passkey', exact: true });
+    await expect(page.locator('#password')).toBeHidden();
     await passkey.click(); await expect(page.locator('#unlock-error')).toContainText('Select the key file');
+    await expect(page.locator('#password')).toBeFocused();
+    await expectUnlockScreen(page);
     await page.locator('#unlock-key-file').setInputFiles(payload(new Uint8Array([1, 2, 3]), 'wrong.key'));
+    await choosePasskeyUnlock(page);
     await passkey.click(); await expect(page.locator('#unlock-error')).toContainText('Wrong password or key file');
+    await expect(page.locator('#password')).toBeFocused();
+    await expectUnlockScreen(page);
     const longName = 'required-key-'.repeat(14) + '.keyx';
     await page.locator('#unlock-key-file').setInputFiles(payload(source.key!, longName));
     const options = page.locator('.unlock-card__options');
     if (await options.evaluate(element => element.hasAttribute('open'))) await options.locator('summary').click();
     await expect(page.getByRole('button', { name: `Key file: ${longName}`, exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await choosePasskeyUnlock(page);
+    await expect(page.locator('#password')).toBeHidden();
+    await expect(page.getByRole('button', { name: `Key file: ${longName}`, exact: true })).toBeVisible();
     await screenshot(page, 'after-required-key-mobile');
     await passkey.click(); await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
     await lock(page);
@@ -165,6 +198,40 @@ test('unregistered password form: keyboard options, visibility, error recovery a
     await page.getByRole('button', { name: 'Cancel unlock', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Open a vault', exact: true })).toBeVisible();
     await page.locator('#open-file-input').setInputFiles(payload(source.bytes, `${source.name}.kdbx`));
+    await page.locator('#password').fill(password); await page.locator('#password').press('Enter');
+    await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
+});
+
+
+test('registered vault with unavailable browser WebAuthn defaults to password without hiding recovery', async ({ page, context }) => {
+    await authenticator(context, page); const source = await fixture();
+    await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page);
+    const before = await record(page);
+    // Explicit browser API absence simulation; registration and KDBX remain real.
+    await page.addInitScript(() => { Object.defineProperty(window, 'PublicKeyCredential', { value: undefined, configurable: true }); });
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Use password', exact: true })).toHaveCount(0);
+    await expect(page.locator('#password')).toBeFocused();
+    await expect(page.getByRole('status')).toContainText('Passkey unlock is unavailable here');
+    await expectUnlockScreen(page);
+    await screenshot(page, 'after-unsupported-password-default');
+    expect(await record(page)).toEqual(before);
+    await passwordOpen(page, source);
+});
+
+test('canceled passkey automatically reveals focused password recovery and keeps registration', async ({ page, context }) => {
+    await authenticator(context, page); const source = await fixture();
+    await openFile(page, source); await openSettings(page); await enroll(page, source); await lock(page);
+    const before = await record(page);
+    await page.evaluate(() => { navigator.credentials.get = async () => { throw new DOMException('Explicit test cancellation', 'NotAllowedError'); }; });
+    await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+    await expect(page.locator('#unlock-error')).toContainText('canceled');
+    await expect(page.locator('#password')).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Show password', exact: true })).toBeVisible();
+    await expectUnlockScreen(page);
+    await screenshot(page, 'after-passkey-failure-recovery');
+    expect(await record(page)).toEqual(before);
     await page.locator('#password').fill(password); await page.locator('#password').press('Enter');
     await expect(page.locator('.entry-row').filter({ hasText: title })).toBeVisible();
 });

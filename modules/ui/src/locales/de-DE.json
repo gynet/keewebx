@@ -1237,5 +1237,7 @@
   "Could not reach or read the WebDAV file. Check the network, HTTPS certificate and server CORS settings, then retry or edit the connection. Your cached copies are retained.": "Die WebDAV-Datei konnte nicht erreicht oder gelesen werden. Prüfen Sie Netzwerk, HTTPS-Zertifikat und CORS-Einstellungen des Servers. Versuchen Sie es erneut oder bearbeiten Sie die Verbindung. Ihre zwischengespeicherten Kopien bleiben erhalten.",
   "Unlock options": "Entsperroptionen",
   "Unlock with password": "Mit Passwort entsperren",
-  "This vault uses a key file.": "Dieser Tresor verwendet eine Schlüsseldatei."
+  "This vault uses a key file.": "Dieser Tresor verwendet eine Schlüsseldatei.",
+  "Use password": "Passwort verwenden",
+  "Use passkey": "Passkey verwenden"
 }
