@@ -254,6 +254,10 @@ test.describe('Sync and draft data safety', () => {
             const beforeRejectedSave = Buffer.from(dav.remote());
             await expect(editor).toBeVisible();
             const save = editor.getByRole('button', { name: isSettings ? 'Save database settings' : 'Save', exact: true });
+            // Remote fields can move Save to the viewport's bottom edge. Firefox's
+            // native browser area can clip that edge despite DOM hit-testing it.
+            // Scroll the control into the pane before delivering a real mouse click.
+            await save.evaluate(button => button.scrollIntoView({ block: 'center', inline: 'nearest' }));
             await save.click();
             // EntryEditor rejects the replaced database identity before checking field changes.
             // Notes/settings retain their specific conflict message; all byte/draft oracles below stay strict.
