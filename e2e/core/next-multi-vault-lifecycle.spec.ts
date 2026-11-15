@@ -535,8 +535,9 @@ test('per-vault close retains B passkey registration and required key file while
     await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#unlock-error')).toContainText('Select the key file first');
+    await expect(page.locator('#password')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Unlock with passkey', exact: true })).toBeVisible();
     await page.locator('#unlock-key-file').setInputFiles({ name: 'B.keyx', mimeType: 'application/octet-stream', buffer: Buffer.from(b.key!) });
-    await choosePasskeyUnlock(page);
     await page.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
     await expect(page.locator('#password')).toHaveCount(0);
     await expect(entry(page).getByLabel('Notes', { exact: true })).toHaveValue('A draft across B passkey close');

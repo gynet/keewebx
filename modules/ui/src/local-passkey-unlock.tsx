@@ -29,7 +29,14 @@ export function LocalPasskeyUnlock({ model, id, keyFile, busy, setBusy, setMessa
                     await unlockWithLocalPasskey(model, info.id, keyFile, () => mounted.current && (!canOpen || canOpen()));
                     if (mounted.current && (!canOpen || canOpen())) onOpened?.();
                 }
-                catch (error) { if (mounted.current) { setMessage(t(localPasskeyError(error))); onPasswordMode(true); } }
+                catch (error) {
+                    if (mounted.current) {
+                        const message = localPasskeyError(error);
+                        setMessage(t(message));
+                        // A missing factor is corrected by the already visible key-file control.
+                        if (message !== 'Select the key file first. A passkey replaces only the master password.') onPasswordMode(true);
+                    }
+                }
                 finally { running.current = false; if (mounted.current) setBusy(false); }
             }}>{t('Unlock with passkey')}</button>}
         {hasLocalPasskey(info) && canUseLocalPasskeys() && <button type="button" class="link unlock-card__mode" disabled={busy}

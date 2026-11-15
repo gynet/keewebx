@@ -1239,5 +1239,6 @@
   "Unlock with password": "Déverrouiller avec le mot de passe",
   "This vault uses a key file.": "Ce coffre utilise un fichier clé.",
   "Use password": "Utiliser le mot de passe",
-  "Use passkey": "Utiliser une clé d’accès"
+  "Use passkey": "Utiliser une clé d’accès",
+  "Tools": "Outils"
 }

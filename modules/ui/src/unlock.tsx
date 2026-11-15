@@ -208,6 +208,7 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                 <div class="start__tools">
                     {!additional && hasInterface('classic') && <a class="link" href="classic.html">{t('Open Classic')}</a>}
                     {!additional && onSettings && model.settings.canOpenSettings && <button type="button" class="link" onClick={() => { if (model.settings.canOpenSettings) onSettings(); }}>{t('Settings')}</button>}
+                    {!additional && <StartTools model={model} disabled={busy} beforeOpen={cancelFileRead} onSettings={onSettings} />}
                     <ThemeToggle />
                 </div>
                 {recent.length > 0 && <h2 class="start__heading">{t('Your vaults')}</h2>}
@@ -298,7 +299,6 @@ export function Unlock({ model, extensionRequest = false, onCancelExtensionReque
                     </span>
                     {t('Try the demo')}
                 </button>}
-                {!additional && <StartTools model={model} disabled={busy} beforeOpen={cancelFileRead} onSettings={onSettings} />}
                 </div>
             </aside>
             <PanelResizer label={t('Resize Your vaults panel')} value={sidebar.width} min={240} max={sidebar.max}

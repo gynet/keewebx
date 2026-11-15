@@ -44,7 +44,12 @@ export function StartTools({ model, beforeOpen, disabled, onSettings }: { model:
         } catch { setMessage(t('Could not copy. Reveal the password and copy it manually.')); }
     };
     return <div ref={root} class="start-flow-tools">
-        {model.settings.canOpenGenerator && <button type="button" class="link" disabled={disabled} onClick={() => open('generator')}>{t('Password generator')}</button>}
+        {model.settings.canOpenGenerator && <details class="start-tools">
+            <summary>{t('Tools')}</summary>
+            <div class="start-tools__menu">
+                <button type="button" class="link" disabled={disabled} onClick={() => open('generator')}>{t('Password generator')}</button>
+            </div>
+        </details>}
         {tool === 'generator' && model.settings.canOpenGenerator && <PromptDialog title={t('Generate password')} icon="key" focusHeading closeLabel={t('Close generator')} cancel={() => setTool(undefined)}>
             <PasswordGeneratorPanel inDialog actionLabel={t('Copy password')} onUse={password => void copy(password)} onClose={() => setTool(undefined)} />
             {message && <p role="status">{message}</p>}

@@ -1,7 +1,9 @@
+import { openStartTools } from './start-tool-controls';
 import { test, expect } from '@playwright/test';
 for (const width of [320, 1280]) test(`Generator visibility keeps the same password at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 740 });
     await page.goto('/next.html');
+    await openStartTools(page);
     await page.getByRole('button', { name: 'Password generator', exact: true }).click();
     const generator = page.getByRole('region', { name: 'Password generator', exact: true });
     const result = generator.getByLabel('Generated password', { exact: true });

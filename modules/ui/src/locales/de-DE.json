@@ -1239,5 +1239,6 @@
   "Unlock with password": "Mit Passwort entsperren",
   "This vault uses a key file.": "Dieser Tresor verwendet eine Schlüsseldatei.",
   "Use password": "Passwort verwenden",
-  "Use passkey": "Passkey verwenden"
+  "Use passkey": "Passkey verwenden",
+  "Tools": "Werkzeuge"
 }

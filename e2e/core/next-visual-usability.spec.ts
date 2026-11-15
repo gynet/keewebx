@@ -1,3 +1,4 @@
+import { openStartTools } from './start-tool-controls';
 import { test, expect, type Locator } from '@playwright/test';
 import { activateVaultUtility } from './vault-utilities';
 
@@ -57,6 +58,7 @@ for (const colorScheme of ['light', 'dark'] as const) for (const width of [320, 
             localStorage.setItem('appSettings', JSON.stringify({ locale: 'en-US', idleMinutes: 0 }));
         }, colorScheme);
         await page.goto('/next.html');
+        await openStartTools(page);
         const startGenerator = page.getByRole('button', { name: 'Password generator', exact: true });
         await expect(startGenerator).toBeVisible();
         if (width < 760) {

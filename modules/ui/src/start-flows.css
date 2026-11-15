@@ -1,4 +1,8 @@
-.start-flow-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; padding: 12px 0; }
+.start__tools { gap: 8px; flex-wrap: wrap; }
+.start-flow-tools { position: relative; }
+.start-tools > summary { cursor: pointer; min-height: 44px; line-height: 44px; font-size: 13px; color: var(--kx-muted); }
+.start-tools__menu { position: absolute; top: 100%; right: 0; z-index: 5; width: max-content; max-width: calc(100vw - 40px); padding: 8px 12px; border: 1px solid var(--kx-line); border-radius: 8px; background: var(--kx-bg); box-shadow: 0 8px 24px #0002; }
+.start-tools__menu > .link { display: inline-flex; align-items: center; min-height: 44px; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
 .start-flow-drop { margin: 8px 0 16px; padding: 12px; border: 1px dashed var(--kx-line); border-radius: 10px; overflow-wrap: anywhere; }
 .start--dropping .start-flow-drop { outline: 2px solid var(--kx-accent); }
 @media (max-width: 760px) {

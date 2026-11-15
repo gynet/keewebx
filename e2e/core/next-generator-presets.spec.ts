@@ -1,9 +1,11 @@
+import { openStartTools } from './start-tool-controls';
 import { test, expect, type Page } from '@playwright/test';
 test.use({ serviceWorkers: 'block' });
 const generator = (page: Page) => page.getByRole('region', { name: 'Password generator', exact: true });
 const manager = (page: Page) => generator(page).locator('.generator-presets');
 async function open(page: Page) {
     await page.goto('/next.html');
+    await openStartTools(page);
     await page.getByRole('button', { name: 'Password generator', exact: true }).click();
     await expect(generator(page)).toBeVisible();
 }

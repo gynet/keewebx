@@ -155,8 +155,15 @@ test('key file stays visible with options closed; missing and wrong keys fail; c
     await expect(page.getByRole('button', { name: 'Use a key file', exact: true })).toBeVisible();
     const passkey = page.getByRole('button', { name: 'Unlock with passkey', exact: true });
     await expect(page.locator('#password')).toBeHidden();
+    await page.evaluate(() => {
+        const get = navigator.credentials.get.bind(navigator.credentials);
+        (window as any).__keyFileGetCalls = 0;
+        navigator.credentials.get = (...args) => { (window as any).__keyFileGetCalls++; return get(...args); };
+    });
     await passkey.click(); await expect(page.locator('#unlock-error')).toContainText('Select the key file');
-    await expect(page.locator('#password')).toBeFocused();
+    expect(await page.evaluate(() => (window as any).__keyFileGetCalls)).toBe(0);
+    await expect(page.locator('#password')).toBeHidden();
+    await expect(passkey).toBeVisible();
     await expectUnlockScreen(page);
     await page.locator('#unlock-key-file').setInputFiles(payload(new Uint8Array([1, 2, 3]), 'wrong.key'));
     await choosePasskeyUnlock(page);
