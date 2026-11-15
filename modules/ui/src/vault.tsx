@@ -37,6 +37,7 @@ import { prepareOtpDraft } from 'comp/app/entry-otp';
 import { EntryEditor, applyEntryDraft } from './entry-editor';
 import { EntryTemplates } from './entry-templates';
 import type { EntryDraft } from './entry-editor';
+import { PhoneGroups } from './phone-groups';
 import { GroupActions } from './group-actions';
 import { GroupIcon } from './group-appearance';
 import { FaviconImport } from './favicon-import';
@@ -121,7 +122,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const layout = usePanelLayout();
     const sidebar = useSidebarCollapse('vault');
     const [navigationOpen, setNavigationOpen] = useState(false);
+    const [phoneGroups, setPhoneGroups] = useState<{ initial?: string; actions: boolean; fromNavigation: boolean; trigger: HTMLElement | null } | null>(null);
     const navigation = useRef<HTMLElement>(null);
+    const groupReturnFocus = useRef<HTMLElement | null>(null);
     const browse = useRef<HTMLButtonElement>(null);
     const wasNavigationOpen = useRef(false);
     const closeNavigation = () => { setNavigationOpen(false); };
@@ -135,11 +138,14 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         const background = [...(navigation.current?.parentElement?.children ?? [])]
             .filter((element) => element !== navigation.current && !element.classList.contains('navigation-backdrop') && !element.hasAttribute('inert'));
         background.forEach((element) => element.setAttribute('inert', ''));
-        navigation.current?.querySelector<HTMLButtonElement>('.side__close')?.focus();
+        (groupReturnFocus.current ?? navigation.current?.querySelector<HTMLButtonElement>('.side__close'))?.focus();
         return () => background.forEach((element) => element.removeAttribute('inert'));
     }, [navigationOpen]);
     useEffect(() => {
-        if (navigationOpen) navigation.current?.querySelector<HTMLButtonElement>('.side__close')?.focus();
+        if (navigationOpen) {
+            (groupReturnFocus.current ?? navigation.current?.querySelector<HTMLButtonElement>('.side__close'))?.focus();
+            groupReturnFocus.current = null;
+        }
         const resized = () => { if (window.innerWidth > 760) setNavigationOpen(false); };
         window.addEventListener('resize', resized);
         return () => window.removeEventListener('resize', resized);
@@ -260,10 +266,15 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
         setGroupMessage('');
         if (navigationOpen) closeNavigation();
     };
-    const openGroupManager = () => {
+    const openGroupManager = (id?: string) => {
         if (!confirmDiscardDrafts()) return;
         setEditing(null);
         setSelected(undefined);
+        if (window.matchMedia('(max-width: 760px)').matches) {
+            setPhoneGroups({ actions: !!id, initial: id ?? groupTarget?.group.id ?? (roots.length === 1 ? roots[0].group.id : undefined), fromNavigation: navigationOpen, trigger: document.activeElement as HTMLElement | null });
+            closeNavigation();
+            return;
+        }
         closeNavigation();
         if (groupManager.current) groupManager.current.open = true;
         requestAnimationFrame(() => groupSummary.current?.focus());
@@ -465,17 +476,17 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 </section>
                 <NavRow icon="grid" label={t('All items')} on={!Object.values(filter).some(Boolean)} onClick={() => changeFilter({})} />
                 <NavRow icon="trash" label={t('Trash')} on={!!filter.trash} onClick={() => changeFilter({ trash: true })} />
+                <button type="button" class="nav-row" onClick={() => openGroupManager()}>
+                    <Icon name="folder" size={17} />
+                    <span class="nav-row__label">{t('Manage groups')}</span>
+                </button>
                 {groups.length > 0 && <h2 class="side__heading">{t('Groups')}</h2>}
                 {files.map(file => <section key={file.id} aria-label={t('Groups in {}', vaultLabel(file))}>
                     {files.length > 1 && <h3 class="side__heading">{vaultLabel(file)}</h3>}
                     {Array.from(file.groups).flatMap(root => ((root as unknown as GroupLike).items ?? []).filter(group => group.visible !== false))
                         .map(g => <GroupBranch key={g.id} group={g} selected={filter.group} onSelect={id => changeFilter({ group: id })}
-                            expandedGroups={expandedGroups} onToggle={toggleGroup} />)}
+                            expandedGroups={expandedGroups} onToggle={toggleGroup} onManage={openGroupManager} />)}
                 </section>)}
-                <button type="button" class="nav-row" onClick={openGroupManager}>
-                    <Icon name="folder" size={17} />
-                    <span class="nav-row__label">{t('Manage groups')}</span>
-                </button>
                 {tags.length > 0 && <h2 class="side__heading">{t('Tags')}</h2>}
                 <div class={AppSettingsModel.tagStyle === 'dot' ? 'tags tags--dots' : 'tags'}>
                     {tags.map((tag) => (
@@ -564,7 +575,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                 <EntryTemplates model={model} groupId={filter.group || creationGroup?.id} fileId={scopeId || filter.file} onCloseVault={props.onCloseVault} onCreated={entry => {
                     setEditing(null); setFilter({ group: (entry.group as GroupModel).id }); setQuery(''); setSelected(entry.id);
                 }} />
-                <details ref={groupManager} style={{ flex: '0 0 auto', margin: '0 14px 6px', minWidth: 0 }}>
+                <details class="desktop-group-manager" ref={groupManager} style={{ flex: '0 0 auto', margin: '0 14px 6px', minWidth: 0 }}>
                     <summary ref={groupSummary} style={{ cursor: 'pointer', padding: '10px 0', fontWeight: 600 }}>
                         {t('Manage groups')}
                     </summary>
@@ -663,6 +674,17 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
                     {transferMessage && <p role="status" style={{ overflowWrap: 'anywhere' }}>{t(transferMessage)}</p>}
                 </main>
             )}
+            {phoneGroups && <PhoneGroups model={model} files={files} initial={phoneGroups.initial} initialActions={phoneGroups.actions}
+                onClose={() => {
+                    const returnTo = phoneGroups; setPhoneGroups(null);
+                    if (returnTo.fromNavigation) { groupReturnFocus.current = returnTo.trigger; setNavigationOpen(true); }
+                    requestAnimationFrame(() => {
+                        if (!returnTo.fromNavigation && returnTo.trigger?.isConnected) returnTo.trigger.focus();
+                    });
+                }} onSelect={group => {
+                    setPhoneGroups(null); changeFilter({ group: group.id }); setQuery(''); setSelected(undefined);
+                    requestAnimationFrame(() => browse.current?.focus());
+                }} />}
             {transfer && <EntryTransfer model={model} request={transfer} onClose={() => setTransfer(null)} onResult={result => {
                 setTransferMessage(result.message);
                 if (getSessionAccess(model).state !== 'open') return;
@@ -679,9 +701,9 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     );
 }
 
-function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle }: {
+function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle, onManage }: {
     group: GroupLike; selected?: string; onSelect: (id: string) => void;
-    expandedGroups: ReadonlySet<string>; onToggle: (id: string) => void;
+    expandedGroups: ReadonlySet<string>; onToggle: (id: string) => void; onManage: (id: string) => void;
 }) {
     const expanded = expandedGroups.has(group.id);
     const children = Array.from(group.items ?? []).filter((child) => child.visible !== false);
@@ -696,10 +718,11 @@ function GroupBranch({ group, selected, onSelect, expandedGroups, onToggle }: {
                 </svg>
             </button> : <span class="group-branch__spacer" />}
             <button class={selected === group.id ? 'nav-row nav-row--on' : 'nav-row'} onClick={() => onSelect(group.id)}><GroupIcon group={group} /><span class="nav-row__label">{group.title}</span></button>
+            <button type="button" class="group-branch__manage" aria-label={t('Manage {}', group.title)} onClick={() => onManage(group.id)}>⋯</button>
         </div>
         {expanded && children.length > 0 && <div class="group-branch__children">
             {children.map((child) => <GroupBranch key={child.id} group={child} selected={selected} onSelect={onSelect}
-                expandedGroups={expandedGroups} onToggle={onToggle} />)}
+                expandedGroups={expandedGroups} onToggle={onToggle} onManage={onManage} />)}
         </div>}
     </div>;
 }

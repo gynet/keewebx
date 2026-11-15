@@ -37,6 +37,8 @@ export async function open(page: Page, trash = true, website?: string) {
     await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout }); return source;
 }
 export async function browse(page: Page) {
+    const groups = page.getByRole('dialog', { name: 'Groups', exact: true });
+    if (await groups.isVisible()) await groups.getByRole('button', { name: 'Show entries', exact: true }).click();
     const settingsBack = page.getByRole('button', { name: 'Back to vault', exact: true });
     await expect.poll(async () => await settingsBack.isVisible() || await page.getByRole('navigation', { name: 'Vault', exact: true }).isVisible() || await page.getByRole('button', { name: 'Browse vault', exact: true }).isVisible(), { timeout }).toBe(true);
     if (await settingsBack.isVisible()) await settingsBack.click();
@@ -58,5 +60,7 @@ export async function selectGroup(page: Page, name = 'Work') {
 export async function groupActions(page: Page, name = 'Work') {
     await selectGroup(page, name); await browse(page);
     await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+    const sheet = page.getByRole('dialog', { name: 'Groups', exact: true });
+    if (await sheet.isVisible()) await sheet.getByRole('button', { name: 'Group actions', exact: true }).click();
     return page.getByRole('group', { name: `Group actions: ${name}`, exact: true });
 }
