@@ -32,7 +32,7 @@ import { PanelResizer } from 'ui-kit/panel-resizer';
 import { usePanelLayout } from './panel-layout';
 import { SidebarToggle, SidebarPanelIcon, useSidebarCollapse } from './sidebar-collapse';
 import { t } from './i18n';
-import { ThemeSelect, ThemeToggle } from './theme';
+import { ThemeToggle } from './theme';
 import { confirmDiscardDrafts, hasPendingDrafts, savePendingDrafts } from './pending-drafts';
 import { Notes } from './notes';
 import { safeWebsiteUrl } from './website-url';
@@ -112,18 +112,70 @@ function saveToolbarPreference(key: string, value: unknown) {
     catch { /* Layout preferences are optional. */ }
 }
 
+type ToolbarPoint = { x: number; y: number };
+function savedToolbarPoint(): ToolbarPoint | null {
+    const point = toolbarPreference('mobileToolbarPosition') as ToolbarPoint | null;
+    return point && Number.isFinite(point.x) && Number.isFinite(point.y) ? point : null;
+}
+function toolbarBounds() {
+    const view = window.visualViewport;
+    return { x: view?.offsetLeft ?? 0, y: view?.offsetTop ?? 0, width: view?.width ?? innerWidth, height: view?.height ?? innerHeight };
+}
+function clampToolbar(point: ToolbarPoint, width: number, height: number): ToolbarPoint {
+    const view = toolbarBounds();
+    return { x: Math.max(view.x + 6, Math.min(point.x, view.x + view.width - width - 6)),
+        y: Math.max(view.y + 6, Math.min(point.y, view.y + view.height - height - 6)) };
+}
+
 export function Vault(props: { model: AppModel; version: number; onSettings: () => void; onLock: () => void; onOpenAnother?: () => void; onSave: () => void; onGenerator: () => void; onCloseVault?: (file: FileModel) => void }) {
     const { model } = props;
     const layout = usePanelLayout();
     const sidebar = useSidebarCollapse('vault');
     const [mobile, setMobile] = useState(() => matchMedia('(max-width: 760px)').matches);
-    const [toolbarDock, setToolbarDock] = useState<'top' | 'bottom'>(() => toolbarPreference('mobileToolbarDock') === 'top' ? 'top' : 'bottom');
+    const [toolbarDock, setToolbarDock] = useState<'top' | 'bottom' | 'floating'>(() => {
+        const dock = toolbarPreference('mobileToolbarDock');
+        return dock === 'top' ? 'top' : dock === 'floating' && savedToolbarPoint() ? 'floating' : 'bottom';
+    });
+    const [toolbarPosition, setToolbarPosition] = useState<ToolbarPoint | null>(savedToolbarPoint);
     const [toolbarHidden, setToolbarHidden] = useState(() => toolbarPreference('mobileToolbarHidden') === true);
     const toolbar = useRef<HTMLDivElement>(null), revealToolbar = useRef<HTMLButtonElement>(null);
-    const toolbarDrag = useRef<{ y: number; top: number; height: number; moved: boolean } | null>(null);
+    const toolbarDrag = useRef<{ x: number; y: number; left: number; top: number; width: number; height: number; moved: boolean } | null>(null);
     const suppressToolbarClick = useRef(false);
-    const [toolbarOffset, setToolbarOffset] = useState(0);
-    const moveToolbar = (dock: 'top' | 'bottom') => { setToolbarDock(dock); saveToolbarPreference('mobileToolbarDock', dock); };
+    const [toolbarPreview, setToolbarPreview] = useState<ToolbarPoint | null>(null);
+    const moveToolbar = (dock: 'top' | 'bottom' | 'floating', point?: ToolbarPoint) => {
+        setToolbarDock(dock); saveToolbarPreference('mobileToolbarDock', dock);
+        if (point) { setToolbarPosition(point); saveToolbarPreference('mobileToolbarPosition', point); }
+    };
+    const endToolbarDrag = () => { toolbarDrag.current = null; setToolbarPreview(null); };
+    const dragHandlers = {
+        onPointerDown: (event: PointerEvent) => {
+            if (!event.isPrimary || event.button !== 0) return;
+            const button = event.currentTarget as HTMLButtonElement;
+            const element = button.closest<HTMLElement>('.mobile-toolbar') ?? button;
+            const rect = element.getBoundingClientRect();
+            toolbarDrag.current = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, width: rect.width, height: rect.height, moved: false };
+            suppressToolbarClick.current = false; button.setPointerCapture(event.pointerId);
+        },
+        onPointerMove: (event: PointerEvent) => {
+            const drag = toolbarDrag.current; if (!drag) return;
+            const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+            if (Math.hypot(dx, dy) > 8) drag.moved = true;
+            if (drag.moved) setToolbarPreview(clampToolbar({ x: drag.left + dx, y: drag.top + dy }, drag.width, drag.height));
+        },
+        onPointerUp: (event: PointerEvent) => {
+            const drag = toolbarDrag.current;
+            if (drag?.moved) {
+                const point = clampToolbar({ x: drag.left + event.clientX - drag.x, y: drag.top + event.clientY - drag.y }, drag.width, drag.height);
+                const view = toolbarBounds();
+                moveToolbar(point.y <= view.y + 24 ? 'top' : point.y + drag.height >= view.y + view.height - 24 ? 'bottom' : 'floating', point);
+            }
+            suppressToolbarClick.current = !!drag?.moved; endToolbarDrag();
+        },
+        onPointerCancel: endToolbarDrag,
+        onLostPointerCapture: endToolbarDrag
+    };
+    const toolbarPoint = toolbarPreview ?? (toolbarDock === 'floating' ? toolbarPosition : null);
+    const toolbarStyle = toolbarPoint ? { left: `${toolbarPoint.x}px`, right: 'auto', top: `${toolbarPoint.y}px`, bottom: 'auto', margin: '0' } : undefined;
     const hideToolbar = () => {
         setToolbarHidden(true); saveToolbarPreference('mobileToolbarHidden', true); setNavigationOpen(false);
         requestAnimationFrame(() => revealToolbar.current?.focus());
@@ -139,6 +191,28 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
     const browse = useRef<HTMLButtonElement>(null);
     const wasNavigationOpen = useRef(false);
     const closeNavigation = () => { setNavigationOpen(false); };
+    useLayoutEffect(() => {
+        if (!mobile || toolbarDock !== 'floating') return;
+        const constrain = () => {
+            const element = toolbar.current?.querySelector<HTMLElement>('.mobile-toolbar, .mobile-toolbar__reveal');
+            if (!element) return;
+            const rect = element.getBoundingClientRect();
+            setToolbarPosition(point => {
+                if (!point) return point;
+                const next = clampToolbar(point, rect.width, rect.height);
+                if (next.x === point.x && next.y === point.y) return point;
+                saveToolbarPreference('mobileToolbarPosition', next); return next;
+            });
+        };
+        constrain(); window.addEventListener('resize', constrain);
+        window.visualViewport?.addEventListener('resize', constrain);
+        window.visualViewport?.addEventListener('scroll', constrain);
+        return () => {
+            window.removeEventListener('resize', constrain);
+            window.visualViewport?.removeEventListener('resize', constrain);
+            window.visualViewport?.removeEventListener('scroll', constrain);
+        };
+    }, [mobile, toolbarDock, toolbarHidden]);
     useLayoutEffect(() => {
         if (!navigationOpen) {
             if (wasNavigationOpen.current) browse.current?.focus();
@@ -436,7 +510,7 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             onKeyDown={(event) => {
                 IdleTracker.regUserAction();
                 if (!navigationOpen) return;
-                if (event.key === 'Escape') { event.preventDefault(); closeNavigation(); }
+                if (event.key === 'Escape' && !document.querySelector(':popover-open')) { event.preventDefault(); closeNavigation(); }
                 if (event.key === 'Tab') {
                     const controls = [navigation.current, toolbar.current].flatMap(root => [...(root?.querySelectorAll<HTMLInputElement>('button, summary, select, input, a[href], [tabindex="0"]') ?? [])])
                         .filter((button) => !button.disabled && button.getClientRects().length);
@@ -651,63 +725,50 @@ export function Vault(props: { model: AppModel; version: number; onSettings: () 
             )}
             {mobile && <div ref={toolbar} class="mobile-toolbar-region">
                 {toolbarHidden ? <button ref={revealToolbar} type="button" class="round mobile-toolbar__reveal"
-                    aria-label={t('Show toolbar')} title={t('Show toolbar')} onClick={showToolbar}><SidebarPanelIcon open={false} /></button>
-                    : <div class="mobile-toolbar" role="group" aria-label={t('Vault tools')}
-                        style={toolbarOffset ? { transform: `translateY(${toolbarOffset}px)` } : undefined}>
+                    style={toolbarStyle} {...dragHandlers} aria-label={t('Show toolbar')} title={t('Show toolbar')}
+                    onClick={() => { if (suppressToolbarClick.current) { suppressToolbarClick.current = false; return; } showToolbar(); }}><Icon name="grid" size={17} /></button>
+                    : <div class="mobile-toolbar" role="group" aria-label={t('Vault tools')} style={toolbarStyle}>
                         <button type="button" class="round mobile-toolbar__handle" aria-label={t('Move toolbar')}
-                            title={t('Drag or click to move the toolbar. Arrow keys also work.')}
+                            title={t('Drag or click to move the toolbar. Arrow keys also work.')} {...dragHandlers}
                             onClick={() => {
                                 if (suppressToolbarClick.current) { suppressToolbarClick.current = false; return; }
-                                moveToolbar(toolbarDock === 'bottom' ? 'top' : 'bottom');
+                                moveToolbar(toolbarDock === 'top' ? 'bottom' : 'top');
                             }}
                             onKeyDown={event => {
-                                if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                                    event.preventDefault(); moveToolbar(event.key === 'ArrowUp' ? 'top' : 'bottom');
-                                }
-                            }}
-                            onPointerDown={event => {
+                                if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                                event.preventDefault();
                                 const rect = event.currentTarget.parentElement!.getBoundingClientRect();
-                                toolbarDrag.current = { y: event.clientY, top: rect.top, height: rect.height, moved: false };
-                                suppressToolbarClick.current = false;
-                                event.currentTarget.setPointerCapture(event.pointerId);
-                            }}
-                            onPointerMove={event => {
-                                const drag = toolbarDrag.current;
-                                if (!drag) return;
-                                const offset = event.clientY - drag.y;
-                                if (Math.abs(offset) > 8) drag.moved = true;
-                                if (drag.moved) setToolbarOffset(Math.max(-drag.top, Math.min(innerHeight - drag.height - drag.top, offset)));
-                            }}
-                            onPointerUp={event => {
-                                const drag = toolbarDrag.current;
-                                if (drag?.moved) moveToolbar(event.clientY < innerHeight / 2 ? 'top' : 'bottom');
-                                suppressToolbarClick.current = !!drag?.moved;
-                                toolbarDrag.current = null; setToolbarOffset(0);
-                            }}
-                            onPointerCancel={() => { toolbarDrag.current = null; setToolbarOffset(0); }}
-                            onLostPointerCapture={() => { toolbarDrag.current = null; setToolbarOffset(0); }}>
-                            <span aria-hidden="true">⠿</span>
+                                const point = clampToolbar({ x: rect.left + (event.key === 'ArrowLeft' ? -24 : event.key === 'ArrowRight' ? 24 : 0),
+                                    y: rect.top + (event.key === 'ArrowUp' ? -24 : event.key === 'ArrowDown' ? 24 : 0) }, rect.width, rect.height);
+                                moveToolbar('floating', point);
+                            }}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M7 21V3m-4 4 4-4 4 4M17 3v18m-4-4 4 4 4-4" />
+                            </svg>
                         </button>
                         <button ref={browse} type="button" class="round mobile-toolbar__browse mobile-vault-header__toggle"
                             aria-label={t('Browse vault')} title={navigationOpen ? t('Close navigation') : t('Browse vault')}
                             aria-expanded={navigationOpen} aria-controls="vault-navigation" onClick={() => setNavigationOpen(open => !open)}>
                             <SidebarPanelIcon open={navigationOpen} />
                         </button>
-                        {model.settings.canOpenGenerator && <button type="button" class="round sidebar-generator" aria-label={t('Password generator')} title={t('Password generator')}
-                            onClick={() => { closeNavigation(); props.onGenerator(); }}><Icon name="key" size={17} /></button>}
-                        <EntryActions compact label={t('Menu')} title={t('Vault menu')}>
+                        <EntryActions compact label={t('Database actions')} title={t('Database actions')}>
                             {allFiles.length === 1 ? <>
                                 <button type="button" aria-disabled={saving.includes(allFiles[0].id)} aria-label={t('Save {}', vaultLabel(allFiles[0]))}
                                     onClick={() => void saveFile(allFiles[0])}>{t('Save database')}</button>
                                 <button type="button" aria-label={t('Close {}', vaultLabel(allFiles[0]))}
                                     onClick={() => { closeNavigation(); props.onCloseVault?.(allFiles[0]); }}>{t('Close database')}</button>
                             </> : <button type="button" onClick={props.onSave}>{t('Save vaults')}</button>}
-                            {props.onOpenAnother && <button type="button" onClick={() => { closeNavigation(); props.onOpenAnother?.(); }}>{t('Open another vault')}</button>}
-                            {model.settings.canOpenSettings && <button type="button" id="open-settings" onClick={() => { closeNavigation(); props.onSettings(); }}>{t('Settings')}</button>}
-                            <button type="button" id="lock" onClick={() => { closeNavigation(); props.onLock(); }}>{t('Lock')}</button>
-                            <section class="mobile-toolbar__theme" aria-label={t('Theme')}><span>{t('Theme')}</span><ThemeSelect /></section>
                             <button type="button" onClick={hideToolbar}>{t('Hide toolbar')}</button>
                         </EntryActions>
+                        {props.onOpenAnother && <button type="button" class="round" aria-label={t('Open another vault')} title={t('Open another vault')}
+                            onClick={() => { closeNavigation(); props.onOpenAnother?.(); }}><Icon name="plus" size={17} /></button>}
+                        {model.settings.canOpenGenerator && <button type="button" class="round sidebar-generator" aria-label={t('Password generator')} title={t('Password generator')}
+                            onClick={() => { closeNavigation(); props.onGenerator(); }}><Icon name="key" size={17} /></button>}
+                        <ThemeToggle />
+                        {model.settings.canOpenSettings && <button type="button" class="round" id="open-settings" aria-label={t('Settings')} title={t('Settings')}
+                            onClick={() => { closeNavigation(); props.onSettings(); }}><Icon name="gear" size={17} /></button>}
+                        <button type="button" class="round" id="lock" aria-label={t('Lock')} title={t(model.settings.autoSave ? 'Save all vaults and lock' : 'Lock vaults')}
+                            onClick={() => { closeNavigation(); props.onLock(); }}><Icon name="lock" size={17} /></button>
                     </div>}
             </div>}
             {phoneGroups && <PhoneGroups model={model} files={files} onChanged={groupChanged} onLifecycleChanged={lifecycleChanged} initial={phoneGroups.initial} initialActions={phoneGroups.actions}

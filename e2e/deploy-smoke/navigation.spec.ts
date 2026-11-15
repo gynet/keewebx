@@ -21,12 +21,11 @@ for (const width of [1280, 390, 320]) test(`New default and essential actions at
     const nav = page.getByRole('navigation', { name: 'Vault', exact: true });
     if (width < 761) {
         await expect(nav).toBeHidden();
-        await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeHidden();
+        await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
         await page.getByRole('button', { name: 'Browse vault', exact: true }).click();
     }
     await expect(nav.locator('.open-vaults__select')).toHaveCount(0);
     await expect(nav.locator('.side__content').getByRole('button', { name: /^Save / })).toHaveCount(0);
-    if (width < 761) await page.getByRole('button', { name: 'Menu', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Lock', exact: true })).toHaveCount(1);
     await activateDatabaseAction(page, /^Save /);
     await page.keyboard.press('Escape');

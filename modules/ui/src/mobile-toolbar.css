@@ -1,20 +1,19 @@
-/* Mobile utilities are rendered once, separately from the desktop footer. */
+/* Keep the original icon shortcuts in a single responsive menu. */
 .mobile-toolbar-region { display: none; }
 @media (max-width: 760px) {
-    .vault { --mobile-toolbar-height: calc(56px + env(safe-area-inset-bottom)); }
-    .vault[data-toolbar-dock="top"] { --mobile-toolbar-height: calc(56px + env(safe-area-inset-top)); }
-    .vault[data-toolbar-hidden="true"] { --mobile-toolbar-height: 0px; }
-    .mobile-toolbar-region { position: relative; display: flex; flex: 0 0 var(--mobile-toolbar-height); min-height: var(--mobile-toolbar-height); order: 10; z-index: 31; justify-content: center; }
+    .vault { --mobile-toolbar-height: calc(54px + env(safe-area-inset-bottom)); }
+    .vault[data-toolbar-dock="top"] { --mobile-toolbar-height: calc(54px + env(safe-area-inset-top)); }
+    .vault[data-toolbar-hidden="true"], .vault[data-toolbar-dock="floating"] { --mobile-toolbar-height: 0px; }
+    .mobile-toolbar-region { position: relative; display: flex; flex: 0 0 var(--mobile-toolbar-height); min-height: var(--mobile-toolbar-height); order: 10; z-index: 31; }
     .vault[data-toolbar-dock="top"] > .mobile-toolbar-region { order: -1; }
-    .mobile-toolbar { display: flex; align-items: center; align-self: flex-start; gap: 4px; width: max-content; max-width: calc(100% - 16px); padding: 4px 8px; border: 1px solid var(--kx-line); border-radius: 12px; background: var(--kx-side); }
-    .vault[data-toolbar-dock="top"] .mobile-toolbar { margin-top: env(safe-area-inset-top); }
-    .mobile-toolbar > .round, .mobile-toolbar > .entry-more > .round, .mobile-toolbar__reveal { flex: 0 0 44px; width: 44px; height: 44px; }
-    .mobile-toolbar__handle { touch-action: none; cursor: grab; font-size: 22px; }
-    .mobile-toolbar__handle:active { cursor: grabbing; }
-    .mobile-toolbar__theme { padding: 8px 12px; display: grid; gap: 6px; }
-    .mobile-toolbar__theme select { width: 100%; min-height: 44px; font-size: 16px; }
-    .mobile-toolbar__reveal { position: absolute; right: 8px; bottom: max(4px, env(safe-area-inset-bottom)); background: var(--kx-side); box-shadow: 0 1px 6px #0002; }
-    .vault[data-toolbar-dock="top"] .mobile-toolbar__reveal { top: max(4px, env(safe-area-inset-top)); bottom: auto; }
+    .mobile-toolbar { position: fixed; left: 0; right: 0; bottom: max(6px, env(safe-area-inset-bottom)); margin-inline: auto; display: flex; align-items: center; gap: 0; width: max-content; max-width: calc(100% - 12px); padding: 4px; border: 1px solid var(--kx-line); border-radius: 12px; background: var(--kx-side); box-shadow: 0 2px 8px #0002; }
+    .vault[data-toolbar-dock="top"] .mobile-toolbar { top: max(6px, env(safe-area-inset-top)); bottom: auto; }
+    .mobile-toolbar > .round, .mobile-toolbar > .entry-more > .round { flex: 0 0 36px; width: 36px; height: 36px; min-width: 36px; min-height: 36px; border: 0; background: transparent; }
+    .mobile-toolbar > .round:hover, .mobile-toolbar > .entry-more > .round:hover { background: var(--kx-sub); }
+    .mobile-toolbar__handle, .mobile-toolbar__reveal { touch-action: none; cursor: grab; }
+    .mobile-toolbar__handle:active, .mobile-toolbar__reveal:active { cursor: grabbing; }
+    .mobile-toolbar__reveal { position: fixed; right: 8px; bottom: max(6px, env(safe-area-inset-bottom)); width: 44px; height: 44px; background: var(--kx-side); box-shadow: 0 1px 6px #0002; }
+    .vault[data-toolbar-dock="top"] .mobile-toolbar__reveal { top: max(6px, env(safe-area-inset-top)); bottom: auto; }
     .vault[data-toolbar-hidden="true"] > :is(.list, .detail) { padding-bottom: max(56px, env(safe-area-inset-bottom)); scroll-padding-bottom: 56px; }
     .vault[data-toolbar-hidden="true"][data-toolbar-dock="top"] > .list .entry-list-controls__primary { padding-right: 48px; }
     .vault[data-toolbar-hidden="true"][data-toolbar-dock="top"] > .detail .detail__head { padding-right: 56px; }
