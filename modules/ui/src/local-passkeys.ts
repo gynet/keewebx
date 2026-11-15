@@ -148,7 +148,7 @@ export async function unlockWithLocalPasskey(
         !(model.settings.rememberKeyFiles === 'data' && info.keyFileHash)) {
         throw new Error('Select the key file first. A passkey replaces only the master password.');
     }
-    const guard = capture(model, info, current);
+    let guard = capture(model, info, current);
     const finish = beginPendingOperation(model, id);
     let secret: ProtectedValue | undefined, key: ArrayBuffer | undefined;
     try {
@@ -157,6 +157,10 @@ export async function unlockWithLocalPasskey(
         });
         secret = result.password;
         guard.check();
+        if (result.migratedWrappedKey) {
+            persist(model, info, { ...descriptor(info), passkeyWrappedKey: result.migratedWrappedKey });
+            guard = capture(model, info, current);
+        }
         if (keyFile) key = ByteUtils.arrayToBuffer(ByteUtils.base64ToBytes(keyFile.data));
         await new Promise<void>((resolve, reject) => {
             model.openFile({
@@ -165,8 +169,8 @@ export async function unlockWithLocalPasskey(
                 keyFileName: keyFile?.name ?? info.keyFileName ?? undefined, canOpen: guard.valid
             }, (error) => error ? reject(error) : resolve());
         });
-        // Leave legacy ciphertext migration to Classic. Admission replaces FileInfo and unmounts
-        // the unlock card; no descriptor mutation is allowed after that boundary here.
+        // Admission replaces FileInfo and unmounts the unlock card; descriptor migration
+        // is checked and persisted before this boundary, as in the Classic unlock flow.
     } finally { erase(secret); if (key) ByteUtils.zeroBuffer(key); finish(); }
 }
 

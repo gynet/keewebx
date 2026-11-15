@@ -15,6 +15,7 @@ import { WebDavSaveAs } from './webdav-save-as';
 import { RegisteredStorageSettings } from './storage-extensions';
 import { DatabaseBackup } from './database-backup';
 import { DatabaseDetails } from './database-details';
+import { confirmDatabasePassword } from './confirm-database-password';
 
 export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { model: AppModel; file: FileModel; onCancel: () => void; onClose?: () => void }) {
     const name = model.files.filter(candidate => candidate.name === file.name).length > 1
@@ -59,6 +60,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
             setMessage(t('Resolve invalid settings before downloading.'));
             return;
         }
+        if (!confirmDatabasePassword(model, file, available)) return;
         try { savePendingDrafts(file.id); }
         catch { setMessage(t('Resolve invalid or conflicting edits before downloading.')); return; }
         setBusy(true); setMessage('');
@@ -89,7 +91,7 @@ export function DatabaseSettingsEditor({ model, file, onCancel, onClose }: { mod
             if (credentialDraft.current) {
                 setMessage(t('Apply or discard credential edits before saving.')); return;
             }
-            if (!apply()) return;
+            if (!confirmDatabasePassword(model, file, available) || !apply()) return;
             setBusy(true); setMessage('');
             try {
                 await saveVault(model, file);

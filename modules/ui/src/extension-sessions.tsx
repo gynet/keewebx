@@ -84,7 +84,10 @@ export function ExtensionSessions({ model, api: providedApi, onBack }: {
                     <p class="muted">{t('Connected: {}', session.connectedDate.toLocaleString())}</p>
                     <p>{t('Passwords read: {}', String(session.passwordsRead))}</p>
                     <p>{t('Passwords written: {}', String(session.passwordsWritten))}</p>
-                    {!session.permissions ? <p>{t(session.permissionsDenied ? 'Access denied' : 'Awaiting approval')}</p> : <>
+                    <p>{t(session.permissions ? 'Access allowed' : session.permissionsDenied ? 'Access denied' : 'Awaiting approval')}</p>
+                    {session.permissions && <>
+                        {!session.permissions.allFiles && !session.permissions.files?.length &&
+                            <p role="status">{t('No databases are allowed for this session.')}</p>}
                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '44px' }}>
                             <input type="checkbox" checked={!!session.permissions.allFiles} onChange={(event) => update(session, {
                                 allFiles: event.currentTarget.checked,

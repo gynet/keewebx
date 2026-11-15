@@ -55,7 +55,8 @@ export function applyDatabaseSettings(file: FileModel, value: DatabaseSettings):
     const before = readDatabaseSettings(file);
     if (value.kdf === 'Aes' && before.kdf !== 'Aes') throw new Error('Select Argon2d or Argon2id.');
     if (value.name !== before.name) file.setName(value.name.trim());
-    if (value.defaultUser !== before.defaultUser) file.setDefaultUser(value.defaultUser);
+    const defaultUser = value.defaultUser.trim();
+    if (defaultUser !== before.defaultUser) file.setDefaultUser(defaultUser);
     if (value.recycleBin !== before.recycleBin) file.setRecycleBinEnabled(value.recycleBin);
     if (value.historyItems !== before.historyItems) file.setHistoryMaxItems(value.historyItems);
     if (value.historyBytes !== before.historyBytes) file.setHistoryMaxSize(value.historyBytes);

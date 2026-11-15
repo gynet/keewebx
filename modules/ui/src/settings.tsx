@@ -28,7 +28,9 @@ const settings = AppSettingsModel as unknown as Record<string, unknown>;
 
 const CLEAR_CLIPBOARD: [number, string][] = [
     [0, 'Never'],
+    [5, '5 seconds'],
     [10, '10 seconds'],
+    [15, '15 seconds'],
     [30, '30 seconds'],
     [60, '1 minute']
 ];
@@ -119,6 +121,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                                 <ClassicSwitch model={model} />
                             </div>
                         </div>
+                        <p class="general-preferences__help">{t('Classic is deprecated and remains available for compatibility.')}</p>
                         <div class="cardlist__row">
                             <span>{t('Theme')}</span>
                             <ThemeSelect />
@@ -149,6 +152,7 @@ export function Settings({ onBack, model, extensionSessions, initialSection = 'a
                                 ))}
                             </select>
                         </label>
+                        <p class="general-preferences__help">{t('Clipboard clearing is best effort. If the browser denies clipboard access, the copied value may remain. Newer clipboard content is kept.')}</p>
                         <ClipboardLockSetting value={settings.lockOnCopy === true} onChange={value => set('lockOnCopy', value)} />
                     </section>
                     <AuditPreferences />

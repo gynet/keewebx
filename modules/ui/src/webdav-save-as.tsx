@@ -9,6 +9,7 @@ import { beginPendingOperation, waitForPendingOperations } from './pending-opera
 import { savePendingDrafts } from './pending-drafts';
 import { PromptDialog } from './extension-prompts';
 import { t } from './i18n';
+import { confirmDatabasePassword } from './confirm-database-password';
 
 export function WebDavSaveAs({ model, file }: { model: AppModel; file: FileModel }) {
     const [open, setOpen] = useState(false), [message, setMessage] = useState('');
@@ -57,6 +58,7 @@ function SaveDestination({ model, file, close }: { model: AppModel; file: FileMo
                 if (current() && !controller.signal.aborted) setInspected({ path, etag });
                 return;
             }
+            if (!confirmDatabasePassword(model, file, current)) return;
             finish = beginPendingOperation(model);
             if (model.settings.disableOfflineStorage || !Storage.cache.enabled) {
                 throw new Error('Save to WebDAV needs a recoverable local copy. Enable offline storage before migrating this local vault.');

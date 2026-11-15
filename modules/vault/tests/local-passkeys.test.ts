@@ -149,6 +149,32 @@ describe('New local passkey operations', () => {
         expect(h.open).not.toHaveBeenCalled();
         await expect(Kdbx.load(h.encrypted, new Credentials(ProtectedValue.fromString('master')))).resolves.toBeDefined();
     });
+    for (const failure of ['none', 'storage', 'stale'] as const) test(`legacy passkey wrapping migration: ${failure}`, async () => {
+        const h = await fixture(); await enrollLocalPasskey(h.model, h.file, 'master', undefined, keep);
+        const base = await crypto.subtle.importKey('raw', prf, 'HKDF', false, ['deriveBits']);
+        const key = new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256',
+            salt: bytes(h.fi.id), info: bytes('neokeeweb-passkey-unlock-v1') }, base, 256));
+        try {
+            const legacy = ByteUtils.bytesToBase64(await primitive.wrapKey(new TextEncoder().encode('master'), key));
+            h.fi.passkeyWrappedKey = legacy; h.files.length = 0;
+            let mounted = true;
+            if (failure === 'storage') Object.defineProperty(storage, 'fileInfo', { configurable: true, set() { throw new Error('Storage denied'); } });
+            if (failure === 'stale') evaluate = async () => { mounted = false; return prf.slice(); };
+            const unlock = unlockWithLocalPasskey(h.model, h.fi.id, null, () => mounted);
+            if (failure !== 'none') {
+                await expect(unlock).rejects.toThrow(failure === 'storage' ? 'Could not save the passkey settings' : 'session changed');
+                expect(h.fi.passkeyWrappedKey).toBe(legacy); expect(h.open).not.toHaveBeenCalled();
+            } else {
+                await unlock;
+                expect(h.fi.passkeyWrappedKey).not.toBe(legacy);
+                expect(JSON.parse(storage.fileInfo)[0].passkeyWrappedKey).toBe(h.fi.passkeyWrappedKey);
+                expect(h.loaded()!.getDefaultGroup().entries[0].fields.get('Title')).toBe('Encrypted evidence');
+                await expect(primitive.unwrapKey(ByteUtils.base64ToBytes(h.fi.passkeyWrappedKey!), key)).rejects.toThrow();
+                await unlockWithLocalPasskey(h.model, h.fi.id, null, keep);
+            }
+            await expect(Kdbx.load(h.encrypted, new Credentials(ProtectedValue.fromString('master')))).resolves.toBeDefined();
+        } finally { key.fill(0); }
+    });
     for (const change of ['securing', 'recovery', 'reopened', 'unmounted', 'db', 'credentials', 'reset', 'deleted', 'forgotten'] as const) {
         test(`late enrollment after ${change} cannot publish`, async () => {
             const h = await fixture(), entered = deferred<void>(), pending = deferred<ReturnType<typeof registration>>();
