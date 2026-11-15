@@ -56,8 +56,8 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 const row = (page: Page, title = 'needle') => page.locator('.entry-row').filter({
     has: page.getByText(title, { exact: true }).and(page.locator('.entry-row__title'))
 });
-const dialog = (page: Page) => page.getByRole('dialog', { name: 'Make a copy', exact: true });
-const trigger = (page: Page) => page.getByRole('button', { name: 'Make a copy…', exact: true });
+const dialog = (page: Page) => page.getByRole('dialog', { name: 'Clone', exact: true });
+const trigger = (page: Page) => page.getByRole('button', { name: 'Clone…', exact: true });
 const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
 async function activate(control: Locator, touch = false) { if (touch) await control.tap(); else await control.click(); }
 async function browse(page: Page, touch = false) {
@@ -160,7 +160,7 @@ test.describe('New entry clone and sort', () => {
             await activate(trigger(page), mobile);
             expect(await dialog(page).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
             await page.screenshot({ path: test.info().outputPath('clone-confirm.png'), fullPage: true });
-            await activate(dialog(page).getByRole('button', { name: 'Create copy', exact: true }), mobile);
+            await activate(dialog(page).getByRole('button', { name: 'Clone', exact: true }), mobile);
             await expect(page.locator('.detail__title')).toHaveText('needle Copy');
             const exported = await download(page, mobile); const cloneId = await fidelity(exported.db, source);
             const fresh = await browser.newContext({ baseURL: page.url() });
@@ -218,10 +218,10 @@ test.describe('New entry clone and sort', () => {
         await trigger(page).click(); await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         await expect(notes.getByRole('textbox')).toHaveValue('Do not copy this unsaved note');
         await trigger(page).click(); page.once('dialog', prompt => prompt.dismiss());
-        await dialog(page).getByRole('button', { name: 'Create copy', exact: true }).click();
+        await dialog(page).getByRole('button', { name: 'Clone', exact: true }).click();
         await expect(dialog(page)).toBeVisible(); await expect(page.locator('.entry-row')).toHaveCount(3);
         page.once('dialog', prompt => prompt.accept());
-        await dialog(page).getByRole('button', { name: 'Create copy', exact: true }).click();
+        await dialog(page).getByRole('button', { name: 'Clone', exact: true }).click();
         await fidelity((await download(page)).db, source);
     });
 
@@ -231,10 +231,10 @@ test.describe('New entry clone and sort', () => {
         existing.fields.set('Title', 'needle Copy'); existing.fields.set('Password', kdbx.ProtectedValue.fromString('existing copy secret'));
         const existingId = existing.uuid.id; source.data = Buffer.from(await seeded.save());
         await open(page, source); await row(page).click(); await trigger(page).click();
-        await dialog(page).getByRole('button', { name: 'Create copy', exact: true }).click();
+        await dialog(page).getByRole('button', { name: 'Clone', exact: true }).click();
         await expect(page.locator('.entry-row--on')).toContainText('bravo');
         const copied = await download(page); const cloneId = await fidelity(copied.db, source);
-        await page.getByRole('button', { name: 'Move to Trash', exact: true }).click();
+        await page.getByRole('button', { name: 'Recycle', exact: true }).click();
         await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click();
         await row(page, 'needle Copy').click(); await expect(trigger(page)).toHaveCount(0);
         const after = (await download(page)).db;
@@ -260,7 +260,7 @@ test.describe('New entry clone and sort', () => {
             remote.createEntry(remote.groups[0]).fields.set('Title', 'Remote marker'); dav.replace(Buffer.from(await remote.save()));
             await page.clock.fastForward(61_000); await expect(row(page, 'Remote marker')).toHaveCount(1, { timeout });
             await expect(dialog(page).getByRole('alert')).toContainText('changed');
-            await expect(dialog(page).getByRole('button', { name: 'Create copy', exact: true })).toBeDisabled();
+            await expect(dialog(page).getByRole('button', { name: 'Clone', exact: true })).toBeDisabled();
             const before = Buffer.from(dav.bytes()); const writes = dav.writes();
             await page.keyboard.press('Enter'); expect(dav.bytes().equals(before)).toBe(true); expect(dav.writes()).toBe(writes);
             await page.screenshot({ path: test.info().outputPath('stale-clone.png'), fullPage: true });
@@ -299,7 +299,7 @@ test.describe('New entry clone and sort', () => {
         });
         await page.clock.fastForward(6 * 60_000);
         await expect.poll(() => entered, { timeout }).toBe(true);
-        const retained = page.locator('dialog[aria-label="Make a copy"]');
+        const retained = page.locator('dialog[aria-label="Clone"]');
         await expect(retained).toBeHidden();
         await expect(retained).toHaveJSProperty('open', false);
         await expect(retained.locator('xpath=ancestor::*[@inert and @hidden]')).toHaveCount(1);
@@ -316,7 +316,7 @@ test.describe('New entry clone and sort', () => {
         await page.getByRole('button', { name: 'Return to unsaved changes', exact: true }).click();
         await expect(dialog(page)).toBeVisible();
         await expect(dialog(page).getByRole('alert')).toContainText('session changed');
-        await expect(dialog(page).getByRole('button', { name: 'Create copy', exact: true })).toBeDisabled();
+        await expect(dialog(page).getByRole('button', { name: 'Clone', exact: true })).toBeDisabled();
         await expect(dialog(page)).toBeVisible();
         await page.screenshot({ path: test.info().outputPath('recovered-stale-clone.png'), fullPage: true });
         await page.evaluate(() => window.dispatchEvent(new Event('sdet-clone-release')));

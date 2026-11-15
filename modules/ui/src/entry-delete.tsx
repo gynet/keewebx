@@ -97,7 +97,7 @@ export function EntryDelete({ model, entry, onDeleted }: {
     return <div>
         <button ref={trigger} type="button" class="pill pill--tinted pill--danger" onClick={begin}>
             <Icon name="trash" size={16} />
-            {t(permanent ? 'Delete permanently…' : 'Move to Trash')}
+            {t(permanent ? 'Delete permanently…' : 'Recycle')}
         </button>
         {!selection && error && <p role="status">{error}</p>}
         {selection && <DeleteDialog model={model} selection={selection} trigger={trigger} error={error}

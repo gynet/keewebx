@@ -79,7 +79,7 @@ async function duplicateFixture() {
 }
 const row = (page: Page, value = title) => page.locator('.entry-row').filter({ has: page.getByText(value, { exact: true }) });
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Move entry to group', exact: true });
-const moveTrigger = (page: Page) => page.getByRole('button', { name: 'Move to group…', exact: true });
+const moveTrigger = (page: Page) => page.getByRole('button', { name: 'Move…', exact: true });
 const navigation = (page: Page) => page.getByRole('navigation', { name: 'Vault', exact: true });
 async function activate(control: Locator, touch = false) { if (touch) await control.tap(); else await control.click(); }
 async function browse(page: Page, touch = false) {
@@ -286,7 +286,7 @@ test.describe('New same-vault entry move', () => {
         await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
         fidelity((await download(page)).db, source, source.ids.source);
         // Trash has a separate Restore workflow; normal move must not expose it as a destination/source.
-        await page.getByRole('button', { name: 'Move to Trash', exact: true }).click();
+        await page.getByRole('button', { name: 'Recycle', exact: true }).click();
         await navigation(page).getByRole('button', { name: 'Trash', exact: true }).click();
         await row(page).click();
         await expect(moveTrigger(page)).toHaveCount(0);

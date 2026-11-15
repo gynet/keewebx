@@ -293,7 +293,7 @@ test.describe('New interface group lifecycle', () => {
                     await activate(dialog.getByRole('button', { name: 'Cancel', exact: true }), true);
                     dialog = await begin(page, source, 'New child', 'Delete group', true);
                     await screenshot(page, 'group-trash-confirmation-320');
-                    await activate(dialog.getByRole('button', { name: 'Move to trash', exact: true }), true);
+                    await activate(dialog.getByRole('button', { name: 'Recycle', exact: true }), true);
                     await expect(dialog).toHaveCount(0);
                     await reopen(page, source, true);
                     const trashed = await downloadVault(page, source, true);
@@ -320,7 +320,7 @@ test.describe('New interface group lifecycle', () => {
         expectSeedEntries(canceled, source);
         dialog = await begin(page, source, 'Parent', 'Delete group');
         await screenshot(page, 'group-cascade-trash-confirmation');
-        await activate(dialog.getByRole('button', { name: 'Move to trash', exact: true }));
+        await activate(dialog.getByRole('button', { name: 'Recycle', exact: true }));
         await expect(dialog).toHaveCount(0);
         await chooseGroup(page, ['All items']);
         await expect(page.locator('.entry-row')).toHaveCount(1);
@@ -578,7 +578,7 @@ test.describe('New group organization and trash recovery', () => {
                 await createGroup(page, source, 'Parent', 'Empty recoverable', touch);
                 await chooseGroup(page, ['Parent'], touch);
                 let dialog = await begin(page, source, 'Parent', 'Delete group', touch);
-                await activate(dialog.getByRole('button', { name: 'Move to trash', exact: true }), touch);
+                await activate(dialog.getByRole('button', { name: 'Recycle', exact: true }), touch);
                 let manager = await trashManager(page, touch);
                 await chooseOptionBySuffix(manager.getByRole('combobox', { name: 'Trashed group', exact: true }), 'Parent');
                 await activate(manager.getByRole('button', { name: 'Restore group', exact: true }), touch);
@@ -596,7 +596,7 @@ test.describe('New group organization and trash recovery', () => {
                 expectSeedEntries(saved, source);
                 await chooseGroup(page, ['Sibling', 'Parent'], touch);
                 dialog = await begin(page, source, 'Parent', 'Delete group', touch);
-                await activate(dialog.getByRole('button', { name: 'Move to trash', exact: true }), touch);
+                await activate(dialog.getByRole('button', { name: 'Recycle', exact: true }), touch);
                 manager = await trashManager(page, touch);
                 await chooseOptionBySuffix(manager.getByRole('combobox', { name: 'Trashed group', exact: true }), 'Empty recoverable');
                 await activate(manager.getByRole('button', { name: 'Restore group', exact: true }), touch);

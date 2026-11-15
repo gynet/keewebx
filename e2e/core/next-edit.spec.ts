@@ -183,7 +183,7 @@ test.describe('New interface entry editing', () => {
         await expect(form.getByLabel('Field value', { exact: true })).toHaveValue('new protected custom value');
         await expect(form.getByLabel('Protected', { exact: true })).toBeChecked();
         await form.getByRole('button', { name: 'Cancel', exact: true }).click();
-        await page.getByRole('button', { name: 'Move to Trash', exact: true }).click();
+        await page.getByRole('button', { name: 'Recycle', exact: true }).click();
         await expect(entryRow(page, 'Created fixture entry')).toHaveCount(0);
         await lockAndReopen(page);
         await expect(entryRow(page, 'Created fixture entry')).toHaveCount(0);

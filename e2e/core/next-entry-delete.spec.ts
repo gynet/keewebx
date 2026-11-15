@@ -146,10 +146,10 @@ for (const mode of ['trash', 'disabled'] as const) test(`${mode}: cancel is iner
     await expect(row(page)).toHaveCount(0); await expect(row(page, 'Trash sibling')).toBeVisible();
 });
 
-test('normal Move to Trash remains reversible and creates no tombstone', async ({ page }) => {
+test('normal Recycle remains reversible and creates no tombstone', async ({ page }) => {
     const source = await fixture('normal'); await open(page, source);
     await expect(trigger(page)).toHaveCount(0);
-    await page.getByRole('button', { name: 'Move to Trash', exact: true }).click();
+    await page.getByRole('button', { name: 'Recycle', exact: true }).click();
     await expect(dialog(page)).toHaveCount(0); await expect(row(page)).toHaveCount(0);
     await nav(page).getByRole('button', { name: 'Trash', exact: true }).click(); await row(page).click();
     await expect(trigger(page)).toBeVisible();
