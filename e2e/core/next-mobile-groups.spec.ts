@@ -4,7 +4,10 @@ import { openGroups, password, kdbx } from './mobile-group-fixture';
 test.use({ hasTouch: true });
 const exact = (name: string) => ({ name, exact: true });
 async function targetSize(target: Locator) {
-    const box = await target.boundingBox(); expect(box!.height).toBeGreaterThanOrEqual(44); expect(box!.width).toBeGreaterThanOrEqual(44);
+    const box = await target.boundingBox();
+    // Firefox may report 44 CSS pixels as 43.999969 after scrolling.
+    expect(Math.round(box!.height * 1000) / 1000).toBeGreaterThanOrEqual(44);
+    expect(Math.round(box!.width * 1000) / 1000).toBeGreaterThanOrEqual(44);
 }
 for (const width of [320, 390]) {
     test(`phone groups drill down, scroll and return focus at ${width}px`, async ({ page }) => {
