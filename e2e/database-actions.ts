@@ -9,6 +9,10 @@ export async function revealDatabaseAction(page: Page, name: string | RegExp, to
     }
     const action = nav.getByRole('button', { name, exact: typeof name === 'string' });
     if (!await action.isVisible()) {
+        const dismiss = page.locator('.command-status').getByRole('button', { name: 'Dismiss', exact: true }).filter({ visible: true });
+        if (await dismiss.count()) {
+            if (touch) await dismiss.tap(); else await dismiss.click();
+        }
         // A previous popover may cover another vault's trigger.
         const close = nav.getByRole('button', { name: 'Close actions', exact: true }).filter({ visible: true });
         if (await close.count()) {
