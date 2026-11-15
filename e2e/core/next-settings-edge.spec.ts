@@ -226,7 +226,7 @@ test.describe('Next database settings edge cases', () => {
     });
 
     for (const invalid of [false, true]) {
-        test(`Back cannot silently drop ${invalid ? 'an invalid' : 'a valid'} database draft`, async ({ page }) => {
+        test(`Back cannot silently drop ${invalid ? 'an invalid' : 'a valid'} database draft`, async ({ page, browserName }) => {
             await createVault(page);
             const form = await openSettings(page);
             await form.getByLabel('Vault name', { exact: true }).fill('Retained draft');
@@ -244,7 +244,14 @@ test.describe('Next database settings edge cases', () => {
             // Dismissing the native dialog can trigger the focus-sync scheduler.
             // This case tests retained drafts; active-writer rejection has its own coverage.
             await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30_000 });
-            await form.getByRole('button', { name: 'Save database settings', exact: true }).click();
+            const save = form.getByRole('button', { name: 'Save database settings', exact: true });
+            if (browserName === 'firefox') {
+                // Headless Firefox can lose pointer activation after native confirmation.
+                // Keep the draft/save test on a real, focused keyboard submission route.
+                await save.focus();
+                await expect(save).toBeFocused();
+                await page.keyboard.press('Enter');
+            } else await save.click();
             await expect(form.getByRole('status')).toHaveText('Saved in browser storage. Download KDBX to update your external copy.');
             await page.locator('#settings-back').click();
             await lock(page);
