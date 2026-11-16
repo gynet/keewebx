@@ -14,6 +14,8 @@ let client: GmRpc;
 let writes: Array<{ key: string; value: any }>;
 let mutate: ((key: string, value: any) => any) | undefined;
 let wireReads: number;
+let savedTab: Record<string, any>;
+let session: Map<string, string>;
 const originals = new Map<string, PropertyDescriptor | undefined>();
 const bridgeRequest = AppBridge.prototype.request;
 const stableJSON = (value: any) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
@@ -38,11 +40,12 @@ async function inject(packet: any) {
 }
 
 beforeEach(async () => {
-    store.clear(); writes = []; mutate = undefined; wireReads = 0;
+    store.clear(); writes = []; mutate = undefined; wireReads = 0; savedTab = {}; session = new Map();
     globalValue('location', { href: site + '/login', origin: site });
     globalValue('document', { visibilityState: 'visible' });
     globalValue('addEventListener', () => {}); globalValue('removeEventListener', () => {});
     globalValue('window', { postMessage() {} });
+    globalValue('sessionStorage', { getItem: (key: string) => session.get(key) ?? null, setItem: (key: string, value: string) => session.set(key, value) });
     globalValue('GM', {
         async getValue(key: string) { return structuredClone(store.get(key)); },
         async setValue(key: string, value: any) {
@@ -51,7 +54,7 @@ beforeEach(async () => {
         },
         async deleteValue(key: string) { store.delete(key); },
         async listValues() { return [...store.keys()]; },
-        async getTab() { return {}; }, async saveTab() {}
+        async getTab() { return structuredClone(savedTab); }, async saveTab(value: Record<string, any>) { savedTab = structuredClone(value); }
     });
     AppBridge.prototype.request = async () => { wireReads++; return { action: 'test-wire' }; };
     host = new GmHost(endpoint);
@@ -150,10 +153,77 @@ test('a manager write that never settles cannot bypass the absolute request time
     await expect(client.call('probe', undefined, 180)).rejects.toThrow('did not reply');
 });
 
-test('a website detects an old app script before waiting for an incompatible reply', async () => {
+test('missing version metadata cannot block an authenticated connection to the same app', async () => {
     const key = `keewebx-userscript-connect-route-v2:${endpoint.href}`;
     const route = { ...store.get(key) }; delete route.format; store.set(key, route);
     const next = new GmRpc(endpoint);
-    await expect(next.connect()).rejects.toThrow('Reload the authorized KeeWebX tab');
-    next.dispose();
+    try {
+        await next.connect();
+        expect((await next.call('probe')).appBoot).toBe(route.host);
+        expect(store.get(key)).toEqual(route);
+    } finally { next.dispose(); }
+});
+
+test('legacy JSON signatures are verified without requiring a new app authorization', async () => {
+    const keys = await identity();
+    const key = `keewebx-userscript-connect-route-v2:${endpoint.href}`;
+    const route = { ...store.get(key) }; delete route.format; store.set(key, route);
+    mutate = (key, value) => {
+        if (!key.includes('reply-v2:')) return value;
+        // 0.4.0 signed the serialized insertion order, including nested bodies.
+        const packet = { ...value.packet, body: { legacy: true, ...value.packet.body } };
+        return { packet, signature: toBase64(sign.detached(new TextEncoder().encode(JSON.stringify(packet)), keys.secretKey)) };
+    };
+    const next = new GmRpc(endpoint);
+    try { await next.connect(); expect((await next.call('probe', undefined, 700)).appBoot).toBe(route.host); }
+    finally { next.dispose(); }
+});
+
+test('missing version metadata does not accept a tampered legacy reply', async () => {
+    const keys = await identity();
+    const key = `keewebx-userscript-connect-route-v2:${endpoint.href}`;
+    const route = { ...store.get(key) }; delete route.format; store.set(key, route);
+    const next = new GmRpc(endpoint); await next.connect();
+    mutate = (key, value) => {
+        if (!key.includes('reply-v2:')) return value;
+        const packet = { ...value.packet, body: { legacy: true, ...value.packet.body } };
+        const signature = toBase64(sign.detached(new TextEncoder().encode(JSON.stringify(packet)), keys.secretKey));
+        return { packet: { ...packet, body: { ...packet.body, appBoot: crypto.randomUUID() } }, signature };
+    };
+    try { await expect(next.call('probe', undefined, 600)).rejects.toThrow('did not reply'); }
+    finally { next.dispose(); }
+});
+
+test('the approved host survives loss of manager tab state across a reload', async () => {
+    host.pause(); savedTab = {};
+    const reloaded = new GmHost(endpoint);
+    expect(await reloaded.selected()).toBe(true);
+    reloaded.pause();
+});
+
+test('manager tab state is retained when that API temporarily fails', async () => {
+    host.pause();
+    (globalThis as any).GM.getTab = async () => { throw new Error('Temporary manager failure'); };
+    const reloaded = new GmHost(endpoint);
+    expect(await reloaded.selected()).toBe(true);
+    reloaded.pause();
+});
+
+test('a different app tab cannot silently replace the selected host', async () => {
+    savedTab = {}; session.clear();
+    const another = new GmHost(endpoint);
+    expect(await another.selected()).toBe(false);
+    another.pause();
+    expect((await client.call('probe')).appBoot).toBe(request().value.packet.host);
+});
+
+test('Userscripts null initial tab state is initialized and mirrored', async () => {
+    savedTab = {}; session.clear();
+    (globalThis as any).GM.getTab = async () => null;
+    const fresh = new GmHost(endpoint);
+    expect(await fresh.selected()).toBe(false);
+    const key = `keewebx-userscript-connect-host-v2:${endpoint.href}`;
+    expect(savedTab[key]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(session.get(key)).toBe(savedTab[key]);
+    fresh.pause();
 });

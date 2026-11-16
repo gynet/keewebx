@@ -7,7 +7,7 @@ import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const runtime = { getVersion: () => '0.4.2', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
+const runtime = { getVersion: () => '0.4.3', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function start(): Promise<void> {
@@ -19,7 +19,7 @@ async function start(): Promise<void> {
     if (app) {
         const host = new GmHost(endpoint, error => ui.state(State.Error, message(error)));
         const bridge = new AppBridge();
-        let generation = 0, authorizing = false, attempted = false, revoked = false;
+        let generation = 0, authorizing = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
         ui.address.readOnly = true; ui.save.hidden = true; ui.open.hidden = true;
         ui.returnToSite.hidden = true; ui.pair.hidden = true; ui.decline.hidden = true;
         ui.targetSite.parentElement!.hidden = true;
@@ -33,7 +33,7 @@ async function start(): Promise<void> {
             try {
                 const keys = await managerCall(() => identity(explicit)); guard();
                 if (!explicit && !await host.selected()) return;
-                const protocol = new ProtocolImpl({ request: request => { guard(); return bridge.request(request); } }, runtime);
+                const protocol = new ProtocolImpl({ request: request => { guard(); return bridge.request(request, Date.now() + (explicit ? 65000 : 8000)); } }, runtime);
                 await protocol.ping(); await protocol.changePublicKeys(); await protocol.pair(keys); guard();
                 let features = await protocol.features(); guard();
                 if (features.locked) {
@@ -50,16 +50,23 @@ async function start(): Promise<void> {
                     if (explicit) throw new Error('Allow account listing to enable Connect for all websites.');
                     return;
                 }
-                await host.authorize(keys); guard(); revoked = false;
+                await host.authorize(keys); guard(); revoked = false; authorized = true;
                 ui.state(State.Connected, 'Authorized. All websites can use this tab. Return to your website and select an account.');
                 ui.authorize.textContent = 'Use this tab for all websites';
             } catch (error) { if (epoch === generation && explicit) ui.state(State.Error, message(error)); }
-            finally { if (epoch === generation) { authorizing = false; ui.authorize.disabled = false; bridge.reset(); } }
+            finally {
+                if (epoch === generation) {
+                    authorizing = false; ui.authorize.disabled = false; bridge.reset();
+                    const retry = !explicit && restoreRequested && !authorized && !revoked;
+                    restoreRequested = false;
+                    if (retry) queueMicrotask(retryRestore);
+                }
+            }
         };
         ui.authorize.onclick = event => { if (event.isTrusted) void authorize(true); };
         ui.revoke.onclick = event => {
             if (!event.isTrusted) return;
-            revoked = true; generation++; authorizing = false; bridge.reset(); ui.authorize.disabled = false;
+            revoked = true; authorized = false; restoreRequested = false; generation++; authorizing = false; bridge.reset(); ui.authorize.disabled = false;
             void host.revoke().then(() => ui.state(State.ReadyToConnect, 'Disconnected. Authorize this tab once to enable all websites again.'));
         };
         ui.onClose = () => {
@@ -67,12 +74,22 @@ async function start(): Promise<void> {
         };
         const restored = () => {
             const unlocked = !!document.querySelector('.vault');
-            if (!unlocked) { attempted = false; return; }
+            if (!unlocked) { attempted = false; authorized = false; return; }
             if (attempted || revoked || authorizing) return;
             attempted = true; void authorize(false);
         };
         new MutationObserver(restored).observe(document.body, { childList: true, subtree: true });
         restored();
+        // A transient startup failure must not permanently consume restoration.
+        // Retry on an actual app return without prompting or changing the vault.
+        const retryRestore = () => {
+            if (document.hidden || authorized || revoked) return;
+            if (authorizing) { restoreRequested = true; return; }
+            attempted = false; restored();
+        };
+        ui.onOpen = retryRestore;
+        addEventListener('focus', retryRestore);
+        addEventListener('visibilitychange', retryRestore);
         if (new URL(location.href).searchParams.has('kwx-connect')) ui.show('config');
         addEventListener('pagehide', event => {
             generation++; authorizing = false; bridge.reset();

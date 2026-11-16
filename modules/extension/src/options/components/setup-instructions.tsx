@@ -3,7 +3,7 @@ import { FunctionComponent } from 'preact';
 const USERSCRIPT_GUIDE =
     'https://github.com/gynet/keewebx/tree/master/modules/extension/userscript#readme';
 const USERSCRIPT_DOWNLOAD =
-    'https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.2/modules/extension/userscript/keewebx-connect.user.js';
+    'https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.3/modules/extension/userscript/keewebx-connect.user.js';
 
 /** Keep setup help available before a connection has been established. */
 const SetupInstructions: FunctionComponent = () => (
@@ -39,7 +39,7 @@ const SetupInstructions: FunctionComponent = () => (
                 iOS Safari uses the separate KeeWebX Connect userscript with the
                 Userscripts app. These desktop extension settings do not configure it.
                 {' '}<a href={USERSCRIPT_DOWNLOAD} target="_blank" rel="noopener noreferrer">
-                    Download Connect 0.4.2
+                    Download Connect 0.4.3
                 </a>.
             </p>
             <ol>

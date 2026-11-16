@@ -2,7 +2,7 @@
 // GM is simulated across independent Chromium tabs; the shipped bundle, KDBX,
 // native consent, ProtocolImpl, and encrypted app endpoint are real.
 // KWX_APP_SERVER=http://127.0.0.1:39232 KWX_BUN=/path/to/bun node modules/extension/userscript/tests/gm-connect.mjs
-// Also supports KWX_USERSCRIPT, KWX_REPO_ROOT, KWX_DB_ROOT,
+// Also supports KWX_USERSCRIPT, KWX_LEGACY_APP_USERSCRIPT, KWX_REPO_ROOT, KWX_DB_ROOT,
 // KWX_CHROMIUM_EXECUTABLE, KWX_E2E_OUTPUT_DIR, and KWX_E2E_REPORT.
 import { chromium, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
@@ -17,6 +17,7 @@ const DB_ROOT = resolve(process.env.KWX_DB_ROOT || ROOT);
 const BUN = process.env.KWX_BUN || (typeof Bun !== 'undefined' ? process.execPath : 'bun');
 const APP_SERVER = process.env.KWX_APP_SERVER || 'http://127.0.0.1:39232';
 const SOURCE = resolve(process.env.KWX_USERSCRIPT || join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'));
+const LEGACY_APP = process.env.KWX_LEGACY_APP_USERSCRIPT;
 const OUT = process.env.KWX_E2E_OUTPUT_DIR ? resolve(process.env.KWX_E2E_OUTPUT_DIR) : mkdtempSync(join(tmpdir(), 'keewebx-gm-connect-'));
 mkdirSync(OUT, { recursive: true });
 const APP = 'https://keewebx.app/app';
@@ -45,7 +46,7 @@ const report = {
 const gm = new Map();
 // A native WebExtension storage bridge may serialize dictionaries in a different
 // order. Persist JSON-compatible values with reversed nested key order.
-const storedValue = value => JSON.parse(JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+const storedValue = value => JSON.parse(JSON.stringify(value, (_key, item) => !LEGACY_APP && item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().reverse().map(key => [key, item[key]])) : item));
 const stableJSON = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
@@ -213,7 +214,8 @@ async function setup(bundle) {
         if (operation === 'set') { gm.set(key, storedValue(value)); return; }
         if (operation === 'delete') { gm.delete(key); return; }
         if (operation === 'list') return [...gm.keys()];
-        if (operation === 'getTab') return structuredClone(tabState.get(tab) || {});
+        // Userscripts returns null until saveTab initializes this tab.
+        if (operation === 'getTab') return structuredClone(tabState.get(tab) ?? null);
         if (operation === 'saveTab') { tabState.set(tab, structuredClone(value)); return; }
         throw new Error(`Unsupported GM operation: ${operation}`);
     });
@@ -281,7 +283,11 @@ async function setup(bundle) {
                 getTab: callback => { const result = globalThis.__kwxSharedGM('getTab'); return callback ? result.then(callback) : result; },
                 saveTab: value => globalThis.__kwxSharedGM('saveTab', undefined, value)
             };
-            ${bundle}
+            if (location.href.startsWith(${JSON.stringify(APP)}) && ${Boolean(LEGACY_APP)}) {
+                ${LEGACY_APP ? readFileSync(LEGACY_APP, 'utf8') : ''}
+            } else {
+                ${bundle}
+            }
         };
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
         else start();
@@ -324,8 +330,9 @@ function auditStorage() {
         const key = createPublicKey({ format: 'der', type: 'spki', key: Buffer.concat([
             Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(approvedRoute.publicKey, 'base64')
         ]) });
-        allSignaturesValid = packets.length > 0 && packets.every(({ value }) => value?.packet && typeof value.signature === 'string' &&
-            verify(null, Buffer.from(stableJSON(value.packet)), key, Buffer.from(value.signature, 'base64')));
+        allSignaturesValid = packets.length > 0 && packets.every(({ key: packetKey, value }) => value?.packet && typeof value.signature === 'string' &&
+            (verify(null, Buffer.from(stableJSON(value.packet)), key, Buffer.from(value.signature, 'base64')) ||
+                LEGACY_APP && packetKey.includes('reply-v2:') && verify(null, Buffer.from(JSON.stringify(value.packet)), key, Buffer.from(value.signature, 'base64'))));
     }
     const result = {
         backend: 'Simulated shared private GM with stable per-page getTab/saveTab across reload',
@@ -348,6 +355,7 @@ function auditStorage() {
 try {
     const bundle = readFileSync(SOURCE, 'utf8');
     report.bundle = { source: SOURCE, bytes: Buffer.byteLength(bundle), sha256: createHash('sha256').update(bundle).digest('hex') };
+    if (LEGACY_APP) report.legacyAppBundle = { source: LEGACY_APP, sha256: createHash('sha256').update(readFileSync(LEGACY_APP)).digest('hex'), storageKeyOrder: 'preserved for legacy signatures' };
     await step('create real encrypted KDBX with two distinct origin accounts and an unrelated account', async () => {
         const source = `
             import * as kdbx from ${JSON.stringify(pathToFileURL(join(DB_ROOT, 'modules/db/lib/index.ts')).href)};
@@ -392,7 +400,8 @@ try {
         expect(typeof approvedRoute.host).toBe('string');
         expect(typeof approvedRoute.publicKey).toBe('string');
         expect(approvedRoute.publicKey).toBe(gm.get('keewebx-userscript-connect-identity-v1').publicKey);
-        expect(tabState.get(tabIds.get(app))?.[`keewebx-userscript-connect-host-v2:${APP}`]).toBe(approvedRoute.host);
+        if (!LEGACY_APP) expect(tabState.get(tabIds.get(app))?.[`keewebx-userscript-connect-host-v2:${APP}`]).toBe(approvedRoute.host);
+        expect(await app.evaluate(key => sessionStorage.getItem(key), `keewebx-userscript-connect-host-v2:${APP}`)).toBe(approvedRoute.host);
         expect(await app.evaluate(() => globalThis.__kwxGmTest.consentCount)).toBe(1);
         expect(await fieldReads()).toBe(0);
         originalApp = await documentState(app);
@@ -409,6 +418,16 @@ try {
         expect(await second.evaluate(() => window.opener === null)).toBe(true);
         await lookup(second, ACCOUNTS[1]); await fill(second, ACCOUNTS[1]); await assertOneApp();
         report.twoIndependentOriginsVerified = true;
+    });
+    await step('old authorization metadata permits signed lookup and fill without a reload or another grant', async () => {
+        const route = { ...gm.get(ROUTE_KEY) }; delete route.format; gm.set(ROUTE_KEY, route);
+        await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+        await clearFields(second); await lookup(second, ACCOUNTS[1]); await fill(second, ACCOUNTS[1]);
+        expect(gm.get(ROUTE_KEY)).toEqual(route);
+        gm.set(ROUTE_KEY, structuredClone(approvedRoute));
+        await assertOneApp();
+        report.oldMetadataVerified = true;
+        return { noAppReload: true, nativeConsentCount: 1, signedConnectionRequired: true };
     });
     await step('first website repeats lookup and fill after second website without switching to app', async () => {
         await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]); await assertOneApp();
@@ -433,8 +452,9 @@ try {
     await step('Open KeeWebX with an approved route never opens, navigates or locks the original app', async () => {
         const before = await documentState(app);
         await action(first, 'open');
-        await expect.poll(() => app.evaluate(() => globalThis.__kwxGmTest.focusCalls)).toBe(1);
-        explicitFocusCalls = 1;
+        explicitFocusCalls = LEGACY_APP ? 0 : 1;
+        await untilStatus(first, /Connected to the authorized KeeWebX tab/);
+        expect(await app.evaluate(() => globalThis.__kwxGmTest.focusCalls)).toBe(explicitFocusCalls);
         await expect(app.locator('.vault')).toBeVisible();
         await expect(app.locator('#password')).toHaveCount(0);
         expect(await documentState(app)).toEqual(before);

@@ -9,7 +9,7 @@ declare const GM: {
     setValue(key: string, value: any): Promise<void>;
     deleteValue(key: string): Promise<void>;
     listValues(): Promise<string[]>;
-    getTab?: () => Promise<Record<string, any>>;
+    getTab?: () => Promise<Record<string, any> | null>;
     saveTab?: (value: Record<string, any>) => Promise<void>;
 };
 type Keys = { publicKey: Uint8Array; secretKey: Uint8Array };
@@ -38,9 +38,13 @@ const signed = (packet: Packet, keys: Keys): Signed => {
     const value = canonical(JSON.parse(JSON.stringify(packet))) as Packet;
     return { packet: value, signature: toBase64(sign.detached(bytes(value), keys.secretKey)) };
 };
-const verified = (value: unknown, key: Uint8Array): value is Signed => {
+const verified = (value: unknown, key: Uint8Array, legacy = false): value is Signed => {
     if (!object(value) || !object(value.packet) || typeof value.signature !== 'string') return false;
-    try { return sign.detached.verify(bytes(value.packet), fromBase64(value.signature), key); } catch { return false; }
+    try {
+        const signature = fromBase64(value.signature);
+        return sign.detached.verify(bytes(value.packet), signature, key) ||
+            legacy && sign.detached.verify(new TextEncoder().encode(JSON.stringify(value.packet)), signature, key);
+    } catch { return false; }
 };
 export async function approvedRoute(endpoint: URL): Promise<Route | undefined> {
     const value = await managerCall(() => GM.getValue(routeKey(endpoint)));
@@ -62,17 +66,23 @@ export class GmHost {
 
     private async tabId(): Promise<string> {
         const key = `${ROOT}host-v2:${this.endpoint.href}`;
+        let saved: string | null = null;
+        try { saved = sessionStorage.getItem(key); } catch {}
+        const remember = (id: string) => { try { sessionStorage.setItem(key, id); } catch {} return id; };
         if (GM.getTab && GM.saveTab) {
             try {
-                const tab = await managerCall(() => GM.getTab!(), 'Userscripts tab state', 1200);
-                if (!isId(tab[key])) { tab[key] = uuid(); await managerCall(() => GM.saveTab!(tab), 'Userscripts tab state', 1200); }
-                return tab[key];
+                const state = await managerCall(() => GM.getTab!(), 'Userscripts tab state', 1200);
+                const tab = object(state) ? state : {};
+                if (!isId(tab[key])) {
+                    tab[key] = isId(saved) ? saved : uuid();
+                    // Retain the same identity even if saveTab fails or times out.
+                    saved = remember(tab[key]);
+                    await managerCall(() => GM.saveTab!(tab), 'Userscripts tab state', 1200);
+                }
+                return remember(tab[key]);
             } catch { /* Older managers can use the tab's session storage instead. */ }
         }
-        let id: string | null = null;
-        try { id = sessionStorage.getItem(key); } catch {}
-        if (!isId(id)) { id = uuid(); try { sessionStorage.setItem(key, id); } catch {} }
-        return id!;
+        return remember(isId(saved) ? saved! : uuid());
     }
 
     async selected(): Promise<boolean> {
@@ -198,7 +208,8 @@ export class GmRpc {
         this.keys = await managerCall(() => identity()); this.assertCurrent();
         this.route = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Authorize Connect once in your KeeWebX tab. Then all websites can use it.');
-        if (this.route.format !== 'canonical-1') throw new Error('Reload the authorized KeeWebX tab once to update its Connect script.');
+        // A stored version flag is advisory. Only a signed live handshake can
+        // establish compatibility; old metadata must not force a reload loop.
         const result = await this.call('hello', undefined, 8000);
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host ||
             !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid KeeWebX connection response.');
@@ -208,6 +219,8 @@ export class GmRpc {
         await this.assertSelected();
         const route = this.route, keys = this.keys;
         if (!route || !keys) throw new Error('Connect to your authorized KeeWebX tab first.');
+        // 0.4.0 supports probing but not focus. Never navigate an existing app.
+        if (operation === 'focus' && route.format !== 'canonical-1') operation = 'probe';
         const p: Packet = { host: route.host, endpoint: this.endpoint.href, id: uuid(), document: this.document,
             origin: location.origin, operation, scope: this.scope, deadline: Math.min(Date.now() + timeout, this.scope ? this.expiresAt : Infinity), body };
         const request = requestPrefix(route.host) + p.id, reply = replyKey(route.host, p.id);
@@ -233,7 +246,7 @@ export class GmRpc {
                     const result = await GM.getValue(reply);
                     this.assertCurrent();
                     if (!this.pending.has(p.id)) return;
-                    if (verified(result, keys.publicKey)) {
+                    if (verified(result, keys.publicKey, route.format !== 'canonical-1')) {
                         const response = result.packet;
                         if (response.host === p.host && response.endpoint === p.endpoint && response.id === p.id &&
                             response.document === p.document && response.origin === p.origin && response.operation === p.operation &&

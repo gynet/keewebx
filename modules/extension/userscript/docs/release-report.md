@@ -1,6 +1,6 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current architecture: 0.4.2
+## Current architecture: 0.4.3
 
 Authorize the intended KeeWebX app tab once with **Authorize Connect** and the
 native **Allow** dialog for account listing. All login websites then use the
@@ -21,7 +21,7 @@ run. The enabled app polls request keys at about 500 ms idle or 60 ms after
 recent activity; websites poll only pending reply keys at about 80 ms.
 
 Install from the
-[0.4.2 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.2/modules/extension/userscript/keewebx-connect.user.js).
+[0.4.3 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.3/modules/extension/userscript/keewebx-connect.user.js).
 See the [current setup and validation commands](../README.md). The current
 real-app regression entry point is `tests/gm-connect.mjs`; the helper acceptance
 results below do not validate this new transport. Its desktop harness simulates
@@ -29,7 +29,58 @@ GM storage/injection, so native Userscripts execution, iOS long suspension,
 screen lock and memory pressure remain unverified. No automatic OS wakeup is
 established.
 
-### Accepted 0.4.2 repair and results
+### 0.4.3 upgrade recovery
+
+0.4.1/0.4.2 rejected a saved route without the `canonical-1` metadata before
+sending any request. That was not evidence of an incompatible live app and
+could trap a valid existing authorization behind a repeated reload message.
+0.4.3 performs the signed live handshake. A legacy route permits either
+canonical or original JSON-order Ed25519 verification of the response; it
+never accepts an unsigned reply. Existing origin, host, identity, session,
+expiry, revocation and explicit account-selection checks remain in place.
+The old host lacks a focus command, so Open uses its supported probe instead
+of navigating the original document.
+
+The app mirrors its public host ID between manager tab state and sessionStorage.
+It reuses that ID when manager state disappears or fails, and initializes the
+null returned by Userscripts before its first saveTab call. The earlier mock
+incorrectly returned an empty object; the real-app harness now returns null.
+A foreground return retries failed automatic restoration, including a return
+that happens while the previous attempt is still pending. It does not silently
+select a different app or request another per-website permission.
+
+Regression coverage includes missing metadata with a live current host, the
+actual published 0.4.0 installer as the app with a 0.4.3 website client, lost
+manager tab state, manager errors, first-use null state, tampered legacy
+signatures and rejection of an unrelated app tab. Four added checks failed
+against the previous implementation before the repair.
+
+- Final installer: 81,034 bytes; SHA-256
+  `0eb4b4422b679cfd44819c172c95b8756ed7946a4726b67684e0e9164ae93f57`.
+- Current-version real-app acceptance: all 16 steps passed using reordered
+  JSON storage and actual first-use null tab state.
+- Mixed-version real-app acceptance: all 16 steps passed with the immutable
+  0.4.0 app installer and this exact new client, using legacy-preserving storage.
+- Transport and recovery checks: 18 passed, including signature tampering,
+  manager state loss, null initialization, cancellation, expiry and revocation.
+- Userscript strict TypeScript and JavaScript syntax checks passed.
+
+Both real-app runs used encrypted disposable KDBX files, one native approval,
+two independent login origins, repeated fills, Test connection, Open without
+reload/lock, canceled/expired replies, locked-vault rejection and historical
+storage audits. No plaintext fixture credentials were persisted in GM.
+
+Legacy interoperability requires storage to preserve the old host's signing
+order. A new client cannot repair the signature verifier inside an old running
+script if its manager reorders keys. The full current-version suite separately
+uses reordered JSON storage. Native iOS execution remains unverified; neither
+suite loads the actual iPhone Userscripts extension.
+
+### Historical 0.4.2 repair and results
+
+The metadata-only compatibility check described below was superseded by 0.4.3.
+
+
 
 The 0.4.0 signature format depended on dictionary enumeration order. A storage
 adapter that serializes and reorders nested keys reproduced lost requests.

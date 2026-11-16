@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.4.2
+# Userscripts on iOS: KeeWebX Connect 0.4.3
 
 The experimental Connect userscript lets login websites reuse one authorized
 KeeWebX app tab through the Userscripts manager's private GM storage. Authorize
@@ -7,13 +7,20 @@ Normal lookup and fill keep you on the website and do not open another tab.
 The default flow has no helper page, tab discovery, BroadcastChannel or
 per-website pairing.
 
-Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.2/modules/extension/userscript/keewebx-connect.user.js).
+Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.3/modules/extension/userscript/keewebx-connect.user.js).
 
-Version 0.4.2 fixes storage serialization compatibility and the Connection
-controls. Test connection shows progress and always has a deadline. Open
-KeeWebX contacts the authorized app instead of navigating its unlocked page.
-After updating, reload the app and login website tabs once so that both use
-this version; an old app script is detected before an incompatible request.
+Version 0.4.3 removes the repeated “Reload the authorized KeeWebX tab” error.
+Old authorization metadata no longer blocks a live, signed connection. A
+still-running 0.4.0 app can serve the new website script without another
+approval when its storage preserves legacy signatures. New-format messages
+continue to tolerate reordered storage keys. Open never reloads the app.
+
+The app also preserves its host ID when manager tab state is temporarily
+missing, initializes Userscripts' null tab state correctly, and retries a
+failed automatic restoration when you return to the app. Updating an installed
+script does not replace code already running in a page: reload the website
+after installing. The new client can keep using a compatible original app;
+you do not need to keep reloading it merely because its saved route is old.
 
 ## Install and authorize once
 
@@ -75,7 +82,9 @@ The installer requests `GM.getValue`, `GM.setValue`, `GM.deleteValue`,
 
 Persistent manager-private data consists of the signing identity, settings
 and approved route: a public host ID, app endpoint and public key. The manager's
-`getTab`/`saveTab` state preserves the app tab's host ID across reloads.
+`getTab`/`saveTab` state and a mirrored sessionStorage ID preserve the app tab's
+host identity when either supported storage path is temporarily unavailable.
+The host ID is public routing metadata, not a credential or authorization.
 Connect session encryption keys stay in memory.
 
 Transient signed request/reply records carry routing metadata and Connect
