@@ -2,6 +2,9 @@
 // GM is simulated across independent Chromium tabs; the shipped bundle, KDBX,
 // native consent, ProtocolImpl, and encrypted app endpoint are real.
 // KWX_APP_SERVER=http://127.0.0.1:39232 KWX_BUN=/path/to/bun node modules/extension/userscript/tests/gm-connect.mjs
+// KWX_NATIVE_STORAGE=1 uses a real Chromium extension with native storage and an
+// API adapter, not the installed Userscripts manager. KWX_WITHHOLD_POLLS=1 stops
+// only transport polling callbacks to exercise real storage notifications.
 // Also supports KWX_USERSCRIPT, KWX_LEGACY_APP_USERSCRIPT, KWX_REPO_ROOT, KWX_DB_ROOT,
 // KWX_CHROMIUM_EXECUTABLE, KWX_E2E_OUTPUT_DIR, and KWX_E2E_REPORT.
 import { chromium, expect } from '@playwright/test';
@@ -18,6 +21,9 @@ const BUN = process.env.KWX_BUN || (typeof Bun !== 'undefined' ? process.execPat
 const APP_SERVER = process.env.KWX_APP_SERVER || 'http://127.0.0.1:39232';
 const SOURCE = resolve(process.env.KWX_USERSCRIPT || join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'));
 const LEGACY_APP = process.env.KWX_LEGACY_APP_USERSCRIPT;
+const NATIVE = process.env.KWX_NATIVE_STORAGE === '1';
+const WITHHOLD_POLLS = process.env.KWX_WITHHOLD_POLLS === '1';
+let nativeWorker;
 const OUT = process.env.KWX_E2E_OUTPUT_DIR ? resolve(process.env.KWX_E2E_OUTPUT_DIR) : mkdtempSync(join(tmpdir(), 'keewebx-gm-connect-'));
 mkdirSync(OUT, { recursive: true });
 const APP = 'https://keewebx.app/app';
@@ -158,6 +164,7 @@ async function fill(page, account) {
     expect(await page.evaluate(() => window.formSubmits)).toBe(0);
 }
 async function assertOneApp() {
+    if (NATIVE) await refreshNativeStorage();
     expect(await documentState(app)).toEqual(originalApp);
     expect(appNavigationRequests).toBe(1);
     expect(context.pages()).toHaveLength(second ? 3 : 2);
@@ -197,7 +204,43 @@ async function noLateFill(page, eventsBefore) {
 }
 
 async function setup(bundle) {
-    context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1280, height: 900 } });
+    if (NATIVE) {
+        const extension = join(OUT, 'extension'); mkdirSync(extension, { recursive: true });
+        writeFileSync(join(extension, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Disposable Connect transport fixture', version: '1.0',
+            permissions: ['storage'], background: { service_worker: 'background.js' },
+            content_scripts: [{ matches: ['https://*/*'], js: ['content.js'], run_at: 'document_idle' }] }));
+        writeFileSync(join(extension, 'background.js'), `const tabs = new Map(); chrome.runtime.onMessage.addListener((message,sender,reply) => {
+            if (message.op === 'getTab') reply(tabs.get(sender.tab.id) ?? null);
+            else if (message.op === 'saveTab') { tabs.set(sender.tab.id,message.value); reply(true); }
+        });`);
+        writeFileSync(join(extension, 'content.js'), `(() => {
+            globalThis.browser = chrome;
+            const prefix = 'Connect.user.js---';
+            const GM = {
+                info: {scriptHandler:'Userscripts',script:{filename:'Connect.user.js'}},
+                async getValue(key, fallback) {const data=await chrome.storage.local.get(prefix+key);return (prefix+key) in data ? data[prefix+key] : fallback;},
+                async setValue(key,value) {await chrome.storage.local.set({[prefix+key]:value});},
+                async deleteValue(key) {await chrome.storage.local.remove(prefix+key);},
+                async listValues() {return Object.keys(await chrome.storage.local.get()).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length));},
+                getTab:()=>chrome.runtime.sendMessage({op:'getTab'}), saveTab:value=>chrome.runtime.sendMessage({op:'saveTab',value})
+            };
+            if (${WITHHOLD_POLLS}) {
+                const nativeTimeout = globalThis.setTimeout.bind(globalThis);
+                globalThis.setTimeout=(callback,delay,...args)=>[60,80,500].includes(delay) ? nativeTimeout(()=>{},0) : nativeTimeout(callback,delay,...args);
+            }
+            ${bundle}
+        })();`);
+        context = await chromium.launchPersistentContext(join(OUT,'profile'), { channel:'chromium', headless:true,
+            viewport:{width:1280,height:900}, args:['--no-sandbox', '--disable-extensions-except='+extension,'--load-extension='+extension] });
+        nativeWorker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker', {timeout:15000});
+        for (const page of context.pages()) await page.close();
+        report.gmMock = false; report.executionWorld = 'isolated'; report.extensionLoaded = true;
+        report.managerApiAdapter = true;
+        report.realManagerVerified = false; report.pollingTimersWithheld = WITHHOLD_POLLS;
+        report.scope = 'Real Chromium WebExtension isolated world and chrome.storage.local/onChanged; manager API adapter fixture, not native iOS Userscripts';
+    } else {
+        context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1280, height: 900 } });
+    }
     await context.exposeBinding('__kwxSharedGM', (source, operation, key, value) => {
         if (!tabIds.has(source.page)) tabIds.set(source.page, randomUUID());
         const tab = tabIds.get(source.page);
@@ -290,7 +333,9 @@ async function setup(bundle) {
                 getTab: callback => { const result = globalThis.__kwxSharedGM('getTab'); return callback ? result.then(callback) : result; },
                 saveTab: value => globalThis.__kwxSharedGM('saveTab', undefined, value)
             };
-            if (location.href.startsWith(${JSON.stringify(APP)}) && ${Boolean(LEGACY_APP)}) {
+            if (${NATIVE}) {
+                // The installer runs only in the real extension's isolated world.
+            } else if (location.href.startsWith(${JSON.stringify(APP)}) && ${Boolean(LEGACY_APP)}) {
                 ${LEGACY_APP ? readFileSync(LEGACY_APP, 'utf8') : ''}
             } else {
                 ${bundle}
@@ -325,6 +370,10 @@ async function setup(bundle) {
     }));
 }
 
+async function refreshNativeStorage() {
+    const data = await nativeWorker.evaluate(() => chrome.storage.local.get());
+    gm.clear(); for (const [key,value] of Object.entries(data)) if (key.startsWith('Connect.user.js---')) gm.set(key.slice('Connect.user.js---'.length),value);
+}
 function auditStorage() {
     const historical = JSON.stringify(gmHistory);
     const persistent = JSON.stringify(Object.fromEntries(gm));
@@ -401,13 +450,13 @@ try {
         if (await listing.count()) await listing.check();
         await consent().getByRole('button', { name: 'Allow', exact: true }).click();
         await untilStatus(app, /Authorized/);
-        await expect.poll(() => gm.get(ROUTE_KEY), { timeout: 5000 }).toBeTruthy();
+        await expect.poll(async () => { if (NATIVE) await refreshNativeStorage(); return gm.get(ROUTE_KEY); }, { timeout: 5000 }).toBeTruthy();
         approvedRoute = structuredClone(gm.get(ROUTE_KEY));
         expect(approvedRoute.endpoint).toBe(APP);
         expect(typeof approvedRoute.host).toBe('string');
         expect(typeof approvedRoute.publicKey).toBe('string');
         expect(approvedRoute.publicKey).toBe(gm.get('keewebx-userscript-connect-identity-v1').publicKey);
-        if (!LEGACY_APP) expect(tabState.get(tabIds.get(app))?.[`keewebx-userscript-connect-host-v2:${APP}`]).toBe(approvedRoute.host);
+        if (!LEGACY_APP && !NATIVE) expect(tabState.get(tabIds.get(app))?.[`keewebx-userscript-connect-host-v2:${APP}`]).toBe(approvedRoute.host);
         expect(await app.evaluate(key => sessionStorage.getItem(key), `keewebx-userscript-connect-host-v2:${APP}`)).toBe(approvedRoute.host);
         expect(await app.evaluate(() => globalThis.__kwxGmTest.consentCount)).toBe(1);
         expect(await fieldReads()).toBe(0);
@@ -426,6 +475,7 @@ try {
         await lookup(second, ACCOUNTS[1]); await fill(second, ACCOUNTS[1]); await assertOneApp();
         report.twoIndependentOriginsVerified = true;
     });
+    if (!NATIVE) {
     await step('old authorization metadata permits signed lookup and fill without a reload or another grant', async () => {
         const route = { ...gm.get(ROUTE_KEY) }; delete route.format; gm.set(ROUTE_KEY, route);
         await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
@@ -436,6 +486,7 @@ try {
         report.oldMetadataVerified = true;
         return { noAppReload: true, nativeConsentCount: 1, signedConnectionRequired: true };
     });
+    }
     await step('first website repeats lookup and fill after second website without switching to app', async () => {
         await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]); await assertOneApp();
         report.repeatLookupVerified = true;
@@ -456,6 +507,16 @@ try {
         report.connectionProbeVerified = true;
         return { probeReturned: true, originalAppUnchanged: true };
     });
+    if (NATIVE) {
+        await step('native storage delivers repeated fills without exposing GM to the page', async () => {
+            expect(await first.evaluate(() => typeof GM)).toBe('undefined');
+            for (let repeat=0; repeat<3; repeat++) {
+                await clearFields(second); await lookup(second,ACCOUNTS[1]); await fill(second,ACCOUNTS[1]);
+                await clearFields(first); await lookup(first,ACCOUNTS[0]); await fill(first,ACCOUNTS[0]);
+            }
+            await assertOneApp(); return {repeatedFills:6, nativeStorage:true, withheldPolling:WITHHOLD_POLLS};
+        });
+    } else {
     await step('Test connection completes even when cleanup throws synchronously', async () => {
         await first.evaluate(() => { globalThis.__kwxGmTest.throwCleanup = true; });
         await action(first, 'probe'); await untilStatus(first, /Connected to the authorized KeeWebX tab/);
@@ -624,6 +685,7 @@ try {
         return { allHistoricalValuesAudited: true, noPlaintextTitlesUsernamesOrPasswords: true,
             repliesCleanedAtDeadline: replies.length, transientKeysRemaining: 0 };
     });
+    }
     report.ok = true;
 } catch (error) {
     report.ok = false;
@@ -646,10 +708,14 @@ try {
         } catch {}
     }
 } finally {
-    auditStorage();
+    if (NATIVE) {
+        await refreshNativeStorage().catch(()=>{});
+        report.storageAudit = { historicalNoPlaintext:null, historicalAuditPerformed:false,
+            persistentNoPlaintext:PRIVATE_VALUES.every(value=>!JSON.stringify(Object.fromEntries(gm)).includes(value)) };
+    } else auditStorage();
     if (context) await context.close();
     if (browser) await browser.close();
-    if (!report.storageAudit.historicalNoPlaintext || !report.storageAudit.persistentNoPlaintext || report.errors.length || report.payloadLogCount) report.ok = false;
+    if ((!NATIVE && !report.storageAudit.historicalNoPlaintext) || !report.storageAudit.persistentNoPlaintext || report.errors.length || report.payloadLogCount) report.ok = false;
     report.finished = new Date().toISOString();
     report.elapsedMilliseconds = Date.parse(report.finished) - Date.parse(report.started);
     const reportPath = process.env.KWX_E2E_REPORT ? resolve(process.env.KWX_E2E_REPORT) : join(OUT, 'report.json');

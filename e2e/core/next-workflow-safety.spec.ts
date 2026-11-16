@@ -31,6 +31,7 @@ async function unlock(page: Page, touch: boolean) {
 async function upload(page: Page, source: Awaited<ReturnType<typeof fixture>>, touch: boolean) {
     await page.locator('#open-file-input').setInputFiles({ name: `${source.name}.kdbx`, mimeType: 'application/octet-stream', buffer: source.bytes });
     await unlock(page, touch);
+    await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout });
 }
 async function click(control: Locator, touch: boolean) { if (touch) await control.tap(); else await control.click(); }
 async function closeDrawer(page: Page) {

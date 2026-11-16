@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.4.4
+# Userscripts on iOS: KeeWebX Connect 0.4.5
 
 The experimental Connect userscript lets login websites reuse one authorized
 KeeWebX app tab through the Userscripts manager's private GM storage. Authorize
@@ -7,21 +7,26 @@ Normal lookup and fill keep you on the website and do not open another tab.
 The default flow has no helper page, tab discovery, BroadcastChannel or
 per-website pairing.
 
-Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.4/modules/extension/userscript/keewebx-connect.user.js).
+Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.5/modules/extension/userscript/keewebx-connect.user.js).
 
-Version 0.4.4 repairs connection tests that can remain stuck in progress.
-A cleanup API throwing synchronously can no longer swallow a result or
-cancellation. Closing the panel, navigating or returning from a cached page
-clears stale progress. Testing shows the current stage and elapsed seconds,
-with a 15-second total deadline while the page can execute, and the panel
-shows the running Connect version. A failed test can be retried immediately.
+Version 0.4.5 adds event-driven request and reply delivery in Userscripts'
+content execution environment. A change to this script's own storage keys
+immediately triggers the existing signed GM reader, so delivery does not
+have to wait for a background polling timer. Other managers or environments
+without that event API retain bounded polling. Notification payloads never
+authorize a connection and are not used as protocol data.
 
-Replace the installed script and reload the login website to run the updated
-client. Updating the website does not replace an installed Userscript or code
-already running inside a tab. Do not delete your saved identity. Compatibility
-with a still-running 0.4.0 app remains covered on legacy-preserving storage;
-the current-version pair supports reordered storage. Native iOS execution
-and recovery from OS suspension remain unverified.
+Replace the installed script, save database changes, then reload **both the
+KeeWebX app and login website** so both run Connect 0.4.5. Unlock the app and
+use its existing authorization; if the app asks to resume its saved permission,
+choose Authorize Connect in that same tab. Keep one installed copy. This
+update changes the app-side receiver, so updating only the website client
+cannot enable event delivery in an older running app script.
+
+The panel shows the running version. Test connection displays its stage and
+elapsed seconds and has a 15-second total budget while the page can execute.
+Storage events are not a guarantee that iOS will wake a fully frozen process;
+native iPhone behavior remains to be confirmed.
 
 ## Install and authorize once
 
@@ -94,10 +99,16 @@ plaintext usernames, passwords and database contents are not stored in GM
 storage. Queue records are deleted after consumption or expiry; cleanup runs
 while the participating scripts can execute. There is no credential relay server.
 
-While enabled, the app polls its GM request keys about every 500 ms when idle
-and every 60 ms after recent activity. A website polls only its pending reply
-key, about every 80 ms; it has no idle reply polling. These intervals do not
-guarantee execution while Safari suspends a tab.
+When Userscripts exposes its WebExtension storage notifications in the content
+world, requests and replies trigger immediate reads through the original GM
+APIs. The listener examines only key names within the exact installed script
+filename namespace and ignores other storage areas and event values. Existing
+signature, identity, origin and lifetime validation remains authoritative.
+Listeners are removed on pause, completion or cancellation.
+
+Fallback polling remains about 500 ms when the app is idle, 60 ms during
+activity, and 80 ms for a website's pending reply. A website has no idle reply
+polling. Notifications and timers cannot guarantee execution during OS suspension.
 
 ## Build and verification
 
@@ -129,3 +140,10 @@ from historical 0.3.x results. The older `tests/connect.mjs`,
 `tests/relay-transport.mjs` and [discovery design](docs/tab-discovery.md)
 describe the old helper architecture. Scripts under `diagnostics/` are older
 transport probes, not the 0.4.0 Connect installer; keep them disabled during use.
+
+To exercise real Chromium extension storage and isolated content execution, use
+`KWX_NATIVE_STORAGE=1` with the same `gm-connect.mjs` command. Add
+`KWX_WITHHOLD_POLLS=1` to withhold the transport's 60/80/500 ms polling callbacks
+while keeping actual WebExtension storage notifications enabled. This fixture
+uses native storage APIs with a Userscripts-shaped adapter; it does not certify
+the native iPhone extension.

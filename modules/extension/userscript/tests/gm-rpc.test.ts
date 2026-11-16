@@ -4,6 +4,7 @@ import { sign } from 'tweetnacl';
 import { AppBridge } from '../src/app-bridge';
 import { GmHost, GmRpc } from '../src/gm-rpc';
 import { identity } from '../src/identity';
+import { watchManagerStorage } from '../src/manager-events';
 import { toBase64 } from '../../src/background/utils';
 
 const endpoint = new URL('https://keewebx.app/app');
@@ -249,4 +250,43 @@ test('missing cleanup API cannot make cancellation throw or leave a request pend
     (globalThis as any).GM.deleteValue = undefined;
     expect(() => client.dispose()).not.toThrow();
     await expect(Promise.race([waiting, Bun.sleep(650).then(() => 'still pending')])).rejects.toThrow('canceled');
+});
+
+test('storage notifications carry requests and replies while polling timers do not execute', async () => {
+    client.dispose(); host.pause();
+    const listeners = new Set<(changes: Record<string, unknown>, area: string) => void>();
+    globalValue('browser', { storage: { onChanged: {
+        addListener: (listener: any) => listeners.add(listener), removeListener: (listener: any) => listeners.delete(listener)
+    } } });
+    const gm = (globalThis as any).GM;
+    gm.info = { scriptHandler: 'Userscripts', script: { filename: 'Connect.user.js' } };
+    const set = gm.setValue;
+    gm.setValue = async (key: string, value: unknown) => {
+        await set(key, value);
+        queueMicrotask(() => { for (const listener of [...listeners]) listener({ [`Connect.user.js---${key}`]: {} }, 'local'); });
+    };
+    const nativeTimeout = setTimeout;
+    globalValue('setTimeout', (callback: any, delay: number, ...args: any[]) =>
+        [60, 80, 500].includes(delay) ? 0 : nativeTimeout(callback, delay, ...args));
+    host = new GmHost(endpoint); await host.authorize(await identity());
+    client = new GmRpc(endpoint); await client.connect();
+    expect((await client.call('probe', undefined, 700)).appBoot).toBe(request().value.packet.host);
+    client.dispose(); host.pause();
+    expect(listeners.size).toBe(0);
+});
+
+test('notification hints ignore other scripts and storage areas and never inspect event values', () => {
+    let listener: any, calls = 0;
+    globalValue('browser', { storage: { onChanged: {
+        addListener(value: any) { listener = value; }, removeListener(value: any) { expect(value).toBe(listener); listener = undefined; }
+    } } });
+    (globalThis as any).GM.info = { scriptHandler: 'Userscripts', script: { filename: 'Connect.user.js' } };
+    const stop = watchManagerStorage(['request:host:'], () => calls++, true);
+    listener({ 'Other.user.js---request:host:1': {} }, 'local');
+    listener({ 'Connect.user.js---request:other:1': {} }, 'local');
+    listener({ 'Connect.user.js---request:host:1': {} }, 'sync');
+    expect(calls).toBe(0);
+    const changes = Object.defineProperty({}, 'Connect.user.js---request:host:1', { enumerable: true, get() { throw new Error('Event values must not be read'); } });
+    listener(changes, 'local'); expect(calls).toBe(1);
+    stop(); expect(listener).toBeUndefined();
 });

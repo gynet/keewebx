@@ -1,6 +1,6 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current architecture: 0.4.4
+## Current architecture: 0.4.5
 
 Authorize the intended KeeWebX app tab once with **Authorize Connect** and the
 native **Allow** dialog for account listing. All login websites then use the
@@ -21,7 +21,7 @@ run. The enabled app polls request keys at about 500 ms idle or 60 ms after
 recent activity; websites poll only pending reply keys at about 80 ms.
 
 Install from the
-[0.4.4 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.4/modules/extension/userscript/keewebx-connect.user.js).
+[0.4.5 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.5/modules/extension/userscript/keewebx-connect.user.js).
 See the [current setup and validation commands](../README.md). The current
 real-app regression entry point is `tests/gm-connect.mjs`; the helper acceptance
 results below do not validate this new transport. Its desktop harness simulates
@@ -29,7 +29,58 @@ GM storage/injection, so native Userscripts execution, iOS long suspension,
 screen lock and memory pressure remain unverified. No automatic OS wakeup is
 established.
 
-### 0.4.4 connection-test completion
+### 0.4.5 event-driven delivery
+
+An authorized route is not evidence that the selected app is currently reading
+requests. The previous app receiver depended on polling timers. This version
+also subscribes to WebExtension storage changes when Userscripts exposes that
+API in its content execution world. A matching request or reply key wakes the
+existing GM reader immediately. Notifications are scheduling hints only:
+their values are never read, and all protocol data still passes the original
+GM namespace, signature, identity, origin, scope and deadline checks.
+
+The listener checks the actual Userscripts manager identity and exact script
+filename namespace, and ignores other scripts and storage areas. Notifications
+arriving during a read coalesce into one subsequent read. Timed polling remains
+a fallback when the API is unavailable. Pausing the host and completing or
+canceling a client request removes its listener.
+
+Both app and website must load 0.4.5 for event-driven delivery at both ends.
+Updating only the website leaves an old app receiver dependent on its timers.
+No hidden helper tabs, server relay, new per-website permission or auto-lock
+policy change is introduced.
+
+The Userscripts runtime implementation is referenced directly:
+[content injection and API binding](https://github.com/quoid/userscripts/blob/06900223459036d2a238d93ab1af4d9f26cadbc7/src/ext/content-scripts/entry-userscripts.js)
+and [per-filename storage namespace](https://github.com/quoid/userscripts/blob/06900223459036d2a238d93ab1af4d9f26cadbc7/src/ext/content-scripts/api.js).
+This optional notification API is an implementation capability of that content
+world, not a claimed portable GM.addValueChangeListener API.
+
+Transport checks include delivery while all polling callbacks are withheld,
+listener disposal, unrelated-script isolation and refusing to inspect event
+values. Desktop real-WebExtension acceptance supplements the older simulated
+GM harness. The exact 0.4.4 installer passed eight native-extension steps with
+normal timers. With polling callbacks withheld, the same installer reproduced
+an Authorized app and the exact reported “The authorized KeeWebX tab did not
+reply” website message. The exact 0.4.5 installer passed all eight native steps
+with those callbacks still withheld, including two origins and six repeated
+fills. This uses real Chromium isolated content scripts, storage.local and
+storage.onChanged; a small API adapter supplies the Userscripts method shapes
+and namespace. It is not an installation of the iOS Userscripts extension.
+
+The 22 transport checks and both 20-step real-app simulated-GM suites passed.
+Installer: 83,265 bytes; SHA-256
+`bec45ba5b970d4ac0d5600bf097bb6a7d02d2c5a53431de7eb55596145d3bcdd`.
+Neither desktop fixture proves native iPhone execution or OS wakeup.
+
+The prior complete CI run also exposed an unrelated Firefox test race: it
+locked an imported vault before the initial cache write completed. The fixture
+now waits for Up to date before Lock. The affected 320px Firefox test passed
+with zero retries; production save/lock behavior was not changed.
+
+### Historical 0.4.4 connection-test completion
+
+
 
 The user reported an indefinitely displayed connection-test message. Two
 reproducible software paths were repaired: synchronous cleanup API failure

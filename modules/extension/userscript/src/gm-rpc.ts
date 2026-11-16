@@ -2,6 +2,7 @@ import { sign } from 'tweetnacl';
 import { fromBase64, toBase64 } from '../../src/background/utils';
 import { AppBridge } from './app-bridge';
 import { identity } from './identity';
+import { watchManagerStorage } from './manager-events';
 import { isId, object, SESSION_TTL, uuid } from './native-rpc';
 
 declare const GM: {
@@ -59,6 +60,9 @@ export class GmHost {
     private timer?: ReturnType<typeof setTimeout>;
     private live = false;
     private polling = false;
+    private wakePending = false;
+    private stopWatching?: () => void;
+    private hostId?: string;
     private activeUntil = 0;
     private sessions = new Map<string, { origin: string; scope: string; expiresAt: number; bridge: AppBridge; locked?: boolean }>();
     private processing = new Set<string>();
@@ -93,15 +97,27 @@ export class GmHost {
     }
     async authorize(keys: Keys): Promise<void> {
         const host = await this.idPromise;
+        this.hostId = host;
         if (typeof GM.listValues !== 'function' || typeof GM.deleteValue !== 'function') throw new Error('Update or reinstall this Connect script so Userscripts grants its storage permissions.');
         await managerCall(() => GM.listValues(), 'Userscripts request queue');
         this.keys = keys;
         await managerCall(() => GM.setValue(routeKey(this.endpoint), { host, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey), format: 'canonical-1' } satisfies Route));
         this.resume();
     }
-    resume(): void { if (!this.keys || this.live) return; this.live = true; void this.poll(); }
+    private wake = (): void => {
+        if (!this.live) return;
+        if (this.polling) this.wakePending = true;
+        else void this.poll();
+    };
+    resume(): void {
+        if (!this.keys || this.live || !this.hostId) return;
+        this.live = true;
+        this.stopWatching = watchManagerStorage([requestPrefix(this.hostId)], this.wake, true);
+        this.wake();
+    }
     pause(): void {
         this.live = false; clearTimeout(this.timer);
+        this.stopWatching?.(); this.stopWatching = undefined; this.wakePending = false;
         for (const session of this.sessions.values()) session.bridge.dispose();
         this.sessions.clear();
     }
@@ -113,6 +129,7 @@ export class GmHost {
 
     private async poll(): Promise<void> {
         if (!this.live || this.polling) return;
+        clearTimeout(this.timer);
         this.polling = true;
         try {
             const host = await this.idPromise;
@@ -133,7 +150,10 @@ export class GmHost {
         } catch (error) { if (this.live) this.onError(error instanceof Error ? error : new Error('Userscripts storage failed.')); }
         finally {
             this.polling = false;
-            if (this.live) this.timer = setTimeout(() => { void this.poll(); }, Date.now() < this.activeUntil ? 60 : 500);
+            if (this.live) {
+                if (this.wakePending) { this.wakePending = false; queueMicrotask(this.wake); }
+                else this.timer = setTimeout(this.wake, Date.now() < this.activeUntil ? 60 : 500);
+            }
         }
     }
 
@@ -235,11 +255,14 @@ export class GmRpc {
         return new Promise((resolve, reject) => {
             let timer: ReturnType<typeof setTimeout> | undefined;
             let watchdog: ReturnType<typeof setTimeout> | undefined;
+            let stopWatching = () => {};
+            let polling = false, wakePending = false;
             let checkRouteAt = Date.now() + 500;
             const finish = (error?: Error, result?: any) => {
                 if (!this.pending.delete(p.id)) return;
                 clearTimeout(timer);
                 clearTimeout(watchdog);
+                stopWatching();
                 if (error) reject(error); else resolve(result);
                 bestEffort(() => GM.deleteValue(request));
                 bestEffort(() => GM.deleteValue(reply));
@@ -248,6 +271,9 @@ export class GmRpc {
             // This must remain independent of a manager API promise that never settles.
             watchdog = setTimeout(() => finish(new Error('The authorized KeeWebX tab did not reply. Keep that tab unlocked and retry.')), Math.max(1, p.deadline - Date.now()));
             const poll = async () => {
+                if (!this.pending.has(p.id)) return;
+                if (polling) { wakePending = true; return; }
+                clearTimeout(timer); polling = true;
                 try {
                     this.assertCurrent();
                     if (Date.now() >= p.deadline) throw new Error('The authorized KeeWebX tab did not reply. Resume that tab and try again.');
@@ -264,9 +290,16 @@ export class GmRpc {
                             finish(undefined, response.body); return;
                         }
                     }
-                    timer = setTimeout(() => { void poll(); }, 80);
                 } catch (error) { finish(error instanceof Error ? error : new Error('The script manager request failed.')); }
+                finally {
+                    polling = false;
+                    if (this.pending.has(p.id)) {
+                        if (wakePending) { wakePending = false; queueMicrotask(() => { void poll(); }); }
+                        else timer = setTimeout(() => { void poll(); }, 80);
+                    }
+                }
             };
+            stopWatching = watchManagerStorage([reply, routeKey(this.endpoint)], () => { void poll(); });
             void Promise.resolve().then(() => GM.setValue(request, signed(p, keys))).then(() => {
                 if (this.pending.has(p.id)) void poll(); else bestEffort(() => GM.deleteValue(request));
             }, error => finish(error instanceof Error ? error : new Error('The script manager could not send the request.')));
