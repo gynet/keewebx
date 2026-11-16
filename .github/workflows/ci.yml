@@ -293,6 +293,7 @@ jobs:
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
+          node modules/extension/userscript/tests/messageport-selection.mjs
           KWX_PORT_POC_GM_DELAY_MS=12000 KWX_PORT_POC_OUTPUT=.cache/messageport-poc node modules/extension/userscript/tests/messageport-poc.mjs
           FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
           KWX_RELAY_REPORT=.cache/userscript-connect/relay-transport.json node modules/extension/userscript/tests/relay-transport.mjs chromium
@@ -412,7 +413,9 @@ jobs:
           KWX_PORT_POC_BROWSER: webkit
           KWX_PORT_POC_GM_DELAY_MS: '12000'
           KWX_PORT_POC_OUTPUT: .cache/messageport-webkit
-        run: node modules/extension/userscript/tests/messageport-poc.mjs
+        run: |
+          node modules/extension/userscript/tests/messageport-selection.mjs
+          node modules/extension/userscript/tests/messageport-poc.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:

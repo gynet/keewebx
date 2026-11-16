@@ -1,11 +1,11 @@
-# MessagePort Lab 0.1.1
+# MessagePort Lab 0.1.2
 
 This is a separate Userscripts proof of concept. It exchanges synthetic ping
 messages only. It does not read databases, credentials, forms, or production
 Connect settings and is not an autofill replacement.
 
-[Install the test script](https://raw.githubusercontent.com/gynet/keewebx/messageport-poc-v0.1.1/modules/extension/userscript/keewebx-messageport-poc.user.js)
-or use the [hosted installer](https://keewebx.app/connect-port-poc/keewebx-messageport-poc.user.js?v=0.1.1).
+[Install the test script](https://raw.githubusercontent.com/gynet/keewebx/messageport-poc-v0.1.2/modules/extension/userscript/keewebx-messageport-poc.user.js)
+or use the [hosted installer](https://keewebx.app/connect-port-poc/keewebx-messageport-poc.user.js?v=0.1.2).
 
 ## Test on iOS Safari
 
@@ -34,7 +34,7 @@ the visible status, whether A/B remain independent, and whether the App tab was
 in the background. The panel displays short App/port IDs to check that a rebuild
 reuses the original App. Do not share database contents or credentials.
 
-## Discovery timeout fix in 0.1.1
+## Discovery timeout fix in 0.1.2
 
 The original receiver waited for `GM.getValue()` before replying to every
 worker probe and port attachment. Its two-second probe deadline also included
@@ -55,7 +55,9 @@ Errors now distinguish a worker that cannot see an App client, a disabled
 receiver, an App refreshed since selection, and a receiver that never answered.
 The App log records probes and rejected worker-source/port checks. Update the
 script, reload the App and website once, then enable the App receiver again.
-No new App is opened during discovery or recovery.
+No new App is opened during discovery or recovery. A selection revision is
+invalidated again when enabling commits, so a focus read begun during a pending
+re-enable cannot later disable the fresh receiver or close its ports.
 
 ## Connection design
 
@@ -84,6 +86,7 @@ Build the New UI assets and run:
 
 ```sh
 bun run --filter @keewebx/ui build
+node modules/extension/userscript/tests/messageport-selection.mjs
 KWX_PORT_POC_GM_DELAY_MS=12000 node modules/extension/userscript/tests/messageport-poc.mjs
 KWX_PORT_POC_BROWSER=webkit KWX_PORT_POC_GM_DELAY_MS=12000 node modules/extension/userscript/tests/messageport-poc.mjs
 ```
@@ -107,13 +110,16 @@ The final three negative cases deliberately disable, refresh and close the App;
 the earlier successful rebuild preserves the same App document. Static checks
 prevent lab chunks being injected into normal App HTML and compare the hosted
 installer bytes with source. A separate WebKit CI job runs independently of
-other extension acceptance checks.
+other extension acceptance checks. Two additional deterministic selection-race
+cases run against the actual installer in both browsers: a stale focus read
+after re-enabling preserves an attached ping port, and disabling during a
+pending enable prevents the receiver from becoming enabled again.
 
 Native iPhone Userscripts execution, suspension and memory-pressure behavior
 remain unverified. A browser-held port cannot force a suspended App to execute.
 
-Installer: **16,287 bytes**. SHA-256:
-`53e7eb3a58332074dfd46cdb64d0b02520657b23dde7bc50fb6a4b270d467c7b`.
+Installer: **16,308 bytes**. SHA-256:
+`06d1ac161f7522bb1e51136bd33db54fa37b6112b70ba4ccc44ec63210e763b7`.
 
 Disable this test script and close its test pages when finished. The production
 Connect installation and saved databases do not require changes.

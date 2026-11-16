@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KeeWebX MessagePort Lab
 // @namespace    https://keewebx.app/labs/
-// @version      0.1.1
+// @version      0.1.2
 // @description  Test independent website ports to one KeeWebX tab after closing the temporary connection page. Synthetic messages only.
 // @match        https://*/*
 // @noframes
@@ -35,7 +35,7 @@
     const launcher = button('Port Lab', 'toggle'); launcher.className = 'launcher';
     const panel = element('section'); panel.hidden = true;
     const header = element('header'), title = element('div'), close = button('×', 'hide'); close.setAttribute('aria-label', 'Close panel');
-    title.append(element('h2', 'MessagePort Lab'), element('div', 'TEST ONLY · 0.1.1')); title.lastChild.className = 'badge';
+    title.append(element('h2', 'MessagePort Lab'), element('div', 'TEST ONLY · 0.1.2')); title.lastChild.className = 'badge';
     header.append(title, close);
     const status = element('p', 'Loading test setup…'); status.className = 'status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
     const note = element('p', 'Synthetic ping messages only. This test does not access your database, passwords, forms or production Connect settings.'); note.className = 'note';
@@ -72,7 +72,7 @@
         enable.onclick = async event => {
             if (!event.isTrusted || !boot) return;
             const revision = ++selectionRevision;
-            try { await GM.setValue(ROUTE, { origin: APP.origin, url: APP_URL, appBoot: boot }); if (revision !== selectionRevision) return; enabled = true; render(); state('Ready. Open a website and choose Connect existing App in Port Lab.'); record('Receiver selected'); }
+            try { await GM.setValue(ROUTE, { origin: APP.origin, url: APP_URL, appBoot: boot }); if (revision !== selectionRevision) return; selectionRevision++; enabled = true; render(); state('Ready. Open a website and choose Connect existing App in Port Lab.'); record('Receiver selected'); }
             catch (error) { fail(error); }
         };
         stop.onclick = event => { if (event.isTrusted) { selectionRevision++; enabled = false; for (const id of [...peers.keys()]) remove(id); render(); state('Receiver disabled. Existing test ports were closed.'); } };
