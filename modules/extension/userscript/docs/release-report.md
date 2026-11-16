@@ -65,7 +65,7 @@ Installer: **98,063 bytes**. SHA-256:
 `3eac5d0f5cd9b206c364ca4efea314551c7a10a6dfeb569a9c4b67de8d3da9be`.
 
 See the [iframe investigation](iframe-relay.md) for the partitioned-browser probe
-and the separate, unverified Storage Access API path. None of these desktop
+and the current WebKit restriction on historical storage-access workarounds. None of these desktop
 results certifies the installed iPhone Userscripts runtime.
 
 ## Historical release: 0.5.4

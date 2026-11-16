@@ -293,6 +293,7 @@ jobs:
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
+          KWX_PORT_POC_OUTPUT=.cache/messageport-poc node modules/extension/userscript/tests/messageport-poc.mjs
           FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
           KWX_RELAY_REPORT=.cache/userscript-connect/relay-transport.json node modules/extension/userscript/tests/relay-transport.mjs chromium
           bunx playwright test --config e2e/extension/new-interface.playwright.config.ts e2e/extension/new-interface-connection.spec.ts --reporter=line,html

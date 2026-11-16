@@ -2,6 +2,7 @@
 // Classic has explicit HTML entries and shares the same site and storage.
 // Run after the Classic build, which empties dist first.
 const path = require('path');
+const fs = require('fs');
 const { execSync } = require('child_process');
 const webpack = require('webpack');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
@@ -23,10 +24,12 @@ module.exports = (env, argv) => {
     const devMode = mode === 'development';
     return {
         mode,
-        entry: { next: path.join(rootDir, 'src/index.tsx') },
+        entry: { next: path.join(rootDir, 'src/index.tsx'),
+            'connect-port-poc/relay': path.join(rootDir, 'connect-port-poc/relay.js'),
+            'connect-port-poc/worker': path.join(rootDir, 'connect-port-poc/worker.js') },
         output: {
             path: path.resolve(rootDir, '../../dist'),
-            filename: 'js/[name].js',
+            filename: data => data.chunk.name.startsWith('connect-port-poc/') ? '[name].js' : 'js/[name].js',
             clean: false
         },
         target: 'web',
@@ -112,6 +115,7 @@ module.exports = (env, argv) => {
                 template: path.join(rootDir, 'src/next.html'),
                 templateParameters: { offlineEnabled, manifest: filename === 'index.html' ? 'manifest.json' : 'manifest-new.json' },
                 filename,
+                chunks: ['next'],
                 inject: 'body',
                 publicPath: ''
             })),
@@ -121,6 +125,20 @@ module.exports = (env, argv) => {
                 inject: false,
                 chunks: []
             }),
+            new HtmlWebpackPlugin({
+                template: path.join(rootDir, 'connect-port-poc/relay.html'),
+                filename: 'connect-port-poc/relay.html',
+                inject: false,
+                chunks: []
+            }),
+            { apply(compiler) {
+                compiler.hooks.thisCompilation.tap('PortPocInstaller', compilation => {
+                    compilation.hooks.processAssets.tap({ name: 'PortPocInstaller', stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL }, () => {
+                        compilation.emitAsset('connect-port-poc/keewebx-messageport-poc.user.js', new webpack.sources.RawSource(
+                            fs.readFileSync(path.join(rootDir, '../extension/userscript/keewebx-messageport-poc.user.js'))), { minimized: true });
+                    });
+                });
+            } },
         ],
         externals: { xmldom: 'null', '@xmldom/xmldom': 'null', crypto: 'null', fs: 'null', path: 'null' },
         devtool: devMode ? 'source-map' : undefined

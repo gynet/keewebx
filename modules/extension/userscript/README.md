@@ -7,6 +7,10 @@ never submitted automatically.
 
 [Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.5/modules/extension/userscript/keewebx-connect.user.js)
 
+For the separate synthetic-only test of closing the relay after transferring a
+direct port, see [MessagePort Lab](docs/messageport-poc.md). It is a separate
+installer and does not replace Connect or provide autofill.
+
 ## Install and use
 
 1. Open the installer in Safari. Open Safari’s extension menu, choose

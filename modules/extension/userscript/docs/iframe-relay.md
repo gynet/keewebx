@@ -29,14 +29,13 @@ partitioned run removed that disable entry and enabled the feature. The Firefox
 run used `privacy.firstparty.isolate=true`. These probes establish a concrete
 limitation of the proposed transport, not native iPhone certification.
 
-There is a conditional path distinct from this ungranted probe:
-[WebKit change 230164](https://bugs.webkit.org/show_bug.cgi?id=230164) explicitly
-relaxes BroadcastChannel partitioning when the iframe has storage access.
-An iframe could potentially request that access using `requestStorageAccess()`.
-That requires separate testing of current Safari's grant, user activation,
-permission lifetime, and each embedding website. It does not establish a hidden
-iframe working automatically on every site after one app authorization.
-No granted-storage-access iframe was certified or shipped in this release.
+The historical [WebKit change 230164](https://bugs.webkit.org/show_bug.cgi?id=230164)
+relaxed BroadcastChannel partitioning after a storage-access grant. That behavior
+was subsequently disabled by [WebKit change 232401](https://bugs.webkit.org/show_bug.cgi?id=232401).
+Current WebKit BroadcastChannel code keys the channel by the top storage origin
+and frame origin. The earlier change therefore does not establish a current
+Safari workaround through `requestStorageAccess()`. No granted-storage-access
+iframe transport was certified or shipped.
 
 Production response headers for `/connect.html` and `/app` did not advertise
 an embedding restriction during this check. Successful embedding alone would
