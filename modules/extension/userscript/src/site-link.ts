@@ -10,7 +10,8 @@ export class SiteLink {
     private timer?: ReturnType<typeof setInterval>;
 
     constructor(peer: Window | null, private linked: (peer: Window, origin: string) => void,
-        private waiting: (expired: boolean) => void = () => {}) {
+        private waiting: (expired: boolean) => void = () => {},
+        private options: { followOpener?: boolean; routingId?: string; endpoint?: string } = {}) {
         this.peer = peer;
         addEventListener('message', this.receive);
     }
@@ -20,7 +21,14 @@ export class SiteLink {
         this.challenge(peer, origin);
     }
 
-    restart(): void { if (this.peer && !this.peer.closed) this.challenge(this.peer, this.origin); }
+    restart(): void {
+        if (this.options.followOpener && window.opener) this.peer = window.opener;
+        if (this.peer && !this.peer.closed) this.challenge(this.peer, this.options.followOpener ? undefined : this.origin);
+    }
+    recover(): void {
+        if (this.options.followOpener && window.opener && window.opener !== this.peer) { this.restart(); return; }
+        if (this.pending && Date.now() < this.pending.deadline) this.send(); else this.restart();
+    }
 
     private challenge(peer: Window, origin?: string): void {
         this.pause();
@@ -36,16 +44,16 @@ export class SiteLink {
             this.pause(); this.waiting(true); return;
         }
         // The wildcard is limited to a non-secret challenge for the initial opener.
-        pending.peer.postMessage({ marker: SETUP_MARK, kind: 'ready', nonce: pending.nonce }, pending.origin || '*');
+        pending.peer.postMessage({ marker: SETUP_MARK, kind: 'ready', nonce: pending.nonce, routingId: this.options.routingId, endpoint: this.options.endpoint }, pending.origin || '*');
     }
 
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || !event.source || event.source === window || !httpsOrigin(event.origin) ||
-            event.data?.marker !== SETUP_MARK) return;
+            event.data?.marker !== SETUP_MARK || event.data.routingId !== this.options.routingId || event.data.endpoint !== this.options.endpoint) return;
         const peer = event.source as Window;
         if (event.data.kind === 'reconnect') {
             // A new window may reuse the helper only for the already pinned origin.
-            if (this.origin ? event.origin !== this.origin : peer !== this.peer) return;
+            if (this.origin ? event.origin !== this.origin && !(this.options.followOpener && peer === this.peer) : peer !== this.peer) return;
             const pending = this.pending;
             if (pending && pending.peer === peer && pending.origin === event.origin && Date.now() < pending.deadline) this.send();
             else this.challenge(peer, event.origin);

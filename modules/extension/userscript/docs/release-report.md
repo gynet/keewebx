@@ -1,6 +1,63 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current release: 0.5.0
+## Current release: 0.5.1
+
+The user reported that one website worked but switching websites caused failure
+and repeated new pages. 0.5.0 kept its connector reference in one document and
+opened another page when lookup or connection testing found that reference
+missing. Its earlier acceptance used separate website tabs and missed navigation
+between origins within a single tab.
+
+0.5.1 removes automatic page opening from lookup, key-panel opening, connection
+testing and retry. An existing native connection is retained where usable.
+When navigation has invalidated the window association, a signed manager-private
+mailbox reaches the same selected app and the same single-session Connect host.
+It preserves the existing encryption, signature, origin, document, session,
+permission, replay and deadline checks. No remote relay is introduced.
+
+The app receives private mailbox records through native storage notifications
+where available, with bounded polling and immediate checks when the user returns
+to the app. Credential payloads are encrypted. Transient records are consumed,
+canceled or expired; no plaintext fixture credentials appeared in the complete
+storage history. Canceling a fill stops its response reader even if storage
+cleanup fails. A connection check or account lookup can continue while the user
+visits the app, but switching away during credential filling still cancels it.
+
+**Open connection page** is now an explicitly optional action. It is never used
+to retry normal filling. If a website separates that optional window from its
+opener, the page explains that it can be closed and normal account lookup can
+use the recovery channel.
+
+### Acceptance
+
+- **14 unit checks passed**, including a client with no window association,
+  identical host admission, and successful completion despite failed reply
+  cleanup. Existing signature, replay, cancellation, ownership and lock checks
+  remain in place.
+- **14 end-to-end steps passed using live keewebx.app assets**, the exact
+  installer, real Chromium extension isolation and storage, a GM API adapter,
+  a real encrypted KDBX and native vault consent.
+- Regression coverage includes four cross-origin navigations within one browser
+  tab with no new page or repeated consent; a login document with
+  Cross-Origin-Opener-Policy isolation; independent websites; six alternating
+  fills; repeated connection tests; reload; closing an old connector; delayed
+  response cancellation; lock/unlock; and signed/encrypted traffic audits.
+- Updated setup instructions passed at 1280px and 320px. All four locale checks,
+  application build, TypeScript, syntax and deterministic bundle checks passed.
+
+Installer: **92,718 bytes**. SHA-256:
+`a1ef6a9fa60e45d7dfe49a6b4e52debec9891324615335d63336fce1633aa870`.
+
+The iOS Userscripts extension itself has not been certified by these desktop
+checks. Device acceptance and long suspension remain unverified. The app-side
+receiver changes in this release: replace the installed script, save database
+changes, and reload app and website once so both show 0.5.1. Existing native
+vault permissions and identity are retained. Obsolete connection pages may be
+closed; they are unnecessary for normal filling.
+
+See the [current setup guide](../README.md) and `tests/native-connect.mjs`.
+
+## Historical release: 0.5.0
 
 The reported failure persisted after 0.4.5: the app displayed Authorized while
 website requests received no reply. Authorization state alone did not establish

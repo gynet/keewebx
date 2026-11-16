@@ -13,7 +13,7 @@ function replace(key: string, value: any) {
 }
 // Module-level setup listeners are exercised by the real browser fixture.
 replace('addEventListener', () => {});
-const { NativeHost } = await import('../src/native-connect');
+const { NativeHost, NativeRpc } = await import('../src/native-connect');
 let host: InstanceType<typeof NativeHost>, keys: ReturnType<typeof sign.keyPair>;
 let storage: Map<string, any>, replies: any[], reads: number, lastBridge: AppBridge;
 const requestImpl = AppBridge.prototype.request;
@@ -137,4 +137,26 @@ test('browser tab ownership restores across reload but not duplicated sessionSto
     tab = null;
     const duplicate = new NativeHost(endpoint); expect(await duplicate.selected()).toBe(false);
     selected.pause(); reload.pause(); duplicate.pause();
+});
+
+
+test('a website without any window association uses the same signed host and encrypted protocol admission', async () => {
+    host.pause();
+    (globalThis as any).GM.listValues = async () => [...storage.keys()];
+    storage.set('keewebx-userscript-connect-identity-v1', { publicKey: toBase64(keys.publicKey), secretKey: toBase64(keys.secretKey) });
+    await host.authorize(keys);
+    replace('location', { href: 'https://second.example/login', origin: 'https://second.example' });
+    const client = new NativeRpc(endpoint, () => undefined);
+    try {
+        await client.connect();
+        expect((await client.call('probe')).appBoot).toBe(storage.get(routeKey).host);
+        expect((await client.call('wire', { action: 'kwx-features' })).action).toBe('test-wire');
+        expect(reads).toBe(1);
+        const remove = (globalThis as any).GM.deleteValue;
+        (globalThis as any).GM.deleteValue = (key: string) => {
+            if (key.startsWith('keewebx-connect-mailbox-v1:reply:')) throw new Error('Cleanup unavailable');
+            return remove(key);
+        };
+        expect((await client.call('probe')).appBoot).toBe(storage.get(routeKey).host);
+    } finally { client.dispose(); host.pause(); }
 });

@@ -2,12 +2,12 @@ import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/p
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge } from './app-bridge';
 import { ConnectUI } from './connect-ui';
-import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector } from './native-connect';
+import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector } from './native-connect';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -32,7 +32,7 @@ async function start(): Promise<void> {
         ui.returnToSite.hidden = true; ui.pair.hidden = true; ui.decline.hidden = true;
         ui.targetSite.parentElement!.hidden = true;
         ui.authorize.textContent = 'Authorize Connect';
-        ui.panel.querySelectorAll('.note')[ui.panel.querySelectorAll('.note').length - 1].textContent = 'Authorize this app once for all websites. The connection page forwards encrypted messages.';
+        ui.panel.querySelectorAll('.note')[ui.panel.querySelectorAll('.note').length - 1].textContent = 'Authorize this app once for all websites. Lookups use this tab without opening another page.';
         const authorize = async (explicit: boolean) => {
             if (authorizing) return;
             authorizing = true; ui.authorize.disabled = true;
@@ -112,6 +112,16 @@ async function start(): Promise<void> {
 
     let selected: HTMLInputElement | undefined;
     let connector: Window | undefined;
+    let clientId: string | undefined;
+    const register = () => {
+        if (clientId) registerConnector(endpoint, clientId, peer => {
+            if (!connector || connector.closed) {
+                connector = peer;
+                ui.state(State.ReadyToConnect, 'Connection page linked to this browser tab. Find accounts to continue.');
+            }
+        });
+    };
+    void connectorTabId().then(id => { clientId = id; register(); }).catch(error => ui.state(State.Error, message(error)));
     let generation = 0, selecting = false;
     let pending: NativeRpc | undefined;
     let current: { rpc: NativeRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
@@ -122,23 +132,24 @@ async function start(): Promise<void> {
     };
     const guard = (epoch: number) => { if (epoch !== generation) throw new Error('The operation was canceled. Find accounts again.'); };
     ui.onClose = clean;
-    ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Select Connect to KeeWebX, then return here to find accounts or test the connection.'); };
+    ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Your authorized KeeWebX tab is used on every website. Test the connection here.'); };
     ui.save.onclick = async event => {
         if (!event.isTrusted) return;
         clean(); const epoch = generation;
-        try { endpoint = await saveEndpoint(ui.address.value); guard(epoch); connector = undefined; ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
+        try { endpoint = await saveEndpoint(ui.address.value); guard(epoch); connector = undefined; register(); ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
         catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
     };
-    ui.open.textContent = 'Connect to KeeWebX';
+    ui.open.textContent = 'Open connection page';
     const openConnection = () => {
         clean();
         try {
-            connector = openConnector(endpoint, connector);
+            if (!clientId) throw new Error('Connection settings are not ready. Reopen the panel and retry.');
+            connector = openConnector(endpoint, clientId, connector);
             ui.state(State.ReadyToConnect, 'Connection page opened. Return here and find accounts. Keep that page open.');
         } catch (error) { ui.state(State.Error, message(error)); }
     };
     ui.open.onclick = event => { if (event.isTrusted) openConnection(); };
-    const setup = () => { ui.show('config'); ui.state(State.ReadyToConnect, 'Authorize Connect once in your KeeWebX tab, then select Connect to KeeWebX here. Keep the connection page open.'); };
+    const setup = () => { ui.show('config'); ui.state(State.ReadyToConnect, 'Authorize Connect once in your existing KeeWebX tab, then return here and find accounts.'); };
 
     async function choose(entry: KeeWebXEntry): Promise<void> {
         const active = current;
@@ -165,7 +176,6 @@ async function start(): Promise<void> {
     }
     const lookup = async (event: MouseEvent) => {
         if (!event.isTrusted || ui.lookup.disabled || selecting) return;
-        if (!connector || connector.closed) { openConnection(); return; }
         clean(); ui.busy(true); ui.state(State.Connecting, 'Finding accounts in your authorized KeeWebX tab...');
         const epoch = generation;
         let rpc: NativeRpc | undefined;
@@ -225,14 +235,13 @@ async function start(): Promise<void> {
     };
     ui.probe.onclick = event => {
         if (!event.isTrusted) return;
-        if (!connector || connector.closed) { openConnection(); return; }
         void testConnection();
     };
     document.addEventListener('focusin', event => { const field = event.composedPath()[0]; if (eligible(field)) { selected = field; ui.anchor(field); } }, true);
     const invalidated = () => { if (current?.rpc.href !== undefined && current.rpc.href !== location.href || pending && pending.href !== location.href) clean(); };
     addEventListener('popstate', invalidated); addEventListener('hashchange', invalidated);
     addEventListener('pagehide', clean);
-    addEventListener('visibilitychange', () => { if (document.hidden) { clean(); ui.state(State.ReadyToConnect, 'Find accounts again when you return.'); } });
+    addEventListener('visibilitychange', () => { if (document.hidden && (!pending || selecting)) { clean(); ui.state(State.ReadyToConnect, 'Find accounts again when you return.'); } });
     addEventListener('pageshow', event => { if (event.persisted) clean(); });
 }
 

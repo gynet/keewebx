@@ -1,82 +1,77 @@
-# Userscripts on iOS: KeeWebX Connect 0.5.0
+# Userscripts on iOS: KeeWebX Connect 0.5.1
 
-Connect reuses an unlocked KeeWebX tab to fill matching login forms. Authorize
-that app once for all websites. Select an account explicitly; forms are never
-submitted automatically.
+Authorize your unlocked KeeWebX app once, then select matching accounts beside
+login fields on any website. Finding accounts and testing the connection never
+open a page. Forms are filled only after an explicit account selection and are
+never submitted automatically.
 
-[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.0/modules/extension/userscript/keewebx-connect.user.js)
+[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.1/modules/extension/userscript/keewebx-connect.user.js)
 
-## Install and connect
+## Install and use
 
-1. Open the installer link in **Safari**, open Safari’s extension menu, choose
-   **Userscripts**, then **Tap to Install**. Seeing JavaScript source is expected.
-   If needed, open the Userscripts app once to choose a script directory. You can
-   also save the `.user.js` file there manually. Keep only one installed Connect
-   script and disable older diagnostic probes. Allow Userscripts on KeeWebX and
-   your login websites.
-2. In your existing `https://keewebx.app/app` tab, unlock a database. Open the
-   script’s key panel, choose **Authorize Connect**, and **Allow** account listing
-   in KeeWebX. This grants this installed script access across websites; each
-   website still receives only accounts matching its exact HTTPS origin.
-3. On a login website, focus a username or password field and tap the key.
-   The first connection opens a small **KeeWebX Connect** page. Keep it open and
-   choose **Back to website** (or select the original website tab in Safari).
-4. Choose **Find accounts**, then select your account. Subsequent lookups on that
-   website reuse the connection page and the same unlocked app, without another
-   authorization. A different website establishes its own connection page.
-
-**Connection → Test connection** checks the selected app without reading fields.
-**Connect to KeeWebX** opens or focuses the connection page, preserving the
-original vault document. It does not open or reload your database.
+1. Open the installer in Safari. Open Safari’s extension menu, choose
+   **Userscripts**, then **Tap to Install**. JavaScript source on the download
+   page is expected. Alternatively save the `.user.js` file to the script
+   directory selected in the Userscripts app. Keep one installed Connect script
+   and disable old diagnostic scripts. Allow Userscripts on KeeWebX and your
+   login websites.
+2. Open your existing `https://keewebx.app/app` tab and unlock a database. In the
+   script’s key panel, choose **Authorize Connect**, then **Allow** account
+   listing in KeeWebX. That one grant is shared across websites.
+3. On a login website, focus a username or password field, tap the key, and
+   select a matching account. Use **Find accounts** to refresh the list.
+   Navigating to another website does not require another authorization or
+   another connection page.
 
 For a self-hosted app, save its complete HTTPS URL in **Connection → KeeWebX
-address** first. That deployment must serve `connect.html` beside the app URL.
-The browser extension’s settings are separate from this script’s settings.
+address**, then authorize that app. **Test connection** checks it without
+reading credential fields. **Open connection page** is an optional, explicit
+native-window setup action; normal lookup and recovery do not use this button.
 
-## Upgrade from 0.4.x
+## Upgrade from 0.5.0
 
-Replace the installed script, save database changes, and reload the app and
-website once so both show **Connect 0.5.0**. Authorize the intended app tab once.
-The saved signing identity and native vault permission are reused; deleting
-Userscripts data is unnecessary. Old GM queue receivers cannot serve this new
-native-message transport. Close obsolete connection and diagnostic pages.
+Replace the one installed script. Save database changes, then reload the
+existing app and website once so both run **Connect 0.5.1**. The app receiver
+must be updated to provide the recovery channel. Existing signing identity and
+vault permission are retained. Close obsolete connection pages; they are not
+required for normal filling. Do not repeatedly open a connection page to retry.
 
-## Recovery and revocation
+## Recovery and permissions
 
-Keep the authorized app and connection page open. If a connection times out,
-visit the existing app, unlock if needed, return to the website, and choose
-**Find accounts** again. If you closed the connection page, use **Connect to
-KeeWebX** to reopen it. Requests stop at their deadlines instead of waiting
-indefinitely. A connection test has a 15-second total budget while it can run.
+Keep the authorized app open. If it stops responding, visit that same tab,
+unlock if needed, then return to the website and retry. A pending connection
+check or account lookup can continue while you visit the app. Switching away
+during an actual credential fill cancels that fill. Navigation, closing the
+panel, changed form targets and expired sessions also cancel pending fills.
 
-Switching away, changing the website, closing the account panel, selecting
-another app, or locking the database invalidates a pending fill. A fresh lookup
-starts a new encrypted session. Only one website protocol session is active at
-a time; an old account list must be refreshed after using another website.
-
-The app panel’s **Disconnect** stops serving requests and clears its selected
-route. Revoke the script’s vault permission in KeeWebX’s browser extension
-settings to remove database access.
+One website protocol session uses the app’s native port at a time. A fresh
+lookup replaces obsolete account handles. A locked app rejects requests; an
+unlocked app reuses the existing grant. **Disconnect** in the app stops serving
+requests. Remove the script’s vault permission in browser extension settings to
+revoke database access.
 
 ## Transport and security
 
-Version 0.5.0 replaces the GM request/reply queue with native `postMessage`
-between the website and connection page, then same-origin `BroadcastChannel`
-between that page and the selected app. There is no relay server, periodic GM
-polling, tab-discovery list, or per-website approval dialog.
+0.5.0 retained a window reference only in the current website document and
+opened another page when that reference was absent. Navigation can invalidate
+window associations even while an old window reports that it is open. The new
+flow never treats opening another page as automatic recovery.
+
+A live native window connection uses `postMessage` and same-origin
+`BroadcastChannel`. Without that association, signed Connect envelopes use a
+private Userscripts mailbox addressed to the same selected app. Both paths use
+the same host, single-session ownership, replay checks, exact website origin,
+request deadline and encrypted Connect protocol. This is a transport fallback,
+not a second authorization flow. There is no remote relay server.
 
 The script requests `GM.getValue`, `GM.setValue`, `GM.deleteValue`,
-`GM.getTab` and `GM.saveTab`. The tab APIs preserve ownership across reload
-without allowing duplicated sessionStorage to select another app. These store the signing identity, app address and selected app’s public routing
-metadata. Requests, replies, account lists and credential fields are never
-written to manager storage. The connection page forwards the existing encrypted
-Connect payloads and cannot decrypt credential fields.
-
-Native window identity and exact origin are pinned during setup. Messages are
-signed and bound to the selected app, website document, session, operation and
-deadline. Replayed or altered messages are rejected. Fields are read only after
-an explicit account choice and the target form, origin and vault permission are
-checked again before filling. The app’s normal lock policy remains in force.
+`GM.listValues`, `GM.getTab` and `GM.saveTab`. Persistent storage contains the
+signing identity, app address and public routing metadata. Short-lived mailbox
+records contain signed routing metadata and encrypted credential messages,
+never plaintext usernames or passwords. Records are consumed or expired;
+cancellation stops response readers even when cleanup fails. Native storage
+notifications wake readers where available, with bounded polling and app-return
+checks otherwise. The app’s lock policy is unchanged.
 
 ## Verification
 
@@ -97,16 +92,16 @@ KEEWEBX_E2E_PORT=8085 bun e2e/serve-app.ts
 
 ```sh
 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/native-connect.mjs
-node modules/extension/userscript/tests/form-guards.mjs chromium webkit
 ```
 
-The browser fixture uses the exact installer in a real Chromium extension’s
-isolated world, native window messages and BroadcastChannel, native extension
-storage behind a small GM API adapter, a real encrypted KDBX and the app’s native
-permission dialog. It is not the installed iOS Userscripts manager. Native
-phone acceptance, long suspension and standalone Home Screen PWA communication
-remain unverified; manual switching to the existing app may be necessary.
+The fixture uses the exact installer in Chromium extension isolation, real
+window messages, BroadcastChannel and extension storage through a small GM API
+adapter, a real encrypted KDBX and the native permission dialog. It tests both
+independent website tabs and repeated cross-origin navigation within one tab,
+with no new page during normal lookup or connection tests. It also audits
+signed, encrypted native and mailbox traffic.
 
-See the [release report](docs/release-report.md). Older GM and discovery tests
-and documents are historical; `tests/native-connect.mjs` is the current end-to-end
-entry point.
+See the [release report](docs/release-report.md). Desktop browser results do not
+certify the installed iOS Userscripts manager. Native phone acceptance, long
+suspension and standalone Home Screen PWA communication remain unverified.
+Manual switching to the existing app may be needed.

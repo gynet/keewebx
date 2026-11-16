@@ -135,9 +135,15 @@ async function settings() {
  return gm;
 }
 async function prepare(page) {
+ const pages=context.pages().length;
  await page.locator('#username').click();
  if(await shadowValue(page,'section','hidden'))await action(page,'toggle');
  else {await action(page,'accounts-tab');await action(page,'lookup');}
+ await untilStatus(page,/Found 1 matching account/);
+ await action(page,'config-tab');
+ for(let retry=0;retry<3;retry++){await action(page,'probe');await untilStatus(page,/Connected to the authorized KeeWebX tab/);}
+ expect(context.pages().length).toBe(pages);
+ await action(page,'open');
  const helper=await expect.poll(()=>context.pages().find(p=>p.url().includes('connect.html')&&!Array.from(connectors.values()).includes(p)),{timeout:12000}).toBeTruthy().then(()=>context.pages().find(p=>p.url().includes('connect.html')&&!Array.from(connectors.values()).includes(p)));
  connectors.set(page,helper);
  await expect(helper.getByRole('status')).toContainText('Connection page ready',{timeout:10000});
@@ -165,7 +171,8 @@ async function setup(bundle) {
  const extension=join(OUT,'extension');mkdirSync(extension,{recursive:true});
  writeFileSync(join(extension,'manifest.json'),JSON.stringify({manifest_version:3,name:'Disposable native Connect fixture',version:'1.0',permissions:['storage'],background:{service_worker:'background.js'},content_scripts:[{matches:['https://*/*'],js:['content.js'],run_at:'document_idle'}]}));
  writeFileSync(join(extension,'background.js'),`const tabs=new Map();globalThis.audit=[];chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local')for(const [key,value] of Object.entries(changes))globalThis.audit.push({key,value:value.newValue});});chrome.runtime.onMessage.addListener((message,sender,reply)=>{if(message.op==='getTab')reply(tabs.get(sender.tab.id)??null);else if(message.op==='saveTab'){tabs.set(sender.tab.id,message.value);reply(true);}});`);
- writeFileSync(join(extension,'content.js'),`(()=>{const prefix='${PREFIX}';const GM={
+ writeFileSync(join(extension,'content.js'),`(()=>{const prefix='${PREFIX}';const GM={info:{scriptHandler:'Userscripts',script:{filename:'Connect.user.js'}},
+ async listValues(){return Object.keys(await chrome.storage.local.get()).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length));},
  async getValue(key,fallback){const data=await chrome.storage.local.get(prefix+key);return (prefix+key) in data?data[prefix+key]:fallback;},
  async setValue(key,value){await chrome.storage.local.set({[prefix+key]:value});},async deleteValue(key){await chrome.storage.local.remove(prefix+key);},
  getTab:()=>chrome.runtime.sendMessage({op:'getTab'}),saveTab:value=>chrome.runtime.sendMessage({op:'saveTab',value})};${bundle}})();`);
@@ -185,11 +192,11 @@ async function setup(bundle) {
  },{appUrl:APP,marker:MARK});
  context.on('page',page=>{page.on('pageerror',error=>report.errors.push(redact(error.message)));page.on('console',m=>{if(/Request payload|Response payload/.test(m.text()))report.errors.push('Unexpected credential payload logging');});});
  await context.route('https://keewebx.app/**',async route=>{const url=new URL(route.request().url());if(route.request().isNavigationRequest()&&url.pathname==='/app')appNavigationRequests++;let path=url.pathname.replace(/^\/app(?=\/|$)/,'')||'/next.html';if(path==='/')path='/next.html';const response=await context.request.get(APP_SERVER+path+url.search);await route.fulfill({response});});
- for(const account of ACCOUNTS.slice(0,2))await context.route(new URL(account.url).origin+'/**',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><title>Disposable login</title><style>body{font:18px system-ui;padding:80px}input{display:block;width:300px;height:40px;margin:12px}</style><h1>Login</h1><form><input id="username" autocomplete="username"><input id="login-password" type="password" autocomplete="current-password"><button>Sign in</button></form><script>window.formSubmits=0;window.credentialInputEvents=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.formSubmits++});for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>`}));
+ for(const account of ACCOUNTS.slice(0,2))await context.route(new URL(account.url).origin+'/**',route=>route.fulfill({headers:route.request().url().includes('/isolated')?{'cross-origin-opener-policy':'same-origin'}:{},contentType:'text/html',body:`<!doctype html><title>Disposable login</title><style>body{font:18px system-ui;padding:80px}input{display:block;width:300px;height:40px;margin:12px}</style><h1>Login</h1><form><input id="username" autocomplete="username"><input id="login-password" type="password" autocomplete="current-password"><button>Sign in</button></form><script>window.formSubmits=0;window.credentialInputEvents=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.formSubmits++});for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>`}));
 }
 try {
  const bundle=readFileSync(SOURCE,'utf8');report.bundle={bytes:Buffer.byteLength(bundle),sha256:createHash('sha256').update(bundle).digest('hex')};
- expect(bundle).not.toContain('keewebx-userscript-connect-request-v2:');expect(bundle).not.toContain('GM.listValues');
+ expect(bundle).not.toContain('keewebx-userscript-connect-request-v2:');expect(bundle).toContain('keewebx-connect-mailbox-v1:');
  await step('create real encrypted KDBX with accounts for two distinct origins',async()=>{
   const source=`import * as kdbx from ${JSON.stringify(pathToFileURL(join(ROOT,'modules/db/lib/index.ts')).href)};import {argon2} from ${JSON.stringify(pathToFileURL(join(ROOT,'modules/db/test/test-support/argon2.ts')).href)};import {writeFileSync} from 'node:fs';kdbx.CryptoEngine.setArgon2Impl(argon2);const db=kdbx.Kdbx.create(new kdbx.Credentials(kdbx.ProtectedValue.fromString(${JSON.stringify(DB_PASSWORD)})),'Disposable Connect');db.header.kdfParameters.set('M',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(32768));db.header.kdfParameters.set('I',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(2));for(const account of ${JSON.stringify(ACCOUNTS)}){const entry=db.createEntry(db.getDefaultGroup());entry.fields.set('Title',account.title);entry.fields.set('URL',account.url);entry.fields.set('UserName',account.user);entry.fields.set('Password',kdbx.ProtectedValue.fromString(account.password));}writeFileSync(${JSON.stringify(join(OUT,'fixture.kdbx'))},new Uint8Array(await db.save()));`;
   execFileSync(BUN,['--eval',source],{cwd:ROOT,timeout:20000,stdio:['ignore','pipe','pipe']});
@@ -211,15 +218,29 @@ try {
  await step('another independent origin uses same app and same authorization',async()=>{
   second=await context.newPage();await second.goto(ACCOUNTS[1].url);await ready(second);await prepare(second);await lookup(second,ACCOUNTS[1]);await fill(second,ACCOUNTS[1]);await sameApp();
  });
+ await step('one browser tab navigates between websites four times without opening another connection page',async()=>{
+  const helper=connectors.get(first),boot=await helper.evaluate(()=>performance.timeOrigin),pages=context.pages().length;
+  for(const account of [ACCOUNTS[1],ACCOUNTS[0],ACCOUNTS[1],ACCOUNTS[0]]) {
+   await first.goto(account.url);await ready(first);
+   await lookup(first,account);await fill(first,account);
+   expect(context.pages().length).toBe(pages);expect(await helper.evaluate(()=>performance.timeOrigin)).toBe(boot);await sameApp();
+  }
+ });
+ await step('an isolated login document fills through recovery without opening a window',async()=>{
+  const pages=context.pages().length;
+  await first.goto(ACCOUNTS[0].url+'isolated');await ready(first);
+  await lookup(first,ACCOUNTS[0]);await fill(first,ACCOUNTS[0]);
+  expect(context.pages().length).toBe(pages);await sameApp();
+ });
  await step('six alternating fills reuse both connectors without locking or navigating app',async()=>{
   const pages=context.pages().length;
   for(let i=0;i<3;i++)for(const [page,account] of [[first,ACCOUNTS[0]],[second,ACCOUNTS[1]]]){await clearFields(page);await lookup(page,account);await fill(page,account);await sameApp();}
   expect(context.pages().length).toBe(pages);
  });
  await step('connection test and explicit reconnect preserve existing unlocked vault',async()=>{
-  await action(first,'toggle');await action(first,'config-tab');await action(first,'probe');await untilStatus(first,/Connected to the authorized KeeWebX tab/);
-  const helper=connectors.get(first),before=await helper.evaluate(()=>performance.timeOrigin),pages=context.pages().length;
-  await action(first,'open');await first.bringToFront();await action(first,'probe');await untilStatus(first,/Connected to the authorized KeeWebX tab/);
+  await action(second,'toggle');await action(second,'config-tab');await action(second,'probe');await untilStatus(second,/Connected to the authorized KeeWebX tab/);
+  const helper=connectors.get(second),before=await helper.evaluate(()=>performance.timeOrigin),pages=context.pages().length;
+  await action(second,'open');await second.bringToFront();await action(second,'probe');await untilStatus(second,/Connected to the authorized KeeWebX tab/);
   expect(await helper.evaluate(()=>performance.timeOrigin)).toBe(before);expect(context.pages().length).toBe(pages);await sameApp();
  });
  await step('closing a pending fill rejects the real delayed encrypted response',()=>cancelPending(first,'close'));
@@ -230,9 +251,13 @@ try {
   await expect(helper.getByRole('status')).toContainText('Connection page ready');await first.bringToFront();
   await lookup(first,ACCOUNTS[0]);await fill(first,ACCOUNTS[0]);expect(await helper.evaluate(()=>performance.timeOrigin)).toBe(before);expect(context.pages().length).toBe(pages);await sameApp();
  });
- await step('closing connector recovers with one new helper and the same unlocked app',async()=>{
-  await connectors.get(first).close();await clearFields(first);connectors.delete(first);await prepare(first);
-  await lookup(first,ACCOUNTS[0]);await fill(first,ACCOUNTS[0]);await sameApp();
+ await step('closing the old connector does not create another page during lookup or repeated tests',async()=>{
+  await connectors.get(first).close();connectors.delete(first);
+  const pages=context.pages().length;
+  await clearFields(first);await lookup(first,ACCOUNTS[0]);await fill(first,ACCOUNTS[0]);
+  await action(first,'toggle');await action(first,'config-tab');
+  for(let retry=0;retry<3;retry++){await action(first,'probe');await untilStatus(first,/Connected to the authorized KeeWebX tab/);}
+  expect(context.pages().length).toBe(pages);await sameApp();await action(first,'close');
  });
  await step('a locked app rejects lookup promptly and resumes without new permission after unlock',async()=>{
   await app.bringToFront();await expect(app.locator('#sync-state')).toContainText('Up to date');
@@ -243,12 +268,12 @@ try {
   await expect(app.locator('.entry-row').first()).toBeVisible();await untilStatus(app,/Authorized/);
   await lookup(first,ACCOUNTS[0]);await fill(first,ACCOUNTS[0]);await sameApp();
  });
- await step('native settings history has no request queues or plaintext credentials; wire payloads stay encrypted',async()=>{
+ await step('native and recovery channels retain signed encrypted payloads with no plaintext credentials',async()=>{
   const audit=await nativeWorker.evaluate(()=>globalThis.audit);await settings();
-  const allowed=/^Connect\.user\.js---(?:keewebx-userscript-connect-(?:identity|settings)-v1|keewebx-native-connect-v1:selected:)/;
+  const allowed=/^Connect\.user\.js---(?:keewebx-userscript-connect-(?:identity|settings)-v1|keewebx-native-connect-v1:selected:|keewebx-connect-mailbox-v1:(?:request|reply):)/;
   expect(audit.length).toBeGreaterThan(0);expect(audit.every(item=>allowed.test(item.key))).toBe(true);
   const serialized=JSON.stringify(audit);for(const secret of PRIVATE_VALUES)expect(serialized).not.toContain(secret);
-  const packets=await app.evaluate(()=>globalThis.__kwxNativeTest.wirePackets);expect(packets.length).toBeGreaterThan(30);
+  const packets=[...await app.evaluate(()=>globalThis.__kwxNativeTest.wirePackets),...audit.filter(item=>item.key.includes('keewebx-connect-mailbox-v1:')&&item.value?.packet).map(item=>item.value)];expect(packets.length).toBeGreaterThan(30);
   const privateActions=new Set(['kwx-pair','kwx-features','kwx-get-entries','kwx-get-entry-fields']);
   const sensitive=packets.map(p=>p.packet?.body).filter(body=>privateActions.has(body?.action));expect(sensitive.length).toBeGreaterThan(10);
   expect(sensitive.every(body=>typeof body.message==='string'&&typeof body.nonce==='string'&&!('values'in body)&&!('suggested'in body))).toBe(true);
@@ -256,8 +281,8 @@ try {
   const stable=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
   const key=createPublicKey({format:'der',type:'spki',key:Buffer.concat([Buffer.from('302a300506032b6570032100','hex'),Buffer.from(approvedRoute.publicKey,'base64')])});
   expect(packets.every(p=>verify(null,Buffer.from(stable(p.packet)),key,Buffer.from(p.signature,'base64')))).toBe(true);
-  report.storageAudit={historicalWrites:audit.length,noTransportRecords:true,noPlaintext:true,signedPackets:packets.length,encryptedSensitivePackets:sensitive.length};
+  report.storageAudit={historicalWrites:audit.length,encryptedRecoveryPackets:packets.filter(item=>item.packet).length,noPlaintext:true,signedPackets:packets.length,encryptedSensitivePackets:sensitive.length};
  });
  expect(report.errors).toEqual([]);report.passed=true;
-} catch(error) {report.passed=false;report.failure=redact(error.stack||error);console.error(report.failure);process.exitCode=1;}
+} catch(error) {report.passed=false;report.failure=redact(error.stack||error);console.error(report.failure);for(const [name,page] of [['app',app],['first',first],['second',second]])if(page)report[name+'Status']=await status(page).catch(()=>null);process.exitCode=1;}
 finally {report.finished=new Date().toISOString();writeFileSync(join(OUT,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({report:join(OUT,'report.json'),passed:report.passed}));await context?.close();}

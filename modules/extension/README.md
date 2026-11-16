@@ -42,23 +42,19 @@ include setup and troubleshooting even while disconnected.
 
 ## iOS Safari with Userscripts
 
-Use the separate experimental [KeeWebX Connect userscript](userscript/README.md)
-with the **Userscripts** app. Install the
-[0.5.0 script](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.0/modules/extension/userscript/keewebx-connect.user.js)
-and allow it on KeeWebX and your login websites. Its connection panel is
-separate from the desktop extension’s settings.
+Install the experimental [KeeWebX Connect userscript](userscript/README.md)
+[version 0.5.1](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.1/modules/extension/userscript/keewebx-connect.user.js)
+with **Userscripts**, and allow it on KeeWebX and your login websites.
 
-Unlock the intended app tab, choose **Authorize Connect**, then **Allow**
-account listing once. On a website, focus a login field and tap the key. Keep
-the connection page open, return to the website, choose **Find accounts**, and
-select your account. Subsequent fills reuse that page and the original app.
-No additional website authorization is needed; forms are not submitted.
+Authorize the unlocked app once. On a website, focus a login field, tap the key
+and select an account. Normal lookup, retry and connection tests never open a
+page. Native window messages are reused when available; a signed private
+mailbox recovers missing window associations through the same encrypted Connect
+protocol and authorization. There is no remote relay server.
 
-Native window messages and same-origin BroadcastChannel forward the existing
-encrypted Connect protocol. GM stores identity and settings, never a request or
-reply queue. Keep the app and connection page open. If necessary, visit the
-existing app, unlock, return and retry. Native iOS and standalone Home Screen
-PWA acceptance remain unverified.
+When upgrading, save changes and reload the app and website once to update both
+ends. Keep the authorized app open; visit it and unlock if needed, then retry.
+Native iOS and standalone PWA acceptance remain unverified.
 
 ## Building
 
