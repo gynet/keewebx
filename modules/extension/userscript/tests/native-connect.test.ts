@@ -470,11 +470,12 @@ test('a website without any window association uses the same signed host and enc
 
 // Direct ports pin the browser-observed site and use a synchronous App-origin
 // selection lease. A native extension storage read must not stall hidden Apps.
+let receiverMessage: (event: MessageEvent) => void;
 async function directHost() {
     const local = new Map<string, string>();
     replace('localStorage', { getItem: (key: string) => local.get(key) ?? null,
         setItem: (key: string, value: string) => local.set(key, value), removeItem: (key: string) => local.delete(key) });
-    replace('navigator', { locks, serviceWorker: { addEventListener() {}, startMessages() {} } });
+    replace('navigator', { locks, serviceWorker: { addEventListener(_type: string, listener: (event: MessageEvent) => void) { receiverMessage = listener; }, startMessages() {} } });
     replace('setInterval', () => 0);
     host.pause(); host = new NativeHost(endpoint); await host.authorize(keys);
     return local;
@@ -485,6 +486,46 @@ async function directSession() {
     const p = packet(); await directSend(envelope(p));
     return { ...p, operation: 'wire', id: crypto.randomUUID(), scope: replies.at(-1).value.packet.body.scope, body: { action: 'kwx-features' } };
 }
+test('the direct receiver registers without touching the WebStorage getter', async () => {
+    await directHost();
+    let storageReads = 0;
+    replace('localStorage', { get getItem() { storageReads++; throw new Error('Unavailable'); } });
+    host.pause(); host = new NativeHost(endpoint);
+    expect(host.hasDirectReceiver).toBe(true);
+    expect(storageReads).toBe(0);
+});
+test('authorized discovery acknowledges from memory when both storage APIs are unavailable', async () => {
+    await directHost();
+    let storageReads = 0, managerReads = 0;
+    (globalThis as any).localStorage.getItem = () => { storageReads++; throw new Error('Unavailable'); };
+    (globalThis as any).GM.getValue = () => { managerReads++; throw new Error('Unavailable'); };
+    replace('setTimeout', () => 0);
+    const messages: any[] = [];
+    const port = { postMessage: (value: any) => messages.push(value), start() {}, close() {} };
+    receiverMessage({ data: { marker: 'keewebx-connect-port-v1', kind: 'find-app', endpoint: endpoint.href, appBoot: (host as any).host },
+        source: { scriptURL: new URL('connect-port/worker.js', endpoint).href }, ports: [port], isTrusted: false } as unknown as MessageEvent);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ kind: 'app-ready', state: 'enabled', appBoot: (host as any).host });
+    expect(storageReads).toBe(0); expect(managerReads).toBe(0); expect(reads).toBe(0);
+    // An acknowledgement grants no credential access when the selection cannot be checked.
+    await directSend(envelope(packet()));
+    expect(storageReads).toBe(1); expect(reads).toBe(0);
+});
+test('receiver startup failure is observable and cannot advertise direct capability', () => {
+    host.pause();
+    replace('navigator', { locks, serviceWorker: { addEventListener() { throw new Error('Unavailable'); } } });
+    const diagnostics: string[] = [];
+    host = new NativeHost(endpoint, () => {}, value => diagnostics.push(value));
+    expect(host.hasDirectReceiver).toBe(false);
+    expect(diagnostics).toEqual(['Direct receiver startup failed: Error']);
+});
+test('direct transport still rejects unsigned or tampered hello requests', async () => {
+    await directHost();
+    const signed = envelope(packet());
+    await directSend({ ...signed, signature: 'invalid' });
+    await directSend({ ...signed, packet: { ...signed.packet, origin: 'https://attacker.example' } });
+    expect(replies).toHaveLength(0); expect(reads).toBe(0);
+});
 test('direct port hello and encrypted wire do not read background manager storage', async () => {
     await directHost();
     let managerReads = 0;

@@ -89,19 +89,20 @@ export class NativeHost {
     private leaseKey: string;
     private consumed = new Map<string, number>();
     private session?: { document: string; origin: string; scope: string; expiresAt: number; bridge: AppBridge; locked: boolean; busy: boolean; port?: string };
-    constructor(private endpoint: URL, private onError: (error: Error) => void = () => {}) {
+    constructor(private endpoint: URL, private onError: (error: Error) => void = () => {}, private diagnostic: (message: string) => void = () => {}) {
         this.leaseKey = `${MARK}:active:${endpoint.href}`;
         try {
-            if (navigator.serviceWorker && typeof localStorage.getItem === 'function') {
-                this.direct = new AppPortReceiver(endpoint, () => ({ host: this.host, active: this.live && !!this.keys && this.selectedDirect() }),
+            if (navigator.serviceWorker) {
+                this.direct = new AppPortReceiver(endpoint, () => ({ host: this.host, active: this.live && !!this.keys }),
                     (value, reply, origin, id) => this.receive(value, reply, { origin, id }), id => {
                         if (this.session?.port === id) { this.session.bridge.dispose(); this.session = undefined; }
-                    });
+                    }, this.diagnostic, () => this.live && !!this.keys && this.selectedDirect());
                 addEventListener('storage', event => { if (event.key === this.leaseKey && !this.selectedDirect()) {
                     this.direct?.clear(); this.session?.bridge.dispose(); this.session = undefined;
                 } });
             }
-        } catch { /* Older/self-hosted browsers retain the existing signed transport. */ }
+            else this.diagnostic('Direct receiver unavailable: ServiceWorker API missing');
+        } catch (error) { this.diagnostic('Direct receiver startup failed: ' + (error instanceof Error ? error.name : 'Error')); }
         watchManagerGrant(routeKey(endpoint), () => ({ host: this.host, revision: this.publishedAuthorization }), () => {
             if (this.selectedDirect()) localStorage.removeItem(this.leaseKey);
             this.direct?.clear(); this.session?.bridge.dispose(); this.session = undefined;
@@ -128,6 +129,7 @@ export class NativeHost {
             if (!this.direct) this.onError(error);
         });
     }
+    get hasDirectReceiver(): boolean { return !!this.direct; }
     private selectedDirect(): boolean { try { return localStorage.getItem(this.leaseKey) === this.host; } catch { return false; } }
     private restorationBlocked(): boolean { try { return localStorage.getItem(this.leaseKey + ':restore-blocked') === '1'; } catch { return false; } }
     async selected(): Promise<boolean> { await this.ownerReady; if (this.restorationBlocked()) return false; const route = await approvedRoute(this.endpoint); return !route || route.owner === this.owner; }
@@ -215,6 +217,7 @@ export class NativeHost {
         for (const [id, until] of this.consumed) if (until <= Date.now()) this.consumed.delete(id);
         if (this.consumed.has(p.id) || this.consumed.size >= 1024) return;
         this.consumed.set(p.id, p.deadline);
+        if (direct && p.operation === 'hello') this.diagnostic('Signed hello received; checking selected App grant');
         // A previously selected tab must stop serving after another app wins.
         if ((direct ? !this.selectedDirect() : (await approvedRoute(this.endpoint))?.host !== this.host) || authorization !== this.authorization || !this.live || this.keys !== keys || Date.now() >= p.deadline) return;
         let body: any, error: string | undefined;

@@ -1,3 +1,4 @@
+import { CONNECT_VERSION } from './src/version';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -16,7 +17,7 @@ const license = await readFile(path.join(import.meta.dir, '../../..', 'LICENSE')
 const metadata = `// ==UserScript==
 // @name         KeeWebX Connect (experimental)
 // @namespace    https://keewebx.app/
-// @version      0.6.0
+// @version      ${CONNECT_VERSION}
 // @description  Authorize KeeWebX once and fill accounts on all websites using the existing encrypted Connect protocol. Experimental iOS Safari support.
 // @match        https://*/*
 // @noframes

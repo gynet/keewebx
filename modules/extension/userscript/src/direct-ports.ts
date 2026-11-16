@@ -1,3 +1,4 @@
+import { CONNECT_VERSION } from './version';
 import { isId, object, uuid } from './native-rpc';
 
 export const PORT_MARK = 'keewebx-connect-port-v1';
@@ -112,9 +113,11 @@ export class AppPortReceiver {
     private ports = new Map<string, { port: MessagePort; origin: string; lastSeen: number }>();
     constructor(private endpoint: URL, private snapshot: () => { host: string; active: boolean },
         private request: (value: unknown, reply: (value: unknown) => void, origin: string, id: string) => Promise<void>,
-        private released: (id: string) => void) {
+        private released: (id: string) => void, private diagnostic: (value: string) => void = () => {},
+        private admit: () => boolean = () => this.snapshot().active) {
         navigator.serviceWorker.addEventListener('message', this.receive);
         navigator.serviceWorker.startMessages?.();
+        this.diagnostic('Direct receiver registered');
         setInterval(() => { for (const [id, peer] of this.ports) if (Date.now() - peer.lastSeen > PORT_IDLE_MS) this.remove(id); }, 30000);
     }
     private remove(id: string, reason = 'expired'): void {
@@ -124,17 +127,31 @@ export class AppPortReceiver {
         peer.port.close(); this.ports.delete(id); this.released(id);
     }
     private receive = (event: MessageEvent) => {
-        const data = event.data, state = this.snapshot();
-        if (!event.isTrusted || !event.source || (event.source as ServiceWorker).scriptURL !== new URL('connect-port/worker.js', this.endpoint).href ||
-            !object(data) || data.marker !== PORT_MARK || data.endpoint !== this.endpoint.href || event.ports.length !== 1) return;
-        const port = event.ports[0];
+        const data = event.data;
+        if (!object(data) || data.marker !== PORT_MARK) return;
+        let sourceMatches = false;
+        try { sourceMatches = !!event.source && (event.source as ServiceWorker).scriptURL === new URL('connect-port/worker.js', this.endpoint).href; } catch {}
+        const matchesAddress = data.endpoint === this.endpoint.href;
+        this.diagnostic(`${data.kind === 'find-app' ? 'Discovery' : 'Handoff'}: worker=${sourceMatches ? 'match' : 'rejected'}; address=${matchesAddress ? 'match' : 'different'}; ports=${event.ports.length}; trusted=${event.isTrusted}`);
+        // Discovery exchanges public metadata. Match the proven POC's worker/port
+        // checks; credential requests still require the signed NativeHost protocol.
+        if (!sourceMatches || event.ports.length !== 1) return;
+        const port = event.ports[0], state = this.snapshot();
         if (data.kind === 'find-app') {
-            port.postMessage({ marker: PORT_MARK, kind: state.active && data.appBoot === state.host ? 'app-ready' : 'app-state',
-                appBoot: state.host, endpoint: this.endpoint.href, state: state.active ? 'enabled' : 'disabled' });
+            // No extension or WebStorage reads may block a discovery acknowledgement.
+            port.postMessage({ marker: PORT_MARK,
+                kind: matchesAddress && state.active && data.appBoot === state.host ? 'app-ready' : 'app-state',
+                appBoot: state.host, endpoint: data.endpoint,
+                state: !matchesAddress ? 'address-mismatch' : state.active ? 'enabled' : 'disabled', receiverVersion: CONNECT_VERSION });
             const timer = setTimeout(() => port.close(), 10000);
             port.onmessage = () => { clearTimeout(timer); port.close(); }; port.start(); return;
         }
-        if (data.kind !== 'attach-port' || data.appBoot !== state.host || !state.active || !isId(data.connectionId) || !originValid(data.siteOrigin)) { port.close(); return; }
+        if (data.kind !== 'attach-port' || !matchesAddress || data.appBoot !== state.host || !state.active || !isId(data.connectionId) || !originValid(data.siteOrigin)) { port.close(); return; }
+        this.diagnostic('Handoff received; validating selected App grant');
+        if (!this.admit()) {
+            port.postMessage({ marker: PORT_MARK, kind: 'error', code: 'inactive', message: 'The selected App grant is unavailable. Select this tab again in Connect.' });
+            port.close(); return;
+        }
         for (const [id, peer] of this.ports) if (Date.now() - peer.lastSeen > PORT_IDLE_MS) this.remove(id);
         if (this.ports.size >= 32) { port.postMessage({ marker: PORT_MARK, kind: 'error', message: 'Too many website connections. Close an old website and retry.' }); port.close(); return; }
         const id = data.connectionId, origin = data.siteOrigin; this.remove(id);

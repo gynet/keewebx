@@ -136,6 +136,8 @@ function probe(client, appBoot, endpoint) {
                 data.endpoint !== endpoint || !UUID.test(data.appBoot)) return;
             if (data.kind === 'app-ready' && (data.state === undefined || data.state === 'enabled')) {
                 finish(data.appBoot === appBoot ? 'ready' : 'refreshed');
+            } else if (data.kind === 'app-state' && data.state === 'address-mismatch') {
+                finish(data.appBoot === appBoot ? 'address-mismatch' : 'refreshed');
             } else if (data.kind === 'app-state' && (data.state === 'enabled' || data.state === 'disabled')) {
                 finish(data.appBoot !== appBoot ? 'refreshed' : data.state === 'enabled' ? 'ready' : 'disabled');
             }
@@ -182,12 +184,14 @@ async function attach(event) {
             return;
         }
         if (!matches.length) {
-            if (probes.some((result) => result.state === 'disabled')) {
+            if (probes.some((result) => result.state === 'address-mismatch')) {
+                fail(event, 'address', 'The App and website have different saved KeeWebX addresses. Save the same App address, then refresh both Connect scripts.');
+            } else if (probes.some((result) => result.state === 'disabled')) {
                 fail(event, 'disabled', 'Connect is disabled in the selected KeeWebX tab. Enable Connect there, then retry from the website.');
             } else if (probes.some((result) => result.state === 'refreshed')) {
                 fail(event, 'refreshed', 'The KeeWebX app was refreshed or the selected tab changed. Select it again for Connect, then retry from the website.');
             } else if (probes.some((result) => result.state === 'timeout')) {
-                fail(event, 'timeout', 'KeeWebX did not answer within 8 seconds. Check Connect in your original app tab, then retry from the website.');
+                fail(event, 'timeout', 'The App receiver did not acknowledge discovery. Open Connection diagnostics in the App Connect panel and check the last discovery result.');
             } else {
                 fail(event, 'unreachable', 'The KeeWebX app tab could not be reached. Return to the website and retry.');
             }

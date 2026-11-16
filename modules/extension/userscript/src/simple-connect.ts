@@ -1,3 +1,4 @@
+import { CONNECT_VERSION } from './version';
 import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/protocol-impl';
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge } from './app-bridge';
@@ -7,7 +8,7 @@ import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, type Targets } from './form-targets';
 
-const VERSION = '0.6.0';
+const VERSION = CONNECT_VERSION;
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const assertWebsiteScope = (features: { features: string[]; websiteOrigin?: string }, origin: string) => {
@@ -30,20 +31,27 @@ async function start(): Promise<void> {
     version.className = 'status'; version.dataset.role = 'version'; version.textContent = `Connect ${VERSION}`;
     ui.panel.append(version);
     if (app) {
-        const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)));
+        const diagnostics = document.createElement('details'), summary = document.createElement('summary'), diagnosticLog = document.createElement('pre');
+        summary.textContent = 'Connection diagnostics'; diagnosticLog.dataset.role = 'connection-diagnostics';
+        diagnosticLog.style.cssText = 'font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto';
+        diagnostics.append(summary, diagnosticLog); ui.panel.append(diagnostics);
+        const events: string[] = [];
+        const record = (value: string) => { events.unshift(new Date().toLocaleTimeString() + ' · ' + value); events.length = Math.min(events.length, 12); diagnosticLog.textContent = events.join('\n'); };
+        const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)), record);
         const bridge = new AppBridge();
         let generation = 0, authorizing = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
         ui.address.readOnly = true; ui.save.hidden = true; ui.open.hidden = true;
         ui.returnToSite.hidden = true; ui.pair.hidden = true; ui.decline.hidden = true;
         ui.targetSite.parentElement!.hidden = true;
         ui.authorize.textContent = 'Authorize Connect';
-        ui.panel.querySelectorAll('.note')[ui.panel.querySelectorAll('.note').length - 1].textContent = 'Authorize this app once for all websites. Lookups use this tab without opening another page.';
+        ui.panel.querySelectorAll('.note')[ui.panel.querySelectorAll('.note').length - 1].textContent = 'Authorize this app once for all websites. A temporary page hands each website a direct connection and closes after verification.';
         const authorize = async (explicit: boolean) => {
             if (authorizing) return;
             authorizing = true; ui.authorize.disabled = true;
             const epoch = ++generation;
             const guard = () => { if (epoch !== generation) throw new Error('Authorization was canceled.'); };
             try {
+                if (!host.hasDirectReceiver) throw new Error('The direct receiver could not start. Expand Connection diagnostics in this panel.');
                 const keys = await managerCall(() => identity(explicit)); guard();
                 if (!explicit && !await host.selected()) return;
                 const protocol = new ProtocolImpl({ request: request => { guard(); return bridge.request(request, Date.now() + (explicit ? 65000 : 8000)); } }, runtime);

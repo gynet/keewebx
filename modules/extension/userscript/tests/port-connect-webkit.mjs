@@ -63,7 +63,7 @@ async function action(page, name) {
 }
 async function ready(page) {
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
-    expect(await shadow(page, '[data-role="version"]')).toBe('Connect 0.6.0');
+    expect(await shadow(page, '[data-role="version"]')).toBe('Connect 0.6.1');
     expect(await utility(page, "__kwxWebKit.roots.get(document.getElementById('keewebx-userscript-connect')).mode")).toBe('closed');
     expect(await page.evaluate(() => [typeof globalThis.__kwxWebKit, document.getElementById('keewebx-userscript-connect').shadowRoot])).toEqual(['undefined', null]);
     if (page !== app) await expect.poll(() => shadow(page, '[data-action="lookup"]', 'disabled')).toBe(false);
@@ -187,7 +187,7 @@ function adapter(marker) {
 
 try {
     const installer = readFileSync(join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'), 'utf8');
-    expect(installer).toMatch(/@version\s+0\.6\.0\b/);
+    expect(installer).toMatch(/@version\s+0\.6\.1\b/);
     for (const asset of ['index.html', 'connect-port/relay.html', 'connect-port/relay.js', 'connect-port/worker.js'])
         expect(readFileSync(join(ROOT, 'dist', asset)).length).toBeGreaterThan(0);
     const fixture = join(OUT, 'fixture.kdbx');

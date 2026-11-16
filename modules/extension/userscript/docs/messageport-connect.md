@@ -51,6 +51,13 @@ and worker.
   Direct requests check the marker before admission and after awaited work.
   Extension storage is outside the background message path.
 
+Discovery acknowledgements use only in-memory receiver state. Worker source and
+port checks run before the snapshot; discovery never waits for GM or WebStorage.
+A saved endpoint mismatch produces an explicit state response instead of a silent
+timeout. The public acknowledgement is not a credential grant: port admission and
+every signed request still check the selected App lease, and the existing
+signature, origin, deadline, replay and native permission checks remain in force.
+
 ## Lifetime
 
 There is one physical port per website document and original App document.

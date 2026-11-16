@@ -1,6 +1,6 @@
 // Production installer acceptance with native MessagePorts and a real encrypted KDBX.
 // Fixture helpers follow native-connect.mjs; importing it would execute its suite.
-// Build the 0.6.0 installer and app assets, serve dist on KWX_APP_SERVER, then run:
+// Build the 0.6.1 installer and app assets, serve dist on KWX_APP_SERVER, then run:
 // node modules/extension/userscript/tests/port-connect.mjs
 // KWX_APP_GM_BLOCK=1 leaves every app GM read unresolved after authorization.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
@@ -40,7 +40,7 @@ const stable = value => JSON.stringify(value, (_key, item) => item && typeof ite
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const report = {
     started: new Date().toISOString(),
-    scope: 'Production 0.6.0 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
+    scope: 'Production 0.6.1 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
     nativeIOSVerified: false, realManagerVerified: false, appGMBlockedAfterAuthorization: BLOCK_APP_GM,
     steps: [], errors: []
 };
@@ -155,7 +155,7 @@ async function untilStatus(page, expression, timeout = 15000) {
 async function ready(page) {
     await realVisibility(page);
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
-    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect 0.6.0');
+    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect 0.6.1');
     expect(await page.evaluate(() => typeof globalThis.__kwxPortAdapter)).toBe('undefined');
     await snapshot(page);
     if (new URL(page.url()).origin !== new URL(APP).origin) {
@@ -548,8 +548,8 @@ async function setup(bundle) {
 try {
     const bundle = readFileSync(SOURCE, 'utf8');
     report.bundle = { bytes: Buffer.byteLength(bundle), sha256: createHash('sha256').update(bundle).digest('hex') };
-    await step('require the production 0.6.0 installer and built MessagePort assets', async () => {
-        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.0\s*$/m);
+    await step('require the production 0.6.1 installer and built MessagePort assets', async () => {
+        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.1\s*$/m);
         expect(bundle).toContain(PORT_MARK);
         for (const path of ['/next.html', '/connect-port/relay.html', '/connect-port/relay.js', '/connect-port/worker.js']) {
             const response = await fetch(APP_SERVER + path, { signal: AbortSignal.timeout(10000) });
