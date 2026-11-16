@@ -70,6 +70,17 @@ Browser fixture: `tests/native-connect.mjs`. Unit checks:
 `tests/native-connect.test.ts`. Setup and reproducible commands:
 [Userscripts guide](../README.md).
 
+After publication, the same 12-step suite also passed against assets fetched
+from `https://keewebx.app`, including its real connection-page response. The
+released raw installer and GitHub asset matched the accepted bundle byte for
+byte. The published app identified build `f450789` during this check.
+
+The first full CI run exposed two additional issues: moving Ubuntu runners
+selected an OS unsupported by the pinned Playwright version, and two new UI
+help strings lacked German/French catalog entries. Follow-up changes pin the
+CI runners to Ubuntu 24.04 and complete those translations. All four locale
+checks pass; these follow-up changes do not alter the 0.5.0 installer.
+
 This is desktop browser evidence, not a claim of native iPhone certification.
 The installed iOS Userscripts manager, long suspension and standalone PWA
 communication still need device acceptance. Manual switching to the existing

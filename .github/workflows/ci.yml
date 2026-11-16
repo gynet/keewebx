@@ -11,8 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Playwright 1.59 supports Ubuntu 24.04; keep browser runners off moving latest.
   e2e-embedded-vault:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -39,7 +40,7 @@ jobs:
           retention-days: 7
 
   e2e-registered-storage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -72,7 +73,7 @@ jobs:
           retention-days: 7
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
@@ -91,7 +92,7 @@ jobs:
     # The .typescript-baseline file is retained at 0 as a visible
     # assertion / documentation anchor; the job verifies the file
     # says 0 and that tsc agrees.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
@@ -122,7 +123,7 @@ jobs:
           fi
 
   e2e-extension:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
@@ -147,7 +148,7 @@ jobs:
     # (a public chrome.events.Event API), including the encrypted
     # backend.getLogins round-trip that was broken by the 2026-04-09
     # nonce-aliasing bug. Runs against real github.com/login.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
@@ -186,7 +187,7 @@ jobs:
     # downloads instead, which gives us a pinned Firefox version for
     # reproducibility (ci drift in browser-version would otherwise
     # surface as test flakiness).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2.2.0
@@ -238,7 +239,7 @@ jobs:
         run: cat /tmp/dev-server.log || true
 
   e2e-new-interface-connect:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -314,7 +315,7 @@ jobs:
   e2e-new-interface-core:
     # Full New core coverage, including database/CRUD/save regressions.
     # The matching config serves built files only and remains fully headless.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -352,7 +353,7 @@ jobs:
   e2e-classic-interface-core:
     # Full Classic core coverage, including database/CRUD/save regressions.
     # The matching config serves built files only and remains fully headless.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read

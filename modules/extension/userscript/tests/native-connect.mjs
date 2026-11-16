@@ -169,7 +169,7 @@ async function setup(bundle) {
  async getValue(key,fallback){const data=await chrome.storage.local.get(prefix+key);return (prefix+key) in data?data[prefix+key]:fallback;},
  async setValue(key,value){await chrome.storage.local.set({[prefix+key]:value});},async deleteValue(key){await chrome.storage.local.remove(prefix+key);},
  getTab:()=>chrome.runtime.sendMessage({op:'getTab'}),saveTab:value=>chrome.runtime.sendMessage({op:'saveTab',value})};${bundle}})();`);
- context=await chromium.launchPersistentContext(join(OUT,'profile'),{channel:'chromium',headless:true,viewport:{width:1280,height:900},args:['--no-sandbox','--disable-extensions-except='+extension,'--load-extension='+extension]});
+ context=await chromium.launchPersistentContext(join(OUT,'profile'),{channel:'chromium',headless:true,...(process.env.KWX_BROWSER_PROXY?{proxy:{server:process.env.KWX_BROWSER_PROXY}}:{}),viewport:{width:1280,height:900},args:['--no-sandbox','--disable-extensions-except='+extension,'--load-extension='+extension]});
  nativeWorker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
  for(const page of context.pages())await page.close();
  await context.addInitScript(({appUrl,marker})=>{
