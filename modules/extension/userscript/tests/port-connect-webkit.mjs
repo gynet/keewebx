@@ -213,7 +213,9 @@ try {
         if (!path.startsWith(join(ROOT, 'dist') + '/')) { response.writeHead(403).end(); return; }
         try {
             const contentType = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png' }[extname(path)] || 'application/octet-stream';
-            response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' }).end(readFileSync(path));
+            // Read before committing headers so missing optional assets return one 404.
+            const body = readFileSync(path);
+            response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' }).end(body);
         } catch { response.writeHead(404).end(); }
     });
     server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });

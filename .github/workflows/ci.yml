@@ -407,10 +407,8 @@ jobs:
         with:
           bun-version: 1.3.11
       - run: bun install --frozen-lockfile
-      - name: Build the New interface and independent lab assets
-        run: |
-          bun run --filter @keewebx/db build
-          bun run --filter @keewebx/ui build
+      - name: Build the complete client assets for production WebKit acceptance
+        run: bun run build
       - run: bunx playwright install webkit --with-deps
       - name: Test isolated WebKit handoff with delayed extension storage
         env:
