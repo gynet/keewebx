@@ -1,6 +1,6 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current architecture: 0.4.0
+## Current architecture: 0.4.1
 
 Authorize the intended KeeWebX app tab once with **Authorize Connect** and the
 native **Allow** dialog for account listing. All login websites then use the
@@ -21,7 +21,7 @@ run. The enabled app polls request keys at about 500 ms idle or 60 ms after
 recent activity; websites poll only pending reply keys at about 80 ms.
 
 Install from the
-[0.4.0 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.0/modules/extension/userscript/keewebx-connect.user.js).
+[0.4.1 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.1/modules/extension/userscript/keewebx-connect.user.js).
 See the [current setup and validation commands](../README.md). The current
 real-app regression entry point is `tests/gm-connect.mjs`; the helper acceptance
 results below do not validate this new transport. Its desktop harness simulates
@@ -29,7 +29,42 @@ GM storage/injection, so native Userscripts execution, iOS long suspension,
 screen lock and memory pressure remain unverified. No automatic OS wakeup is
 established.
 
-### Accepted 0.4.0 artifact and desktop results
+### Accepted 0.4.1 repair and results
+
+The 0.4.0 signature format depended on dictionary enumeration order. A storage
+adapter that serializes and reorders nested keys reproduced lost requests.
+0.4.1 signs canonical JSON; the same counterexample now passes. Every real-app
+GM write in the new harness is JSON-serialized with reversed nested key order.
+This is a native-storage compatibility model, not a native iPhone certificate.
+
+Open previously called window.open with a URL and a reused target name. A
+browser regression reproduced replacing an unlocked app with its password
+screen in the same tab. The repaired action contacts an approved app through
+GM, with optional focus, and never navigates it. Setup navigates only a newly
+created blank target. Lock policy is unchanged; trusted widget activity and
+idle locking were independently verified.
+
+Switching to Connection cancels automatic account lookup so that Test
+connection is usable. Testing has immediate progress/busy state. Independent
+watchdogs reject unanswered requests even when a GM read or write never
+settles. Manager calls are bounded; queue errors are reported in the app.
+An incompatible older app script is detected before a new-format request.
+
+- Exact installer: 80,610 bytes; SHA-256
+  `7ee32560d7f32d6bb82ae385a06fbec002c53c7fc3df5d114de8e1415c819026`.
+- Fifteen real production-app Chromium steps passed. They include one native
+  grant, two independent origins, Test connection, Open preserving the original
+  unlocked document, ten alternating fills, renewal beyond the short session
+  expiry, website reload, cancellation/navigation, locked-vault rejection and
+  encrypted queue cleanup.
+- Eleven transport checks passed, including key-order changes, unresolved
+  storage promises, old-script detection, replay, invalid signatures/scopes,
+  cancellation and revocation.
+- All historical GM writes were audited for plaintext fixture data and valid
+  signatures. Native iOS execution and long suspension remain unverified.
+
+### Superseded 0.4.0 desktop baseline
+
 
 - Installer size: 78,515 bytes.
 - SHA-256: `c37b2507b357c8be4d118dc55145d6b7c17e978a8e4f9edf0b60ae4c2c7ee064`.

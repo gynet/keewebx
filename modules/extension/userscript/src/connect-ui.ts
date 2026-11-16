@@ -35,6 +35,7 @@ export class ConnectUI {
     private configTab = button('Connection', 'config-tab');
     private close = button('Close', 'close');
     onClose = () => {};
+    onConfig = () => {};
     onOpen = (_event: MouseEvent) => {};
     private field?: HTMLInputElement;
 
@@ -104,7 +105,7 @@ export class ConnectUI {
         } };
         this.close.onclick = event => { if (event.isTrusted) this.hide(); };
         this.accountTab.onclick = event => { if (event.isTrusted) this.show('accounts'); };
-        this.configTab.onclick = event => { if (event.isTrusted) this.show('config'); };
+        this.configTab.onclick = event => { if (event.isTrusted) { this.onConfig(); this.show('config'); } };
         if (app) this.accountTab.hidden = true;
         this.tab(app ? 'config' : 'accounts');
         this.shadow.addEventListener('keydown', event => { if ((event as KeyboardEvent).key === 'Escape') this.hide(); });

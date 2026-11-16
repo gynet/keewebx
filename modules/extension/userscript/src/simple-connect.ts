@@ -2,12 +2,12 @@ import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/p
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge } from './app-bridge';
 import { ConnectUI } from './connect-ui';
-import { approvedRoute, GmHost, GmRpc } from './gm-rpc';
+import { approvedRoute, GmHost, GmRpc, managerCall } from './gm-rpc';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const runtime = { getVersion: () => '0.4.0', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
+const runtime = { getVersion: () => '0.4.1', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function start(): Promise<void> {
@@ -17,7 +17,7 @@ async function start(): Promise<void> {
     const app = location.origin === endpoint.origin && location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '');
     const ui = new ConnectUI(app, endpoint.href);
     if (app) {
-        const host = new GmHost(endpoint);
+        const host = new GmHost(endpoint, error => ui.state(State.Error, message(error)));
         const bridge = new AppBridge();
         let generation = 0, authorizing = false, attempted = false, revoked = false;
         ui.address.readOnly = true; ui.save.hidden = true; ui.open.hidden = true;
@@ -31,7 +31,7 @@ async function start(): Promise<void> {
             const epoch = ++generation;
             const guard = () => { if (epoch !== generation) throw new Error('Authorization was canceled.'); };
             try {
-                const keys = await identity(explicit); guard();
+                const keys = await managerCall(() => identity(explicit)); guard();
                 if (!explicit && !await host.selected()) return;
                 const protocol = new ProtocolImpl({ request: request => { guard(); return bridge.request(request); } }, runtime);
                 await protocol.ping(); await protocol.changePublicKeys(); await protocol.pair(keys); guard();
@@ -89,6 +89,7 @@ async function start(): Promise<void> {
     const clean = () => { generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined; selecting = false; ui.clear(); ui.busy(false); };
     const guard = (epoch: number) => { if (epoch !== generation) throw new Error('The operation was canceled. Find accounts again.'); };
     ui.onClose = clean;
+    ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Use or test your authorized KeeWebX tab.'); };
     ui.save.onclick = async event => {
         if (!event.isTrusted) return;
         clean(); const epoch = generation;
@@ -97,12 +98,23 @@ async function start(): Promise<void> {
     };
     ui.open.onclick = event => {
         if (!event.isTrusted) return;
-        clean();
-        const url = new URL(endpoint); url.searchParams.set('kwx-connect', '1');
-        const opened = window.open(url.href, `KeeWebXSetup:${endpoint.href}`);
-        ui.state(opened ? State.ReadyToConnect : State.Error, opened
-            ? 'Authorize Connect once in KeeWebX. Then return here; all websites will use that tab.'
-            : 'Safari blocked the tab. Open your KeeWebX address and authorize Connect once.');
+        void openExistingOrSetup();
+    };
+    const openExistingOrSetup = async () => {
+        clean(); const epoch = generation; ui.busy(true);
+        ui.state(State.Connecting, 'Checking the authorized KeeWebX tab...');
+        try {
+            const route = await approvedRoute(endpoint); guard(epoch);
+            if (route) { await testConnection(true); return; }
+            const url = new URL(endpoint); url.searchParams.set('kwx-connect', '1');
+            const opened = window.open('', `KeeWebXSetup:${endpoint.href}`);
+            if (!opened) throw new Error('Safari blocked the tab. Open your KeeWebX address and authorize Connect once.');
+            try { if (opened.location.href === 'about:blank') opened.location.href = url.href; }
+            catch { /* A named existing app must retain its document and unlock state. */ }
+            opened.focus();
+            ui.state(State.ReadyToConnect, 'Authorize Connect once in KeeWebX. Then return here; all websites will use that tab.');
+        } catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
+        finally { if (epoch === generation) ui.busy(false); }
     };
     const setup = () => { ui.show('config'); ui.state(State.ReadyToConnect, 'Authorize Connect once in your KeeWebX tab. All websites will use it without opening helper tabs.'); };
 
@@ -137,7 +149,7 @@ async function start(): Promise<void> {
         try {
             const target = targets(selected), origin = location.origin;
             if (!await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
-            const keys = await identity(); guard(epoch);
+            const keys = await managerCall(() => identity()); guard(epoch);
             rpc = new GmRpc(endpoint); pending = rpc; await rpc.connect(); guard(epoch);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request) }, runtime);
             await protocol.ping(); await protocol.changePublicKeys();
@@ -160,17 +172,18 @@ async function start(): Promise<void> {
     };
     ui.lookup.onclick = lookup;
     ui.onOpen = event => { if (eligible(selected)) void lookup(event); };
-    ui.probe.onclick = async event => {
-        if (!event.isTrusted) return;
-        clean(); const epoch = generation;
+    const testConnection = async (focus = false) => {
+        clean(); const epoch = generation; ui.busy(true);
+        ui.state(State.Connecting, 'Testing the authorized KeeWebX connection...');
         const rpc = new GmRpc(endpoint); pending = rpc;
         try {
             const started = performance.now(); await rpc.connect();
-            const result = await rpc.call('probe', undefined, 5000); guard(epoch);
+            const result = await rpc.call(focus ? 'focus' : 'probe', undefined, 5000); guard(epoch);
             ui.state(State.Connected, `Connected to the authorized KeeWebX tab (${Math.round(performance.now() - started)} ms; ${result.visibility}).`);
         } catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
-        finally { rpc.dispose(); if (pending === rpc) pending = undefined; }
+        finally { rpc.dispose(); if (pending === rpc) pending = undefined; if (epoch === generation) ui.busy(false); }
     };
+    ui.probe.onclick = event => { if (event.isTrusted) void testConnection(); };
     document.addEventListener('focusin', event => { const field = event.composedPath()[0]; if (eligible(field)) { selected = field; ui.anchor(field); } }, true);
     const invalidated = () => { if (current?.rpc.href !== undefined && current.rpc.href !== location.href || pending && pending.href !== location.href) clean(); };
     addEventListener('popstate', invalidated); addEventListener('hashchange', invalidated);

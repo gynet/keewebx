@@ -16,7 +16,7 @@ const license = await readFile(path.join(import.meta.dir, '../../..', 'LICENSE')
 const metadata = `// ==UserScript==
 // @name         KeeWebX Connect (experimental)
 // @namespace    https://keewebx.app/
-// @version      0.4.0
+// @version      0.4.1
 // @description  Authorize KeeWebX once and fill accounts on all websites using the existing encrypted Connect protocol. Experimental iOS Safari support.
 // @match        https://*/*
 // @noframes

@@ -13,22 +13,34 @@ declare const GM: {
     saveTab?: (value: Record<string, any>) => Promise<void>;
 };
 type Keys = { publicKey: Uint8Array; secretKey: Uint8Array };
-type Route = { host: string; endpoint: string; publicKey: string };
+type Route = { host: string; endpoint: string; publicKey: string; format?: string };
 type Packet = { host: string; endpoint: string; id: string; document: string; origin: string;
-    operation: 'hello' | 'wire' | 'probe' | 'release'; deadline: number; scope?: string; body?: any; error?: string };
+    operation: 'hello' | 'wire' | 'probe' | 'focus' | 'release'; deadline: number; scope?: string; body?: any; error?: string };
 type Signed = { packet: Packet; signature: string };
 const ROOT = 'keewebx-userscript-connect-';
 const requestPrefix = (host: string) => `${ROOT}request-v2:${host}:`;
 const replyKey = (host: string, id: string) => `${ROOT}reply-v2:${host}:${id}`;
 const routeKey = (endpoint: URL) => `${ROOT}route-v2:${endpoint.href}`;
-const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+// Safari's native storage bridge can reorder dictionary keys. Sign values,
+// not the enumeration order returned by a particular storage implementation.
+const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : object(value)
+    ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonical(value[key])])) : value;
+const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(canonical(value)));
+export function managerCall<T>(operation: () => Promise<T>, description = 'Userscripts storage', timeout = 5000): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${description} did not respond. Open the Userscripts extension and retry.`)), timeout);
+        Promise.resolve().then(operation).then(value => { clearTimeout(timer); resolve(value); }, error => {
+            clearTimeout(timer); reject(error instanceof Error ? error : new Error(`${description} failed.`));
+        });
+    });
+}
 const signed = (packet: Packet, keys: Keys): Signed => ({ packet, signature: toBase64(sign.detached(bytes(packet), keys.secretKey)) });
 const verified = (value: unknown, key: Uint8Array): value is Signed => {
     if (!object(value) || !object(value.packet) || typeof value.signature !== 'string') return false;
     try { return sign.detached.verify(bytes(value.packet), fromBase64(value.signature), key); } catch { return false; }
 };
 export async function approvedRoute(endpoint: URL): Promise<Route | undefined> {
-    const value = await GM.getValue(routeKey(endpoint));
+    const value = await managerCall(() => GM.getValue(routeKey(endpoint)));
     if (object(value) && isId(value.host) && value.endpoint === endpoint.href && typeof value.publicKey === 'string') return value as Route;
 }
 
@@ -43,14 +55,14 @@ export class GmHost {
     private processing = new Set<string>();
     private consumed = new Map<string, number>();
     private idPromise: Promise<string>;
-    constructor(private endpoint: URL) { this.idPromise = this.tabId(); }
+    constructor(private endpoint: URL, private onError: (error: Error) => void = () => {}) { this.idPromise = this.tabId(); }
 
     private async tabId(): Promise<string> {
         const key = `${ROOT}host-v2:${this.endpoint.href}`;
         if (GM.getTab && GM.saveTab) {
             try {
-                const tab = await GM.getTab();
-                if (!isId(tab[key])) { tab[key] = uuid(); await GM.saveTab(tab); }
+                const tab = await managerCall(() => GM.getTab!(), 'Userscripts tab state', 1200);
+                if (!isId(tab[key])) { tab[key] = uuid(); await managerCall(() => GM.saveTab!(tab), 'Userscripts tab state', 1200); }
                 return tab[key];
             } catch { /* Older managers can use the tab's session storage instead. */ }
         }
@@ -65,9 +77,11 @@ export class GmHost {
         return !route || route.host === await this.idPromise;
     }
     async authorize(keys: Keys): Promise<void> {
-        this.keys = keys;
         const host = await this.idPromise;
-        await GM.setValue(routeKey(this.endpoint), { host, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey) } satisfies Route);
+        if (typeof GM.listValues !== 'function' || typeof GM.deleteValue !== 'function') throw new Error('Update or reinstall this Connect script so Userscripts grants its storage permissions.');
+        await managerCall(() => GM.listValues(), 'Userscripts request queue');
+        this.keys = keys;
+        await managerCall(() => GM.setValue(routeKey(this.endpoint), { host, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey), format: 'canonical-1' } satisfies Route));
         this.resume();
     }
     resume(): void { if (!this.keys || this.live) return; this.live = true; void this.poll(); }
@@ -90,18 +104,18 @@ export class GmHost {
             const now = Date.now();
             for (const [id, deadline] of this.consumed) if (deadline <= now) this.consumed.delete(id);
             for (const [id, session] of this.sessions) if (session.expiresAt <= now) { session.bridge.dispose(); this.sessions.delete(id); }
-            const keys = await GM.listValues();
+            const keys = await managerCall(() => GM.listValues(), 'Userscripts request queue');
             if (!this.live) return;
             for (const key of keys) {
                 if (key.startsWith(requestPrefix(host)) && !this.processing.has(key)) {
                     this.processing.add(key); this.activeUntil = now + 5000;
                     void this.handle(key, host).finally(() => this.processing.delete(key));
                 } else if (key.startsWith(`${ROOT}reply-v2:${host}:`)) {
-                    const value = await GM.getValue(key);
-                    if (!Number.isFinite(value?.packet?.deadline) || value.packet.deadline <= now) await GM.deleteValue(key);
+                    const value = await managerCall(() => GM.getValue(key));
+                    if (!Number.isFinite(value?.packet?.deadline) || value.packet.deadline <= now) await managerCall(() => GM.deleteValue(key));
                 }
             }
-        } catch { /* A transient manager-storage error is retried without opening tabs. */ }
+        } catch (error) { if (this.live) this.onError(error instanceof Error ? error : new Error('Userscripts storage failed.')); }
         finally {
             this.polling = false;
             if (this.live) this.timer = setTimeout(() => { void this.poll(); }, Date.now() < this.activeUntil ? 60 : 500);
@@ -110,15 +124,15 @@ export class GmHost {
 
     private async handle(key: string, host: string): Promise<void> {
         try {
-            const value = await GM.getValue(key);
-            await GM.deleteValue(key);
+            const value = await managerCall(() => GM.getValue(key));
+            await managerCall(() => GM.deleteValue(key));
             const keys = this.keys;
             if (!this.live || !keys || !verified(value, keys.publicKey)) return;
             const p = value.packet;
             if (p.host !== host || p.endpoint !== this.endpoint.href || key !== requestPrefix(host) + p.id ||
                 !isId(p.id) || !isId(p.document) || !/^https:\/\/[^/]+$/.test(p.origin) ||
                 !Number.isFinite(p.deadline) || p.deadline <= Date.now() || p.deadline > Date.now() + 66000 ||
-                !['hello', 'wire', 'probe', 'release'].includes(p.operation)) return;
+                !['hello', 'wire', 'probe', 'focus', 'release'].includes(p.operation)) return;
             if (this.consumed.has(p.id)) return;
             this.consumed.set(p.id, p.deadline);
             let body: any;
@@ -138,7 +152,10 @@ export class GmHost {
                 } else {
                     if (!session || session.origin !== p.origin || session.scope !== p.scope || session.expiresAt <= Date.now()) throw new Error('Find accounts again to renew this website connection.');
                     if (p.operation === 'release') { session.bridge.dispose(); this.sessions.delete(p.document); return; }
-                    if (p.operation === 'probe') body = { visibility: document.visibilityState, appBoot: host };
+                    if (p.operation === 'probe' || p.operation === 'focus') {
+                        if (p.operation === 'focus') window.focus();
+                        body = { visibility: document.visibilityState, appBoot: host };
+                    }
                     else {
                         if (session.locked) throw new Error('KeeWebX is locked. Unlock the existing app tab and find accounts again.');
                         body = await session.bridge.request(p.body, Math.min(p.deadline, session.expiresAt));
@@ -147,9 +164,9 @@ export class GmHost {
                 }
             } catch (reason) { error = reason instanceof Error ? reason.message : 'The KeeWebX request failed.'; }
             if (this.live && this.keys === keys && Date.now() < p.deadline) {
-                await GM.setValue(replyKey(host, p.id), signed({ ...p, body, error }, keys));
+                await managerCall(() => GM.setValue(replyKey(host, p.id), signed({ ...p, body, error }, keys)));
             }
-        } catch { /* Invalid or canceled packets never grant access or log their payload. */ }
+        } catch (error) { if (this.live) this.onError(error instanceof Error ? error : new Error('Userscripts could not process the request.')); }
     }
 }
 
@@ -175,15 +192,16 @@ export class GmRpc {
         if (!this.route || selected?.host !== this.route.host || selected.publicKey !== this.route.publicKey) throw new Error('The authorized KeeWebX tab changed. Find accounts again.');
     }
     async connect(): Promise<void> {
-        this.keys = await identity(); this.assertCurrent();
+        this.keys = await managerCall(() => identity()); this.assertCurrent();
         this.route = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Authorize Connect once in your KeeWebX tab. Then all websites can use it.');
-        const result = await this.call('hello', undefined, 15000);
+        if (this.route.format !== 'canonical-1') throw new Error('Reload the authorized KeeWebX tab once to update its Connect script.');
+        const result = await this.call('hello', undefined, 8000);
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host ||
             !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid KeeWebX connection response.');
         this.scope = result.scope; this.expiresAt = result.expiresAt;
     }
-    async call(operation: Packet['operation'], body?: any, timeout = 65000): Promise<any> {
+    async call(operation: Packet['operation'], body?: any, timeout = 15000): Promise<any> {
         await this.assertSelected();
         const route = this.route, keys = this.keys;
         if (!route || !keys) throw new Error('Connect to your authorized KeeWebX tab first.');
@@ -192,14 +210,18 @@ export class GmRpc {
         const request = requestPrefix(route.host) + p.id, reply = replyKey(route.host, p.id);
         return new Promise((resolve, reject) => {
             let timer: ReturnType<typeof setTimeout> | undefined;
+            let watchdog: ReturnType<typeof setTimeout> | undefined;
             let checkRouteAt = Date.now() + 500;
             const finish = (error?: Error, result?: any) => {
                 if (!this.pending.delete(p.id)) return;
                 clearTimeout(timer);
+                clearTimeout(watchdog);
                 void Promise.allSettled([GM.deleteValue(request), GM.deleteValue(reply)]);
                 if (error) reject(error); else resolve(result);
             };
             this.pending.set(p.id, { request, reply, cancel: () => finish(new Error('The website operation was canceled.')) });
+            // This must remain independent of a manager API promise that never settles.
+            watchdog = setTimeout(() => finish(new Error('The authorized KeeWebX tab did not reply. Keep that tab unlocked and retry.')), Math.max(1, p.deadline - Date.now()));
             const poll = async () => {
                 try {
                     this.assertCurrent();

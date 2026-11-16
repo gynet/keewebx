@@ -16,6 +16,8 @@ let mutate: ((key: string, value: any) => any) | undefined;
 let wireReads: number;
 const originals = new Map<string, PropertyDescriptor | undefined>();
 const bridgeRequest = AppBridge.prototype.request;
+const stableJSON = (value: any) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 function globalValue(key: string, value: any) {
     if (!originals.has(key)) originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
@@ -29,7 +31,7 @@ const request = () => writes.find(item => item.key.includes('request-v2:') && it
 const responseKey = (packet: any) => `keewebx-userscript-connect-reply-v2:${packet.host}:${packet.id}`;
 async function inject(packet: any) {
     const keys = await identity();
-    const value = { packet, signature: toBase64(sign.detached(new TextEncoder().encode(JSON.stringify(packet)), keys.secretKey)) };
+    const value = { packet, signature: toBase64(sign.detached(new TextEncoder().encode(stableJSON(packet)), keys.secretKey)) };
     const key = `keewebx-userscript-connect-request-v2:${packet.host}:${packet.id}`;
     store.set(key, structuredClone(value));
     await until(() => store.has(key), present => !present);
@@ -82,6 +84,14 @@ test('altering an origin without a new signature is rejected', async () => {
     expect(wireReads).toBe(0);
 });
 
+test('serialized storage can reorder nested object keys without breaking a signed round trip', async () => {
+    const reordered = (value: any): any => Array.isArray(value) ? value.map(reordered) : value && typeof value === 'object'
+        ? Object.fromEntries(Object.keys(value).sort().reverse().map(key => [key, reordered(value[key])])) : value;
+    mutate = (_key, value) => reordered(JSON.parse(JSON.stringify(value)));
+    const response = await client.call('probe', undefined, 700);
+    expect(response.appBoot).toBe(request().value.packet.host);
+});
+
 test('replaying a consumed signed hello cannot create another reply', async () => {
     const original = request(); const p = original.value.packet;
     expect(store.has(responseKey(p))).toBe(false);
@@ -118,4 +128,24 @@ test('disposing a waiting client removes its pending request', async () => {
     const p = writes.find(item => item.value?.packet?.operation === 'probe')!.value.packet;
     client.dispose(); await expect(waiting).rejects.toThrow('canceled');
     await until(() => store.has(`keewebx-userscript-connect-request-v2:${p.host}:${p.id}`), present => !present);
+});
+
+test('a manager read that never settles cannot bypass the absolute request timeout', async () => {
+    const nativeGet = (globalThis as any).GM.getValue;
+    (globalThis as any).GM.getValue = (key: string) => key.includes('reply-v2:') ? new Promise(() => {}) : nativeGet(key);
+    await expect(client.call('probe', undefined, 180)).rejects.toThrow('did not reply');
+});
+
+test('a manager write that never settles cannot bypass the absolute request timeout', async () => {
+    const nativeSet = (globalThis as any).GM.setValue;
+    (globalThis as any).GM.setValue = (key: string, value: any) => key.includes('request-v2:') ? new Promise(() => {}) : nativeSet(key, value);
+    await expect(client.call('probe', undefined, 180)).rejects.toThrow('did not reply');
+});
+
+test('a website detects an old app script before waiting for an incompatible reply', async () => {
+    const key = `keewebx-userscript-connect-route-v2:${endpoint.href}`;
+    const route = { ...store.get(key) }; delete route.format; store.set(key, route);
+    const next = new GmRpc(endpoint);
+    await expect(next.connect()).rejects.toThrow('Reload the authorized KeeWebX tab');
+    next.dispose();
 });

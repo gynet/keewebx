@@ -43,12 +43,19 @@ const report = {
     steps: [], errors: [], payloadLogCount: 0
 };
 const gm = new Map();
+// A native WebExtension storage bridge may serialize dictionaries in a different
+// order. Persist JSON-compatible values with reversed nested key order.
+const storedValue = value => JSON.parse(JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().reverse().map(key => [key, item[key]])) : item));
+const stableJSON = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const gmHistory = [];
 const tabState = new Map();
 const tabIds = new WeakMap();
 const cdpByPage = new WeakMap();
 let browser, context, app, first, second, originalApp, approvedRoute, heldGmReply;
 let holdGmReplyFor, appNavigationRequests = 0, pageCount = 0;
+let explicitFocusCalls = 0;
 
 async function step(name, fn) {
     console.log(JSON.stringify({ step: name, state: 'started' }));
@@ -159,7 +166,7 @@ async function assertOneApp() {
     expect(await app.evaluate(() => globalThis.__kwxGmTest.consentCount)).toBe(1);
     for (const page of context.pages()) {
         const observation = await page.evaluate(() => ({ opens: globalThis.__kwxGmTest.openCalls, focuses: globalThis.__kwxGmTest.focusCalls }));
-        expect(observation).toEqual({ opens: 0, focuses: 0 });
+        expect(observation).toEqual({ opens: 0, focuses: page === app ? explicitFocusCalls : 0 });
         expect(await shadowValue(page, '.pairing-card', 'hidden')).not.toBe(false);
     }
 }
@@ -203,7 +210,7 @@ async function setup(bundle) {
             return result;
         }
         gmHistory.push({ operation, key, value: structuredClone(value) });
-        if (operation === 'set') { gm.set(key, structuredClone(value)); return; }
+        if (operation === 'set') { gm.set(key, storedValue(value)); return; }
         if (operation === 'delete') { gm.delete(key); return; }
         if (operation === 'list') return [...gm.keys()];
         if (operation === 'getTab') return structuredClone(tabState.get(tab) || {});
@@ -318,7 +325,7 @@ function auditStorage() {
             Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(approvedRoute.publicKey, 'base64')
         ]) });
         allSignaturesValid = packets.length > 0 && packets.every(({ value }) => value?.packet && typeof value.signature === 'string' &&
-            verify(null, Buffer.from(JSON.stringify(value.packet)), key, Buffer.from(value.signature, 'base64')));
+            verify(null, Buffer.from(stableJSON(value.packet)), key, Buffer.from(value.signature, 'base64')));
     }
     const result = {
         backend: 'Simulated shared private GM with stable per-page getTab/saveTab across reload',
@@ -414,6 +421,50 @@ try {
         await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]); await assertOneApp();
         report.reloadVerified = true;
     });
+    await step('Test connection replies through serialized manager storage and clears its busy state', async () => {
+        if (await shadowValue(first, 'section', 'hidden')) await action(first, 'toggle');
+        await action(first, 'config-tab'); await action(first, 'probe');
+        await untilStatus(first, /Connected to the authorized KeeWebX tab/);
+        expect(await shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+        await assertOneApp();
+        report.connectionProbeVerified = true;
+        return { probeReturned: true, originalAppUnchanged: true };
+    });
+    await step('Open KeeWebX with an approved route never opens, navigates or locks the original app', async () => {
+        const before = await documentState(app);
+        await action(first, 'open');
+        await expect.poll(() => app.evaluate(() => globalThis.__kwxGmTest.focusCalls)).toBe(1);
+        explicitFocusCalls = 1;
+        await expect(app.locator('.vault')).toBeVisible();
+        await expect(app.locator('#password')).toHaveCount(0);
+        expect(await documentState(app)).toEqual(before);
+        await first.bringToFront();
+        await assertOneApp();
+        await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+        await assertOneApp();
+        report.openPreservesUnlockVerified = true;
+        return { appNavigationRequests, noNewTab: true, unlockedDocumentPreserved: true, fillAfterOpenWorks: true };
+    });
+    await step('ten alternating fills across two websites retain one authorization and one unlocked app', async () => {
+        for (let cycle = 0; cycle < 5; cycle++) {
+            await clearFields(second); await lookup(second, ACCOUNTS[1]); await fill(second, ACCOUNTS[1]);
+            await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            await assertOneApp();
+        }
+        report.alternatingRepeatedFillVerified = true;
+        return { fills: 10, nativeConsentCount: 1, appNavigationRequests };
+    });
+    await step('global authorization survives the short-lived connection expiry boundary', async () => {
+        for (const page of [app, first, second]) await page.evaluate(() => {
+            const nativeNow = Date.now;
+            Date.now = () => nativeNow() + 130000;
+        });
+        await clearFields(second); await lookup(second, ACCOUNTS[1]); await fill(second, ACCOUNTS[1]);
+        await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+        await assertOneApp();
+        report.authorizationSurvivesSessionExpiryVerified = true;
+        return { simulatedElapsedMs: 130000, nativeConsentCount: 1, freshConnectionsUseExistingGrant: true };
+    });
     await step('navigation while real encrypted credential response is pending prevents late fill', async () => {
         await clearFields(first); await lookup(first, ACCOUNTS[0]);
         const eventsBefore = await holdFieldResponse(first);
@@ -480,7 +531,8 @@ try {
         // Advance only host Date.now to exercise real expiry cleanup quickly.
         const replies = pendingKeys().map(key => gm.get(key)?.packet);
         if (replies.length) {
-            expect(replies.every(packet => Number.isFinite(packet?.deadline) && packet.deadline <= Date.now() + 66000)).toBe(true);
+            const hostNow = await app.evaluate(() => Date.now());
+            expect(replies.every(packet => Number.isFinite(packet?.deadline) && packet.deadline <= hostNow + 66000)).toBe(true);
             const expiredAt = Math.max(...replies.map(packet => packet.deadline)) + 1;
             await app.evaluate(expiredAt => {
                 const nativeNow = Date.now;

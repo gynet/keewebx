@@ -18,7 +18,7 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     await expect(setup).toContainText('Use a supported Chrome, Chromium, Edge, or Firefox desktop browser. For iOS Safari, see the Userscripts setup below.');
     await setup.getByText('iOS Safari with Userscripts (experimental)', { exact: true }).click();
     await expect(setup.getByRole('link', { name: 'Download Connect userscript', exact: true }))
-        .toHaveAttribute('href', 'https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.0/modules/extension/userscript/keewebx-connect.user.js');
+        .toHaveAttribute('href', 'https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.1/modules/extension/userscript/keewebx-connect.user.js');
     await expect(setup.getByRole('link', { name: 'Userscripts setup guide', exact: true }))
         .toHaveAttribute('href', 'https://github.com/gynet/keewebx/tree/master/modules/extension/userscript#readme');
     await expect(setup).toContainText('select Allow for account listing once. All login websites then use this tab.');

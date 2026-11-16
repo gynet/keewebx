@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.4.0
+# Userscripts on iOS: KeeWebX Connect 0.4.1
 
 The experimental Connect userscript lets login websites reuse one authorized
 KeeWebX app tab through the Userscripts manager's private GM storage. Authorize
@@ -7,7 +7,13 @@ Normal lookup and fill keep you on the website and do not open another tab.
 The default flow has no helper page, tab discovery, BroadcastChannel or
 per-website pairing.
 
-Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.0/modules/extension/userscript/keewebx-connect.user.js).
+Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.1/modules/extension/userscript/keewebx-connect.user.js).
+
+Version 0.4.1 fixes storage serialization compatibility and the Connection
+controls. Test connection shows progress and always has a deadline. Open
+KeeWebX contacts the authorized app instead of navigating its unlocked page.
+After updating, reload the app and login website tabs once so that both use
+this version; an old app script is detected before an incompatible request.
 
 ## Install and authorize once
 
