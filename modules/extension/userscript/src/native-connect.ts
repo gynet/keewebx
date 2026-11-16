@@ -72,13 +72,38 @@ export class NativeHost {
         this.mailbox = new ConnectMailbox(this.host, (value, reply) => this.receive(value, reply), this.onError);
     }
     async selected(): Promise<boolean> { await this.ownerReady; const route = await approvedRoute(this.endpoint); return !route || route.owner === this.owner; }
-    async authorize(keys: Keys, current: () => boolean = () => true): Promise<void> {
+    private updateRoute(operation: () => Promise<void>): Promise<void> {
+        // App tabs share this origin and endpoint lock. Only the caller times
+        // out: the lock remains held until the actual GM work and cleanup end.
+        return managerCall(async () => {
+            if (typeof navigator === 'undefined' || typeof navigator.locks?.request !== 'function') {
+                throw new Error('This browser needs Web Locks support to change the selected KeeWebX app safely.');
+            }
+            let acquired = false;
+            try {
+                await navigator.locks.request(`${MARK}:route:${this.endpoint.href}`, { mode: 'exclusive' }, async () => {
+                    acquired = true;
+                    await operation();
+                });
+            } catch (error) {
+                if (!acquired) throw new Error('The browser could not lock the KeeWebX app selection. Retry authorization.');
+                throw error;
+            }
+        }, 'KeeWebX app selection');
+    }
+    async authorize(keys: Keys, current: () => boolean = () => true, mode: 'explicit' | 'restore' = 'explicit'): Promise<void> {
         const generation = ++this.authorization;
         const valid = () => generation === this.authorization && current();
         await this.ownerReady;
         if (!valid()) throw new Error('Authorization was canceled.');
         try {
-            await managerCall(async () => {
+            await this.updateRoute(async () => {
+                if (!valid()) throw new Error('Authorization was canceled.');
+                if (mode === 'restore') {
+                    const route = await GM.getValue(routeKey(this.endpoint));
+                    if (route && route.owner !== this.owner) throw new Error('Another KeeWebX tab was selected. Authorize this tab explicitly to replace it.');
+                    if (!valid()) throw new Error('Authorization was canceled.');
+                }
                 await GM.setValue(routeKey(this.endpoint), { host: this.host, owner: this.owner, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey), mailbox: this.mailbox.available } satisfies Route);
                 if (!valid() && (await GM.getValue(routeKey(this.endpoint)))?.host === this.host) await GM.deleteValue(routeKey(this.endpoint));
             });
@@ -91,9 +116,12 @@ export class NativeHost {
     pause(): void { this.authorization++; this.live = false; this.mailbox.stop(); this.session?.bridge.dispose(); this.session = undefined; }
     async revoke(): Promise<void> {
         this.pause(); this.keys = undefined;
-        if ((await approvedRoute(this.endpoint))?.host === this.host) await managerCall(() => GM.deleteValue(routeKey(this.endpoint)));
+        await this.updateRoute(async () => {
+            if ((await GM.getValue(routeKey(this.endpoint)))?.host === this.host) await GM.deleteValue(routeKey(this.endpoint));
+        });
     }
     private async receive(value: unknown, reply: (value: Signed) => void | Promise<void> = value => this.channel.postMessage({ marker: MARK, value })): Promise<void> {
+        const authorization = this.authorization;
         const keys = this.keys;
         if (!this.live || !keys || !verified(value, keys.publicKey)) return;
         const p = value.packet;
@@ -102,7 +130,7 @@ export class NativeHost {
         if (this.consumed.has(p.id) || this.consumed.size >= 1024) return;
         this.consumed.set(p.id, p.deadline);
         // A previously selected tab must stop serving after another app wins.
-        if ((await approvedRoute(this.endpoint))?.host !== this.host || !this.live || this.keys !== keys || Date.now() >= p.deadline) return;
+        if ((await approvedRoute(this.endpoint))?.host !== this.host || authorization !== this.authorization || !this.live || this.keys !== keys || Date.now() >= p.deadline) return;
         let body: any, error: string | undefined;
         try {
             if (this.locked) throw new Error('KeeWebX is locked. Unlock that app tab, then retry.');
@@ -129,7 +157,7 @@ export class NativeHost {
                 if (this.session !== session) return;
             }
         } catch (reason) { error = reason instanceof Error ? reason.message : 'KeeWebX could not complete the request.'; }
-        if (this.live && this.keys === keys && Date.now() < p.deadline) {
+        if (authorization === this.authorization && this.live && this.keys === keys && Date.now() < p.deadline) {
             try { await reply(signed({ ...p, type: 'reply', body, error }, keys)); }
             catch (reason) { this.onError(reason instanceof Error ? reason : new Error('The connection page is unavailable.')); }
         }
@@ -234,7 +262,12 @@ export class NativeRpc {
                 this.window!.postMessage({ marker: SETUP_MARK, kind: 'reconnect', routingId: peers.get(this.window!)?.routingId, endpoint: this.endpoint.href }, this.endpoint.origin);
             });
             this.assertCurrent();
-        } catch (error) { this.assertCurrent(); if (!this.route.mailbox) throw error; this.window = undefined; }
+        } catch (error) {
+            // A closed or obsolete optional connector is a transport failure.
+            // Clear it before checking document cancellation and trying recovery.
+            this.window = undefined;
+            this.assertCurrent(); if (!this.route.mailbox) throw error;
+        }
         if (!this.window && !this.route.mailbox) throw new Error('Update Connect in your existing KeeWebX app tab, or open its connection page once.');
         this.progress('Contacting the selected app');
         const result = await this.call('hello', undefined, 8000);
@@ -257,6 +290,7 @@ export class NativeRpc {
     };
     async call(operation: Packet['operation'], body?: any, timeout = 15000): Promise<any> {
         await this.assertSelected();
+        this.assertCurrent();
         const route = this.route, keys = this.keys, peer = this.window;
         if (!route || !keys) throw new Error('Connect to KeeWebX first.');
         const p: Packet = { type: 'request', host: route.host, endpoint: this.endpoint.href, id: uuid(), document: this.document, origin: location.origin,

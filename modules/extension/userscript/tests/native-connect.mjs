@@ -13,6 +13,7 @@ const ROOT = resolve(process.env.KWX_REPO_ROOT || fileURLToPath(new URL('../../.
 const BUN = process.env.KWX_BUN || 'bun';
 const APP_SERVER = process.env.KWX_APP_SERVER || 'http://127.0.0.1:39232';
 const SOURCE = resolve(process.env.KWX_USERSCRIPT || join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'));
+const STORAGE_EVENTS = process.env.KWX_DISABLE_STORAGE_EVENTS !== '1';
 const OUT = resolve(process.env.KWX_E2E_OUTPUT_DIR || mkdtempSync(join(tmpdir(), 'keewebx-native-connect-')));
 mkdirSync(OUT,{recursive:true});
 const APP = 'https://keewebx.app/app';
@@ -27,8 +28,8 @@ const ACCOUNTS = [
 ];
 const PRIVATE_VALUES=[DB_PASSWORD,...ACCOUNTS.flatMap(a=>[a.title,a.user,a.password])];
 const redact=value=>PRIVATE_VALUES.reduce((result,secret)=>result.replaceAll(secret,'[fixture value]'),String(value));
-const report={started:new Date().toISOString(),scope:'Exact installer in Chromium isolated content scripts, native window and BroadcastChannel delivery, native extension storage with GM adapter, real KDBX and native consent', nativeIOSVerified:false,realManagerVerified:false,steps:[],errors:[]};
-const cdpByPage=new WeakMap(), gm=new Map(), connectors=new Map();
+const report={started:new Date().toISOString(),scope:'Exact installer in Chromium isolated content scripts, native window and BroadcastChannel delivery, native extension storage with GM adapter, real KDBX and native consent', nativeIOSVerified:false,realManagerVerified:false,storageNotifications:STORAGE_EVENTS,steps:[],errors:[]};
+const cdpByPage=new WeakMap(), lifecycleByPage=new WeakMap(), gm=new Map(), connectors=new Map();
 let context, app, first, second, nativeWorker, originalApp, approvedRoute, appNavigationRequests=0;
 async function step(name, fn) {
     console.log(JSON.stringify({ step: name, state: 'started' }));
@@ -48,6 +49,16 @@ async function step(name, fn) {
 async function cdp(page) {
     if (!cdpByPage.has(page)) cdpByPage.set(page, await context.newCDPSession(page));
     return cdpByPage.get(page);
+}
+async function realVisibility(page) {
+    if (!lifecycleByPage.has(page)) {
+        // Playwright forces every tab visible through its own CDP session.
+        // Disable that override on that session, not a second session whose
+        // setting cannot override it. This is pinned to our Playwright version.
+        const session=page._connection.toImpl(page).delegate._mainFrameSession._client;
+        lifecycleByPage.set(page,session.send('Emulation.setFocusEmulationEnabled',{enabled:false}));
+    }
+    await lifecycleByPage.get(page);
 }
 function hostIn(node) {
     if (node.attributes?.some((value, index, attributes) => index % 2 === 0 && value === 'id' && attributes[index + 1] === 'keewebx-userscript-connect')) return node;
@@ -97,6 +108,7 @@ async function untilStatus(page, expression, timeout = 10000) {
 }
 async function ready(page) {
     await page.waitForLoadState('domcontentloaded');
+    await realVisibility(page);
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
 }
 async function emptyFields(page) {
@@ -105,10 +117,12 @@ async function emptyFields(page) {
     expect(await page.evaluate(() => window.formSubmits)).toBe(0);
 }
 async function clearFields(page) {
+    await page.bringToFront();
     await page.locator('#username').fill('');
     await page.locator('#login-password').fill('');
 }
 async function lookup(page, account) {
+    await page.bringToFront();
     await page.locator('#username').click();
     const readsBefore = await fieldReads();
     if (await shadowValue(page, 'section', 'hidden')) await action(page, 'toggle');
@@ -135,6 +149,7 @@ async function settings() {
  return gm;
 }
 async function prepare(page) {
+ await page.bringToFront();
  const pages=context.pages().length;
  await page.locator('#username').click();
  if(await shadowValue(page,'section','hidden'))await action(page,'toggle');
@@ -146,6 +161,7 @@ async function prepare(page) {
  await action(page,'open');
  const helper=await expect.poll(()=>context.pages().find(p=>p.url().includes('connect.html')&&!Array.from(connectors.values()).includes(p)),{timeout:12000}).toBeTruthy().then(()=>context.pages().find(p=>p.url().includes('connect.html')&&!Array.from(connectors.values()).includes(p)));
  connectors.set(page,helper);
+ await realVisibility(helper);
  await expect(helper.getByRole('status')).toContainText('Connection page ready',{timeout:10000});
  await page.bringToFront();
 }
@@ -162,6 +178,7 @@ async function cancelPending(page,kind) {
  await expect.poll(()=>app.evaluate(()=>globalThis.__kwxNativeTest.heldFields.length)).toBe(1);
  const before=await page.evaluate(()=>window.credentialInputEvents);
  if(kind==='close')await action(page,'close');
+ else if(kind==='hidden'){await app.bringToFront();await expect.poll(()=>page.evaluate(()=>document.hidden)).toBe(true);}
  else await page.evaluate(()=>location.hash='changed-during-fill');
  await app.evaluate(()=>globalThis.__kwxNativeTest.releaseFields());
  await page.waitForTimeout(250);
@@ -171,7 +188,7 @@ async function setup(bundle) {
  const extension=join(OUT,'extension');mkdirSync(extension,{recursive:true});
  writeFileSync(join(extension,'manifest.json'),JSON.stringify({manifest_version:3,name:'Disposable native Connect fixture',version:'1.0',permissions:['storage'],background:{service_worker:'background.js'},content_scripts:[{matches:['https://*/*'],js:['content.js'],run_at:'document_idle'}]}));
  writeFileSync(join(extension,'background.js'),`const tabs=new Map();globalThis.audit=[];chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local')for(const [key,value] of Object.entries(changes))globalThis.audit.push({key,value:value.newValue});});chrome.runtime.onMessage.addListener((message,sender,reply)=>{if(message.op==='getTab')reply(tabs.get(sender.tab.id)??null);else if(message.op==='saveTab'){tabs.set(sender.tab.id,message.value);reply(true);}});`);
- writeFileSync(join(extension,'content.js'),`(()=>{const prefix='${PREFIX}';const GM={info:{scriptHandler:'Userscripts',script:{filename:'Connect.user.js'}},
+ writeFileSync(join(extension,'content.js'),`(()=>{const prefix='${PREFIX}';const GM={info:{scriptHandler:'${STORAGE_EVENTS ? 'Userscripts' : 'Fixture without storage notifications'}',script:{filename:'Connect.user.js'}},
  async listValues(){return Object.keys(await chrome.storage.local.get()).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length));},
  async getValue(key,fallback){const data=await chrome.storage.local.get(prefix+key);return (prefix+key) in data?data[prefix+key]:fallback;},
  async setValue(key,value){await chrome.storage.local.set({[prefix+key]:value});},async deleteValue(key){await chrome.storage.local.remove(prefix+key);},
@@ -181,7 +198,8 @@ async function setup(bundle) {
  for(const page of context.pages())await page.close();
  await context.addInitScript(({appUrl,marker})=>{
   if(location.protocol!=='https:')return;
-  const observed={documentBoot:crypto.randomUUID(),wireRequests:{},consentCount:0,heldFields:[],holdFields:false,wirePackets:[]};globalThis.__kwxNativeTest=observed;
+  const observed={documentBoot:crypto.randomUUID(),wireRequests:{},consentCount:0,heldFields:[],holdFields:false,wirePackets:[],lifecycle:[]};globalThis.__kwxNativeTest=observed;
+  for(const name of ['freeze','resume','visibilitychange'])document.addEventListener(name,event=>observed.lifecycle.push({name,hidden:document.hidden,trusted:event.isTrusted}));
   const nativePost=window.postMessage.bind(window);
   window.postMessage=(value,...rest)=>{if(observed.holdFields&&value?.kwConnect==='response'&&value.action==='kwx-get-entry-fields'){observed.heldFields.push([value,rest]);return;}return nativePost(value,...rest);};
   observed.releaseFields=()=>{observed.holdFields=false;for(const [value,rest] of observed.heldFields.splice(0))nativePost(value,...rest);};
@@ -232,7 +250,7 @@ try {
   await lookup(first,ACCOUNTS[0]);await fill(first,ACCOUNTS[0]);
   expect(context.pages().length).toBe(pages);await sameApp();
  });
- await step('six alternating fills reuse both connectors without locking or navigating app',async()=>{
+ await step('six alternating fills reuse one authorized app without locking or navigating it',async()=>{
   const pages=context.pages().length;
   for(let i=0;i<3;i++)for(const [page,account] of [[first,ACCOUNTS[0]],[second,ACCOUNTS[1]]]){await clearFields(page);await lookup(page,account);await fill(page,account);await sameApp();}
   expect(context.pages().length).toBe(pages);
@@ -245,7 +263,20 @@ try {
  });
  await step('closing a pending fill rejects the real delayed encrypted response',()=>cancelPending(first,'close'));
  await step('navigation cancels a pending fill before a real response arrives',()=>cancelPending(first,'navigation'));
- await step('website reload reconnects to preserved named connector without another authorization',async()=>{
+ await step('switching away during credential filling cancels its delayed response',()=>cancelPending(first,'hidden'));
+ await step('synchronous username handlers cannot redirect password filling to a replacement field',async()=>{
+  await clearFields(first);await lookup(first,ACCOUNTS[0]);
+  await first.evaluate(()=>{
+   document.querySelector('#username').addEventListener('input',()=>{
+    const password=document.querySelector('#login-password');globalThis.detachedPassword=password;
+    password.replaceWith(password.cloneNode());
+   },{once:true});
+  });
+  await action(first,'entry-0');await untilStatus(first,/changed|no longer|again/i);
+  await expect(first.locator('#login-password')).toHaveValue('');
+  expect(await first.evaluate(()=>globalThis.detachedPassword.value)).toBe('');
+ });
+ await step('website reload recovers without replacing the old connector or repeating authorization',async()=>{
   const helper=connectors.get(first),before=await helper.evaluate(()=>performance.timeOrigin),pages=context.pages().length;
   await first.reload();await ready(first);await first.locator('#username').click();await action(first,'toggle');
   await expect(helper.getByRole('status')).toContainText('Connection page ready');await first.bringToFront();
@@ -258,6 +289,21 @@ try {
   await action(first,'toggle');await action(first,'config-tab');
   for(let retry=0;retry<3;retry++){await action(first,'probe');await untilStatus(first,/Connected to the authorized KeeWebX tab/);}
   expect(context.pages().length).toBe(pages);await sameApp();await action(first,'close');
+ });
+ await step('a frozen app expires lookup safely and recovers on return without a new page or consent',async()=>{
+  const pages=context.pages().length,session=await cdp(app);
+  await clearFields(first);await first.locator('#username').click();
+  expect(await app.evaluate(()=>document.hidden)).toBe(true);
+  await session.send('Page.setWebLifecycleState',{state:'frozen'});
+  try {
+   await action(first,'toggle');
+   await untilStatus(first,/Visit your existing KeeWebX tab/,14000);await emptyFields(first);
+  } finally {await session.send('Page.setWebLifecycleState',{state:'active'});}
+  const lifecycle=await app.evaluate(()=>globalThis.__kwxNativeTest.lifecycle);
+  expect(lifecycle.some(event=>event.name==='freeze'&&event.hidden&&event.trusted)).toBe(true);
+  expect(lifecycle.some(event=>event.name==='resume'&&event.trusted)).toBe(true);
+  await app.bringToFront();await lookup(first,ACCOUNTS[0]);await fill(first,ACCOUNTS[0]);
+  expect(context.pages().length).toBe(pages);await sameApp();
  });
  await step('a locked app rejects lookup promptly and resumes without new permission after unlock',async()=>{
   await app.bringToFront();await expect(app.locator('#sync-state')).toContainText('Up to date');

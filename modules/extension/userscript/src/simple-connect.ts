@@ -7,7 +7,7 @@ import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const VERSION = '0.5.1';
+const VERSION = '0.5.2';
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -58,7 +58,7 @@ async function start(): Promise<void> {
                     if (explicit) throw new Error('Allow account listing to enable Connect for all websites.');
                     return;
                 }
-                await host.authorize(keys, () => epoch === generation); guard(); revoked = false; authorized = true;
+                await host.authorize(keys, () => epoch === generation, explicit ? 'explicit' : 'restore'); guard(); revoked = false; authorized = true;
                 ui.state(State.Connected, 'Authorized. All websites can use this tab. Return to your website and select an account.');
                 ui.authorize.textContent = 'Use this tab for all websites';
             } catch (error) { if (epoch === generation && explicit) ui.state(State.Error, message(error)); }
@@ -75,7 +75,12 @@ async function start(): Promise<void> {
         ui.revoke.onclick = event => {
             if (!event.isTrusted) return;
             revoked = true; authorized = false; restoreRequested = false; generation++; authorizing = false; bridge.reset(); ui.authorize.disabled = false;
-            void host.revoke().then(() => ui.state(State.ReadyToConnect, 'Disconnected. Authorize this tab once to enable all websites again.'));
+            const epoch = generation;
+            void host.revoke().then(() => {
+                if (epoch === generation) ui.state(State.ReadyToConnect, 'Disconnected. Authorize this tab once to enable all websites again.');
+            }, error => {
+                if (epoch === generation) ui.state(State.Error, `Disconnected in this tab. ${message(error)}`);
+            });
         };
         ui.onClose = () => {
             if (authorizing) { generation++; authorizing = false; host.pause(); bridge.reset(); ui.authorize.disabled = false; }
@@ -104,7 +109,7 @@ async function start(): Promise<void> {
         if (new URL(location.href).searchParams.has('kwx-connect')) ui.show('config');
         addEventListener('pagehide', event => {
             generation++; authorizing = false; bridge.reset();
-            if (event.persisted) host.pause(); else void host.revoke();
+            if (event.persisted) host.pause(); else void host.revoke().catch(() => {});
         });
         addEventListener('pageshow', event => { if (event.persisted) { host.resume(); attempted = false; restored(); } });
         return;

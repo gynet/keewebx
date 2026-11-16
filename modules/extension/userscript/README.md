@@ -1,11 +1,11 @@
-# Userscripts on iOS: KeeWebX Connect 0.5.1
+# Userscripts on iOS: KeeWebX Connect 0.5.2
 
 Authorize your unlocked KeeWebX app once, then select matching accounts beside
 login fields on any website. Finding accounts and testing the connection never
 open a page. Forms are filled only after an explicit account selection and are
 never submitted automatically.
 
-[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.1/modules/extension/userscript/keewebx-connect.user.js)
+[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.2/modules/extension/userscript/keewebx-connect.user.js)
 
 ## Install and use
 
@@ -28,13 +28,17 @@ address**, then authorize that app. **Test connection** checks it without
 reading credential fields. **Open connection page** is an optional, explicit
 native-window setup action; normal lookup and recovery do not use this button.
 
-## Upgrade from 0.5.0
+## Upgrade from 0.5.0 or 0.5.1
 
 Replace the one installed script. Save database changes, then reload the
-existing app and website once so both run **Connect 0.5.1**. The app receiver
-must be updated to provide the recovery channel. Existing signing identity and
-vault permission are retained. Close obsolete connection pages; they are not
+existing app and website once so both run **Connect 0.5.2**. Both the app receiver
+and website client must run the updated lifecycle and recovery checks. Existing
+signing identity and vault permission are retained. Close obsolete connection pages; they are not
 required for normal filling. Do not repeatedly open a connection page to retry.
+
+Replace the same filename in Userscripts. A renamed copy has a separate private
+storage namespace and cannot share the original script's authorization. Keep
+only one enabled Connect installation.
 
 ## Recovery and permissions
 
@@ -73,13 +77,18 @@ cancellation stops response readers even when cleanup fails. Native storage
 notifications wake readers where available, with bounded polling and app-return
 checks otherwise. The app’s lock policy is unchanged.
 
+Changing the selected app uses the browser's Web Locks API to prevent competing
+tabs or delayed cleanup from replacing a newer choice. Current Safari supports
+this API. If it is unavailable or blocked, authorization reports an error and
+does not make an unsafe selection.
+
 ## Verification
 
 Build with Bun 1.3.11:
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
-bun test modules/extension/userscript/tests/native-connect.test.ts
+bun test modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts
 modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
 ```
 
@@ -94,6 +103,12 @@ KEEWEBX_E2E_PORT=8085 bun e2e/serve-app.ts
 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/native-connect.mjs
 ```
 
+Run the same acceptance without optional storage notifications:
+
+```sh
+KWX_DISABLE_STORAGE_EVENTS=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/native-connect.mjs
+```
+
 The fixture uses the exact installer in Chromium extension isolation, real
 window messages, BroadcastChannel and extension storage through a small GM API
 adapter, a real encrypted KDBX and the native permission dialog. It tests both
@@ -101,7 +116,8 @@ independent website tabs and repeated cross-origin navigation within one tab,
 with no new page during normal lookup or connection tests. It also audits
 signed, encrypted native and mailbox traffic.
 
-See the [release report](docs/release-report.md). Desktop browser results do not
+See the [release report](docs/release-report.md) and
+[0.5.2 audit](docs/audit-0.5.2.md). Desktop browser results do not
 certify the installed iOS Userscripts manager. Native phone acceptance, long
 suspension and standalone Home Screen PWA communication remain unverified.
 Manual switching to the existing app may be needed.

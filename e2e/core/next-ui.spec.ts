@@ -65,6 +65,9 @@ test.describe('New interface', () => {
         await page.click('#unlock');
         await expect(page.locator('.entry-row').first()).toBeVisible({ timeout: 30000 });
 
+        // Entry rendering precedes completion of the imported file's cache write.
+        await expect(page.locator('#sync-state')).toHaveText('Up to date', { timeout: 30000 });
+
         // After a reload the vault is in the list and only needs the password.
         await page.reload();
         await expect(page.locator('.vault-row[data-vault="KDBX4.1"]')).toHaveClass(/vault-row--on/, { timeout: 15000 });

@@ -1,6 +1,50 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current release: 0.5.1
+## Current release: 0.5.2
+
+An independent fault-injection audit reproduced defects in mailbox cleanup,
+queue fairness, cancellation, delayed writes, and competing app selection.
+The release fixes those paths and retains the one-authorization workflow with
+no automatic connection-page opening. The [audit report](audit-0.5.2.md)
+records each reproduction, correction, compatibility finding, and limitation.
+
+Selection changes now use a shared browser Web Lock, held until the underlying
+manager operation and any cancellation cleanup finish. Automatic restoration
+rechecks the selected owner immediately before publication. Old host reads and
+client continuations cannot resume into a newer authorization generation.
+Mailbox cleanup failures cannot block delivery, reply backlogs cannot starve
+requests, and late canceled writes receive completion-time cleanup.
+
+### Acceptance
+
+- **43 unit checks passed**, including storage fault injection, same-host and
+  cross-host selection races, restoration races, replay, cancellation,
+  ownership, locked vaults, and failed connector recovery.
+- **17 browser steps passed against live app assets** using the exact installer,
+  real Chromium extension isolation and storage, a GM API adapter, a real KDBX,
+  and native vault consent.
+- **The same 17 steps passed with storage notifications disabled**, exercising
+  the polling path independently.
+- The fixture now disables Playwright's forced visibility. Actual hidden
+  documents and trusted freeze/resume events verify cancellation during a
+  delayed fill and recovery after the app exceeds a request deadline.
+- Cross-origin navigation, COOP isolation, repeated fills/tests, changed forms,
+  lock/unlock, signed traffic, encrypted credential payloads, and no additional
+  pages or permission dialogs remain covered. Neither browser run recorded
+  browser errors or plaintext fixture credentials in transport/storage history.
+- TypeScript, JavaScript syntax, deterministic bundle checks, and the New UI build
+  passed. An unrelated Firefox CI fixture now waits for imported-file cache
+  persistence before reload; its focused test passed three times without retries.
+
+Installer: **94,392 bytes**. SHA-256:
+`e234c2eb2044669f67bedec6cbacca09950bf3fce0da97a2c1801ed80ea88320`.
+
+These are desktop and source-level results. Native iPhone Userscripts execution,
+long suspension, memory pressure, and standalone PWA communication remain
+unverified. Replace the existing script under the same filename, save database
+changes, then reload the app and website so both show **Connect 0.5.2**.
+
+## Historical release: 0.5.1
 
 The user reported that one website worked but switching websites caused failure
 and repeated new pages. 0.5.0 kept its connector reference in one document and
