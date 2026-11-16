@@ -293,7 +293,7 @@ jobs:
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
-          KWX_PORT_POC_OUTPUT=.cache/messageport-poc node modules/extension/userscript/tests/messageport-poc.mjs
+          KWX_PORT_POC_GM_DELAY_MS=12000 KWX_PORT_POC_OUTPUT=.cache/messageport-poc node modules/extension/userscript/tests/messageport-poc.mjs
           FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
           KWX_RELAY_REPORT=.cache/userscript-connect/relay-transport.json node modules/extension/userscript/tests/relay-transport.mjs chromium
           bunx playwright test --config e2e/extension/new-interface.playwright.config.ts e2e/extension/new-interface-connection.spec.ts --reporter=line,html
@@ -386,4 +386,36 @@ jobs:
           path: |
             e2e/test-results-core-ci/
             playwright-report/core-ci/
+          retention-days: 7
+
+  e2e-messageport-webkit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile
+      - name: Build the New interface and independent lab assets
+        run: |
+          bun run --filter @keewebx/db build
+          bun run --filter @keewebx/ui build
+      - run: bunx playwright install webkit --with-deps
+      - name: Test isolated WebKit handoff with delayed extension storage
+        env:
+          KWX_PORT_POC_BROWSER: webkit
+          KWX_PORT_POC_GM_DELAY_MS: '12000'
+          KWX_PORT_POC_OUTPUT: .cache/messageport-webkit
+        run: node modules/extension/userscript/tests/messageport-poc.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: messageport-webkit
+          path: .cache/messageport-webkit/
           retention-days: 7

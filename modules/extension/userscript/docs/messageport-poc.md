@@ -1,11 +1,11 @@
-# MessagePort Lab 0.1.0
+# MessagePort Lab 0.1.1
 
 This is a separate Userscripts proof of concept. It exchanges synthetic ping
 messages only. It does not read databases, credentials, forms, or production
 Connect settings and is not an autofill replacement.
 
-[Install the test script](https://raw.githubusercontent.com/gynet/keewebx/messageport-poc-v0.1.0/modules/extension/userscript/keewebx-messageport-poc.user.js)
-or use the [hosted installer](https://keewebx.app/connect-port-poc/keewebx-messageport-poc.user.js).
+[Install the test script](https://raw.githubusercontent.com/gynet/keewebx/messageport-poc-v0.1.1/modules/extension/userscript/keewebx-messageport-poc.user.js)
+or use the [hosted installer](https://keewebx.app/connect-port-poc/keewebx-messageport-poc.user.js?v=0.1.1).
 
 ## Test on iOS Safari
 
@@ -34,6 +34,29 @@ the visible status, whether A/B remain independent, and whether the App tab was
 in the background. The panel displays short App/port IDs to check that a rebuild
 reuses the original App. Do not share database contents or credentials.
 
+## Discovery timeout fix in 0.1.1
+
+The original receiver waited for `GM.getValue()` before replying to every
+worker probe and port attachment. Its two-second probe deadline also included
+that asynchronous extension-storage call. Injecting a three-second storage
+read delay reproduced the exact original "app did not answer" error in WebKit.
+This reproduces a concrete failure mechanism; it does not establish that the
+same storage delay caused the report on a physical iPhone.
+
+The receiver now answers probes and accepts matching test ports synchronously
+from document memory. Selection is stored when enabling the receiver and checked
+again separately on App focus, outside the handoff path. The worker allows eight
+seconds for document scheduling; the website allows 25 seconds including helper
+startup. Explicit message queue startup and acknowledgments release probe ports.
+The App and worker recognize the same `/app`, `/app/`, `/next.html` and
+`/index.html` routes. Successful probes remain compatible with 0.1.0 workers.
+
+Errors now distinguish a worker that cannot see an App client, a disabled
+receiver, an App refreshed since selection, and a receiver that never answered.
+The App log records probes and rejected worker-source/port checks. Update the
+script, reload the App and website once, then enable the App receiver again.
+No new App is opened during discovery or recovery.
+
 ## Connection design
 
 The website creates a MessageChannel. A temporary same-origin connection page
@@ -61,32 +84,36 @@ Build the New UI assets and run:
 
 ```sh
 bun run --filter @keewebx/ui build
-node modules/extension/userscript/tests/messageport-poc.mjs
+KWX_PORT_POC_GM_DELAY_MS=12000 node modules/extension/userscript/tests/messageport-poc.mjs
+KWX_PORT_POC_BROWSER=webkit KWX_PORT_POC_GM_DELAY_MS=12000 node modules/extension/userscript/tests/messageport-poc.mjs
 ```
 
-The browser fixture injects the actual installer in Chromium extension isolation
-with a small GM storage adapter, an existing main App service worker and two
-distinct HTTPS website origins. Its local endpoint is substituted for the
-production address. It checks automatic relay closure, repeated pings, two
-independent ports, continued pings after stopping the handoff worker, closing
-one website, rebuilding after reload, and preserving the original App document
-and main worker. It also checks that lab scripts are not injected into the
-normal App HTML and that the hosted installer matches its source bytes.
-The panel is checked at 390px and 320px without interrupting its connection.
+Install the corresponding Playwright browsers first. Chromium uses a real
+extension content world and a small private GM adapter. WebKit runs the installer
+in Playwright's isolated user world; a disposable DOM/binding fixture adapts only
+GM storage. It is not the actual iOS Userscripts extension. The local endpoint
+is substituted for the production address. Neither fixture uses credentials.
+
+The installer passed **11 Chromium and 10 WebKit acceptance steps** with App
+storage reads delayed by 12 seconds. Both verify direct pings after automatic
+helper closure, two independent websites, closing one website, rebuilding after
+website reload, preserving the original App document and main service worker,
+320px/390px layouts, and actionable errors for disabled, refreshed and closed
+App receivers. Chromium also verifies hidden-App replies and pings after the
+handoff worker is stopped. The headless WebKit fixture did not report the App
+as hidden, so it does not certify background execution on Safari.
+
+The final three negative cases deliberately disable, refresh and close the App;
+the earlier successful rebuild preserves the same App document. Static checks
+prevent lab chunks being injected into normal App HTML and compare the hosted
+installer bytes with source. A separate WebKit CI job runs independently of
+other extension acceptance checks.
 
 Native iPhone Userscripts execution, suspension and memory-pressure behavior
 remain unverified. A browser-held port cannot force a suspended App to execute.
-The separate early main-world experiment passed Chromium but not isolated
-Firefox; that experiment is not a compatibility certification.
 
-The final local installer passed **eight browser acceptance steps**, including
-true hidden-App replies, automatic closure of all three temporary connection
-pages, continued pings with the handoff worker stopped, two independent websites,
-rebuilding after website reload, and both mobile widths. The original App
-document navigated only once and its main worker remained in control.
-
-Installer: **14,895 bytes**. SHA-256:
-`fae03762dc7ee83496ce8ba51d98f6421fa21315543b286b798b76936f2e089e`.
+Installer: **16,287 bytes**. SHA-256:
+`53e7eb3a58332074dfd46cdb64d0b02520657b23dde7bc50fb6a4b270d467c7b`.
 
 Disable this test script and close its test pages when finished. The production
 Connect installation and saved databases do not require changes.

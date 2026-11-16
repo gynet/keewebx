@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KeeWebX MessagePort Lab
 // @namespace    https://keewebx.app/labs/
-// @version      0.1.0
+// @version      0.1.1
 // @description  Test independent website ports to one KeeWebX tab after closing the temporary connection page. Synthetic messages only.
 // @match        https://*/*
 // @noframes
@@ -23,7 +23,7 @@
     };
     const validRoute = value => value && value.origin === APP.origin && typeof value.appBoot === 'string' && /^[0-9a-f-]{36}$/.test(value.appBoot);
     if (window.top !== window || location.protocol !== 'https:' || location.pathname.startsWith('/connect-port-poc/')) return;
-    const isApp = location.origin === APP.origin && location.pathname.replace(/\/$/, '') === APP.pathname.replace(/\/$/, '');
+    const isApp = location.origin === APP.origin && ['/app', '/next.html', '/index.html'].includes(location.pathname.replace(/\/$/, ''));
     const host = document.createElement('div'); host.id = 'keewebx-port-poc';
     host.style.cssText = 'position:fixed;left:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:2147483646';
     const shadow = host.attachShadow({ mode: 'open' });
@@ -35,7 +35,7 @@
     const launcher = button('Port Lab', 'toggle'); launcher.className = 'launcher';
     const panel = element('section'); panel.hidden = true;
     const header = element('header'), title = element('div'), close = button('×', 'hide'); close.setAttribute('aria-label', 'Close panel');
-    title.append(element('h2', 'MessagePort Lab'), element('div', 'TEST ONLY · 0.1.0')); title.lastChild.className = 'badge';
+    title.append(element('h2', 'MessagePort Lab'), element('div', 'TEST ONLY · 0.1.1')); title.lastChild.className = 'badge';
     header.append(title, close);
     const status = element('p', 'Loading test setup…'); status.className = 'status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
     const note = element('p', 'Synthetic ping messages only. This test does not access your database, passwords, forms or production Connect settings.'); note.className = 'note';
@@ -52,25 +52,47 @@
     if (isApp) {
         const enable = button('Enable test receiver', 'enable'); enable.className = 'primary'; enable.disabled = true;
         const stop = button('Disable receiver', 'disable'); actions.append(enable, stop);
-        const boot = uuid(); let enabled = false;
+        const boot = uuid(); let enabled = false, selectionRevision = 0;
         const peers = new Map();
         const render = () => { detail.textContent = `${enabled ? 'Receiver enabled' : 'Receiver disabled'} · ${peers.size} attached port(s)${boot ? ' · App ' + boot.slice(0, 8) : ''}`; };
         const remove = id => { const peer = peers.get(id); if (peer) { peer.port.close(); peers.delete(id); render(); } };
-        const selected = async () => { const route = await GM.getValue(ROUTE); return enabled && validRoute(route) && route.appBoot === boot; };
+        // Manager storage requires an asynchronous extension call in Safari. Never
+        // put that asynchronous operation in the discovery or port handoff path.
+        const refreshSelection = async () => {
+            if (!enabled) return;
+            const revision = selectionRevision, route = await GM.getValue(ROUTE);
+            if (revision !== selectionRevision || !enabled) return;
+            if (!validRoute(route) || route.appBoot !== boot) {
+                enabled = false; for (const id of [...peers.keys()]) remove(id); render();
+                state('Another test receiver was selected. Enable this tab again to use it.');
+            }
+        };
+        addEventListener('focus', () => { void refreshSelection().catch(fail); });
         enable.disabled = false; render(); state('Enable this tab once, then test from one or more websites. Re-enable after refreshing this App.');
         enable.onclick = async event => {
             if (!event.isTrusted || !boot) return;
-            try { await GM.setValue(ROUTE, { origin: APP.origin, url: APP_URL, appBoot: boot }); enabled = true; render(); state('Ready. Open a website and choose Connect existing App in Port Lab.'); record('Receiver selected'); }
+            const revision = ++selectionRevision;
+            try { await GM.setValue(ROUTE, { origin: APP.origin, url: APP_URL, appBoot: boot }); if (revision !== selectionRevision) return; enabled = true; render(); state('Ready. Open a website and choose Connect existing App in Port Lab.'); record('Receiver selected'); }
             catch (error) { fail(error); }
         };
-        stop.onclick = event => { if (event.isTrusted) { enabled = false; for (const id of [...peers.keys()]) remove(id); render(); state('Receiver disabled. Existing test ports were closed.'); } };
-        navigator.serviceWorker?.addEventListener('message', event => { void (async () => {
-            if (event.source?.scriptURL !== new URL('/connect-port-poc/worker.js', APP.origin).href || event.data?.marker !== MARK || event.data.appBoot !== boot || !event.ports[0]) return;
-            const port = event.ports[0];
-            if (!await selected()) { port.close(); return; }
-            if (event.data.kind === 'find-app') { port.postMessage({ marker: MARK, kind: 'app-ready', appBoot: boot }); port.close(); return; }
+        stop.onclick = event => { if (event.isTrusted) { selectionRevision++; enabled = false; for (const id of [...peers.keys()]) remove(id); render(); state('Receiver disabled. Existing test ports were closed.'); } };
+        navigator.serviceWorker?.addEventListener('message', event => {
+            if (event.data?.marker !== MARK) return;
+            if (event.source?.scriptURL !== new URL('/connect-port-poc/worker.js', APP.origin).href || event.ports.length !== 1) {
+                record('Ignored discovery · unexpected worker source or port count'); return;
+            }
+            const port = event.ports[0], matches = event.data.appBoot === boot;
+            if (event.data.kind === 'find-app') {
+                // Reply from document memory, including a useful rejection after reload.
+                port.postMessage({ marker: MARK, kind: matches && enabled ? 'app-ready' : 'app-state', appBoot: boot, state: enabled ? 'enabled' : 'disabled' });
+                port.onmessage = () => { clearTimeout(timer); port.close(); };
+                const timer = setTimeout(() => port.close(), 10000); port.start();
+                record('Discovery probe · ' + (matches ? (enabled ? 'ready' : 'disabled') : 'receiver changed'));
+                return;
+            }
+            if (event.data.kind !== 'attach-port' || !matches || !enabled) { port.close(); return; }
             const { connectionId, siteOrigin } = event.data;
-            if (event.data.kind !== 'attach-port' || typeof connectionId !== 'string' || !validOrigin(siteOrigin) || peers.size >= 32) { port.close(); return; }
+            if (typeof connectionId !== 'string' || !validOrigin(siteOrigin) || peers.size >= 32) { port.close(); return; }
             remove(connectionId); peers.set(connectionId, { port, siteOrigin }); render(); record('Attached ' + siteOrigin);
             port.onmessage = message => {
                 const data = message.data;
@@ -82,7 +104,8 @@
             };
             port.onmessageerror = () => remove(connectionId);
             port.start(); port.postMessage({ marker: MARK, kind: 'ready', connectionId, appBoot: boot, siteOrigin });
-        })().catch(fail); });
+        });
+        navigator.serviceWorker?.startMessages?.();
         addEventListener('pagehide', () => { for (const id of [...peers.keys()]) remove(id); });
         return;
     }
@@ -134,7 +157,7 @@
         current.helper = window.open(url.href, 'KeeWebXPortLab:' + current.id);
         if (!current.helper) { reset(); state('Safari blocked the temporary connection page. Allow this test popup and retry.'); return; }
         state('Finding the original App and handing over a direct port…');
-        current.timer = setTimeout(() => { if (session === current && !current.ready) { reset(); state('The App did not reply. Visit your original KeeWebX tab, enable its test receiver, then retry.'); } }, 15000);
+        current.timer = setTimeout(() => { if (session === current && !current.ready) { reset(); state('The App did not reply. Visit your original KeeWebX tab, enable its test receiver, then retry.'); } }, 25000);
     };
     addEventListener('message', event => {
         const current = session;
