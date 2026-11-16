@@ -467,6 +467,7 @@ async function publishedOriginServer() {
     });
     for (const server of [tlsServer, proxyServer]) server.on('connection', socket => {
         sockets.add(socket); socket.on('close', () => sockets.delete(socket));
+        socket.on('error', () => socket.destroy());
     });
     proxyServer.listen(0, '127.0.0.1');
     await once(proxyServer, 'listening');
