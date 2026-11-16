@@ -421,6 +421,22 @@ jobs:
           node modules/extension/userscript/tests/messageport-selection.mjs
           node modules/extension/userscript/tests/messageport-poc.mjs
           KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/production node modules/extension/userscript/tests/port-connect-webkit.mjs
+      - name: Explain a failed WebKit acceptance report
+        if: failure()
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, readdirSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const root = '.cache/messageport-webkit';
+          if (existsSync(root)) for (const file of readdirSync(root, { recursive: true })) {
+            if (!file.endsWith('report.json')) continue;
+            const report = JSON.parse(readFileSync(join(root, file), 'utf8'));
+            if (report.passed === true) continue;
+            const message = JSON.stringify({ report: file, failure: report.failure, steps: report.steps }).slice(0, 3000)
+              .replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+            process.stdout.write('::error title=WebKit acceptance report::' + message + '\n');
+          }
+          NODE
       - uses: actions/upload-artifact@v7
         if: always()
         with:
