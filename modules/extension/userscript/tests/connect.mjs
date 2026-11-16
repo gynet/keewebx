@@ -462,7 +462,8 @@ async function closedWebsiteHelperReuse() {
             expect(await replacement.evaluate(() => window.opener.name)).toBe(helperName(SITE));
             expect(await relayHelper.evaluate(() => !!window.opener && !window.opener.closed)).toBe(true);
             await oldSite.close();
-            expect(await relayHelper.evaluate(() => !window.opener || window.opener.closed)).toBe(true);
+            await expect.poll(() => relayHelper.evaluate(() => !window.opener || window.opener.closed),
+                { message: 'Original website closure propagates to the helper WindowProxy' }).toBe(true);
         });
         expect(oldSite.isClosed()).toBe(true);
         await panel(site, 'config'); await action(site, 'open');
