@@ -1,6 +1,59 @@
-# Native Connect 0.3.0 implementation and acceptance report
+# Userscripts Connect implementation and acceptance report
 
-## Connection recovery update: 0.3.1
+## Current architecture: 0.4.0
+
+Authorize the intended KeeWebX app tab once with **Authorize Connect** and the
+native **Allow** dialog for account listing. All login websites then use the
+same tab through the Userscripts manager's private GM queue. On a website,
+tap the key beside a login field and explicitly select an account. Normal
+lookup and fill open no tab and do not submit the form. **Open KeeWebX** is an
+explicit setup action. There is no helper, discovery, BroadcastChannel or
+per-website Connect authorization in this default flow.
+
+The installer requests `GM.getValue`, `GM.setValue`, `GM.deleteValue`,
+`GM.listValues`, `GM.getTab` and `GM.saveTab`. Persistent private state contains
+the signing identity, settings and approved route (public host ID, endpoint
+and public key). Manager tab state preserves the host ID across reloads.
+Session encryption keys remain in memory. Signed transient request/reply
+records carry routing metadata and Connect messages; credential payloads stay
+encrypted. Records are deleted after consumption or expiry while scripts can
+run. The enabled app polls request keys at about 500 ms idle or 60 ms after
+recent activity; websites poll only pending reply keys at about 80 ms.
+
+Install from the
+[0.4.0 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.0/modules/extension/userscript/keewebx-connect.user.js).
+See the [current setup and validation commands](../README.md). The current
+real-app regression entry point is `tests/gm-connect.mjs`; the helper acceptance
+results below do not validate this new transport. Its desktop harness simulates
+GM storage/injection, so native Userscripts execution, iOS long suspension,
+screen lock and memory pressure remain unverified. No automatic OS wakeup is
+established.
+
+### Accepted 0.4.0 artifact and desktop results
+
+- Installer size: 78,515 bytes.
+- SHA-256: `c37b2507b357c8be4d118dc55145d6b7c17e978a8e4f9edf0b60ae4c2c7ee064`.
+- Real production-app Chromium acceptance: 11 steps passed, including two
+  independently opened origins with one native consent, repeated filling,
+  website reload, navigation/cancellation, expired replies and locked-vault
+  rejection. The original app document and route were retained, without
+  helper tabs or automatic focus changes.
+- Historical GM writes were audited: no plaintext fixture titles, usernames,
+  passwords or database password; signed packets verified; sensitive wire
+  payloads remained encrypted; transient keys were consumed or expired.
+- Seven transport-security tests passed for shared authorization, tampered
+  origins, replay, deadlines, wrong scope, revocation and cancellation.
+- Userscript strict TypeScript/syntax, New UI type checks and locale coverage
+  passed. Native iPhone manager execution and long suspension remain unverified.
+
+## Historical architecture and results: 0.3.x
+
+The remainder preserves the 0.3.0 report and 0.3.1 recovery update. Their helper
+pages, discovery, per-origin confirmations, permissions, artifact hashes and
+test results apply only to those old versions. They are not current 0.4.0
+installation instructions or acceptance results.
+
+### Connection recovery update: 0.3.1
 
 The standalone 0.3.1 installer fixes intermittent setup failure after repeated
 use. A global helper-window name and a permanently captured initial opener
@@ -40,7 +93,7 @@ website/app tabs once after saving database changes. Keep one installed
 script version. The original 0.3.0 release record below is retained with its
 original artifact checksum.
 
-## Delivered behavior
+### Delivered behavior
 
 KeeWebX Connect now has an experimental standalone Userscripts installer for
 iOS Safari. A key button beside a login field opens a compact account picker.
@@ -60,7 +113,7 @@ fresh handshake and confirmation. No server relay, post-robot dependency,
 GM mailbox polling or idle heartbeat is used. Bounded setup retries only
 handle the initial window readiness handshake.
 
-## Reused code and access rules
+### Reused code and access rules
 
 - The existing Connect protocol, TweetNaCl encryption, identity pairing,
   native permission dialog and vault permissions remain authoritative.
@@ -79,7 +132,7 @@ handle the initial window readiness handshake.
 - Persistent GM state is limited to the signing identity and app address.
   Session encryption keys and credential values are not persisted there.
 
-## Accepted artifact
+### Accepted artifact
 
 - Installer: `keewebx-connect.user.js`, version `0.3.0`.
 - Size: 85,191 bytes.
@@ -88,7 +141,7 @@ handle the initial window readiness handshake.
 - The installer includes its MIT license and requires only `GM.getValue` and
   `GM.setValue`; it runs on HTTPS top-level documents in the content context.
 
-## Validation completed
+### Validation completed
 
 | Check | Result and scope |
 | --- | --- |
@@ -132,7 +185,7 @@ actions do not persist approval, and a fresh explicit approval is required
 before listing/filling. The transport tests independently check absolute
 expiry while withholding normal timeout callbacks.
 
-## Documentation and distribution
+### Documentation and distribution
 
 The repository README, extension README, userscript guide, New interface's
 Browser extension settings and desktop extension options describe the same
@@ -145,7 +198,7 @@ Build and test commands are in the [installation guide](../README.md).
 [Discovery design and sources](tab-discovery.md) cover browser partitioning
 and the separate Home Screen PWA investigation.
 
-## Publication checks
+### Publication checks
 
 - [Release v1.0.4-extension](https://github.com/gynet/keewebx/releases/tag/v1.0.4-extension)
   contains Chrome/Edge ZIPs, the unsigned Firefox XPI, the standalone installer
@@ -168,7 +221,7 @@ and the separate Home Screen PWA investigation.
   describe the scoped acceptance and successful release workflow, not an
   assertion that every unrelated repository job has passed.
 
-## Native-device limits and final iPhone acceptance
+### Native-device limits and final iPhone acceptance
 
 Complete iPhone autofill, long hidden-tab delays, screen lock and memory
 pressure remain unverified. The earlier user-reported iPhone post-robot probe

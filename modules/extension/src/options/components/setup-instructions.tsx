@@ -2,6 +2,8 @@ import { FunctionComponent } from 'preact';
 
 const USERSCRIPT_GUIDE =
     'https://github.com/gynet/keewebx/tree/master/modules/extension/userscript#readme';
+const USERSCRIPT_DOWNLOAD =
+    'https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.0/modules/extension/userscript/keewebx-connect.user.js';
 
 /** Keep setup help available before a connection has been established. */
 const SetupInstructions: FunctionComponent = () => (
@@ -36,6 +38,9 @@ const SetupInstructions: FunctionComponent = () => (
             <p>
                 iOS Safari uses the separate KeeWebX Connect userscript with the
                 Userscripts app. These desktop extension settings do not configure it.
+                {' '}<a href={USERSCRIPT_DOWNLOAD} target="_blank" rel="noopener noreferrer">
+                    Download Connect 0.4.0
+                </a>.
             </p>
             <ol>
                 <li>
@@ -47,20 +52,26 @@ const SetupInstructions: FunctionComponent = () => (
                     allow Userscripts on KeeWebX and your login website.
                 </li>
                 <li>
-                    On the login website, tap the key icon. The connection page finds
-                    existing KeeWebX tabs. In the app tab you want to use, choose Connect
-                    this tab and approve access. If no app responds, open and unlock the
-                    database in the new app and choose Authorize Connect.
+                    In the KeeWebX tab you want to use, unlock a database, open KeeWebX
+                    Connect, choose Authorize Connect and select Allow for account
+                    listing once. All login websites then use this tab.
                 </li>
                 <li>
-                    Choose Back to site. Focus a login field, tap the key and select an
-                    account. The script fills the form without submitting it.
+                    On a login website, focus a login field, tap the key and select an
+                    account. The script fills the form without submitting it or opening
+                    another tab. No further Connect authorization is needed for each website.
+                </li>
+                <li>
+                    For a self-hosted app, first save its HTTPS address in the script&apos;s
+                    Connection tab on a website. Open KeeWebX is an explicit setup button;
+                    normal fill uses the authorized tab.
                 </li>
             </ol>
             <p>
-                Keep the selected KeeWebX tab and connection page open. Standalone Home
-                Screen PWAs remain unverified. iOS may suspend a background tab; the
-                script cannot guarantee that it will remain available.
+                Keep the authorized KeeWebX tab open. If it stops replying, visit that
+                tab, unlock if needed and retry from the website. Native iOS long
+                suspension and standalone Home Screen PWAs remain unverified. The
+                script cannot force iOS to resume a suspended tab.
             </p>
         </details>
     </section>

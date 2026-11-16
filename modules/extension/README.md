@@ -43,18 +43,24 @@ include setup and troubleshooting even while disconnected.
 ## iOS Safari with Userscripts
 
 Use the separate experimental [KeeWebX Connect userscript](userscript/README.md)
-with the **Userscripts** app. It has its own extension-style connection panel;
-the desktop extension's settings do not configure it. Its small connection
-page discovers cooperating app tabs, including independently opened tabs.
-Confirm **Connect this tab** in the app you want to use and approve vault
-access. If no app responds, the connection page opens the normal app instead.
+with the **Userscripts** app. Download the
+[0.4.0 installer](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.0/modules/extension/userscript/keewebx-connect.user.js)
+and allow the same installed script on KeeWebX and your login websites. Its
+own connection panel is separate from the desktop extension's settings.
 
-The script uses native `window.postMessage` for linked tabs and reuses the
-existing encrypted Connect protocol, permission checks and form-fill helpers.
-The relay forwards encrypted messages without decrypting credentials. It
-does not submit login forms. Keep the selected KeeWebX tab and connection page
-open. Standalone Home Screen PWA sessions and reliable background execution
-under iOS suspension remain unverified.
+Unlock a database in the intended KeeWebX tab, choose **Authorize Connect** in
+the script panel and select **Allow** for account listing once. All login
+websites then reuse that tab: focus a login field, tap the key and select an
+account. Normal fill opens no tab and does not submit the form. **Open KeeWebX**
+is an explicit setup action. The default flow has no helper, discovery,
+BroadcastChannel or per-website Connect approval.
+
+The manager-private GM queue carries signed requests and replies with Connect
+encrypted credential payloads, deleted after consumption or expiry. Persistent
+state holds the identity, settings and approved route. Keep the authorized app
+tab open; if it stops replying, visit it, unlock if needed and retry from the
+website. Native iOS long suspension and standalone Home Screen PWAs remain
+unverified; automatic OS wakeup is not guaranteed.
 
 ## Building
 
