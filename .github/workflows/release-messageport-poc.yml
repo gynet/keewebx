@@ -1,0 +1,48 @@
+name: Release MessagePort Lab
+
+on:
+  push:
+    tags: ['messageport-poc-v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Immutable messageport-poc-vX.Y.Z tag'
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+      - name: Check and package the standalone test installer
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^messageport-poc-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          installer=modules/extension/userscript/keewebx-messageport-poc.user.js
+          actual=$(awk '/^\/\/ @version / {print $3; exit}' "$installer")
+          test "$actual" = "${RELEASE_TAG#messageport-poc-v}"
+          node --check "$installer"
+          node --check modules/ui/connect-port-poc/worker.js
+          node --check modules/ui/connect-port-poc/relay.js
+          mkdir artifacts
+          cp "$installer" artifacts/
+          cd artifacts
+          sha256sum keewebx-messageport-poc.user.js > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: MessagePort Lab (POC)
+          prerelease: true
+          make_latest: false
+          body_path: modules/extension/userscript/docs/messageport-poc.md
+          files: artifacts/*
+          fail_on_unmatched_files: true
