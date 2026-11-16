@@ -1,6 +1,6 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current architecture: 0.4.3
+## Current architecture: 0.4.4
 
 Authorize the intended KeeWebX app tab once with **Authorize Connect** and the
 native **Allow** dialog for account listing. All login websites then use the
@@ -21,7 +21,7 @@ run. The enabled app polls request keys at about 500 ms idle or 60 ms after
 recent activity; websites poll only pending reply keys at about 80 ms.
 
 Install from the
-[0.4.3 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.3/modules/extension/userscript/keewebx-connect.user.js).
+[0.4.4 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.4/modules/extension/userscript/keewebx-connect.user.js).
 See the [current setup and validation commands](../README.md). The current
 real-app regression entry point is `tests/gm-connect.mjs`; the helper acceptance
 results below do not validate this new transport. Its desktop harness simulates
@@ -29,7 +29,45 @@ GM storage/injection, so native Userscripts execution, iOS long suspension,
 screen lock and memory pressure remain unverified. No automatic OS wakeup is
 established.
 
-### 0.4.3 upgrade recovery
+### 0.4.4 connection-test completion
+
+The user reported an indefinitely displayed connection-test message. Two
+reproducible software paths were repaired: synchronous cleanup API failure
+could remove a pending request and its watchdog before resolving/rejecting
+its promise, and cancellation through hash navigation or closing the panel
+could leave the progress text displayed after the operation had ended.
+
+Requests now settle before best-effort cleanup; disposal cannot throw because
+an optional release/cleanup operation fails. Required client API grants are
+checked before connecting. The entire UI test has a 15-second wall-clock
+budget, including initialization, storage reads, handshake and probe. It
+shows stage/elapsed time, restores controls after failure and checks the
+deadline on focus/pageshow. Shared cancellation resets stale text. Constructor
+errors are caught inside the test, and the panel displays Connect 0.4.4.
+
+These are tested failure mechanisms, not a confirmed native-device root cause.
+Userscripts' normal storage API methods are async, so ordinary storage rejection
+does not itself prove the synchronous exception mechanism occurred on iOS.
+The defensive cleanup fix covers absent or replaced methods as well.
+
+- Installer: 82,246 bytes; SHA-256
+  `13519006a19aaa3eba572da38562b1bfd09e6a5c71507545f05b12d874c5c470`.
+- Transport unit checks: 20 passed. Both new cleanup regressions failed against
+  0.4.3 before the repair.
+- Real-app acceptance adds cleanup exceptions, a never-returning identity read,
+  hash/close cancellation and multiple slow storage reads that individually fit
+  their limits but exceed the total test budget. Each case verifies a subsequent
+  successful retry through the same authorized app.
+- The current pair and actual 0.4.0-host/new-client pair each run 20 steps with
+  encrypted disposable KDBX files, real native consent and real protocol traffic.
+  Their final results and publication status are recorded in the release notes.
+
+Timers cannot run while iOS freezes a page. No automatic wakeup, native iPhone
+acceptance or resolution of every reported connectivity failure is claimed.
+
+### Historical 0.4.3 upgrade recovery
+
+
 
 0.4.1/0.4.2 rejected a saved route without the `canonical-1` metadata before
 sending any request. That was not evidence of an incompatible live app and

@@ -44,7 +44,7 @@ include setup and troubleshooting even while disconnected.
 
 Use the separate experimental [KeeWebX Connect userscript](userscript/README.md)
 with the **Userscripts** app. Download the
-[0.4.3 installer](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.3/modules/extension/userscript/keewebx-connect.user.js)
+[0.4.4 installer](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.4/modules/extension/userscript/keewebx-connect.user.js)
 and allow the same installed script on KeeWebX and your login websites. Its
 own connection panel is separate from the desktop extension's settings.
 

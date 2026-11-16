@@ -227,3 +227,26 @@ test('Userscripts null initial tab state is initialized and mirrored', async () 
     expect(session.get(key)).toBe(savedTab[key]);
     fresh.pause();
 });
+
+test('cleanup throwing synchronously cannot strand a completed request', async () => {
+    const nativeDelete = (globalThis as any).GM.deleteValue;
+    (globalThis as any).GM.deleteValue = (key: string) => {
+        if (key.includes('reply-v2:')) throw new Error('Storage permission lost');
+        return nativeDelete(key);
+    };
+    const result = await Promise.race([
+        client.call('probe', undefined, 300),
+        Bun.sleep(650).then(() => { throw new Error('Request remained pending after completion and timeout'); })
+    ]);
+    expect(result.appBoot).toBe(request().value.packet.host);
+});
+
+test('missing cleanup API cannot make cancellation throw or leave a request pending', async () => {
+    host.pause();
+    const waiting = client.call('probe', undefined, 300);
+    void waiting.catch(() => {});
+    await until(() => writes.filter(item => item.value?.packet?.operation === 'probe').length, count => count > 0);
+    (globalThis as any).GM.deleteValue = undefined;
+    expect(() => client.dispose()).not.toThrow();
+    await expect(Promise.race([waiting, Bun.sleep(650).then(() => 'still pending')])).rejects.toThrow('canceled');
+});

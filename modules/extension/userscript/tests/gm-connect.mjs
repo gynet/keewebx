@@ -276,9 +276,16 @@ async function setup(bundle) {
                 return held.length;
             };
             const GM = {
-                getValue: async (key, fallback) => { const value = await globalThis.__kwxSharedGM('get', key); return value === undefined ? fallback : value; },
+                getValue: async (key, fallback) => {
+                    if (observed.hangIdentity && key.endsWith('identity-v1')) return new Promise(() => {});
+                    if (observed.slowReads) await new Promise(resolve => setTimeout(resolve, observed.slowReads));
+                    const value = await globalThis.__kwxSharedGM('get', key); return value === undefined ? fallback : value;
+                },
                 setValue: (key, value) => globalThis.__kwxSharedGM('set', key, value),
-                deleteValue: key => globalThis.__kwxSharedGM('delete', key),
+                deleteValue: key => {
+                    if (observed.throwCleanup) throw new Error('Injected cleanup API failure');
+                    return globalThis.__kwxSharedGM('delete', key);
+                },
                 listValues: () => globalThis.__kwxSharedGM('list'),
                 getTab: callback => { const result = globalThis.__kwxSharedGM('getTab'); return callback ? result.then(callback) : result; },
                 saveTab: value => globalThis.__kwxSharedGM('saveTab', undefined, value)
@@ -448,6 +455,46 @@ try {
         await assertOneApp();
         report.connectionProbeVerified = true;
         return { probeReturned: true, originalAppUnchanged: true };
+    });
+    await step('Test connection completes even when cleanup throws synchronously', async () => {
+        await first.evaluate(() => { globalThis.__kwxGmTest.throwCleanup = true; });
+        await action(first, 'probe'); await untilStatus(first, /Connected to the authorized KeeWebX tab/);
+        expect(await shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+        await first.evaluate(() => { globalThis.__kwxGmTest.throwCleanup = false; });
+        await assertOneApp();
+    });
+    await step('a manager identity read that never returns ends visibly and permits retry', async () => {
+        await first.evaluate(() => { globalThis.__kwxGmTest.hangIdentity = true; });
+        await action(first, 'probe');
+        await untilStatus(first, /Checking Userscripts storage/);
+        await untilStatus(first, /Userscripts storage did not respond/, 7000);
+        expect(await shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+        await first.evaluate(() => { globalThis.__kwxGmTest.hangIdentity = false; });
+        await action(first, 'probe'); await untilStatus(first, /Connected to the authorized KeeWebX tab/);
+        await assertOneApp();
+    });
+    await step('navigation and closing a pending connection test clear its stale progress text', async () => {
+        await first.evaluate(() => { globalThis.__kwxGmTest.hangIdentity = true; });
+        await action(first, 'probe'); await untilStatus(first, /Checking Userscripts storage/);
+        await first.evaluate(() => { location.hash = 'cancel-test'; });
+        await untilStatus(first, /stopped.*retry/);
+        expect(await shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+        await action(first, 'probe'); await untilStatus(first, /Checking Userscripts storage/);
+        await action(first, 'close'); await untilStatus(first, /stopped.*retry/);
+        await first.evaluate(() => { globalThis.__kwxGmTest.hangIdentity = false; });
+        await action(first, 'toggle'); await action(first, 'config-tab');
+        await action(first, 'probe'); await untilStatus(first, /Connected to the authorized KeeWebX tab/);
+        await assertOneApp();
+    });
+    await step('the entire connection test stops at fifteen seconds even when each storage call is within its own limit', async () => {
+        await first.evaluate(() => { globalThis.__kwxGmTest.slowReads = 3200; });
+        const started = Date.now();
+        await action(first, 'probe'); await untilStatus(first, /timed out after 15 seconds/, 18000);
+        expect(Date.now() - started).toBeLessThan(18000);
+        expect(await shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+        await first.evaluate(() => { globalThis.__kwxGmTest.slowReads = 0; });
+        await action(first, 'probe'); await untilStatus(first, /Connected to the authorized KeeWebX tab/);
+        await assertOneApp();
     });
     await step('Open KeeWebX with an approved route never opens, navigates or locks the original app', async () => {
         const before = await documentState(app);

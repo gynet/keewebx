@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.4.3
+# Userscripts on iOS: KeeWebX Connect 0.4.4
 
 The experimental Connect userscript lets login websites reuse one authorized
 KeeWebX app tab through the Userscripts manager's private GM storage. Authorize
@@ -7,20 +7,21 @@ Normal lookup and fill keep you on the website and do not open another tab.
 The default flow has no helper page, tab discovery, BroadcastChannel or
 per-website pairing.
 
-Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.3/modules/extension/userscript/keewebx-connect.user.js).
+Download [keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.4/modules/extension/userscript/keewebx-connect.user.js).
 
-Version 0.4.3 removes the repeated “Reload the authorized KeeWebX tab” error.
-Old authorization metadata no longer blocks a live, signed connection. A
-still-running 0.4.0 app can serve the new website script without another
-approval when its storage preserves legacy signatures. New-format messages
-continue to tolerate reordered storage keys. Open never reloads the app.
+Version 0.4.4 repairs connection tests that can remain stuck in progress.
+A cleanup API throwing synchronously can no longer swallow a result or
+cancellation. Closing the panel, navigating or returning from a cached page
+clears stale progress. Testing shows the current stage and elapsed seconds,
+with a 15-second total deadline while the page can execute, and the panel
+shows the running Connect version. A failed test can be retried immediately.
 
-The app also preserves its host ID when manager tab state is temporarily
-missing, initializes Userscripts' null tab state correctly, and retries a
-failed automatic restoration when you return to the app. Updating an installed
-script does not replace code already running in a page: reload the website
-after installing. The new client can keep using a compatible original app;
-you do not need to keep reloading it merely because its saved route is old.
+Replace the installed script and reload the login website to run the updated
+client. Updating the website does not replace an installed Userscript or code
+already running inside a tab. Do not delete your saved identity. Compatibility
+with a still-running 0.4.0 app remains covered on legacy-preserving storage;
+the current-version pair supports reordered storage. Native iOS execution
+and recovery from OS suspension remain unverified.
 
 ## Install and authorize once
 

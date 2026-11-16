@@ -7,7 +7,8 @@ import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const runtime = { getVersion: () => '0.4.3', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
+const VERSION = '0.4.4';
+const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function start(): Promise<void> {
@@ -16,6 +17,9 @@ async function start(): Promise<void> {
     try { endpoint = await loadEndpoint(); } catch { endpoint = new URL(DEFAULT_ENDPOINT); }
     const app = location.origin === endpoint.origin && location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '');
     const ui = new ConnectUI(app, endpoint.href);
+    const version = document.createElement('p');
+    version.className = 'status'; version.dataset.role = 'version'; version.textContent = `Connect ${VERSION}`;
+    ui.panel.append(version);
     if (app) {
         const host = new GmHost(endpoint, error => ui.state(State.Error, message(error)));
         const bridge = new AppBridge();
@@ -103,7 +107,11 @@ async function start(): Promise<void> {
     let generation = 0, selecting = false;
     let pending: GmRpc | undefined;
     let current: { rpc: GmRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
-    const clean = () => { generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined; selecting = false; ui.clear(); ui.busy(false); };
+    const clean = () => {
+        generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined;
+        selecting = false; ui.clear(); ui.busy(false);
+        ui.state(State.ReadyToConnect, 'Connection test or lookup stopped. You can retry.');
+    };
     const guard = (epoch: number) => { if (epoch !== generation) throw new Error('The operation was canceled. Find accounts again.'); };
     ui.onClose = clean;
     ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Use or test your authorized KeeWebX tab.'); };
@@ -191,14 +199,31 @@ async function start(): Promise<void> {
     ui.onOpen = event => { if (eligible(selected)) void lookup(event); };
     const testConnection = async (focus = false) => {
         clean(); const epoch = generation; ui.busy(true);
-        ui.state(State.Connecting, 'Testing the authorized KeeWebX connection...');
-        const rpc = new GmRpc(endpoint); pending = rpc;
+        let stage = 'Starting the connection test';
+        let rpc: GmRpc | undefined;
+        const startedAt = Date.now(), deadline = startedAt + 15000;
+        const progress = () => {
+            if (epoch !== generation) { clearInterval(timer); return; }
+            const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+            if (Date.now() >= deadline) {
+                clearInterval(timer);
+                clean(); ui.state(State.Error, `${stage} timed out after 15 seconds. The test stopped; you can retry.`);
+            } else ui.state(State.Connecting, `${stage}… (${elapsed}s)`);
+        };
+        const timer = setInterval(progress, 250);
+        addEventListener('pageshow', progress); addEventListener('focus', progress);
+        progress();
         try {
-            const started = performance.now(); await rpc.connect();
+            rpc = new GmRpc(endpoint, value => { guard(epoch); stage = value; progress(); }); pending = rpc;
+            const started = performance.now(); await rpc.connect(); guard(epoch);
+            stage = 'Checking the KeeWebX reply'; progress(); guard(epoch);
             const result = await rpc.call(focus ? 'focus' : 'probe', undefined, 5000); guard(epoch);
             ui.state(State.Connected, `Connected to the authorized KeeWebX tab (${Math.round(performance.now() - started)} ms; ${result.visibility}).`);
         } catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
-        finally { rpc.dispose(); if (pending === rpc) pending = undefined; if (epoch === generation) ui.busy(false); }
+        finally {
+            clearInterval(timer); removeEventListener('pageshow', progress); removeEventListener('focus', progress);
+            rpc?.dispose(); if (pending === rpc) pending = undefined; if (epoch === generation) ui.busy(false);
+        }
     };
     ui.probe.onclick = event => { if (event.isTrusted) void testConnection(); };
     document.addEventListener('focusin', event => { const field = event.composedPath()[0]; if (eligible(field)) { selected = field; ui.anchor(field); } }, true);

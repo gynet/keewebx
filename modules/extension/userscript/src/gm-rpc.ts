@@ -26,6 +26,8 @@ const routeKey = (endpoint: URL) => `${ROOT}route-v2:${endpoint.href}`;
 const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : object(value)
     ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonical(value[key])])) : value;
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(canonical(value)));
+// Cleanup must never prevent a result, cancellation or timeout from settling.
+const bestEffort = (operation: () => unknown): void => { void Promise.resolve().then(operation).catch(() => {}); };
 export function managerCall<T>(operation: () => Promise<T>, description = 'Userscripts storage', timeout = 5000): Promise<T> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`${description} did not respond. Open the Userscripts extension and retry.`)), timeout);
@@ -193,7 +195,7 @@ export class GmRpc {
     private scope?: string;
     private expiresAt = 0;
     private pending = new Map<string, { request: string; reply: string; cancel(): void }>();
-    constructor(private endpoint: URL) {}
+    constructor(private endpoint: URL, private progress: (stage: string) => void = () => {}) {}
     assertCurrent(): void {
         if (!this.live || location.href !== this.href) throw new Error('The website changed. Find accounts again.');
         if (this.scope && Date.now() >= this.expiresAt) throw new Error('The account list expired. Find accounts again.');
@@ -205,11 +207,17 @@ export class GmRpc {
         if (!this.route || selected?.host !== this.route.host || selected.publicKey !== this.route.publicKey) throw new Error('The authorized KeeWebX tab changed. Find accounts again.');
     }
     async connect(): Promise<void> {
+        this.progress('Checking Userscripts storage');
+        for (const name of ['getValue', 'setValue', 'deleteValue'] as const) {
+            if (typeof GM[name] !== 'function') throw new Error(`Userscripts did not grant GM.${name}. Update the existing Connect script, then reload this website.`);
+        }
         this.keys = await managerCall(() => identity()); this.assertCurrent();
+        this.progress('Reading the authorized app');
         this.route = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Authorize Connect once in your KeeWebX tab. Then all websites can use it.');
         // A stored version flag is advisory. Only a signed live handshake can
         // establish compatibility; old metadata must not force a reload loop.
+        this.progress('Contacting the authorized KeeWebX tab');
         const result = await this.call('hello', undefined, 8000);
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host ||
             !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid KeeWebX connection response.');
@@ -232,8 +240,9 @@ export class GmRpc {
                 if (!this.pending.delete(p.id)) return;
                 clearTimeout(timer);
                 clearTimeout(watchdog);
-                void Promise.allSettled([GM.deleteValue(request), GM.deleteValue(reply)]);
                 if (error) reject(error); else resolve(result);
+                bestEffort(() => GM.deleteValue(request));
+                bestEffort(() => GM.deleteValue(reply));
             };
             this.pending.set(p.id, { request, reply, cancel: () => finish(new Error('The website operation was canceled.')) });
             // This must remain independent of a manager API promise that never settles.
@@ -258,19 +267,22 @@ export class GmRpc {
                     timer = setTimeout(() => { void poll(); }, 80);
                 } catch (error) { finish(error instanceof Error ? error : new Error('The script manager request failed.')); }
             };
-            void GM.setValue(request, signed(p, keys)).then(() => {
-                if (this.pending.has(p.id)) void poll(); else void GM.deleteValue(request);
+            void Promise.resolve().then(() => GM.setValue(request, signed(p, keys))).then(() => {
+                if (this.pending.has(p.id)) void poll(); else bestEffort(() => GM.deleteValue(request));
             }, error => finish(error instanceof Error ? error : new Error('The script manager could not send the request.')));
         });
     }
     dispose(): void {
         if (!this.live) return;
         for (const item of [...this.pending.values()]) item.cancel();
-        if (this.scope && this.route && this.keys) {
-            const p: Packet = { host: this.route.host, endpoint: this.endpoint.href, id: uuid(), document: this.document,
-                origin: new URL(this.href).origin, operation: 'release', scope: this.scope, deadline: Date.now() + 3000 };
-            void GM.setValue(requestPrefix(p.host) + p.id, signed(p, this.keys)).catch(() => {});
-        }
         this.live = false;
+        if (this.scope && this.route && this.keys) {
+            const route = this.route, keys = this.keys, scope = this.scope;
+            bestEffort(() => {
+                const p: Packet = { host: route.host, endpoint: this.endpoint.href, id: uuid(), document: this.document,
+                    origin: new URL(this.href).origin, operation: 'release', scope, deadline: Date.now() + 3000 };
+                return GM.setValue(requestPrefix(p.host) + p.id, signed(p, keys));
+            });
+        }
     }
 }
