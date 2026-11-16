@@ -2,12 +2,12 @@ import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/p
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge } from './app-bridge';
 import { ConnectUI } from './connect-ui';
-import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector } from './native-connect';
+import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials } from './native-connect';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, type Targets } from './form-targets';
 
-const VERSION = '0.5.5';
+const VERSION = '0.6.0';
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const assertWebsiteScope = (features: { features: string[]; websiteOrigin?: string }, origin: string) => {
@@ -17,14 +17,14 @@ const assertWebsiteScope = (features: { features: string[]; websiteOrigin?: stri
 };
 
 async function start(): Promise<void> {
-    if (window.top !== window || location.protocol !== 'https:') return;
+    if (window.top !== window || location.protocol !== 'https:' || /\/connect-port(?:-poc)?\//.test(location.pathname)) return;
     let endpoint: URL;
     try { endpoint = await loadEndpoint(); } catch { endpoint = new URL(DEFAULT_ENDPOINT); }
     if (location.origin === endpoint.origin && location.pathname === new URL('connect.html', endpoint).pathname && new URL(location.href).searchParams.get('kwx-native') === '1') {
         startConnector(endpoint);
         return;
     }
-    const app = location.origin === endpoint.origin && location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '');
+    const app = location.origin === endpoint.origin && (location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '') || endpoint.pathname === '/app' && ['/next.html', '/index.html'].includes(location.pathname));
     const ui = new ConnectUI(app, endpoint.href);
     const version = document.createElement('p');
     version.className = 'status'; version.dataset.role = 'version'; version.textContent = `Connect ${VERSION}`;
@@ -96,6 +96,11 @@ async function start(): Promise<void> {
                 if (authorized) { host.lock(); ui.state(State.ReadyToConnect, 'KeeWebX is locked. Unlock this tab to resume Connect.'); }
                 attempted = false; authorized = false; return;
             }
+            if (!authorized && !revoked && !authorizing && host.unlock()) {
+                authorized = true; attempted = true;
+                ui.state(State.Connected, 'Authorized. Connect resumed; existing vault permissions still apply.');
+                return;
+            }
             if (attempted || revoked || authorizing) return;
             attempted = true; void authorize(false);
         };
@@ -114,12 +119,18 @@ async function start(): Promise<void> {
         if (new URL(location.href).searchParams.has('kwx-connect')) ui.show('config');
         addEventListener('pagehide', event => {
             generation++; authorizing = false; bridge.reset();
-            if (event.persisted) host.pause(); else void host.revoke().catch(() => {});
+            if (event.persisted) host.pause(); else void host.revoke(false).catch(() => {});
         });
         addEventListener('pageshow', event => { if (event.persisted) { host.resume(); attempted = false; restored(); } });
         return;
     }
 
+    ui.busy(true); ui.open.disabled = true;
+    ui.state(State.Connecting, 'Loading saved Connect settings…');
+    void prepareDirect(endpoint).then(() => {
+        ui.state(State.ReadyToConnect, 'Ready. Find matching accounts or test the connection.');
+    }, error => ui.state(State.Error, message(error))).finally(() => { ui.busy(false); ui.open.disabled = false; });
+    addEventListener('focus', () => { void prepareDirect(endpoint).catch(() => {}); });
     let selected: HTMLInputElement | undefined;
     let connector: Window | undefined;
     let clientId: string | undefined;
@@ -146,13 +157,14 @@ async function start(): Promise<void> {
     ui.save.onclick = async event => {
         if (!event.isTrusted) return;
         clean(); const epoch = generation;
-        try { endpoint = await saveEndpoint(ui.address.value); guard(epoch); connector = undefined; register(); ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
+        try { endpoint = await saveEndpoint(ui.address.value); guard(epoch); connector = undefined; await prepareDirect(endpoint); guard(epoch); register(); ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
         catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
     };
     ui.open.textContent = 'Reconnect to existing tab';
     const openConnection = () => {
         clean();
         try {
+            if (openDirect(endpoint, true)) { void testConnection(true); return; }
             if (!clientId) throw new Error('Connection settings are not ready. Reopen the panel and retry.');
             connector = openConnector(endpoint, clientId, connector);
             // Start the native handshake while its connection page is active.
@@ -195,9 +207,11 @@ async function start(): Promise<void> {
         let rpc: NativeRpc | undefined;
         try {
             const target = targets(selected), origin = location.origin;
-            if (!await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
-            const keys = await managerCall(() => identity()); guard(epoch);
-            rpc = new NativeRpc(endpoint, () => connector); pending = rpc; await rpc.connect(); guard(epoch);
+            const direct = openDirect(endpoint);
+            rpc = new NativeRpc(endpoint, () => connector); pending = rpc;
+            if (!direct && !await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
+            const keys = directCredentials(endpoint) || await managerCall(() => identity()); guard(epoch);
+            await rpc.connect(); guard(epoch);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request) }, runtime);
             await protocol.ping(); await protocol.changePublicKeys();
             if (!await protocol.pair(keys)) throw new Error('Authorize Connect once in your KeeWebX tab.');
@@ -224,19 +238,20 @@ async function start(): Promise<void> {
         clean(); const epoch = generation; ui.busy(true);
         let stage = 'Starting the connection test';
         let rpc: NativeRpc | undefined;
-        const startedAt = Date.now(), deadline = startedAt + 15000;
+        const startedAt = Date.now(), deadline = startedAt + 35000;
         const progress = () => {
             if (epoch !== generation) { clearInterval(timer); return; }
             const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
             if (Date.now() >= deadline) {
                 clearInterval(timer);
-                clean(); ui.state(State.Error, `${stage} timed out after 15 seconds. The test stopped; you can retry.`);
+                clean(); ui.state(State.Error, `${stage} timed out after 35 seconds. The test stopped; you can retry.`);
             } else ui.state(State.Connecting, `${stage}… (${elapsed}s)`);
         };
         const timer = setInterval(progress, 250);
         addEventListener('pageshow', progress); addEventListener('focus', progress);
         progress();
         try {
+            openDirect(endpoint);
             rpc = new NativeRpc(endpoint, () => connector, value => { guard(epoch); stage = value; progress(); }, recovery ? 5000 : 2000); pending = rpc;
             const started = performance.now(); await rpc.connect(); guard(epoch);
             stage = 'Checking the KeeWebX reply'; progress(); guard(epoch);

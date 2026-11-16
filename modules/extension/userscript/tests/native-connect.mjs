@@ -14,6 +14,8 @@ const BUN = process.env.KWX_BUN || 'bun';
 const APP_SERVER = process.env.KWX_APP_SERVER || 'http://127.0.0.1:39232';
 const SOURCE = resolve(process.env.KWX_USERSCRIPT || join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'));
 const STORAGE_EVENTS = process.env.KWX_DISABLE_STORAGE_EVENTS !== '1';
+// Keep this suite on the previous signed transport; port-connect.mjs covers the default.
+const LEGACY_TRANSPORT = process.env.KWX_DIRECT_PORTS !== '1';
 const OUT = resolve(process.env.KWX_E2E_OUTPUT_DIR || mkdtempSync(join(tmpdir(), 'keewebx-native-connect-')));
 mkdirSync(OUT,{recursive:true});
 const APP = 'https://keewebx.app/app';
@@ -30,7 +32,7 @@ const ACCOUNTS = [
 ];
 const PRIVATE_VALUES=[DB_PASSWORD,...ACCOUNTS.flatMap(a=>[a.title,a.user,a.password])];
 const redact=value=>PRIVATE_VALUES.reduce((result,secret)=>result.replaceAll(secret,'[fixture value]'),String(value));
-const report={started:new Date().toISOString(),scope:'Exact installer in Chromium isolated content scripts, native window and BroadcastChannel delivery, native extension storage with GM adapter, real KDBX and native consent', nativeIOSVerified:false,realManagerVerified:false,storageNotifications:STORAGE_EVENTS,steps:[],errors:[]};
+const report={started:new Date().toISOString(),scope:'Exact installer in Chromium isolated content scripts, native window and BroadcastChannel delivery, native extension storage with GM adapter, real KDBX and native consent', nativeIOSVerified:false,realManagerVerified:false,storageNotifications:STORAGE_EVENTS,legacyTransport:LEGACY_TRANSPORT,steps:[],errors:[]};
 const cdpByPage=new WeakMap(), gm=new Map(), connectors=new Map();
 let context, app, first, second, nativeWorker, originalApp, approvedRoute, appNavigationRequests=0;
 let expectedForgeryIds=[];
@@ -193,7 +195,7 @@ async function setup(bundle) {
  writeFileSync(join(extension,'background.js'),`const tabs=new Map();globalThis.audit=[];globalThis.muteAppMailbox=false;chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local')for(const [key,value] of Object.entries(changes))globalThis.audit.push({key,value:value.newValue});});chrome.runtime.onMessage.addListener((message,sender,reply)=>{if(message.op==='getTab')reply(tabs.get(sender.tab.id)??null);else if(message.op==='saveTab'){tabs.set(sender.tab.id,message.value);reply(true);}else if(message.op==='mailboxMuted')reply(globalThis.muteAppMailbox);});`);
  writeFileSync(join(extension,'content.js'),`(()=>{const prefix='${PREFIX}';const GM={info:{scriptHandler:'${STORAGE_EVENTS ? 'Userscripts' : 'Fixture without storage notifications'}',script:{filename:'Connect.user.js'}},
  async listValues(){if(location.href==='${APP}'&&await chrome.runtime.sendMessage({op:'mailboxMuted'}))return [];return Object.keys(await chrome.storage.local.get()).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length));},
- async getValue(key,fallback){const data=await chrome.storage.local.get(prefix+key);return (prefix+key) in data?data[prefix+key]:fallback;},
+ async getValue(key,fallback){const data=await chrome.storage.local.get(prefix+key);const value=(prefix+key) in data?data[prefix+key]:fallback;if(${LEGACY_TRANSPORT}&&key===${JSON.stringify(ROUTE_KEY)}&&value&&typeof value==='object')delete value.messagePort;return value;},
  async setValue(key,value){await chrome.storage.local.set({[prefix+key]:value});},async deleteValue(key){await chrome.storage.local.remove(prefix+key);},
  getTab:()=>chrome.runtime.sendMessage({op:'getTab'}),saveTab:value=>chrome.runtime.sendMessage({op:'saveTab',value})};${bundle}})();`);
  context=await chromium.launchPersistentContext(join(OUT,'profile'),{channel:'chromium',headless:true,...(process.env.KWX_BROWSER_PROXY?{proxy:{server:process.env.KWX_BROWSER_PROXY}}:{}),viewport:{width:1280,height:900},args:['--no-sandbox','--disable-extensions-except='+extension,'--load-extension='+extension]});

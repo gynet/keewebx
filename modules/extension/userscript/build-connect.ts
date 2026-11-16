@@ -16,7 +16,7 @@ const license = await readFile(path.join(import.meta.dir, '../../..', 'LICENSE')
 const metadata = `// ==UserScript==
 // @name         KeeWebX Connect (experimental)
 // @namespace    https://keewebx.app/
-// @version      0.5.5
+// @version      0.6.0
 // @description  Authorize KeeWebX once and fill accounts on all websites using the existing encrypted Connect protocol. Experimental iOS Safari support.
 // @match        https://*/*
 // @noframes
@@ -30,7 +30,7 @@ const metadata = `// ==UserScript==
 // @grant        GM.saveTab
 // ==/UserScript==
 
-// Native window messages carry encrypted Connect payloads; a signed private mailbox recovers lost window associations.
+// MessagePorts carry signed, encrypted Connect requests after a temporary same-origin page hands them to the original App.
 /*! KeeWebX license:\n${license}\n*/
 `;
 const output = `${metadata}\n${(await result.outputs[0].text()).trimEnd()}\n`;

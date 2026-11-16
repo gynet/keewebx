@@ -467,3 +467,141 @@ test('a website without any window association uses the same signed host and enc
         expect((await client.call('probe')).appBoot).toBe(storage.get(routeKey).host);
     } finally { client.dispose(); host.pause(); }
 });
+
+// Direct ports pin the browser-observed site and use a synchronous App-origin
+// selection lease. A native extension storage read must not stall hidden Apps.
+async function directHost() {
+    const local = new Map<string, string>();
+    replace('localStorage', { getItem: (key: string) => local.get(key) ?? null,
+        setItem: (key: string, value: string) => local.set(key, value), removeItem: (key: string) => local.delete(key) });
+    replace('navigator', { locks, serviceWorker: { addEventListener() {}, startMessages() {} } });
+    replace('setInterval', () => 0);
+    host.pause(); host = new NativeHost(endpoint); await host.authorize(keys);
+    return local;
+}
+const directSend = (value: any, context = { origin: 'https://login.example.org', id: 'test-port' }) =>
+    (host as any).receive(value, (value: any) => replies.push({ value }), context);
+async function directSession() {
+    const p = packet(); await directSend(envelope(p));
+    return { ...p, operation: 'wire', id: crypto.randomUUID(), scope: replies.at(-1).value.packet.body.scope, body: { action: 'kwx-features' } };
+}
+test('direct port hello and encrypted wire do not read background manager storage', async () => {
+    await directHost();
+    let managerReads = 0;
+    (globalThis as any).GM.getValue = () => { managerReads++; return new Promise(() => {}); };
+    const p = await directSession(); await directSend(envelope(p));
+    expect(managerReads).toBe(0); expect(reads).toBe(1);
+    expect(replies.at(-1).value.packet.body.action).toBe('test-wire');
+});
+test('direct port cannot override its browser-observed website origin', async () => {
+    await directHost();
+    await directSend(envelope(packet({ origin: 'https://attacker.example' })));
+    expect(replies).toHaveLength(0); expect(reads).toBe(0);
+});
+test('an unrelated physical port cannot use another port session', async () => {
+    await directHost(); const p = await directSession();
+    await directSend(envelope(p), { origin: p.origin, id: 'another-port' });
+    expect(reads).toBe(0); expect(replies.at(-1).value.packet.error).toContain('session changed');
+});
+test('changing App selection synchronously rejects a previous direct grant', async () => {
+    const local = await directHost(), p = await directSession();
+    local.set(`keewebx-native-connect-v1:active:${endpoint.href}`, crypto.randomUUID());
+    await directSend(envelope(p)); expect(reads).toBe(0); expect(replies).toHaveLength(1);
+});
+test('a changed selection drops a delayed encrypted direct response', async () => {
+    const local = await directHost(), p = await directSession(), gate = deferred<any>();
+    AppBridge.prototype.request = () => gate.promise;
+    const running = directSend(envelope(p)); await Promise.resolve();
+    local.set(`keewebx-native-connect-v1:active:${endpoint.href}`, crypto.randomUUID());
+    gate.resolve({ action: 'test-wire' }); await running;
+    expect(replies).toHaveLength(1);
+});
+test('locking or revoking the App prevents existing direct scopes from reading', async () => {
+    await directHost(); const p = await directSession(); host.lock();
+    await directSend(envelope(p)); expect(replies.at(-1).value.packet.error).toContain('locked');
+    await host.revoke(); await directSend(envelope({ ...p, id: crypto.randomUUID() })); expect(reads).toBe(0);
+});
+
+test('unlocking avoids GM reads and unavailable revocation metadata fails closed', async () => {
+    await directHost(); let managerReads = 0;
+    (globalThis as any).GM.getValue = () => { managerReads++; return new Promise(() => {}); };
+    host.lock(); expect(host.unlock()).toBe(true);
+    const p = await directSession(); await directSend(envelope(p)); expect(reads).toBe(1);
+    expect(managerReads).toBe(0);
+    await host.revoke(); expect(host.unlock()).toBe(false);
+    expect(storage.has(routeKey)).toBe(true); expect(managerReads).toBe(1);
+    await directSend(envelope({ ...p, id: crypto.randomUUID() })); expect(reads).toBe(1);
+});
+
+test('a legacy-only host selection invalidates the previous direct marker', async () => {
+    const local = await directHost(), p = await directSession();
+    replace('navigator', { locks });
+    const other = new NativeHost(endpoint);
+    try {
+        await other.authorize(keys);
+        expect(local.has(`keewebx-native-connect-v1:active:${endpoint.href}`)).toBe(false);
+        await directSend(envelope(p)); expect(reads).toBe(0);
+    } finally { other.pause(); }
+});
+test('canceling another App publication leaves no previous direct grant active', async () => {
+    const local = await directHost(), p = await directSession(), gate = deferred();
+    const gm = (globalThis as any).GM, set = gm.setValue;
+    gm.setValue = async (key: string, value: any) => { await set(key, value); await gate.promise; };
+    const other = new NativeHost(endpoint), pending = other.authorize(keys).catch(error => error);
+    try {
+        await until(() => storage.get(routeKey)?.host === (other as any).host);
+        other.pause(); gate.resolve(); expect((await pending).message).toContain('canceled');
+        expect(local.has(`keewebx-native-connect-v1:active:${endpoint.href}`)).toBe(false);
+        expect(storage.has(routeKey)).toBe(false);
+        await directSend(envelope(p)); expect(reads).toBe(0);
+    } finally { gate.resolve(); await pending; other.pause(); }
+});
+test('failed synchronous marker publication cannot leave a previous direct grant active', async () => {
+    const local = await directHost(), p = await directSession();
+    (globalThis as any).localStorage.setItem = () => { throw new Error('Storage unavailable'); };
+    const other = new NativeHost(endpoint);
+    try {
+        await expect(other.authorize(keys)).rejects.toThrow('Storage unavailable');
+        expect(storage.has(routeKey)).toBe(false);
+        expect(local.has(`keewebx-native-connect-v1:active:${endpoint.href}`)).toBe(false);
+        await directSend(envelope(p)); expect(reads).toBe(0);
+    } finally { other.pause(); }
+});
+
+function grantEvents() {
+    const listeners = new Set<(changes: any, area: string) => void>();
+    (globalThis as any).GM.info = { scriptHandler: 'Userscripts', script: { filename: 'Connect.user.js' } };
+    replace('browser', { storage: { onChanged: { addListener: (fn: any) => listeners.add(fn), removeListener: (fn: any) => listeners.delete(fn) } } });
+    return (oldValue: any, newValue: any) => { for (const listener of listeners) listener({ ['Connect.user.js---' + routeKey]: { oldValue, newValue } }, 'local'); };
+}
+test('an actual older-version selection event invalidates a current direct grant without GM reads', async () => {
+    const change = grantEvents(), local = await directHost(), p = await directSession();
+    change(structuredClone(storage.get(routeKey)), { host: crypto.randomUUID() });
+    expect(local.has(`keewebx-native-connect-v1:active:${endpoint.href}`)).toBe(false);
+    await directSend(envelope(p)); expect(reads).toBe(0);
+});
+test('a delayed old selection event cannot revoke a freshly republished grant', async () => {
+    const change = grantEvents(), local = await directHost(), previous = structuredClone(storage.get(routeKey));
+    await host.authorize(keys);
+    change(previous, { host: crypto.randomUUID() });
+    expect(local.get(`keewebx-native-connect-v1:active:${endpoint.href}`)).toBe((host as any).host);
+    await directSend(envelope(await directSession())); expect(reads).toBe(1);
+});
+
+test('revoking with a stale public marker never deletes an older receiver selection', async () => {
+    await directHost(); const other = { ...storage.get(routeKey), host: crypto.randomUUID() };
+    storage.set(routeKey, other); // An older loaded receiver does not publish a direct marker.
+    await host.revoke(); expect(storage.get(routeKey)).toEqual(other);
+});
+
+test('explicit disconnect prevents automatic restoration even if GM cleanup cannot read ownership', async () => {
+    await directHost();
+    (globalThis as any).GM.getValue = () => new Promise(() => {});
+    await host.revoke(); const other = new NativeHost(endpoint);
+    try {
+        expect(await other.selected()).toBe(false);
+        await expect(other.authorize(keys, () => true, 'restore')).rejects.toThrow('disconnected');
+        await other.authorize(keys); // Only explicit authorization clears the persistent intent.
+        expect((other as any).live).toBe(true);
+    } finally { other.pause(); }
+});

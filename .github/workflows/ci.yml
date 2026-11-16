@@ -293,6 +293,8 @@ jobs:
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
+          KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
+          KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port-blocked node modules/extension/userscript/tests/port-connect.mjs
           node modules/extension/userscript/tests/messageport-selection.mjs
           KWX_PORT_POC_GM_DELAY_MS=12000 KWX_PORT_POC_OUTPUT=.cache/messageport-poc node modules/extension/userscript/tests/messageport-poc.mjs
           FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
@@ -312,6 +314,8 @@ jobs:
             .cache/new-interface-connect-server.log
             .cache/extension-command-results/
             .cache/userscript-connect/
+            .cache/userscript-port/
+            .cache/userscript-port-blocked/
           retention-days: 7
 
   e2e-new-interface-core:
@@ -416,6 +420,7 @@ jobs:
         run: |
           node modules/extension/userscript/tests/messageport-selection.mjs
           node modules/extension/userscript/tests/messageport-poc.mjs
+          KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/production node modules/extension/userscript/tests/port-connect-webkit.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
