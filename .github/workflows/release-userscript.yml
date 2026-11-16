@@ -34,6 +34,8 @@ jobs:
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
           node --check modules/extension/userscript/keewebx-connect.user.js
           git diff --exit-code -- modules/extension/userscript/keewebx-connect.user.js
+      - name: Build database for app policy tests
+        run: bun run --filter @keewebx/db build
       - name: Check app-side website scope enforcement
         working-directory: modules/ui-classic
         run: bun test tests/comp/extension/website-protocol.test.ts
