@@ -111,7 +111,8 @@ function isApp(client, endpoint) {
 }
 
 function probe(client, appBoot, endpoint) {
-    return new Promise((resolve) => {
+    let cancel = () => {};
+    const result = new Promise((resolve) => {
         const channel = new MessageChannel();
         let finished = false;
         const timer = setTimeout(() => finish('timeout'), PROBE_MS);
@@ -121,13 +122,14 @@ function probe(client, appBoot, endpoint) {
             finished = true;
             clearTimeout(timer);
             // Let the app release its probe endpoint before closing our endpoints.
-            try { channel.port1.postMessage({ marker: MARK, kind: 'probe-done' }); } catch { /* Already closed. */ }
+            try { channel.port1.postMessage({ marker: MARK, kind: 'probe-done', state }); } catch { /* Already closed. */ }
             channel.port1.onmessage = null;
             channel.port1.onmessageerror = null;
             channel.port1.close();
             channel.port2.close();
             resolve({ client, state });
         }
+        cancel = () => finish('canceled');
 
         channel.port1.onmessage = (event) => {
             const data = event.data;
@@ -150,6 +152,22 @@ function probe(client, appBoot, endpoint) {
             finish('unreachable');
         }
     });
+    return { result, cancel: () => cancel() };
+}
+
+async function discover(candidates, appBoot, endpoint) {
+    const probes = candidates.map((client) => probe(client, appBoot, endpoint));
+    let found;
+    const selected = new Promise((resolve) => { found = resolve; });
+    const all = Promise.all(probes.map((probe) => probe.result.then((result) => {
+        if (result.state === 'ready') found([result]);
+        return result;
+    })));
+    // Boot IDs identify one document. Do not wait for unrelated stale tabs.
+    // The website still authenticates the chosen port before accepting it.
+    const results = await Promise.race([selected, all]);
+    for (const probe of probes) probe.cancel();
+    return results;
 }
 
 async function attach(event) {
@@ -177,12 +195,8 @@ async function attach(event) {
             fail(event, 'noapp', 'No KeeWebX app tab was found. Keep your original app open in the same browser profile and browsing mode, then retry.');
             return;
         }
-        const probes = await Promise.all(candidates.map((client) => probe(client, data.appBoot, data.endpoint)));
+        const probes = await discover(candidates, data.appBoot, data.endpoint);
         const matches = probes.filter((result) => result.state === 'ready');
-        if (matches.length > 1) {
-            fail(event, 'ambiguous', 'More than one app answered for this session. Select your original KeeWebX tab again and reconnect from the website.');
-            return;
-        }
         if (!matches.length) {
             if (probes.some((result) => result.state === 'address-mismatch')) {
                 fail(event, 'address', 'The App and website have different saved KeeWebX addresses. Save the same App address, then refresh both Connect scripts.');

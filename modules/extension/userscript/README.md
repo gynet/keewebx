@@ -1,14 +1,14 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.1
+# Userscripts on iOS: KeeWebX Connect 0.6.2
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
 to the same original App. A temporary connection page closes after a signed
-handshake. Forms are filled only after selecting an account and are not submitted.
+port receipt, before the normal encrypted protocol handshake. Forms are filled only after selecting an account and are not submitted.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.1)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.1/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.2)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.2/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
-· [0.6.1 acceptance report](docs/release-0.6.1.md)
+· [0.6.2 acceptance report](docs/release-0.6.2.md)
 
 ## Install or upgrade
 
@@ -18,7 +18,7 @@ handshake. Forms are filled only after selecting an account and are not submitte
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Save pending database changes, then reload your original
-   `https://keewebx.app/app` tab and the login website so both show **Connect 0.6.1**.
+   `https://keewebx.app/app` tab and the login website so both show **Connect 0.6.2**.
    Existing database entries and the script's stored identity are retained.
 3. Unlock the original App, open its Connect key panel, and choose
    **Authorize Connect**. Approve account listing once in the native permission
@@ -26,7 +26,8 @@ handshake. Forms are filled only after selecting an account and are not submitte
 4. On a login website, focus a username/password field, tap the key, and select
    a matching account. The first connection in that document opens a small
    connection page, finds the original App, and automatically closes the page
-   after verification. Further lookups in that document reuse the direct port.
+   after verifying the App
+   signature on that port. Further lookups in that document reuse the direct port.
 
 A renamed script has a separate manager storage namespace and cannot reuse the
 original filename's identity. For self-hosting, publish the built `connect-port/`
@@ -88,7 +89,7 @@ receivers and separate regression coverage; new receivers use direct ports.
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
-bun test modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
+bun test modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
 modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
 bun run --filter @keewebx/ui build
 ```

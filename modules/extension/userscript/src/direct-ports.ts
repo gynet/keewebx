@@ -1,9 +1,10 @@
 import { CONNECT_VERSION } from './version';
+import { verifyPortReady, type PortIdentity } from './port-auth';
 import { isId, object, uuid } from './native-rpc';
 
 export const PORT_MARK = 'keewebx-connect-port-v1';
 export const PORT_IDLE_MS = 10 * 60 * 1000;
-export interface PortRoute { host: string; endpoint: string; publicKey: string; messagePort?: number }
+export interface PortRoute { host: string; endpoint: string; publicKey: string; messagePort?: number; readyProof?: number }
 const originValid = (value: unknown): value is string => {
     if (typeof value !== 'string') return false;
     try { const url = new URL(value); return url.protocol === 'https:' && url.origin === value; } catch { return false; }
@@ -54,7 +55,15 @@ export class SitePortLink {
             if (data.kind === 'error') { this.reset(typeof data.message === 'string' ? data.message : 'The original App could not receive the connection.'); return; }
             if (data.connectionId !== this.id || data.appBoot !== this.route?.host || data.endpoint !== this.endpoint.href || data.siteOrigin !== location.origin) return;
             if (data.kind === 'ready' && !this.ready) {
-                this.ready = true; this.lastSeen = Date.now(); clearTimeout(this.timer); this.resolve?.(); this.resolve = this.reject = undefined;
+                const authenticated = verifyPortReady(data as PortIdentity, data.proof, this.route!.publicKey);
+                if (!authenticated && (this.route?.readyProof === 1 || data.proof !== undefined)) {
+                    this.reset('The App port signature could not be verified. Reconnect to your original App.'); return;
+                }
+                this.ready = true; this.lastSeen = Date.now(); clearTimeout(this.timer);
+                // Release the foreground helper in this event, as in the Lab.
+                // RPC session creation still uses the existing signed hello.
+                if (authenticated) this.confirm();
+                this.resolve?.(); this.resolve = this.reject = undefined;
             } else if (data.kind === 'reply' && this.ready) {
                 this.lastSeen = Date.now(); for (const listener of this.listeners) listener(data.value);
             } else if (data.kind === 'closed') {
@@ -114,7 +123,8 @@ export class AppPortReceiver {
     constructor(private endpoint: URL, private snapshot: () => { host: string; active: boolean },
         private request: (value: unknown, reply: (value: unknown) => void, origin: string, id: string) => Promise<void>,
         private released: (id: string) => void, private diagnostic: (value: string) => void = () => {},
-        private admit: () => boolean = () => this.snapshot().active) {
+        private admit: () => boolean = () => this.snapshot().active,
+        private prove?: (value: PortIdentity) => string) {
         navigator.serviceWorker.addEventListener('message', this.receive);
         navigator.serviceWorker.startMessages?.();
         this.diagnostic('Direct receiver registered');
@@ -143,13 +153,29 @@ export class AppPortReceiver {
                 kind: matchesAddress && state.active && data.appBoot === state.host ? 'app-ready' : 'app-state',
                 appBoot: state.host, endpoint: data.endpoint,
                 state: !matchesAddress ? 'address-mismatch' : state.active ? 'enabled' : 'disabled', receiverVersion: CONNECT_VERSION });
+            this.diagnostic(`Discovery reply posted: ${state.active ? 'enabled' : 'disabled'}; selected=${data.appBoot === state.host ? 'match' : 'changed'}`);
             const timer = setTimeout(() => port.close(), 10000);
-            port.onmessage = () => { clearTimeout(timer); port.close(); }; port.start(); return;
+            port.onmessage = event => {
+                if (event.data?.marker === PORT_MARK && event.data.kind === 'probe-done') {
+                    const result = ['ready', 'refreshed', 'disabled', 'address-mismatch', 'timeout', 'unreachable'].includes(event.data.state) ? event.data.state : 'received';
+                    this.diagnostic('Discovery worker result: ' + result);
+                }
+                clearTimeout(timer); port.close();
+            }; port.start(); return;
         }
         if (data.kind !== 'attach-port' || !matchesAddress || data.appBoot !== state.host || !state.active || !isId(data.connectionId) || !originValid(data.siteOrigin)) { port.close(); return; }
         this.diagnostic('Handoff received; validating selected App grant');
         if (!this.admit()) {
+            this.diagnostic('Handoff rejected: selected App grant unavailable');
             port.postMessage({ marker: PORT_MARK, kind: 'error', code: 'inactive', message: 'The selected App grant is unavailable. Select this tab again in Connect.' });
+            port.close(); return;
+        }
+        const ready = { marker: PORT_MARK, kind: 'ready', connectionId: data.connectionId, appBoot: state.host, endpoint: this.endpoint.href, siteOrigin: data.siteOrigin };
+        let proof: string | undefined;
+        try { proof = this.prove?.(ready); }
+        catch {
+            this.diagnostic('Handoff rejected: port signing failed');
+            port.postMessage({ marker: PORT_MARK, kind: 'error', message: 'The App could not authenticate this port. Reconnect.' });
             port.close(); return;
         }
         for (const [id, peer] of this.ports) if (Date.now() - peer.lastSeen > PORT_IDLE_MS) this.remove(id);
@@ -170,7 +196,8 @@ export class AppPortReceiver {
             if (value.kind === 'request') void this.request(value.value, reply, origin, id).catch(() => this.remove(id));
         };
         port.onmessageerror = () => this.remove(id); port.start();
-        port.postMessage({ marker: PORT_MARK, kind: 'ready', connectionId: id, appBoot: state.host, endpoint: this.endpoint.href, siteOrigin: origin });
+        port.postMessage({ ...ready, ...(proof ? { proof } : {}) });
+        this.diagnostic(proof ? 'Authenticated port ready posted' : 'Legacy port ready posted');
     };
     clear(): void { for (const id of [...this.ports.keys()]) this.remove(id, 'authorization-ended'); }
 }

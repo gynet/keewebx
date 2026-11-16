@@ -1,5 +1,6 @@
 import { watchManagerGrant } from './manager-events';
 import { AppPortReceiver, SitePortLink } from './direct-ports';
+import { signPortReady } from './port-auth';
 import { sign } from 'tweetnacl';
 import { fromBase64, toBase64 } from '../../src/background/utils';
 import { AppBridge } from './app-bridge';
@@ -12,7 +13,7 @@ const MARK = 'keewebx-native-connect-v1';
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
 const routeKey = (endpoint: URL) => `${MARK}:selected:${endpoint.href}`;
 type Keys = { publicKey: Uint8Array; secretKey: Uint8Array };
-type Route = { host: string; owner: string; endpoint: string; publicKey: string; mailbox?: boolean; messagePort?: number; authorizationRevision?: number };
+type Route = { host: string; owner: string; endpoint: string; publicKey: string; mailbox?: boolean; messagePort?: number; readyProof?: number; authorizationRevision?: number };
 type Packet = { type: 'request' | 'reply'; host: string; endpoint: string; id: string; document: string; origin: string;
     operation: 'hello' | 'wire' | 'probe' | 'focus' | 'release'; deadline: number; scope?: string; body?: any; error?: string };
 type Signed = { packet: Packet; signature: string };
@@ -88,7 +89,8 @@ export class NativeHost {
     private direct?: AppPortReceiver;
     private leaseKey: string;
     private consumed = new Map<string, number>();
-    private session?: { document: string; origin: string; scope: string; expiresAt: number; bridge: AppBridge; locked: boolean; busy: boolean; port?: string };
+    private session?: { document: string; origin: string; scope: string; expiresAt: number; bridge: AppBridge; locked: boolean; busy: boolean; port?: string;
+        hello?: { request: string; reply: Signed; authorization: number; keys: Keys } };
     constructor(private endpoint: URL, private onError: (error: Error) => void = () => {}, private diagnostic: (message: string) => void = () => {}) {
         this.leaseKey = `${MARK}:active:${endpoint.href}`;
         try {
@@ -96,7 +98,10 @@ export class NativeHost {
                 this.direct = new AppPortReceiver(endpoint, () => ({ host: this.host, active: this.live && !!this.keys }),
                     (value, reply, origin, id) => this.receive(value, reply, { origin, id }), id => {
                         if (this.session?.port === id) { this.session.bridge.dispose(); this.session = undefined; }
-                    }, this.diagnostic, () => this.live && !!this.keys && this.selectedDirect());
+                    }, this.diagnostic, () => this.live && !!this.keys && this.selectedDirect(), value => {
+                        if (!this.keys) throw new Error('Connect is inactive.');
+                        return signPortReady(value, this.keys.secretKey);
+                    });
                 addEventListener('storage', event => { if (event.key === this.leaseKey && !this.selectedDirect()) {
                     this.direct?.clear(); this.session?.bridge.dispose(); this.session = undefined;
                 } });
@@ -168,7 +173,7 @@ export class NativeHost {
                 }
                 // Fail closed before publication, including selection by a legacy-only host.
                 if (typeof localStorage !== 'undefined') localStorage.removeItem(this.leaseKey);
-                await GM.setValue(routeKey(this.endpoint), { host: this.host, owner: this.owner, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey), authorizationRevision: generation, mailbox: this.mailbox.available, ...(this.direct ? { messagePort: 1 } : {}) } satisfies Route);
+                await GM.setValue(routeKey(this.endpoint), { host: this.host, owner: this.owner, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey), authorizationRevision: generation, mailbox: this.mailbox.available, ...(this.direct ? { messagePort: 1, readyProof: 1 } : {}) } satisfies Route);
                 if (!valid()) {
                     // The exclusive route lock is still held; no replacement can publish yet.
                     await GM.deleteValue(routeKey(this.endpoint));
@@ -215,11 +220,32 @@ export class NativeHost {
         const p = value.packet;
         if (p.type !== 'request' || p.host !== this.host || p.endpoint !== this.endpoint.href || !valid(p) || direct && p.origin !== direct.origin) return;
         for (const [id, until] of this.consumed) if (until <= Date.now()) this.consumed.delete(id);
-        if (this.consumed.has(p.id) || this.consumed.size >= 1024) return;
-        this.consumed.set(p.id, p.deadline);
         if (direct && p.operation === 'hello') this.diagnostic('Signed hello received; checking selected App grant');
         // A previously selected tab must stop serving after another app wins.
-        if ((direct ? !this.selectedDirect() : (await approvedRoute(this.endpoint))?.host !== this.host) || authorization !== this.authorization || !this.live || this.keys !== keys || Date.now() >= p.deadline) return;
+        const selected = direct ? this.selectedDirect() : (await approvedRoute(this.endpoint))?.host === this.host;
+        if (!selected || authorization !== this.authorization || !this.live || this.keys !== keys || Date.now() >= p.deadline) {
+            if (direct && p.operation === 'hello') this.diagnostic(`Hello rejected: selected=${selected}; current=${authorization === this.authorization && this.live && this.keys === keys}; expired=${Date.now() >= p.deadline}`);
+            return;
+        }
+        if (this.consumed.has(p.id)) {
+            const session = this.session;
+            // Only the active hello receipt is replayable. Never re-execute wire
+            // requests, reset another session, or cache credential responses.
+            if (direct && p.operation === 'hello' && !this.locked && session && !session.locked && session.port === direct.id &&
+                session.expiresAt > Date.now() && session.hello?.authorization === authorization && session.hello.keys === keys &&
+                session.hello.request === JSON.stringify(canonical(p))) {
+                try {
+                    await reply(session.hello.reply);
+                    this.diagnostic('Cached signed hello reply posted');
+                } catch (reason) {
+                    this.diagnostic('Hello reply failed: ' + (reason instanceof Error ? reason.name : 'Error'));
+                    this.onError(reason instanceof Error ? reason : new Error('The connection page is unavailable.'));
+                }
+            }
+            return;
+        }
+        if (this.consumed.size >= 1024) return;
+        this.consumed.set(p.id, p.deadline);
         let body: any, error: string | undefined;
         try {
             if (this.locked) throw new Error('KeeWebX is locked. Unlock that app tab, then retry.');
@@ -229,7 +255,7 @@ export class NativeHost {
                 session?.bridge.dispose();
                 session = { document: p.document, origin: p.origin, scope: uuid(), expiresAt: Date.now() + SESSION_TTL, bridge: new AppBridge(location.origin, p.origin), locked: false, busy: false, port: direct?.id };
                 const current = session;
-                session.bridge.onLocked = () => { current.locked = true; };
+                session.bridge.onLocked = () => { current.locked = true; current.hello = undefined; };
                 this.session = session;
                 body = { scope: session.scope, appBoot: this.host, expiresAt: session.expiresAt };
             } else {
@@ -247,8 +273,20 @@ export class NativeHost {
             }
         } catch (reason) { error = reason instanceof Error ? reason.message : 'KeeWebX could not complete the request.'; }
         if (authorization === this.authorization && this.live && this.keys === keys && (!direct || this.selectedDirect()) && Date.now() < p.deadline) {
-            try { await reply(signed({ ...p, type: 'reply', body, error }, keys)); }
-            catch (reason) { this.onError(reason instanceof Error ? reason : new Error('The connection page is unavailable.')); }
+            try {
+                const response = signed({ ...p, type: 'reply', body, error }, keys);
+                if (direct && p.operation === 'hello' && !error && this.session?.port === direct.id) {
+                    this.session.hello = { request: JSON.stringify(canonical(p)), reply: response, authorization, keys };
+                }
+                await reply(response);
+                if (direct && p.operation === 'hello') this.diagnostic(error ? 'Signed hello error reply posted' : 'Signed hello reply posted');
+            }
+            catch (reason) {
+                if (direct && p.operation === 'hello') this.diagnostic('Hello reply failed: ' + (reason instanceof Error ? reason.name : 'Error'));
+                this.onError(reason instanceof Error ? reason : new Error('The connection page is unavailable.'));
+            }
+        } else if (direct && p.operation === 'hello') {
+            this.diagnostic('Hello reply suppressed: grant changed or request expired');
         }
     }
 }
@@ -454,13 +492,32 @@ export class NativeRpc {
             }, Math.max(1, p.deadline - Date.now()));
             this.pending.set(p.id, { packet: p, resolve, reject, timer });
             try {
-                if (this.direct) this.direct.send(signed(p, keys));
+                if (this.direct) {
+                    const envelope = signed(p, keys), port = this.direct, generation = port.generation;
+                    if (operation === 'hello') {
+                        // One idempotent handshake receipt may be retried on this
+                        // port. No helper is reopened and no credential RPC repeats.
+                        const retry = setInterval(() => {
+                            if (!this.pending.has(p.id) || Date.now() >= p.deadline) { clearInterval(retry); return; }
+                            try { this.assertCurrent(); port.assert(generation); port.send(envelope); }
+                            catch (error) {
+                                const pending = this.pending.get(p.id);
+                                if (pending) {
+                                    pending.stop?.(); clearTimeout(pending.timer); this.pending.delete(p.id);
+                                    pending.reject(error instanceof Error ? error : new Error('The website port is unavailable.'));
+                                }
+                            }
+                        }, 750);
+                        this.pending.get(p.id)!.stop = () => clearInterval(retry);
+                    }
+                    this.direct.send(envelope);
+                }
                 else if (peer) peer.postMessage({ marker: MARK, value: signed(p, keys) }, this.endpoint.origin);
                 else this.pending.get(p.id)!.stop = mailboxRequest(signed(p, keys), this.accept, error => {
                     this.pending.get(p.id)?.stop?.(); this.pending.delete(p.id); clearTimeout(timer); reject(error);
                 });
             }
-            catch (error) { clearTimeout(timer); this.pending.delete(p.id); reject(error); }
+            catch (error) { clearTimeout(timer); this.pending.get(p.id)?.stop?.(); this.pending.delete(p.id); reject(error); }
         });
     }
     dispose(): void {

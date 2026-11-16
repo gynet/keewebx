@@ -526,6 +526,51 @@ test('direct transport still rejects unsigned or tampered hello requests', async
     await directSend({ ...signed, packet: { ...signed.packet, origin: 'https://attacker.example' } });
     expect(replies).toHaveLength(0); expect(reads).toBe(0);
 });
+test('a transient lease read failure does not permanently consume an unexecuted hello', async () => {
+    await directHost();
+    const local = (globalThis as any).localStorage, read = local.getItem;
+    let unavailable = true;
+    local.getItem = (key: string) => { if (unavailable) throw new Error('Unavailable'); return read(key); };
+    const value = envelope(packet());
+    await directSend(value); expect(replies).toHaveLength(0);
+    unavailable = false;
+    await directSend(value);
+    expect(replies).toHaveLength(1); expect(replies[0].value.packet.body.scope).toBeString();
+    expect(reads).toBe(0);
+});
+test('a lost direct hello receipt can be replayed without creating another session', async () => {
+    await directHost();
+    const value = envelope(packet());
+    await directSend(value);
+    const first = structuredClone(replies[0]), session = (host as any).session;
+    replies.length = 0; // The first signed reply did not reach the website.
+    await directSend(value);
+    expect(replies).toEqual([first]);
+    expect((host as any).session).toBe(session); expect(reads).toBe(0);
+    const p = value.packet;
+    const wire = envelope({ ...p, id: crypto.randomUUID(), operation: 'wire', scope: first.value.packet.body.scope, body: { action: 'kwx-features' } });
+    await directSend(wire); await directSend(wire);
+    expect(reads).toBe(1); expect(replies).toHaveLength(2);
+});
+test('a cached hello receipt cannot migrate to another physical port or another request', async () => {
+    await directHost();
+    const value = envelope(packet()); await directSend(value);
+    await directSend(value, { origin: value.packet.origin, id: 'other-port' });
+    await directSend(envelope({ ...value.packet, deadline: value.packet.deadline + 1 }));
+    expect(replies).toHaveLength(1); expect(reads).toBe(0);
+    await directSend(value); expect(replies).toHaveLength(2);
+});
+test.each(['selection', 'lock', 'new session', 'revoke'])('a cached hello cannot survive a changed grant or session (%s)', async change => {
+    const local = await directHost();
+    const value = envelope(packet()); await directSend(value);
+    if (change === 'selection') local.set(`keewebx-native-connect-v1:active:${endpoint.href}`, crypto.randomUUID());
+    else if (change === 'lock') host.lock();
+    else if (change === 'new session') await directSend(envelope(packet()));
+    else await host.revoke();
+    const count = replies.length;
+    await directSend(value);
+    expect(replies).toHaveLength(count); expect(reads).toBe(0);
+});
 test('direct port hello and encrypted wire do not read background manager storage', async () => {
     await directHost();
     let managerReads = 0;
@@ -533,6 +578,68 @@ test('direct port hello and encrypted wire do not read background manager storag
     const p = await directSession(); await directSend(envelope(p));
     expect(managerReads).toBe(0); expect(reads).toBe(1);
     expect(replies.at(-1).value.packet.body.action).toBe('test-wire');
+});
+
+test('direct hello can recover the same request after a transient lease admission failure', async () => {
+    await directHost(); const p = packet(), local = (globalThis as any).localStorage, get = local.getItem;
+    local.getItem = () => { throw new Error('Temporarily unavailable'); };
+    await directSend(envelope(p));
+    expect((host as any).consumed.has(p.id)).toBe(false);
+    expect(replies).toHaveLength(0);
+    local.getItem = get;
+    await directSend(envelope(p));
+    expect(replies).toHaveLength(1);
+});
+
+test('a direct hello receipt recovers a lost reply without replacing its session', async () => {
+    await directHost(); const p = packet();
+    await directSend(envelope(p));
+    const session = (host as any).session, response = structuredClone(replies[0]);
+    const reordered = Object.fromEntries(Object.entries(p).reverse());
+    await directSend(envelope(reordered));
+    expect(replies).toHaveLength(2);
+    expect(replies[1]).toEqual(response);
+    expect((host as any).session).toBe(session);
+    expect(reads).toBe(0);
+    await directSend(envelope(p), { origin: p.origin, id: 'another-port' });
+    for (const changes of [{ document: crypto.randomUUID() }, { deadline: p.deadline - 1 }, { body: {} }, { scope: crypto.randomUUID() }]) {
+        await directSend(envelope({ ...p, ...changes }));
+    }
+    expect(replies).toHaveLength(2);
+    expect((host as any).session).toBe(session);
+});
+
+test('a direct wire request never caches or reexecutes a credential response', async () => {
+    await directHost(); const p = await directSession(), receipt = (host as any).session.hello;
+    await directSend(envelope(p)); await directSend(envelope(p));
+    expect(reads).toBe(1);
+    expect(replies).toHaveLength(2);
+    expect((host as any).session.hello).toBe(receipt);
+    expect(receipt.reply.packet.operation).toBe('hello');
+});
+
+test('a direct hello receipt cannot cross reauthorization or a replacement session', async () => {
+    await directHost(); const p = packet(); await directSend(envelope(p));
+    await host.authorize(keys);
+    await directSend(envelope(p));
+    expect(replies).toHaveLength(1);
+    const replacement = packet(); await directSend(envelope(replacement));
+    const session = (host as any).session;
+    await directSend(envelope(p));
+    expect(replies).toHaveLength(2);
+    expect((host as any).session).toBe(session);
+});
+
+test('a direct hello receipt is cleared by bridge lock and session release', async () => {
+    await directHost(); const p = packet(); await directSend(envelope(p));
+    (host as any).session.bridge.onLocked();
+    expect((host as any).session.hello).toBeUndefined();
+    await directSend(envelope(p)); expect(replies).toHaveLength(1);
+    const fresh = packet(); await directSend(envelope(fresh));
+    const scope = replies.at(-1).value.packet.body.scope;
+    await directSend(envelope({ ...fresh, id: crypto.randomUUID(), operation: 'release', scope }));
+    expect((host as any).session).toBeUndefined();
+    await directSend(envelope(fresh)); expect(replies).toHaveLength(2);
 });
 test('direct port cannot override its browser-observed website origin', async () => {
     await directHost();

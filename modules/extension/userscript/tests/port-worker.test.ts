@@ -34,7 +34,7 @@ class FakeWindowClient {
     }
 }
 
-function fixture() {
+function fixture(withSilentApp = false) {
     const data = { marker, kind: 'attach', nonce: crypto.randomUUID(), appBoot: crypto.randomUUID(),
         connectionId: crypto.randomUUID(), endpoint, siteOrigin: 'https://login.example.org' };
     const relayURL = new URL('https://keewebx.app/connect-port/relay.html');
@@ -44,6 +44,8 @@ function fixture() {
     const relay = new FakeWindowClient(relayURL.href, 'auxiliary');
     const app = new FakeWindowClient(receiverEndpoint);
     const clients = new Map([[relay.id, relay], [app.id, app]]);
+    const silent = new FakeWindowClient('https://keewebx.app/app');
+    if (withSilentApp) clients.set(silent.id, silent);
     const website = new FakePort();
     const timers = new Map<number, () => void>();
     const channels: { port1: FakePort; port2: FakePort }[] = [];
@@ -72,7 +74,7 @@ function fixture() {
     listeners.get('message')!({ data, source: relay, ports: [website], waitUntil(promise: Promise<void>) {
         work = promise; void promise.then(() => { settled = true; }, () => { settled = true; });
     } });
-    return { data, relay, app, website, timers, channels, settled: () => settled, work: () => work! };
+    return { data, relay, app, silent, website, timers, channels, settled: () => settled, work: () => work! };
 }
 
 // Drain promise/message delivery only. Probe timeout callbacks are never fired.
@@ -119,4 +121,20 @@ test('the worker requires address-mismatch replies to echo the requested endpoin
     expect(f.website.messages).toHaveLength(1);
     expect(f.website.messages[0].code).toBe('address');
     expect(f.timers.size).toBe(0);
+});
+
+test('a selected App hands off immediately without waiting for a silent unrelated tab', async () => {
+    const f = fixture(true);
+    f.app.onPost = (request, ports) => {
+        if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint: request.endpoint, state: 'enabled' });
+    };
+    await flush();
+    expect(f.settled()).toBe(true);
+    await f.work();
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+    expect(f.silent.posts.map(post => post.data.kind)).toEqual(['find-app']);
+    expect(f.website.messages).toEqual([]);
+    expect(f.website.closed).toBe(false);
+    expect(f.timers.size).toBe(0);
+    expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
 });

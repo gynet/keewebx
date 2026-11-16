@@ -1,6 +1,6 @@
 // Production installer acceptance with native MessagePorts and a real encrypted KDBX.
 // Fixture helpers follow native-connect.mjs; importing it would execute its suite.
-// Build the 0.6.1 installer and app assets, serve dist on KWX_APP_SERVER, then run:
+// Build the 0.6.2 installer and app assets, serve dist on KWX_APP_SERVER, then run:
 // node modules/extension/userscript/tests/port-connect.mjs
 // KWX_APP_GM_BLOCK=1 leaves every app GM read unresolved after authorization.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
@@ -40,7 +40,7 @@ const stable = value => JSON.stringify(value, (_key, item) => item && typeof ite
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const report = {
     started: new Date().toISOString(),
-    scope: 'Production 0.6.1 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
+    scope: 'Production 0.6.2 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
     nativeIOSVerified: false, realManagerVerified: false, appGMBlockedAfterAuthorization: BLOCK_APP_GM,
     steps: [], errors: []
 };
@@ -155,7 +155,7 @@ async function untilStatus(page, expression, timeout = 15000) {
 async function ready(page) {
     await realVisibility(page);
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
-    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect 0.6.1');
+    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect 0.6.2');
     expect(await page.evaluate(() => typeof globalThis.__kwxPortAdapter)).toBe('undefined');
     await snapshot(page);
     if (new URL(page.url()).origin !== new URL(APP).origin) {
@@ -183,7 +183,7 @@ function helperURL(value) {
 }
 function trackHelper(page) {
     if (!helperURL(page.url()) || helpers.has(page)) return;
-    helpers.set(page, { url: page.url(), openedAt: Date.now(), closedAt: null, automaticClosure: false });
+    helpers.set(page, { url: page.url(), openedAt: Date.now(), closedAt: null, automaticClosure: false, signedReadyBeforeClosure: false });
 }
 async function noHelpers() {
     await expect.poll(() => context.pages().filter(page => helperURL(page.url())).length, { timeout: 10000 }).toBe(0);
@@ -267,6 +267,11 @@ function signingPublicKey() {
 function validSignature(envelope) {
     return verify(null, Buffer.from(stable(envelope.packet)), signingPublicKey(), Buffer.from(envelope.signature, 'base64'));
 }
+function validReadyProof(data) {
+    const payload = JSON.stringify(['keewebx-connect-port-ready-v1', data.appBoot, data.connectionId, data.endpoint, data.siteOrigin]);
+    return typeof data.proof === 'string' && Buffer.from(data.proof, 'base64').length === 64
+        && verify(null, Buffer.from(payload), signingPublicKey(), Buffer.from(data.proof, 'base64'));
+}
 async function closedHelper(page, countBefore) {
     await noHelpers();
     expect(helpers.size).toBe(countBefore + 1);
@@ -275,14 +280,23 @@ async function closedHelper(page, countBefore) {
     expect(url.searchParams.getAll('endpoint')).toEqual([APP]);
     expect(url.searchParams.getAll('nonce')).toHaveLength(1);
     expect(url.searchParams.get('nonce')).toMatch(/^[0-9a-f-]{36}$/i);
-    const received = (await snapshot(page)).packets.filter(item => item.direction === 'received'
-        && item.at >= helper.openedAt && item.data.value?.packet?.operation === 'hello'
-        && item.data.value.packet.type === 'reply' && !item.data.value.packet.error);
-    expect(received.length).toBeGreaterThan(0);
-    expect(received.every(item => validSignature(item.data.value))).toBe(true);
-    expect(received[0].at).toBeLessThanOrEqual(helper.closedAt);
+    const { packets } = await snapshot(page);
+    const received = packets.filter(item => item.direction === 'received'
+        && item.at >= helper.openedAt && item.data.kind === 'ready');
+    expect(received).toHaveLength(1);
+    const ready = received[0];
+    expect(ready.data.marker).toBe(PORT_MARK);
+    expect(ready.data.appBoot).toBe(approvedRoute.host);
+    expect(ready.data.endpoint).toBe(APP);
+    expect(ready.data.siteOrigin).toBe(new URL(page.url()).origin);
+    expect(ready.data.connectionId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(validReadyProof(ready.data)).toBe(true);
+    expect(ready.at).toBeLessThanOrEqual(helper.closedAt);
+    expect(packets.some(item => item.direction === 'sent' && item.port === ready.port
+        && item.data.kind === 'request' && item.data.connectionId === ready.data.connectionId
+        && item.data.value?.packet?.operation === 'hello' && item.at >= ready.at)).toBe(true);
     expect(helper.automaticClosure).toBe(true);
-    helper.signedHelloBeforeClosure = true;
+    helper.signedReadyBeforeClosure = true;
     await sameApp();
 }
 async function cancelPending(page, kind) {
@@ -331,6 +345,14 @@ function installAdapter({ appURL, prefix, portMarker }) {
         ports.set(port, ++sequence);
         port.addEventListener('message', event => record(port, 'received', event.data));
     };
+    // Observe the initial ready proof before the receiver can close its helper.
+    globalThis.MessageChannel = new Proxy(MessageChannel, {
+        construct(target, args, newTarget) {
+            const channel = Reflect.construct(target, args, newTarget);
+            observe(channel.port1); observe(channel.port2);
+            return channel;
+        }
+    });
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker !== portMarker) return nativePost.call(this, data, ...rest);
         observe(this);
@@ -348,14 +370,15 @@ function installAdapter({ appURL, prefix, portMarker }) {
         state.attachments.push({ at: Date.now(), trusted: event.isTrusted,
             worker: event.source?.scriptURL, data: structuredClone(event.data) });
     });
-    state.releaseHello = () => {
+    state.releaseHello = (dropFirst = false) => {
         state.holdHello = false;
         const pending = state.heldHello.splice(0);
-        for (const { port, data, rest } of pending) {
+        const released = dropFirst ? pending.slice(1) : pending;
+        for (const { port, data, rest } of released) {
             record(port, 'sent', data);
             nativePost.call(port, data, ...rest);
         }
-        return pending.length;
+        return released.length;
     };
     state.send = envelope => {
         if (!lastRequest) throw new Error('No physical website port available');
@@ -548,8 +571,8 @@ async function setup(bundle) {
 try {
     const bundle = readFileSync(SOURCE, 'utf8');
     report.bundle = { bytes: Buffer.byteLength(bundle), sha256: createHash('sha256').update(bundle).digest('hex') };
-    await step('require the production 0.6.1 installer and built MessagePort assets', async () => {
-        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.1\s*$/m);
+    await step('require the production 0.6.2 installer and built MessagePort assets', async () => {
+        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.2\s*$/m);
         expect(bundle).toContain(PORT_MARK);
         for (const path of ['/next.html', '/connect-port/relay.html', '/connect-port/relay.js', '/connect-port/worker.js']) {
             const response = await fetch(APP_SERVER + path, { signal: AbortSignal.timeout(10000) });
@@ -591,31 +614,43 @@ try {
         await untilStatus(app, /Authorized/);
         approvedRoute = structuredClone((await settings()).get(ROUTE_KEY));
         expect(approvedRoute?.messagePort).toBe(1);
+        expect(approvedRoute.readyProof).toBe(1);
         expect(approvedRoute.endpoint).toBe(APP);
         originalApp = await documentState(app);
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
-    await step('the first trusted key action opens one relay and closes it only after signed hello', async () => {
+    await step('signed ready closes the first helper while hello is held; a cached retry survives a lost first reply', async () => {
         first = await newWebsite(ACCOUNTS[0]);
         const count = helpers.size, reads = await fieldReads();
         await adapter(app, '__kwxPortAdapter.holdHello = true');
         try {
             await startLookup(first);
-            await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 25000 }).toBe(1);
+            await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 25000 }).toBeGreaterThanOrEqual(1);
             await expect.poll(() => helpers.size).toBe(count + 1);
             const helper = [...helpers.keys()][count];
-            expect(helper.isClosed()).toBe(false);
-            await first.waitForTimeout(250);
-            expect(helper.isClosed()).toBe(false);
-            expect(await entries(first)).not.toContain(ACCOUNTS[0].title);
-            await emptyFields(first);
-            expect(await adapter(app, '__kwxPortAdapter.releaseHello()')).toBe(1);
-            await matchingList(first, ACCOUNTS[0], reads);
+            await expect.poll(() => helper.isClosed(), { timeout: 2000, message: 'Signed ready must close the helper while RPC hello is held' }).toBe(true);
             await closedHelper(first, count);
+            await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
+            expect(helper.isClosed()).toBe(true);
+            const helloRepliesHeld = (await snapshot(app)).heldHello, port = await physicalPort(first);
+            const { packets } = await snapshot(first);
+            const hellos = packets.filter(item => item.direction === 'sent' && item.data.kind === 'request'
+                && item.data.value?.packet?.operation === 'hello');
+            expect(hellos.length).toBeGreaterThanOrEqual(2);
+            expect(new Set(hellos.map(item => JSON.stringify(item.data.value))).size).toBe(1);
+            expect(packets.filter(item => item.direction === 'received'
+                && item.data.value?.packet?.operation === 'hello')).toHaveLength(0);
+            expect(await shadowValue(first, '[data-action="entry-0"]')).toBe(null);
+            for (const account of ACCOUNTS) expect(await entries(first)).not.toContain(account.title);
+            await emptyFields(first);
+            expect(await fieldReads()).toBe(reads);
+            expect(await adapter(app, '__kwxPortAdapter.releaseHello(true)')).toBeGreaterThanOrEqual(1);
+            await matchingList(first, ACCOUNTS[0], reads);
             await fill(first, ACCOUNTS[0]);
             expect(await app.evaluate(() => document.hidden)).toBe(true);
-            await physicalPort(first);
+            expect(await physicalPort(first)).toEqual(port);
+            return { helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
         } finally { await adapter(app, '__kwxPortAdapter.releaseHello()'); }
     });
     await step('Find accounts on another origin opens one temporary helper and matches only that origin', async () => {
@@ -744,22 +779,24 @@ try {
         }
     });
     await step('a generic timeout and its late signed hello never open or navigate another app', async () => {
-        await clearFields(first); await lookup(first, ACCOUNTS[1]); await config(first);
+        await archive(first); await first.reload(); await ready(first); await config(first);
         const count = helpers.size;
         await adapter(app, '__kwxPortAdapter.holdHello = true');
         try {
             await action(first, 'probe');
-            await expect.poll(async () => (await snapshot(app)).heldHello).toBe(1);
+            await expect.poll(async () => (await snapshot(app)).heldHello).toBeGreaterThanOrEqual(1);
+            await closedHelper(first, count);
+            expect((await snapshot(app)).heldHello).toBeGreaterThanOrEqual(1);
             const timedOut = await untilStatus(first, /timed out|timeout|did not (?:reply|respond)|Visit your existing|unresponsive/i, 30000);
-            await emptyFields(first); await sameApp(); expect(helpers.size).toBe(count);
-            expect(await adapter(app, '__kwxPortAdapter.releaseHello()')).toBe(1);
+            await emptyFields(first); await sameApp(); expect(helpers.size).toBe(count + 1);
+            expect(await adapter(app, '__kwxPortAdapter.releaseHello()')).toBeGreaterThanOrEqual(1);
             await first.waitForTimeout(350);
             expect(await status(first)).toBe(timedOut); await emptyFields(first);
-            expect(helpers.size).toBe(count); await sameApp(); await noHelpers();
+            expect(helpers.size).toBe(count + 1); await sameApp(); await noHelpers();
         } finally { await adapter(app, '__kwxPortAdapter.releaseHello()'); }
         // A real timeout discards the failed port. Only this explicit user retry
         // may establish another port; idle time and late replies open nothing.
-        await lookup(first, ACCOUNTS[1]); await closedHelper(first, count); await fill(first, ACCOUNTS[1]);
+        await lookup(first, ACCOUNTS[1]); await closedHelper(first, count + 1); await fill(first, ACCOUNTS[1]);
         await sameApp(); await noHelpers();
     });
     await step('revocation denies an attached site and a fresh document without another app or consent', async () => {
@@ -779,7 +816,8 @@ try {
     await step('audit real worker provenance, signed encrypted port traffic and automatic helper closure', async () => {
         for (const page of context.pages()) await archive(page);
         const allDocuments = [...documents.values()];
-        const packets = allDocuments.flatMap(document => document.packets).filter(item => item.data.value?.packet);
+        const traffic = allDocuments.flatMap(document => document.packets);
+        const packets = traffic.filter(item => item.data.value?.packet);
         expect(packets.length).toBeGreaterThan(30);
         expect(packets.every(item => validSignature(item.data.value))).toBe(true);
         const privateActions = new Set(['kwx-pair', 'kwx-features', 'kwx-get-entries', 'kwx-get-entry-fields']);
@@ -789,7 +827,12 @@ try {
             && !('values' in body) && !('suggested' in body))).toBe(true);
         const appDocument = allDocuments.find(document => document.role === 'app');
         const attachments = appDocument.attachments.filter(item => item.data.kind === 'attach-port');
-        expect(attachments.length).toBeGreaterThanOrEqual([...helpers.values()].filter(helper => helper.signedHelloBeforeClosure).length);
+        const signedReadyBeforeClosure = [...helpers.values()].filter(helper => helper.signedReadyBeforeClosure).length;
+        const readyProofs = traffic.filter(item => item.direction === 'received' && item.data.kind === 'ready');
+        expect(readyProofs.length).toBeGreaterThanOrEqual(signedReadyBeforeClosure);
+        expect(readyProofs.every(item => validReadyProof(item.data) && item.data.appBoot === approvedRoute.host
+            && item.data.endpoint === APP && ACCOUNTS.slice(0, 2).some(account => new URL(account.url).origin === item.data.siteOrigin))).toBe(true);
+        expect(attachments.length).toBeGreaterThanOrEqual(signedReadyBeforeClosure);
         expect(attachments.every(item => item.trusted && item.worker === 'https://keewebx.app/connect-port/worker.js'
             && item.data.appBoot === approvedRoute.host && item.data.endpoint === APP)).toBe(true);
         expect(assetRequests.get('/connect-port/worker.js')).toBeGreaterThan(0);
@@ -798,11 +841,12 @@ try {
         const audit = await nativeWorker.evaluate(() => globalThis.audit);
         expect(audit.length).toBeGreaterThan(0);
         expect(audit.some(item => item.key.includes('keewebx-connect-mailbox-v1:'))).toBe(false);
-        const serialized = JSON.stringify({ audit, packets });
+        const serialized = JSON.stringify({ audit, traffic });
         for (const secret of PRIVATE_VALUES) expect(serialized).not.toContain(secret);
         await noHelpers();
-        expect([...helpers.values()].filter(helper => helper.signedHelloBeforeClosure).length).toBeGreaterThanOrEqual(10);
+        expect(signedReadyBeforeClosure).toBeGreaterThanOrEqual(10);
         report.transportAudit = { signedEnvelopes: packets.length, encryptedSensitiveEnvelopes: sensitive.length,
+            signedReadyProofs: readyProofs.length, signedReadyBeforeClosure,
             nativeWorkerAttachments: attachments.length, mailboxFallbacks: 0, noPlaintext: true };
         return report.transportAudit;
     });
@@ -827,6 +871,7 @@ try {
     report.finished = new Date().toISOString();
     report.appNavigationRequests = appNavigationRequests;
     report.helpers = { opened: helpers.size, automaticallyClosed: [...helpers.values()].filter(helper => helper.automaticClosure).length,
+        signedReadyBeforeClosure: [...helpers.values()].filter(helper => helper.signedReadyBeforeClosure).length,
         remaining: context ? context.pages().filter(page => helperURL(page.url())).length : 0, lifecycle: [...helpers.values()] };
     writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2));
     console.log(JSON.stringify({ report: join(OUT, 'report.json'), passed: report.passed }));

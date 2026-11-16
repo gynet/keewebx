@@ -29,8 +29,10 @@ port1. A helper opened synchronously from the trusted tap verifies its opener,
 origin, nonce and endpoint, then transfers port2 to a worker registered only
 under `connect-port/`. The worker finds same-origin top-level clients, probes
 the selected App boot ID, and transfers port2 to exactly that App. The worker
-retains no channel endpoint. The website verifies a signed App hello response
-before closing the helper. All subsequent Connect requests bypass both helper
+retains no channel endpoint. The App signs a transport-ready receipt binding its boot ID, the fresh
+connection ID, endpoint and website origin. The website verifies that receipt
+and closes the helper synchronously in the ready event. The existing signed
+RPC hello then creates its account-selection session without a foreground helper. All subsequent Connect requests bypass both helper
 and worker.
 
 ## Boundaries
@@ -80,6 +82,14 @@ synchronously and sends storage-event cleanup to other App documents. App reload
 website reload, abnormal termination and timeout require fresh channel endpoints;
 reconnection always discovers an existing selected App and never navigates an
 unlocked database to create a replacement.
+
+Only the active logical session's hello receipt can be cached. A repeated, valid,
+identical hello on the same physical port receives that receipt until its original
+deadline. It does not create another session or execute a wire request. Selection,
+lock, expiry, release and revocation checks remain in force. The website retries
+only this idempotent handshake on the existing port; credential operations are
+never automatically replayed. Discovery hands off as soon as the selected boot
+answers, then closes unused probe ports rather than waiting for unrelated tabs.
 
 ## Acceptance scope
 
