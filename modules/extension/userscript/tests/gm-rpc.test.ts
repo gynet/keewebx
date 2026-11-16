@@ -92,6 +92,14 @@ test('serialized storage can reorder nested object keys without breaking a signe
     expect(response.appBoot).toBe(request().value.packet.host);
 });
 
+test('native storage cannot turn undefined message properties into signed null properties', async () => {
+    const nativeValue = (value: any): any => value === undefined ? null : Array.isArray(value) ? value.map(nativeValue)
+        : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, nativeValue(value[key])])) : value;
+    mutate = (_key, value) => nativeValue(value);
+    const result = await client.call('probe', undefined, 700);
+    expect(result.appBoot).toBe(request().value.packet.host);
+});
+
 test('replaying a consumed signed hello cannot create another reply', async () => {
     const original = request(); const p = original.value.packet;
     expect(store.has(responseKey(p))).toBe(false);

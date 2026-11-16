@@ -7,7 +7,7 @@ import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const runtime = { getVersion: () => '0.4.1', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
+const runtime = { getVersion: () => '0.4.2', getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function start(): Promise<void> {

@@ -1,6 +1,6 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current architecture: 0.4.1
+## Current architecture: 0.4.2
 
 Authorize the intended KeeWebX app tab once with **Authorize Connect** and the
 native **Allow** dialog for account listing. All login websites then use the
@@ -21,7 +21,7 @@ run. The enabled app polls request keys at about 500 ms idle or 60 ms after
 recent activity; websites poll only pending reply keys at about 80 ms.
 
 Install from the
-[0.4.1 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.1/modules/extension/userscript/keewebx-connect.user.js).
+[0.4.2 raw URL](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.2/modules/extension/userscript/keewebx-connect.user.js).
 See the [current setup and validation commands](../README.md). The current
 real-app regression entry point is `tests/gm-connect.mjs`; the helper acceptance
 results below do not validate this new transport. Its desktop harness simulates
@@ -29,11 +29,11 @@ GM storage/injection, so native Userscripts execution, iOS long suspension,
 screen lock and memory pressure remain unverified. No automatic OS wakeup is
 established.
 
-### Accepted 0.4.1 repair and results
+### Accepted 0.4.2 repair and results
 
 The 0.4.0 signature format depended on dictionary enumeration order. A storage
 adapter that serializes and reorders nested keys reproduced lost requests.
-0.4.1 signs canonical JSON; the same counterexample now passes. Every real-app
+0.4.2 normalizes packets to JSON values and signs canonical JSON; the same counterexample now passes. Every real-app
 GM write in the new harness is JSON-serialized with reversed nested key order.
 This is a native-storage compatibility model, not a native iPhone certificate.
 
@@ -50,14 +50,14 @@ watchdogs reject unanswered requests even when a GM read or write never
 settles. Manager calls are bounded; queue errors are reported in the app.
 An incompatible older app script is detected before a new-format request.
 
-- Exact installer: 80,610 bytes; SHA-256
-  `7ee32560d7f32d6bb82ae385a06fbec002c53c7fc3df5d114de8e1415c819026`.
+- Exact installer: 80,656 bytes; SHA-256
+  `a8b85588ec55aaea9daab688ba3f9c3d464627cd8711aa74f0c2b81a265849c3`.
 - Fifteen real production-app Chromium steps passed. They include one native
   grant, two independent origins, Test connection, Open preserving the original
   unlocked document, ten alternating fills, renewal beyond the short session
   expiry, website reload, cancellation/navigation, locked-vault rejection and
   encrypted queue cleanup.
-- Eleven transport checks passed, including key-order changes, unresolved
+- Twelve transport checks passed, including key-order changes, undefined/null normalization, unresolved
   storage promises, old-script detection, replay, invalid signatures/scopes,
   cancellation and revocation.
 - All historical GM writes were audited for plaintext fixture data and valid

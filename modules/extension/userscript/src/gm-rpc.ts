@@ -34,7 +34,10 @@ export function managerCall<T>(operation: () => Promise<T>, description = 'Users
         });
     });
 }
-const signed = (packet: Packet, keys: Keys): Signed => ({ packet, signature: toBase64(sign.detached(bytes(packet), keys.secretKey)) });
+const signed = (packet: Packet, keys: Keys): Signed => {
+    const value = canonical(JSON.parse(JSON.stringify(packet))) as Packet;
+    return { packet: value, signature: toBase64(sign.detached(bytes(value), keys.secretKey)) };
+};
 const verified = (value: unknown, key: Uint8Array): value is Signed => {
     if (!object(value) || !object(value.packet) || typeof value.signature !== 'string') return false;
     try { return sign.detached.verify(bytes(value.packet), fromBase64(value.signature), key); } catch { return false; }
