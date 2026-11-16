@@ -25,12 +25,13 @@ const ACCOUNTS = [
  {title:'First fixture account',url:'https://login.example.org/',user:'first-fixture-user',password:'Disposable-first-password!'},
  {title:'Second fixture account',url:'https://signin.example.net/',user:'second-fixture-user',password:'Disposable-second-password!'},
  {title:'Unrelated fixture account',url:'https://wrong.example.com/',user:'unrelated-fixture-user',password:'Disposable-unrelated-password!'},
- {title:'Apex forum fixture account',url:'uscardforum.com',user:'forum-fixture-user',password:'Disposable-forum-password!'}
+ {title:'Apex forum fixture account',url:'uscardforum.com',user:'forum-fixture-user',password:'Disposable-forum-password!'},
+ {title:'Additional website fixture account',url:'https://primary.example.com/',extraUrls:['https://secondary.example/account'],user:'additional-fixture-user',password:'Disposable-additional-password!'}
 ];
 const PRIVATE_VALUES=[DB_PASSWORD,...ACCOUNTS.flatMap(a=>[a.title,a.user,a.password])];
 const redact=value=>PRIVATE_VALUES.reduce((result,secret)=>result.replaceAll(secret,'[fixture value]'),String(value));
 const report={started:new Date().toISOString(),scope:'Exact installer in Chromium isolated content scripts, native window and BroadcastChannel delivery, native extension storage with GM adapter, real KDBX and native consent', nativeIOSVerified:false,realManagerVerified:false,storageNotifications:STORAGE_EVENTS,steps:[],errors:[]};
-const cdpByPage=new WeakMap(), lifecycleByPage=new WeakMap(), gm=new Map(), connectors=new Map();
+const cdpByPage=new WeakMap(), gm=new Map(), connectors=new Map();
 let context, app, first, second, nativeWorker, originalApp, approvedRoute, appNavigationRequests=0;
 let expectedForgeryIds=[];
 async function step(name, fn) {
@@ -53,14 +54,13 @@ async function cdp(page) {
     return cdpByPage.get(page);
 }
 async function realVisibility(page) {
-    if (!lifecycleByPage.has(page)) {
+    await page.waitForLoadState('domcontentloaded');
         // Playwright forces every tab visible through its own CDP session.
         // Disable that override on that session, not a second session whose
         // setting cannot override it. This is pinned to our Playwright version.
         const session=page._connection.toImpl(page).delegate._mainFrameSession._client;
-        lifecycleByPage.set(page,session.send('Emulation.setFocusEmulationEnabled',{enabled:false}));
-    }
-    await lifecycleByPage.get(page);
+        // Reapply after navigation: Chromium can replace the renderer/session.
+        await session.send('Emulation.setFocusEmulationEnabled',{enabled:false});
 }
 function hostIn(node) {
     if (node.attributes?.some((value, index, attributes) => index % 2 === 0 && value === 'id' && attributes[index + 1] === 'keewebx-userscript-connect')) return node;
@@ -213,13 +213,13 @@ async function setup(bundle) {
  },{appUrl:APP,marker:MARK});
  context.on('page',page=>{page.on('pageerror',error=>report.errors.push(redact(error.message)));page.on('console',m=>{if(/Request payload|Response payload/.test(m.text()))report.errors.push('Unexpected credential payload logging');});});
  await context.route('https://keewebx.app/**',async route=>{const url=new URL(route.request().url());if(route.request().isNavigationRequest()&&url.pathname==='/app')appNavigationRequests++;let path=url.pathname.replace(/^\/app(?=\/|$)/,'')||'/next.html';if(path==='/')path='/next.html';const response=await context.request.get(APP_SERVER+path+url.search);await route.fulfill({response});});
- for(const origin of [...ACCOUNTS.slice(0,2).map(account=>new URL(account.url).origin),'https://www.uscardforum.com','https://www.uscardforum.com.evil.test'])await context.route(origin+'/**',route=>route.fulfill({headers:route.request().url().includes('/isolated')?{'cross-origin-opener-policy':'same-origin'}:{},contentType:'text/html',body:`<!doctype html><title>Disposable login</title><style>body{font:18px system-ui;padding:80px}input{display:block;width:300px;height:40px;margin:12px}</style><h1>Login</h1><form><input id="username" autocomplete="username"><input id="login-password" type="password" autocomplete="current-password"><button>Sign in</button></form><script>window.formSubmits=0;window.credentialInputEvents=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.formSubmits++});for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>`}));
+ for(const origin of [...ACCOUNTS.slice(0,2).map(account=>new URL(account.url).origin),'https://www.uscardforum.com','https://www.uscardforum.com.evil.test','https://www.secondary.example'])await context.route(origin+'/**',route=>route.fulfill({headers:route.request().url().includes('/isolated')?{'cross-origin-opener-policy':'same-origin'}:{},contentType:'text/html',body:`<!doctype html><title>Disposable login</title><style>body{font:18px system-ui;padding:80px}input{display:block;width:300px;height:40px;margin:12px}</style><h1>Login</h1><form><input id="username" autocomplete="username"><input id="login-password" type="password" autocomplete="current-password"><button>Sign in</button></form><script>window.formSubmits=0;window.credentialInputEvents=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.formSubmits++});for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>`}));
 }
 try {
  const bundle=readFileSync(SOURCE,'utf8');report.bundle={bytes:Buffer.byteLength(bundle),sha256:createHash('sha256').update(bundle).digest('hex')};
  expect(bundle).not.toContain('keewebx-userscript-connect-request-v2:');expect(bundle).toContain('keewebx-connect-mailbox-v1:');
  await step('create real encrypted KDBX with accounts for two distinct origins',async()=>{
-  const source=`import * as kdbx from ${JSON.stringify(pathToFileURL(join(ROOT,'modules/db/lib/index.ts')).href)};import {argon2} from ${JSON.stringify(pathToFileURL(join(ROOT,'modules/db/test/test-support/argon2.ts')).href)};import {writeFileSync} from 'node:fs';kdbx.CryptoEngine.setArgon2Impl(argon2);const db=kdbx.Kdbx.create(new kdbx.Credentials(kdbx.ProtectedValue.fromString(${JSON.stringify(DB_PASSWORD)})),'Disposable Connect');db.header.kdfParameters.set('M',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(32768));db.header.kdfParameters.set('I',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(2));for(const account of ${JSON.stringify(ACCOUNTS)}){const entry=db.createEntry(db.getDefaultGroup());entry.fields.set('Title',account.title);entry.fields.set('URL',account.url);entry.fields.set('UserName',account.user);entry.fields.set('Password',kdbx.ProtectedValue.fromString(account.password));}writeFileSync(${JSON.stringify(join(OUT,'fixture.kdbx'))},new Uint8Array(await db.save()));`;
+  const source=`import * as kdbx from ${JSON.stringify(pathToFileURL(join(ROOT,'modules/db/lib/index.ts')).href)};import {argon2} from ${JSON.stringify(pathToFileURL(join(ROOT,'modules/db/test/test-support/argon2.ts')).href)};import {writeFileSync} from 'node:fs';kdbx.CryptoEngine.setArgon2Impl(argon2);const db=kdbx.Kdbx.create(new kdbx.Credentials(kdbx.ProtectedValue.fromString(${JSON.stringify(DB_PASSWORD)})),'Disposable Connect');db.header.kdfParameters.set('M',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(32768));db.header.kdfParameters.set('I',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(2));for(const account of ${JSON.stringify(ACCOUNTS)}){const entry=db.createEntry(db.getDefaultGroup());entry.fields.set('Title',account.title);entry.fields.set('URL',account.url);entry.fields.set('UserName',account.user);entry.fields.set('Password',kdbx.ProtectedValue.fromString(account.password));for(let index=0;index<(account.extraUrls||[]).length;index++)entry.fields.set(index?'KP2A_URL_'+index:'KP2A_URL',account.extraUrls[index]);}writeFileSync(${JSON.stringify(join(OUT,'fixture.kdbx'))},new Uint8Array(await db.save()));`;
   execFileSync(BUN,['--eval',source],{cwd:ROOT,timeout:20000,stdio:['ignore','pipe','pipe']});
  });
  await setup(bundle);
@@ -252,6 +252,13 @@ try {
    expect(await entries(forum)).not.toContain(ACCOUNTS[3].title);
    expect(await fieldReads()).toBe(reads);await emptyFields(forum);await sameApp();
   } finally {await forum.close();}
+ });
+ await step('app matching includes an additional saved URL even when the primary URL is another hostname',async()=>{
+  const website=await context.newPage();
+  try {
+   await website.goto('https://www.secondary.example/login');await ready(website);
+   await lookup(website,ACCOUNTS[4]);await fill(website,ACCOUNTS[4]);await sameApp();
+  } finally {await website.close();}
  });
  await step('one browser tab navigates between websites four times without opening another connection page',async()=>{
   const helper=connectors.get(first),boot=await helper.evaluate(()=>performance.timeOrigin),pages=context.pages().length;
@@ -367,7 +374,18 @@ try {
    await expect(helper.getByRole('status')).toContainText('Connected to your existing KeeWebX tab',{timeout:12000});
    await expect(helper.getByRole('link',{name:'Open a new KeeWebX tab'})).toBeHidden();
    await untilStatus(first,/Connected to the authorized KeeWebX tab/);
+   await helper.bringToFront();
    await helper.getByRole('button',{name:'Back to website'}).click();
+   const returnStatus=helper.locator('[data-role="website-return-status"]');
+   await expect(returnStatus).toHaveText(/^(Your website is visible and focused\.|The website has not confirmed focus\.)/,{timeout:6000});
+   const result=await returnStatus.textContent();
+   if(result.startsWith('Your website is visible and focused.')) {
+    expect(await first.evaluate(()=>!document.hidden&&document.hasFocus())).toBe(true);
+   } else {
+    expect(result).toContain('Safari’s tabs button');
+    await first.bringToFront();
+   }
+   report.returnToWebsite={acknowledged:result.startsWith('Your website is visible and focused.'),connectionPageStayedOpen:!helper.isClosed()};
    await lookup(first,ACCOUNTS[1]);await fill(first,ACCOUNTS[1]);
    expectedForgeryIds=await app.evaluate(()=>globalThis.recoveryForgeryIds);
    expect(expectedForgeryIds.length).toBeGreaterThan(0);
@@ -376,6 +394,22 @@ try {
    await app.evaluate(()=>globalThis.recoveryForgery?.close());
    await nativeWorker.evaluate(()=>{globalThis.muteAppMailbox=false;});
   }
+ });
+ await step('an unacknowledged return shows manual tab instructions and preserves the connection page',async()=>{
+  const helper=context.pages().find(page=>page.url().includes('connect.html'));
+  await first.evaluate(()=>{
+   globalThis.blockReturnAcknowledgement=event=>{
+    if(event.data?.marker==='keewebx-native-connect-v1'&&event.data.kind==='return-to-website')event.stopImmediatePropagation();
+   };
+   addEventListener('message',globalThis.blockReturnAcknowledgement,true);
+  });
+  try {
+   await helper.bringToFront();await helper.getByRole('button',{name:'Back to website'}).click();
+   await expect(helper.locator('[data-role="website-return-status"]')).toContainText('has not confirmed focus',{timeout:7000});
+   await expect(helper.locator('[data-role="website-return-status"]')).toContainText('Keep this connection page open');
+   expect(helper.isClosed()).toBe(false);await sameApp();
+  } finally {await first.evaluate(()=>removeEventListener('message',globalThis.blockReturnAcknowledgement,true));}
+  await clearFields(first);await lookup(first,ACCOUNTS[1]);await fill(first,ACCOUNTS[1]);await sameApp();
  });
  await step('native and recovery channels retain signed encrypted payloads with no plaintext credentials',async()=>{
   const audit=await nativeWorker.evaluate(()=>globalThis.audit);await settings();

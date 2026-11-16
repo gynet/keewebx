@@ -47,15 +47,3 @@ export function fill(target: Targets, values: Record<string, string>, assertLive
         setInputText(target.password, values.password);
     }
 }
-export function matchesOrigin(value: string, origin: string): boolean {
-    try {
-        const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
-        const destination = new URL(origin);
-        // Treat only the conventional www alias as the same account website.
-        // Message destinations and form lifetime checks retain their exact origin.
-        const hostname = (url: URL) => url.hostname.replace(/^www\./, '');
-        return url.protocol === 'https:' && destination.protocol === 'https:' &&
-            !url.username && !url.password && !destination.username && !destination.password &&
-            url.port === destination.port && hostname(url) === hostname(destination);
-    } catch { return false; }
-}

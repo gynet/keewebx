@@ -30,10 +30,13 @@ jobs:
       - name: Build and check the exact committed installer
         run: |
           bun modules/extension/userscript/build-connect.ts
-          bun test modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/account-matching.test.ts
+          bun test modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
           node --check modules/extension/userscript/keewebx-connect.user.js
           git diff --exit-code -- modules/extension/userscript/keewebx-connect.user.js
+      - name: Check app-side website scope enforcement
+        working-directory: modules/ui-classic
+        run: bun test tests/comp/extension/website-protocol.test.ts
       - name: Verify release version and package
         run: |
           set -euo pipefail

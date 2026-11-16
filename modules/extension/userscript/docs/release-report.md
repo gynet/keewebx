@@ -1,6 +1,74 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current release: 0.5.4
+## Current release: 0.5.5
+
+Website account matching and credential scope enforcement now belong to the app.
+The previous release fixed a `www.` mismatch in the script, but duplicated an
+app decision. Simply deleting that filter would have left the website client
+using the general list-and-handle API approved for desktop extensions.
+
+The app-side userscript receiver now attaches its signed website session's
+origin to the local bridge. The app connector pins canonical HTTPS metadata to
+the tagged transport lifetime. Origin changes require a new handshake and
+invalidate old work. The encrypted protocol advertises `website-matching-v1`
+and the bound site; the script requires both before listing or filling.
+
+For these connections the app ignores requested URL/query overrides, returns
+only accounts matching its policy, and returns no general recent/search list.
+Entry handles carry the website scope. Permission, vault, handle and current
+entry URL checks run again during reads and before final delivery. Legacy
+field commands cannot bypass the scoped API. General desktop extension sessions
+retain their existing listing/search behavior.
+
+The matching policy includes primary and additional URLs, the conventional
+`www.` alias, and default-port HTTP-to-HTTPS upgrades for saved legacy URLs.
+It excludes unrelated hosts, arbitrary subdomains, misleading suffixes, URL
+userinfo and port confusion. Scripts retain document, exact origin, lifetime
+and form checks; the separate script-side account matcher has been removed.
+The retired source entry redirects to the current flow.
+
+This boundary trusts the installed isolated script to obtain the browser's
+actual origin. The app cannot inspect another origin's DOM itself; binding
+the reported origin does not make a compromised installed client trustworthy.
+Ordinary website scripts cannot change a live bridge's origin or read private
+manager identity through this protocol.
+
+The connection page also checks the outcome of Back to website. A mere focus
+call is insufficient; the original website must confirm visibility and focus
+for the current peer, origin, routing ID and nonce. When it does not confirm,
+the page explains how to use Safari's tab switcher and remains open. The relay
+is still required when mailbox delivery fails: closing it can still require
+explicit reconnection. Native iPhone seamless recovery is not established.
+
+Upgrade the existing app and script together: save database changes, update the
+one installed script under the same filename, then reload the app and website.
+Old app policies/receivers are rejected explicitly rather than receiving an
+unscoped fallback. Existing saved entries and vault approvals are retained.
+
+### Acceptance
+
+- **218 unit checks passed** for the transport, matching policy, cancellation
+  and return acknowledgement; **84 app protocol checks passed** with real NaCl,
+  including wrong-site queries/handles, in-place URL edits, final response
+  revalidation, permission reduction, origin downgrade and legacy compatibility.
+- The exact installer passed **22 real-app browser steps** with storage
+  notifications and **the same 22 steps without them**. Both runs used real
+  extension isolation and storage, a GM adapter, encrypted KDBX and native consent.
+- Browser checks include a bare apex URL on its `www.` login, an additional URL
+  with an unrelated primary URL, lookalike-host exclusion, true hidden/frozen
+  lifecycle, and blocked return acknowledgements with manual recovery. The
+  return test waits for the final outcome rather than the progress message.
+- All seven form-destination browser checks, the complete app build, app/script
+  TypeScript, JavaScript syntax and deterministic installer checks passed.
+
+Installer: **98,063 bytes**. SHA-256:
+`3eac5d0f5cd9b206c364ca4efea314551c7a10a6dfeb569a9c4b67de8d3da9be`.
+
+See the [iframe investigation](iframe-relay.md) for the partitioned-browser probe
+and the separate, unverified Storage Access API path. None of these desktop
+results certifies the installed iPhone Userscripts runtime.
+
+## Historical release: 0.5.4
 
 An entry saved as `uscardforum.com` was missing from suggestions on
 `https://www.uscardforum.com/login`. The app's existing suggestion filter finds

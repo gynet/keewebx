@@ -1,11 +1,11 @@
-# Userscripts on iOS: KeeWebX Connect 0.5.4
+# Userscripts on iOS: KeeWebX Connect 0.5.5
 
 Authorize your unlocked KeeWebX app once, then select matching accounts beside
 login fields on any website. Finding accounts and testing the connection never
 open a page. Forms are filled only after an explicit account selection and are
 never submitted automatically.
 
-[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.4/modules/extension/userscript/keewebx-connect.user.js)
+[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.5/modules/extension/userscript/keewebx-connect.user.js)
 
 ## Install and use
 
@@ -31,18 +31,20 @@ authorized app through native messages. This action does not open a second vault
 When the page confirms the existing app replied, choose **Back to website** and
 find accounts. Keep this small connection page open while using the restored link.
 
-## Upgrade from 0.5.0–0.5.3
+## Upgrade from 0.5.0–0.5.4
 
-From **0.5.3**, replace the one installed script and reload the login website.
-This matching correction runs on the website; the existing 0.5.3 app receiver
-can stay open and unlocked. The saved entry and authorization do not need changes.
+Replace the one installed script. Save database changes, update/reload the existing
+KeeWebX app, and reload the login website so both show **Connect 0.5.5**. This
+release requires the updated app policy and app-side receiver. The script checks
+that the app supports website-scoped matching before listing or filling. If it
+asks for an app update, refresh the existing app after saving database changes.
+The saved entries, signing identity and native vault permission are retained.
 
-From older versions, replace the script, save database changes, then reload the
-existing app and website once so both run **Connect 0.5.4**. Both the app receiver
-and website client must run the updated lifecycle and recovery checks. Existing
-signing identity and vault permission are retained. Close obsolete connection pages; they are not
-required for normal mailbox filling. Keep a recovery connection page open while
-using its native link.
+Keep a recovery connection page open while using its native link. Closing it
+ends that link. If the private mailbox also fails to reply, an explicit
+**Reconnect to existing tab** is needed to restore it; automatic recovery after
+closing the relay has not been established on iOS. Use Safari's tab switcher if
+**Back to website** does not switch tabs; keep the connection page open.
 
 Replace the same filename in Userscripts. A renamed copy has a separate private
 storage namespace and cannot share the original script's authorization. Keep
@@ -76,11 +78,19 @@ the same host, single-session ownership, replay checks, exact website origin,
 request deadline and encrypted Connect protocol. This is a transport fallback,
 not a second authorization flow. There is no remote relay server.
 
-Account suggestions treat a hostname and its leading `www.` alias as the same
-website. For example, an entry saved as `uscardforum.com` can be selected on
+The app controls account matching. It binds each website connection to its
+HTTPS origin, returns only matching account summaries, and binds temporary
+entry handles to that site. Changing a URL or search query cannot enumerate
+other websites through this connection. Before returning fields, the app checks
+permissions, the current entry URLs, site binding, vault state and handle lifetime
+again. The userscript displays the app's suggestions and checks the live page
+and form destination; it contains no separate account-domain matcher.
+
+The app treats a hostname and its leading `www.` alias as the same website. For example, an entry saved as `uscardforum.com` can be selected on
 `https://www.uscardforum.com/login`. Matching still checks ports and excludes
 unrelated hostnames, other subdomains, and URL user information. This account
 matching rule does not change the exact message origin or form destination.
+Primary and additional saved URLs follow the same app policy.
 
 The script requests `GM.getValue`, `GM.setValue`, `GM.deleteValue`,
 `GM.listValues`, `GM.getTab` and `GM.saveTab`. Persistent storage contains the
@@ -102,7 +112,7 @@ Build with Bun 1.3.11:
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
-bun test modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/account-matching.test.ts
+bun test modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
 modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
 ```
 
@@ -134,4 +144,6 @@ See the [release report](docs/release-report.md) and
 [0.5.2 audit](docs/audit-0.5.2.md). Desktop browser results do not
 certify the installed iOS Userscripts manager. Native phone acceptance, long
 suspension and standalone Home Screen PWA communication remain unverified.
-Manual switching to the existing app may be needed.
+Manual switching to the existing app may be needed. See the
+[hidden iframe investigation](docs/iframe-relay.md) for the tested partitioning
+limitation of embedding the relay instead of retaining its tab.

@@ -36,7 +36,7 @@ export function ExtensionPreferences({ enabled }: { enabled: boolean }) {
         <details class="preference-help">
             <summary>{t('iOS Safari with Userscripts (experimental)')}</summary>
             <p>{t('Install the Userscripts app, then save the KeeWebX Connect script in its script folder. Disable the old connection probes and allow Userscripts on KeeWebX and your login website.')}</p>
-            <p><a href="https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.4/modules/extension/userscript/keewebx-connect.user.js" target="_blank" rel="noopener noreferrer">{t('Download Connect userscript')}</a> · <a href={`${Links.Repo}/tree/master/modules/extension/userscript#readme`} target="_blank" rel="noopener noreferrer">{t('Userscripts setup guide')}</a></p>
+            <p><a href="https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.5/modules/extension/userscript/keewebx-connect.user.js" target="_blank" rel="noopener noreferrer">{t('Download Connect userscript')}</a> · <a href={`${Links.Repo}/tree/master/modules/extension/userscript#readme`} target="_blank" rel="noopener noreferrer">{t('Userscripts setup guide')}</a></p>
             <ol>
                 <li>{t('In the KeeWebX tab you want to use, unlock a database, open KeeWebX Connect, choose Authorize Connect and select Allow for account listing once. All login websites then use this tab.')}</li>
                 <li>{t('On a login website, focus a login field, tap the key and select a matching account. Finding accounts and testing the connection never open a page. Switching websites reuses the same authorization; forms are not submitted automatically.')}</li>

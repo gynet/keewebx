@@ -1532,4 +1532,128 @@ describe('extension transport lifecycle', () => {
         connector.browserWindowMessage({ source: window, origin: 'https://evil.example', data: { kwConnect: 'request' } } as MessageEvent);
         await settle(); expect(handle).not.toHaveBeenCalled();
     });
+
+    describe('website transport metadata admission', () => {
+        const website = 'https://login.example.org';
+        const otherWebsite = 'https://signin.example.net';
+        const sendWebsite = (action: string, port: unknown, origin: unknown) =>
+            connector.browserWindowMessage({ source: window, origin: location.origin,
+                data: { kwConnect: 'request', kwConnection: port, kwWebsiteOrigin: origin,
+                    action, clientID: 'website-client' } } as MessageEvent);
+
+        test('the first tagged handshake pins canonical HTTPS metadata for later field requests', async () => {
+            sendWebsite('change-public-keys', 'website-port', website); await settle();
+            expect(handle).toHaveBeenCalledTimes(1);
+            const bound = handle.mock.calls[0][1];
+            expect(bound).toMatchObject({ connectionId: 1, websiteOrigin: website });
+            expect(bound.websiteOrigin).not.toBe(location.origin);
+            expect(posted.mock.calls[0]).toEqual([
+                expect.objectContaining({ kwConnect: 'response', kwConnection: 'website-port' }),
+                'https://vault.example'
+            ]);
+
+            sendWebsite('kwx-get-entry-fields', 'website-port', website); await settle();
+            expect(handle).toHaveBeenCalledTimes(2);
+            expect(handle.mock.calls[1][1]).toBe(bound);
+            expect(handle.mock.calls[1][1].websiteOrigin).toBe(website);
+        });
+
+        test('same-port field requests cannot replace or omit the pinned website origin', async () => {
+            sendWebsite('change-public-keys', 'website-port', website); await settle();
+            const bound = handle.mock.calls[0][1];
+            handle.mockClear(); posted.mockClear();
+            const remove = spyOn(ProtocolImpl, 'deleteConnection');
+            try {
+                for (const origin of [otherWebsite, undefined, null, 'http://login.example.org', website + '/']) {
+                    sendWebsite('kwx-get-entry-fields', 'website-port', origin);
+                }
+                sendWebsite('kwx-get-entry-fields', undefined, undefined);
+                await settle();
+                expect(handle).not.toHaveBeenCalled();
+                expect(posted).not.toHaveBeenCalled();
+                expect(remove).not.toHaveBeenCalled();
+                expect(bound.websiteOrigin).toBe(website);
+
+                sendWebsite('kwx-get-entry-fields', 'website-port', website); await settle();
+                expect(handle).toHaveBeenCalledTimes(1);
+                expect(handle.mock.calls[0][1]).toBe(bound);
+                expect(posted).toHaveBeenCalledTimes(1);
+            } finally { remove.mockRestore(); }
+        });
+
+        test('website handshakes reject missing ports and malformed bindings before dispatch', async () => {
+            const bindings: Array<[unknown, unknown]> = [
+                [undefined, website], ['', website], [7, website],
+                ['website-port', null], ['website-port', 'null'], ['website-port', ''],
+                ['website-port', 7], ['website-port', {}],
+                ['website-port', 'http://login.example.org'],
+                ['website-port', website + '/'], ['website-port', website + '/login'],
+                ['website-port', 'https://user@login.example.org'],
+                ['website-port', 'https://login.example.org:443']
+            ];
+            const remove = spyOn(ProtocolImpl, 'deleteConnection');
+            try {
+                for (const [port, origin] of bindings) {
+                    sendWebsite('change-public-keys', port, origin);
+                    sendWebsite('ping', port, origin);
+                }
+                await settle();
+                expect(handle).not.toHaveBeenCalled();
+                expect(posted).not.toHaveBeenCalled();
+                expect(remove).not.toHaveBeenCalled();
+
+                sendWebsite('change-public-keys', 'website-port', website); await settle();
+                const bound = handle.mock.calls[0][1];
+                handle.mockClear(); posted.mockClear(); remove.mockClear();
+                // Invalid replacement handshakes must also preserve a live binding.
+                for (const [port, origin] of bindings) sendWebsite('change-public-keys', port, origin);
+                await settle();
+                expect(handle).not.toHaveBeenCalled();
+                expect(posted).not.toHaveBeenCalled();
+                expect(remove).not.toHaveBeenCalled();
+                sendWebsite('kwx-get-entry-fields', 'website-port', website); await settle();
+                expect(handle.mock.calls[0][1]).toBe(bound);
+            } finally { remove.mockRestore(); }
+        });
+
+        for (const replacementPort of ['old-website-port', 'new-website-port']) {
+            test(`a new website handshake on ${replacementPort} discards queued and late replies from the old scope`, async () => {
+                sendWebsite('change-public-keys', 'old-website-port', website); await settle();
+                const oldBinding = handle.mock.calls[0][1];
+                handle.mockClear(); posted.mockClear(); prepare.mockClear();
+                let finish!: (value: ProtocolResponse) => void;
+                handle.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+                sendWebsite('kwx-get-entry-fields', 'old-website-port', website);
+                sendWebsite('kwx-get-entries', 'old-website-port', website);
+                expect(handle).toHaveBeenCalledTimes(1);
+                expect(handle.mock.calls[0][1]).toBe(oldBinding);
+
+                const remove = spyOn(ProtocolImpl, 'deleteConnection');
+                try {
+                    handle.mockImplementation(async () => ({ action: 'change-public-keys', publicKey: 'new scope key' }));
+                    sendWebsite('change-public-keys', replacementPort, otherWebsite); await settle();
+                    expect(remove).toHaveBeenCalledWith(1);
+                    expect(handle).toHaveBeenCalledTimes(2);
+                    const newBinding = handle.mock.calls[1][1];
+                    expect(newBinding).not.toBe(oldBinding);
+                    expect(oldBinding.websiteOrigin).toBe(website);
+                    expect(newBinding.websiteOrigin).toBe(otherWebsite);
+                    expect(posted).toHaveBeenCalledTimes(1);
+                    expect(posted.mock.calls[0][0]).toMatchObject({ action: 'change-public-keys',
+                        publicKey: 'new scope key', kwConnection: replacementPort });
+
+                    const stale = { action: 'kwx-get-entry-fields', message: 'old website ciphertext' };
+                    finish(stale); await settle();
+                    expect(posted).toHaveBeenCalledTimes(1);
+                    expect(prepare).not.toHaveBeenCalledWith(stale);
+                    expect(handle).toHaveBeenCalledTimes(2);
+
+                    sendWebsite('kwx-get-entry-fields', replacementPort, otherWebsite); await settle();
+                    expect(handle).toHaveBeenCalledTimes(3);
+                    expect(handle.mock.calls[2][1]).toBe(newBinding);
+                    expect(posted).toHaveBeenCalledTimes(2);
+                } finally { remove.mockRestore(); }
+            });
+        }
+    });
 });

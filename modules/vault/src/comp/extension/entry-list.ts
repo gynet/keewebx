@@ -6,6 +6,7 @@
  */
 import type { EntryModel } from 'models/entry-model';
 import { SelectEntryFilter } from 'comp/app/select-entry-filter';
+import { entryMatchesWebsite } from './website-matching';
 
 const RECENT_LIMIT = 30;
 const SEARCH_LIMIT = 50;
@@ -25,6 +26,12 @@ export interface EntrySummary {
 
 interface EntryListModel {
     getEntriesByFilter(filter: Record<string, unknown>, files: unknown): Iterable<unknown>;
+}
+
+/** Website-scoped clients receive only accounts chosen by the app's policy. */
+export function listWebsiteEntries(appModel: EntryListModel, files: unknown, origin: string): EntryModel[] {
+    return ([...appModel.getEntriesByFilter({ text: '' }, files)] as EntryModel[])
+        .filter(entry => entryMatchesWebsite(entry, origin));
 }
 
 export function summarizeEntry(entry: EntryModel): EntrySummary {

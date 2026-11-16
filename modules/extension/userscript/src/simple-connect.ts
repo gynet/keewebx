@@ -5,11 +5,16 @@ import { ConnectUI } from './connect-ui';
 import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector } from './native-connect';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
-import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
+import { eligible, targets, assertTargets, fill, type Targets } from './form-targets';
 
-const VERSION = '0.5.4';
+const VERSION = '0.5.5';
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+const assertWebsiteScope = (features: { features: string[]; websiteOrigin?: string }, origin: string) => {
+    if (!features.features.includes('website-matching-v1') || features.websiteOrigin !== origin) {
+        throw new Error('Save database changes and reload your existing KeeWebX tab to enable app-side account matching.');
+    }
+};
 
 async function start(): Promise<void> {
     if (window.top !== window || location.protocol !== 'https:') return;
@@ -166,13 +171,15 @@ async function start(): Promise<void> {
         try {
             active.rpc.assertCurrent(); assertTargets(active.target);
             await active.rpc.assertSelected(); guard(epoch);
-            if (!matchesOrigin(entry.url, active.origin) || location.origin !== active.origin) throw new Error('The account website does not match. Filling stopped.');
+            if (location.origin !== active.origin) throw new Error('The website changed. Filling stopped.');
             const before = await active.protocol.features(); guard(epoch);
+            assertWebsiteScope(before, active.origin);
             if (before.locked || !before.canList || !before.paired) throw new Error('The database is locked or access was revoked. Unlock the existing KeeWebX tab.');
             const fields = [...(active.target.user ? ['user'] : []), ...(active.target.password ? ['password'] : [])];
             const values = await active.protocol.getEntryFields(entry.handle, fields); guard(epoch);
             active.rpc.assertCurrent(); assertTargets(active.target);
             const features = await active.protocol.features(); guard(epoch);
+            assertWebsiteScope(features, active.origin);
             if (current !== active || features.locked || !features.canList || !features.paired) throw new Error('The database or authorization changed. Filling stopped.');
             active.rpc.assertCurrent(); assertTargets(active.target);
             await active.rpc.assertSelected(); guard(epoch);
@@ -196,12 +203,13 @@ async function start(): Promise<void> {
             if (!await protocol.pair(keys)) throw new Error('Authorize Connect once in your KeeWebX tab.');
             guard(epoch);
             const features = await protocol.features(); guard(epoch);
+            assertWebsiteScope(features, origin);
             if (features.locked) throw new Error('The database is locked. Unlock the existing KeeWebX tab.');
             if (!features.canList || !features.paired) throw new Error('Connect access was revoked. Authorize it again in KeeWebX.');
-            const list = await protocol.getEntries(origin, undefined); guard(epoch);
+            const list = await protocol.getEntries(undefined, undefined); guard(epoch);
             rpc.assertCurrent(); assertTargets(target);
             if (list.locked) throw new Error('The database is locked.');
-            const entries = list.suggested.filter(entry => matchesOrigin(entry.url, origin)).slice(0, 10);
+            const entries = list.suggested.slice(0, 10);
             current = { rpc, protocol, target, origin }; pending = undefined; ui.clear();
             if (!entries.length) ui.empty('No matching accounts for this website.');
             entries.forEach((entry, index) => ui.entry(index, entry.title, entry.user, () => { void choose(entry); }));

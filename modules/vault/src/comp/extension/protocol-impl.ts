@@ -19,7 +19,8 @@ import type { GroupCollection } from 'collections/group-collection';
 import type { ProtocolAccess } from './protocol-access';
 import type { ProtocolUi, SaveGroupChoice } from './protocol-ui';
 import type { Logger } from 'util/logger';
-import { entryFieldText, listEntries, summarizeEntry } from 'comp/extension/entry-list';
+import { entryFieldText, listEntries, listWebsiteEntries, summarizeEntry } from 'comp/extension/entry-list';
+import { entryMatchesWebsite, validWebsiteOrigin } from './website-matching';
 
 // === Public types shared with browser-extension-connector ===
 
@@ -28,6 +29,8 @@ export interface ConnectionInfo {
     extensionName: string;
     appName?: string;
     supportsNotifications?: boolean;
+    /** Pinned by the local app bridge for the lifetime of a website connection. */
+    websiteOrigin?: string;
 }
 
 export interface ProtocolRequest {
@@ -75,6 +78,7 @@ interface Pairing {
 
 /** A short-lived reference to an entry, handed out in entry lists. */
 interface EntryHandle {
+    websiteOrigin?: string;
     fileId: string;
     entryId: string;
     expires: number;
@@ -160,6 +164,10 @@ const Errors: Record<string, ErrorDef> = {
     expiredHandle: {
         message: 'The entry reference expired, list the entries again',
         code: 'kwx-expired-handle'
+    },
+    websiteMismatch: {
+        message: 'The entry no longer matches the connected website. Find accounts again.',
+        code: 'kwx-website-mismatch'
     }
 };
 
@@ -223,6 +231,9 @@ function assertContext(context: RequestContext): void {
         const file = entry.file as FileModel;
         if (!allowedFile(context.client, file) || file.getEntry(entry.id) !== entry || entry.entry !== object) {
             throw makeError(Errors.userRejected);
+        }
+        if (context.client.connection.websiteOrigin && !entryMatchesWebsite(entry, context.client.connection.websiteOrigin)) {
+            throw makeError(Errors.websiteMismatch);
         }
     }
     for (const [group, object] of context.groups) {
@@ -572,6 +583,7 @@ function issueHandle(request: ProtocolRequest, client: ClientState, entry: Entry
     const file = entry.file as FileModel;
     const handle = kdbxweb.ByteUtils.bytesToBase64(kdbxweb.CryptoEngine.random(12));
     client.handles.set(handle, {
+        websiteOrigin: client.connection.websiteOrigin,
         fileId: (entry.file as FileModel).id,
         entryId: entry.id,
         expires: Date.now() + HANDLE_TTL_MS,
@@ -583,7 +595,8 @@ function issueHandle(request: ProtocolRequest, client: ClientState, entry: Entry
 function resolveHandle(request: ProtocolRequest, client: ClientState, handle: unknown): EntryModel {
     const context = assertContent(request);
     const ref = client.handles.get(String(handle));
-    if (!ref || ref.expires < Date.now() || ref.epoch !== context.epoch || ref.generation !== client.generation) {
+    if (!ref || ref.expires < Date.now() || ref.epoch !== context.epoch || ref.generation !== client.generation ||
+        ref.websiteOrigin !== client.connection.websiteOrigin) {
         throw makeError(Errors.expiredHandle);
     }
     const file = appModel.files.get(ref.fileId);
@@ -773,7 +786,7 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
 
         connectedClients.set(clientId, {
             generation: ++nextGeneration,
-            connection,
+            connection: { ...connection },
             publicKey,
             version,
             keys,
@@ -909,7 +922,8 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         const client = getClient(request);
         const permissions = client.permissions ?? (client.identity ? getPairings()[client.identity]?.permissions : undefined);
         return encryptResponse(request, {
-            features: ['entries-v1'],
+            features: client.connection.websiteOrigin ? ['entries-v1', 'website-matching-v1'] : ['entries-v1'],
+            websiteOrigin: client.connection.websiteOrigin,
             locked: !access.snapshot().open,
             paired: !!client.identity,
             canList: !!permissions?.canList
@@ -925,7 +939,13 @@ const ProtocolHandlers: Record<string, ProtocolHandler> = {
         await checkContentRequestPermissions(request, { list: true });
         assertContent(request).listRequired = true;
         const files = getAvailableFiles(request);
-        const { suggested, items } = listEntries(appModel, files, {
+        const origin = client.connection.websiteOrigin;
+        // Website connections cannot enumerate other sites by changing an
+        // encrypted URL/query. The local bridge pins their destination.
+        const { suggested, items } = origin ? {
+            suggested: listWebsiteEntries(appModel, files, origin),
+            items: []
+        } : listEntries(appModel, files, {
             url: payload.url ? String(payload.url) : undefined,
             query: payload.query ? String(payload.query) : undefined
         });
@@ -1463,10 +1483,17 @@ const ProtocolImpl = {
         request = { ...request };
         let context: RequestContext | undefined;
         try {
+            if (connectionInfo.websiteOrigin !== undefined && (
+                !validWebsiteOrigin(connectionInfo.websiteOrigin) ||
+                !['ping', 'change-public-keys', 'kwx-pair', 'kwx-features', 'kwx-get-entries', 'kwx-get-entry-fields'].includes(request.action)
+            )) throw makeError(Errors.userRejected);
             const handler = ProtocolHandlers[request.action];
             if (!handler) throw new Error(`Handler not found: ${request.action}`);
             if (request.action !== 'ping' && request.action !== 'change-public-keys') {
                 const client = getClient(request);
+                if ((client.connection.websiteOrigin !== undefined || connectionInfo.websiteOrigin !== undefined) &&
+                    (client.connection.connectionId !== connectionInfo.connectionId ||
+                    client.connection.websiteOrigin !== connectionInfo.websiteOrigin)) throw makeError(Errors.userRejected);
                 context = { clientId: request.clientID!, client, generation: client.generation,
                     controller: new AbortController(), files: new Map(), entries: new Map(), groups: new Map() };
                 requestContexts.set(request, context);

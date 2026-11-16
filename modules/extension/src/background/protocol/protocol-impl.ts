@@ -31,6 +31,7 @@ export interface KeeWebXFeatures {
     locked: boolean;
     paired: boolean;
     canList: boolean;
+    websiteOrigin?: string;
 }
 
 export interface KeeWebXEntry {

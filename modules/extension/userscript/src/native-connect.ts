@@ -139,7 +139,7 @@ export class NativeHost {
             if (p.operation === 'hello') {
                 if (session?.busy) throw new Error('Another website request is finishing. Retry.');
                 session?.bridge.dispose();
-                session = { document: p.document, origin: p.origin, scope: uuid(), expiresAt: Date.now() + SESSION_TTL, bridge: new AppBridge(), locked: false, busy: false };
+                session = { document: p.document, origin: p.origin, scope: uuid(), expiresAt: Date.now() + SESSION_TTL, bridge: new AppBridge(location.origin, p.origin), locked: false, busy: false };
                 const current = session;
                 session.bridge.onLocked = () => { current.locked = true; };
                 this.session = session;
@@ -183,6 +183,7 @@ export function registerConnector(endpoint: URL, id: string, recovered: (peer: W
     client = { endpoint, id, recovered };
 }
 const connectorName = (endpoint: URL, id: string) => `${MARK}:${endpoint.href}:${id}`;
+let cancelWebsiteReturn: (() => void) | undefined;
 addEventListener('message', event => {
     if (!event.isTrusted || !event.source || event.source === window) return;
     const peer = event.source as Window;
@@ -195,6 +196,47 @@ addEventListener('message', event => {
     }
     const binding = peers.get(peer);
     if (!binding || binding.origin !== event.origin || event.data?.routingId !== binding.routingId) return;
+    if (client && event.data?.marker === MARK && event.data.kind === 'return-to-website' &&
+        event.origin === client.endpoint.origin && binding.routingId === client.id &&
+        event.data.endpoint === client.endpoint.href && event.data.websiteOrigin === location.origin && isId(event.data.nonce)) {
+        cancelWebsiteReturn?.();
+        const nonce = event.data.nonce, websiteOrigin = location.origin, endpoint = client.endpoint.href;
+        const deadline = Date.now() + 1800;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let stableTimer: ReturnType<typeof setTimeout> | undefined, focusedAt: number | undefined;
+        const resetFocus = () => {
+            clearTimeout(stableTimer); stableTimer = undefined; focusedAt = undefined;
+        };
+        const stop = () => {
+            clearTimeout(timer); resetFocus();
+            removeEventListener('focus', check);
+            removeEventListener('blur', resetFocus);
+            removeEventListener('visibilitychange', check);
+            removeEventListener('pagehide', stop);
+            if (cancelWebsiteReturn === stop) cancelWebsiteReturn = undefined;
+        };
+        const check = () => {
+            if (Date.now() >= deadline || peers.get(peer) !== binding || location.origin !== websiteOrigin ||
+                !client || client.id !== binding.routingId || client.endpoint.href !== endpoint || peer.closed) { stop(); return; }
+            if (document.visibilityState !== 'visible' || !document.hasFocus()) { resetFocus(); return; }
+            // A click can briefly focus the website before the helper regains focus.
+            // Require a continuous settling period before reporting a successful return.
+            if (focusedAt === undefined) {
+                focusedAt = Date.now(); stableTimer = setTimeout(check, 200); return;
+            }
+            if (Date.now() - focusedAt < 200) return;
+            stop();
+            peer.postMessage({ marker: MARK, kind: 'website-focused', routingId: binding.routingId,
+                endpoint, websiteOrigin, nonce, visible: true, focused: true }, binding.origin);
+        };
+        cancelWebsiteReturn = stop;
+        addEventListener('focus', check);
+        addEventListener('blur', resetFocus);
+        addEventListener('visibilitychange', check);
+        addEventListener('pagehide', stop);
+        timer = setTimeout(stop, 1800);
+        check();
+    }
     if (event.data?.marker === SETUP_MARK && event.data.kind === 'ready' && typeof event.data.nonce === 'string') {
         peer.postMessage({ marker: SETUP_MARK, kind: 'site', nonce: event.data.nonce, routingId: binding.routingId, endpoint: event.data.endpoint }, event.origin);
     }
@@ -348,7 +390,9 @@ export function startConnector(endpoint: URL): void {
     const app = document.createElement('a'); app.textContent = 'Open a new KeeWebX tab'; app.href = endpoint.href; app.target = '_blank'; app.rel = 'noopener noreferrer'; app.style.marginLeft = '16px'; app.hidden = true;
     const note = document.createElement('p'); note.textContent = 'This connection page restores the link to the KeeWebX tab you already authorized. It does not open another vault. If that app does not reply, visit its existing tab, unlock if needed, and return.';
     note.style.fontSize = '13px';
-    panel.append(heading, status, back, app, note); document.body.append(panel);
+    const returnStatus = document.createElement('p'); returnStatus.hidden = true;
+    returnStatus.setAttribute('aria-live', 'polite'); returnStatus.setAttribute('data-role', 'website-return-status');
+    panel.append(heading, status, back, app, note, returnStatus); document.body.append(panel);
     void approvedRoute(endpoint, true).then(selected => {
         // A missing route is a first-use situation. An unresponsive authorized
         // route must never be treated as permission to open a replacement vault.
@@ -366,18 +410,51 @@ export function startConnector(endpoint: URL): void {
     }
     const channel = new BroadcastChannel(channelName(endpoint));
     let peer: Window | undefined, origin: string | undefined, active = true;
+    let returning: { peer: Window; origin: string; nonce: string; deadline: number; timer?: ReturnType<typeof setTimeout> } | undefined;
+    const stopReturn = () => {
+        clearTimeout(returning?.timer); returning = undefined;
+        back.textContent = 'Back to website';
+    };
+    const finishReturn = (focused: boolean) => {
+        stopReturn(); back.disabled = false; returnStatus.hidden = false;
+        returnStatus.textContent = focused
+            ? 'Your website is visible and focused. Keep this connection page open while using Connect.'
+            : 'The website has not confirmed focus. Use Safari’s tabs button to switch to your existing website. Keep this connection page open so Connect stays linked.';
+    };
     const pending = new Map<string, Packet>();
     const link = new SiteLink(window.opener, (window, site) => {
-        if (peer !== window || origin !== site) pending.clear();
+        if (peer !== window || origin !== site) { pending.clear(); if (returning) finishReturn(false); }
         peer = window; origin = site; back.disabled = false;
         status.textContent = `Connection page ready for ${site}. Checking your existing KeeWebX tab…`;
         peer.postMessage({ marker: MARK, kind: 'ready', routingId, endpoint: endpoint.href }, site);
     }, expired => {
         if (!peer || expired) status.textContent = 'Return to your website and choose Reconnect to existing tab if needed.';
     }, { followOpener: true, routingId, endpoint: endpoint.href });
-    back.onclick = event => { if (event.isTrusted && peer && !peer.closed) peer.focus(); };
+    back.onclick = event => {
+        if (!event.isTrusted || !active) return;
+        stopReturn();
+        if (!peer || peer.closed || !origin) { finishReturn(false); return; }
+        const attempt = { peer, origin, nonce: uuid(), deadline: Date.now() + 2000, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+        returning = attempt; back.disabled = true; back.textContent = 'Checking website…';
+        returnStatus.hidden = false; returnStatus.textContent = 'Switching to your existing website and checking that it is visible and focused…';
+        attempt.timer = setTimeout(() => { if (returning === attempt) finishReturn(false); }, 2000);
+        try {
+            // Keep the focus request in the trusted tap's synchronous call stack.
+            peer.focus();
+            peer.postMessage({ marker: MARK, kind: 'return-to-website', routingId, endpoint: endpoint.href,
+                websiteOrigin: origin, nonce: attempt.nonce }, origin);
+        } catch { finishReturn(false); }
+    };
     addEventListener('message', event => {
-        if (!active || !event.isTrusted || event.source !== peer || event.origin !== origin || event.data?.marker !== MARK || !object(event.data.value?.packet)) return;
+        if (!active || !event.isTrusted || event.source !== peer || event.origin !== origin || event.data?.marker !== MARK) return;
+        if (event.data.kind === 'website-focused') {
+            if (returning && event.source === returning.peer && event.origin === returning.origin &&
+                !returning.peer.closed && Date.now() < returning.deadline && event.data.nonce === returning.nonce &&
+                event.data.routingId === routingId && event.data.endpoint === endpoint.href && event.data.websiteOrigin === origin &&
+                event.data.visible === true && event.data.focused === true) finishReturn(true);
+            return;
+        }
+        if (!object(event.data.value?.packet)) return;
         const p = event.data.value.packet as Packet;
         if (p.type !== 'request' || p.origin !== event.origin || p.endpoint !== endpoint.href || !valid(p)) return;
         for (const [id, request] of pending) if (request.deadline <= Date.now()) pending.delete(id);
@@ -405,7 +482,7 @@ export function startConnector(endpoint: URL): void {
     const resume = () => {
         active = true; link.restart();
     };
-    addEventListener('pagehide', () => { active = false; link.pause(); pending.clear(); });
+    addEventListener('pagehide', () => { active = false; link.pause(); pending.clear(); if (returning) finishReturn(false); });
     addEventListener('pageshow', event => { if (event.persisted) resume(); });
     addEventListener('visibilitychange', () => { if (active && !document.hidden) link.restart(); });
     resume();

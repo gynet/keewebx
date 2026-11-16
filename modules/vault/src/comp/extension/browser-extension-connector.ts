@@ -12,6 +12,7 @@ import {
     type ClientPermissions
 } from './protocol-impl';
 import { Features } from 'util/features';
+import { validWebsiteOrigin } from './website-matching';
 
 const WebConnectionInfo: ConnectionInfo = {
     connectionId: 1,
@@ -43,6 +44,7 @@ const pendingBrowserMessages: ProtocolRequest[] = [];
 let processingBrowserMessage = false;
 let transportGeneration = 0;
 let webPort: string | undefined;
+let webWebsiteOrigin: string | undefined;
 let initVars: ProtocolInitVars | undefined;
 let unsubscribeInvalidation: (() => void) | undefined;
 let boundMessage: ((event: MessageEvent<BrowserWindowMessageEventData>) => void) | undefined;
@@ -83,6 +85,7 @@ const BrowserExtensionConnector = {
     stop(): void {
         ++transportGeneration;
         webPort = undefined;
+        webWebsiteOrigin = undefined;
         unsubscribeInvalidation?.(); unsubscribeInvalidation = undefined;
         pendingBrowserMessages.length = 0;
         processingBrowserMessage = false;
@@ -135,19 +138,23 @@ const BrowserExtensionConnector = {
             if (port && port === webPort) {
                 this.invalidateWebConnection();
                 webPort = undefined;
+                webWebsiteOrigin = undefined;
             }
             return;
         }
         if (e?.data?.kwConnect !== 'request') {
             return;
         }
+        const websiteOrigin = validWebsiteOrigin(e.data.kwWebsiteOrigin);
+        if (e.data.kwWebsiteOrigin !== undefined && (!websiteOrigin || !port)) return;
         // A bridge port is a transport lifetime, not an authentication identity.
         // A new handshake must bypass abandoned work; old port notifications
         // must not invalidate its replacement. Untagged legacy bridges still work.
-        if (port !== webPort) {
+        if (port !== webPort || websiteOrigin !== webWebsiteOrigin) {
             if (e.data.action !== 'ping' && e.data.action !== 'change-public-keys') return;
             this.invalidateWebConnection();
             webPort = port;
+            webWebsiteOrigin = websiteOrigin;
         }
         logger.debug('Extension -> KeeWeb', e.data);
         pendingBrowserMessages.push(e.data as unknown as ProtocolRequest);
@@ -168,7 +175,7 @@ const BrowserExtensionConnector = {
         }
 
         if (!connections.has(WebConnectionInfo.connectionId)) {
-            connections.set(WebConnectionInfo.connectionId, WebConnectionInfo);
+            connections.set(WebConnectionInfo.connectionId, { ...WebConnectionInfo, websiteOrigin: webWebsiteOrigin });
         }
 
         processingBrowserMessage = true;
@@ -180,7 +187,7 @@ const BrowserExtensionConnector = {
         }
 
         const generation = transportGeneration;
-        const response = await ProtocolImpl.handleRequest(request, WebConnectionInfo);
+        const response = await ProtocolImpl.handleRequest(request, connections.get(WebConnectionInfo.connectionId)!);
         if (!this.started || generation !== transportGeneration) return;
 
         processingBrowserMessage = false;

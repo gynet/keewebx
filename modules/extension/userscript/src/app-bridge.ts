@@ -17,7 +17,7 @@ export class AppBridge {
     private pending?: { request: any; deadline: number; resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
     onAttention = () => {};
     onLocked = () => {};
-    constructor(private origin = location.origin) { addEventListener('message', this.receive); }
+    constructor(private origin = location.origin, private websiteOrigin?: string) { addEventListener('message', this.receive); }
 
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || event.source !== window || event.origin !== this.origin || !object(event.data) ||
@@ -48,7 +48,7 @@ export class AppBridge {
             const pending = { request, deadline, resolve, reject, timer: undefined as unknown as ReturnType<typeof setTimeout> };
             pending.timer = setTimeout(() => { if (this.pending === pending) this.reset('The KeeWebX Connect request timed out.'); }, deadline - Date.now());
             this.pending = pending;
-            window.postMessage({ ...request, kwConnect: 'request', kwConnection: this.port }, this.origin);
+            window.postMessage({ ...request, kwConnect: 'request', kwConnection: this.port, kwWebsiteOrigin: this.websiteOrigin }, this.origin);
         });
     }
 

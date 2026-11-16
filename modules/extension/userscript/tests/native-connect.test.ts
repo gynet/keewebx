@@ -82,6 +82,16 @@ test('authorized session carries wire without storing any request or reply', asy
     await send(envelope(await session()));
     expect(reads).toBe(1); expect(replies.at(-1).value.packet.body.action).toBe('test-wire');
     expect([...storage.keys()]).toEqual([routeKey]);
+    expect((lastBridge as any).websiteOrigin).toBe('https://login.example.org');
+});
+test('the local bridge pins the website independently of a requested metadata override', async () => {
+    const posted: any[] = [];
+    replace('window', { postMessage(value: any) { posted.push(value); } });
+    const bridge = new AppBridge(endpoint.origin, 'https://login.example.org');
+    const result = requestImpl.call(bridge, { action: 'ping', kwWebsiteOrigin: 'https://attacker.example' });
+    const canceled = result.catch(error => error);
+    expect(posted[0].kwWebsiteOrigin).toBe('https://login.example.org');
+    bridge.dispose(); await canceled;
 });
 test('recovery distinguishes invalid saved selection from first use', async () => {
     storage.set(routeKey, { host: 'invalid' });

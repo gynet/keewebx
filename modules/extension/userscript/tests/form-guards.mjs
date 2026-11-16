@@ -60,7 +60,7 @@ for (const name of engines) {
         await page.goto(report.fixture);
         const cases = await page.evaluate(async source => {
             const blob = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-            const { targets, fill, matchesOrigin } = await import(blob);
+            const { targets, fill } = await import(blob);
             URL.revokeObjectURL(blob);
             const results = [];
             const check = (condition, detail) => { if (!condition) throw new Error(detail); };
@@ -154,29 +154,6 @@ for (const name of engines) {
                 check(user.value === values.user && password.value === values.password, 'Valid values not written');
                 check(liveChecks === 2, 'Expected a live check before each field');
                 check(events.join(',') === 'user:input,user:change,password:input,password:change', 'Wrong DOM event ordering');
-            });
-            run('HTTPS account matching permits only the www alias and rejects scheme/host/port/userinfo confusion', () => {
-                const origin = 'https://form-guard.example';
-                const rows = [
-                    ['https://form-guard.example/login', origin, true],
-                    ['https://FORM-GUARD.example:443/other', origin, true],
-                    ['form-guard.example/path', origin, true],
-                    ['https://www.form-guard.example/login', origin, true],
-                    ['form-guard.example', 'https://www.form-guard.example', true],
-                    ['https://form-guard.example:8443/path', 'https://form-guard.example:8443', true],
-                    ['http://form-guard.example/login', origin, false],
-                    ['https://form-guard.example:8443/login', origin, false],
-                    ['https://sub.form-guard.example/login', origin, false],
-                    ['https://form-guard.example.evil.test/login', origin, false],
-                    ['https://evil.test/?next=https://form-guard.example', origin, false],
-                    ['https://name:secret@form-guard.example/login', origin, false],
-                    ['https://form-guard.example@evil.test/login', origin, false],
-                    ['javascript:alert(1)', origin, false],
-                    ['not a valid URL', origin, false]
-                ];
-                for (const [url, destination, expected] of rows) {
-                    check(matchesOrigin(url, destination) === expected, `Origin policy mismatch for ${url}`);
-                }
             });
             return results;
         }, moduleSource);
