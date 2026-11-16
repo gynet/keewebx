@@ -1,11 +1,11 @@
-# Userscripts on iOS: KeeWebX Connect 0.5.3
+# Userscripts on iOS: KeeWebX Connect 0.5.4
 
 Authorize your unlocked KeeWebX app once, then select matching accounts beside
 login fields on any website. Finding accounts and testing the connection never
 open a page. Forms are filled only after an explicit account selection and are
 never submitted automatically.
 
-[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.3/modules/extension/userscript/keewebx-connect.user.js)
+[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.4/modules/extension/userscript/keewebx-connect.user.js)
 
 ## Install and use
 
@@ -31,10 +31,14 @@ authorized app through native messages. This action does not open a second vault
 When the page confirms the existing app replied, choose **Back to website** and
 find accounts. Keep this small connection page open while using the restored link.
 
-## Upgrade from 0.5.0–0.5.2
+## Upgrade from 0.5.0–0.5.3
 
-Replace the one installed script. Save database changes, then reload the
-existing app and website once so both run **Connect 0.5.3**. Both the app receiver
+From **0.5.3**, replace the one installed script and reload the login website.
+This matching correction runs on the website; the existing 0.5.3 app receiver
+can stay open and unlocked. The saved entry and authorization do not need changes.
+
+From older versions, replace the script, save database changes, then reload the
+existing app and website once so both run **Connect 0.5.4**. Both the app receiver
 and website client must run the updated lifecycle and recovery checks. Existing
 signing identity and vault permission are retained. Close obsolete connection pages; they are not
 required for normal mailbox filling. Keep a recovery connection page open while
@@ -72,6 +76,12 @@ the same host, single-session ownership, replay checks, exact website origin,
 request deadline and encrypted Connect protocol. This is a transport fallback,
 not a second authorization flow. There is no remote relay server.
 
+Account suggestions treat a hostname and its leading `www.` alias as the same
+website. For example, an entry saved as `uscardforum.com` can be selected on
+`https://www.uscardforum.com/login`. Matching still checks ports and excludes
+unrelated hostnames, other subdomains, and URL user information. This account
+matching rule does not change the exact message origin or form destination.
+
 The script requests `GM.getValue`, `GM.setValue`, `GM.deleteValue`,
 `GM.listValues`, `GM.getTab` and `GM.saveTab`. Persistent storage contains the
 signing identity, app address and public routing metadata. Short-lived mailbox
@@ -92,7 +102,7 @@ Build with Bun 1.3.11:
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
-bun test modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts
+bun test modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/account-matching.test.ts
 modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
 ```
 

@@ -1,6 +1,37 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current release: 0.5.3
+## Current release: 0.5.4
+
+An entry saved as `uscardforum.com` was missing from suggestions on
+`https://www.uscardforum.com/login`. The app's existing suggestion filter finds
+the entry, but the userscript's second exact-origin filter discards it. The
+published 0.5.3 installer reproduced the reported result in a real-app browser
+fixture: an encrypted KDBX contained the bare-domain entry, yet the login page
+displayed no matching account.
+
+Account matching now recognizes a hostname and its leading `www.` alias in
+both listing and selection. Ports are still compared; other subdomains,
+lookalike hostname suffixes and URL user information remain excluded. Native
+message origin, session binding and form lifetime checks remain exact.
+
+Regression coverage uses the reported URL with a controlled login page, the
+actual installer, a real encrypted KDBX and the native app permission dialog.
+It checks that the account is listed and can fill the form, then navigates to
+`https://www.uscardforum.com.evil.test/login` and verifies the account is absent
+and credential fields are not requested. This fixture does not submit to or
+authenticate with the real forum.
+
+**62 unit checks passed.** The exact installer passed **20 browser steps against
+live app assets**, and the same **20 steps with storage notifications disabled**.
+All eight form-destination browser regressions passed in Chromium, including
+the new alias policy and rejection of changed or misleading destinations.
+TypeScript, syntax and deterministic bundle checks passed. The product code
+change is in the userscript; the app suggestion engine already found this entry.
+
+Installer: **95,684 bytes**. SHA-256:
+`c3b2a714de52f83cde23f73c96bfbabcb8bc9a8470872fb197547e4ca70109e0`.
+
+## Historical release: 0.5.3
 
 The user reported that the first connection worked, but testing after closing
 other pages timed out; choosing Open KeeWebX then created another app. Closing

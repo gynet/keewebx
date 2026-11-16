@@ -24,7 +24,8 @@ const DB_PASSWORD = 'Disposable-native-vault-2026!';
 const ACCOUNTS = [
  {title:'First fixture account',url:'https://login.example.org/',user:'first-fixture-user',password:'Disposable-first-password!'},
  {title:'Second fixture account',url:'https://signin.example.net/',user:'second-fixture-user',password:'Disposable-second-password!'},
- {title:'Unrelated fixture account',url:'https://wrong.example.com/',user:'unrelated-fixture-user',password:'Disposable-unrelated-password!'}
+ {title:'Unrelated fixture account',url:'https://wrong.example.com/',user:'unrelated-fixture-user',password:'Disposable-unrelated-password!'},
+ {title:'Apex forum fixture account',url:'uscardforum.com',user:'forum-fixture-user',password:'Disposable-forum-password!'}
 ];
 const PRIVATE_VALUES=[DB_PASSWORD,...ACCOUNTS.flatMap(a=>[a.title,a.user,a.password])];
 const redact=value=>PRIVATE_VALUES.reduce((result,secret)=>result.replaceAll(secret,'[fixture value]'),String(value));
@@ -212,7 +213,7 @@ async function setup(bundle) {
  },{appUrl:APP,marker:MARK});
  context.on('page',page=>{page.on('pageerror',error=>report.errors.push(redact(error.message)));page.on('console',m=>{if(/Request payload|Response payload/.test(m.text()))report.errors.push('Unexpected credential payload logging');});});
  await context.route('https://keewebx.app/**',async route=>{const url=new URL(route.request().url());if(route.request().isNavigationRequest()&&url.pathname==='/app')appNavigationRequests++;let path=url.pathname.replace(/^\/app(?=\/|$)/,'')||'/next.html';if(path==='/')path='/next.html';const response=await context.request.get(APP_SERVER+path+url.search);await route.fulfill({response});});
- for(const account of ACCOUNTS.slice(0,2))await context.route(new URL(account.url).origin+'/**',route=>route.fulfill({headers:route.request().url().includes('/isolated')?{'cross-origin-opener-policy':'same-origin'}:{},contentType:'text/html',body:`<!doctype html><title>Disposable login</title><style>body{font:18px system-ui;padding:80px}input{display:block;width:300px;height:40px;margin:12px}</style><h1>Login</h1><form><input id="username" autocomplete="username"><input id="login-password" type="password" autocomplete="current-password"><button>Sign in</button></form><script>window.formSubmits=0;window.credentialInputEvents=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.formSubmits++});for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>`}));
+ for(const origin of [...ACCOUNTS.slice(0,2).map(account=>new URL(account.url).origin),'https://www.uscardforum.com','https://www.uscardforum.com.evil.test'])await context.route(origin+'/**',route=>route.fulfill({headers:route.request().url().includes('/isolated')?{'cross-origin-opener-policy':'same-origin'}:{},contentType:'text/html',body:`<!doctype html><title>Disposable login</title><style>body{font:18px system-ui;padding:80px}input{display:block;width:300px;height:40px;margin:12px}</style><h1>Login</h1><form><input id="username" autocomplete="username"><input id="login-password" type="password" autocomplete="current-password"><button>Sign in</button></form><script>window.formSubmits=0;window.credentialInputEvents=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.formSubmits++});for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>`}));
 }
 try {
  const bundle=readFileSync(SOURCE,'utf8');report.bundle={bytes:Buffer.byteLength(bundle),sha256:createHash('sha256').update(bundle).digest('hex')};
@@ -237,6 +238,20 @@ try {
  });
  await step('another independent origin uses same app and same authorization',async()=>{
   second=await context.newPage();await second.goto(ACCOUNTS[1].url);await ready(second);await prepare(second);await lookup(second,ACCOUNTS[1]);await fill(second,ACCOUNTS[1]);await sameApp();
+ });
+ await step('a bare apex entry is found and filled on its www login page, while a lookalike hostname is excluded',async()=>{
+  const forum=await context.newPage(),pages=context.pages().length;
+  try {
+   await forum.goto('https://www.uscardforum.com/login');await ready(forum);
+   await lookup(forum,ACCOUNTS[3]);await fill(forum,ACCOUNTS[3]);await sameApp();
+   expect(context.pages().length).toBe(pages);
+   await forum.goto('https://www.uscardforum.com.evil.test/login');await ready(forum);
+   await forum.bringToFront();await forum.locator('#username').click();
+   const reads=await fieldReads();await action(forum,'toggle');
+   await untilStatus(forum,/Connected\. No matching accounts found/);
+   expect(await entries(forum)).not.toContain(ACCOUNTS[3].title);
+   expect(await fieldReads()).toBe(reads);await emptyFields(forum);await sameApp();
+  } finally {await forum.close();}
  });
  await step('one browser tab navigates between websites four times without opening another connection page',async()=>{
   const helper=connectors.get(first),boot=await helper.evaluate(()=>performance.timeOrigin),pages=context.pages().length;

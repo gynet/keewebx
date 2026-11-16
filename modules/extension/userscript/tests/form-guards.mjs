@@ -155,12 +155,14 @@ for (const name of engines) {
                 check(liveChecks === 2, 'Expected a live check before each field');
                 check(events.join(',') === 'user:input,user:change,password:input,password:change', 'Wrong DOM event ordering');
             });
-            run('strict normalized HTTPS origin matching rejects scheme/host/port/userinfo confusion', () => {
+            run('HTTPS account matching permits only the www alias and rejects scheme/host/port/userinfo confusion', () => {
                 const origin = 'https://form-guard.example';
                 const rows = [
                     ['https://form-guard.example/login', origin, true],
                     ['https://FORM-GUARD.example:443/other', origin, true],
                     ['form-guard.example/path', origin, true],
+                    ['https://www.form-guard.example/login', origin, true],
+                    ['form-guard.example', 'https://www.form-guard.example', true],
                     ['https://form-guard.example:8443/path', 'https://form-guard.example:8443', true],
                     ['http://form-guard.example/login', origin, false],
                     ['https://form-guard.example:8443/login', origin, false],
