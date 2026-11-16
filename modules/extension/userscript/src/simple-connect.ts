@@ -2,12 +2,12 @@ import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/p
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge } from './app-bridge';
 import { ConnectUI } from './connect-ui';
-import { approvedRoute, GmHost, GmRpc, managerCall } from './gm-rpc';
+import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector } from './native-connect';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const VERSION = '0.4.5';
+const VERSION = '0.5.0';
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -15,20 +15,24 @@ async function start(): Promise<void> {
     if (window.top !== window || location.protocol !== 'https:') return;
     let endpoint: URL;
     try { endpoint = await loadEndpoint(); } catch { endpoint = new URL(DEFAULT_ENDPOINT); }
+    if (location.origin === endpoint.origin && location.pathname === new URL('connect.html', endpoint).pathname && new URL(location.href).searchParams.get('kwx-native') === '1') {
+        startConnector(endpoint);
+        return;
+    }
     const app = location.origin === endpoint.origin && location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '');
     const ui = new ConnectUI(app, endpoint.href);
     const version = document.createElement('p');
     version.className = 'status'; version.dataset.role = 'version'; version.textContent = `Connect ${VERSION}`;
     ui.panel.append(version);
     if (app) {
-        const host = new GmHost(endpoint, error => ui.state(State.Error, message(error)));
+        const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)));
         const bridge = new AppBridge();
         let generation = 0, authorizing = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
         ui.address.readOnly = true; ui.save.hidden = true; ui.open.hidden = true;
         ui.returnToSite.hidden = true; ui.pair.hidden = true; ui.decline.hidden = true;
         ui.targetSite.parentElement!.hidden = true;
         ui.authorize.textContent = 'Authorize Connect';
-        ui.panel.querySelectorAll('.note')[ui.panel.querySelectorAll('.note').length - 1].textContent = 'Authorize once. All websites can use this tab without a helper or repeated pairing.';
+        ui.panel.querySelectorAll('.note')[ui.panel.querySelectorAll('.note').length - 1].textContent = 'Authorize this app once for all websites. The connection page forwards encrypted messages.';
         const authorize = async (explicit: boolean) => {
             if (authorizing) return;
             authorizing = true; ui.authorize.disabled = true;
@@ -54,7 +58,7 @@ async function start(): Promise<void> {
                     if (explicit) throw new Error('Allow account listing to enable Connect for all websites.');
                     return;
                 }
-                await host.authorize(keys); guard(); revoked = false; authorized = true;
+                await host.authorize(keys, () => epoch === generation); guard(); revoked = false; authorized = true;
                 ui.state(State.Connected, 'Authorized. All websites can use this tab. Return to your website and select an account.');
                 ui.authorize.textContent = 'Use this tab for all websites';
             } catch (error) { if (epoch === generation && explicit) ui.state(State.Error, message(error)); }
@@ -74,11 +78,14 @@ async function start(): Promise<void> {
             void host.revoke().then(() => ui.state(State.ReadyToConnect, 'Disconnected. Authorize this tab once to enable all websites again.'));
         };
         ui.onClose = () => {
-            if (authorizing) { generation++; authorizing = false; bridge.reset(); ui.authorize.disabled = false; }
+            if (authorizing) { generation++; authorizing = false; host.pause(); bridge.reset(); ui.authorize.disabled = false; }
         };
         const restored = () => {
             const unlocked = !!document.querySelector('.vault');
-            if (!unlocked) { attempted = false; authorized = false; return; }
+            if (!unlocked) {
+                if (authorized) { host.lock(); ui.state(State.ReadyToConnect, 'KeeWebX is locked. Unlock this tab to resume Connect.'); }
+                attempted = false; authorized = false; return;
+            }
             if (attempted || revoked || authorizing) return;
             attempted = true; void authorize(false);
         };
@@ -104,9 +111,10 @@ async function start(): Promise<void> {
     }
 
     let selected: HTMLInputElement | undefined;
+    let connector: Window | undefined;
     let generation = 0, selecting = false;
-    let pending: GmRpc | undefined;
-    let current: { rpc: GmRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
+    let pending: NativeRpc | undefined;
+    let current: { rpc: NativeRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
     const clean = () => {
         generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined;
         selecting = false; ui.clear(); ui.busy(false);
@@ -114,34 +122,23 @@ async function start(): Promise<void> {
     };
     const guard = (epoch: number) => { if (epoch !== generation) throw new Error('The operation was canceled. Find accounts again.'); };
     ui.onClose = clean;
-    ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Use or test your authorized KeeWebX tab.'); };
+    ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Select Connect to KeeWebX, then return here to find accounts or test the connection.'); };
     ui.save.onclick = async event => {
         if (!event.isTrusted) return;
         clean(); const epoch = generation;
-        try { endpoint = await saveEndpoint(ui.address.value); guard(epoch); ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
+        try { endpoint = await saveEndpoint(ui.address.value); guard(epoch); connector = undefined; ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
         catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
     };
-    ui.open.onclick = event => {
-        if (!event.isTrusted) return;
-        void openExistingOrSetup();
-    };
-    const openExistingOrSetup = async () => {
-        clean(); const epoch = generation; ui.busy(true);
-        ui.state(State.Connecting, 'Checking the authorized KeeWebX tab...');
+    ui.open.textContent = 'Connect to KeeWebX';
+    const openConnection = () => {
+        clean();
         try {
-            const route = await approvedRoute(endpoint); guard(epoch);
-            if (route) { await testConnection(true); return; }
-            const url = new URL(endpoint); url.searchParams.set('kwx-connect', '1');
-            const opened = window.open('', `KeeWebXSetup:${endpoint.href}`);
-            if (!opened) throw new Error('Safari blocked the tab. Open your KeeWebX address and authorize Connect once.');
-            try { if (opened.location.href === 'about:blank') opened.location.href = url.href; }
-            catch { /* A named existing app must retain its document and unlock state. */ }
-            opened.focus();
-            ui.state(State.ReadyToConnect, 'Authorize Connect once in KeeWebX. Then return here; all websites will use that tab.');
-        } catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
-        finally { if (epoch === generation) ui.busy(false); }
+            connector = openConnector(endpoint, connector);
+            ui.state(State.ReadyToConnect, 'Connection page opened. Return here and find accounts. Keep that page open.');
+        } catch (error) { ui.state(State.Error, message(error)); }
     };
-    const setup = () => { ui.show('config'); ui.state(State.ReadyToConnect, 'Authorize Connect once in your KeeWebX tab. All websites will use it without opening helper tabs.'); };
+    ui.open.onclick = event => { if (event.isTrusted) openConnection(); };
+    const setup = () => { ui.show('config'); ui.state(State.ReadyToConnect, 'Authorize Connect once in your KeeWebX tab, then select Connect to KeeWebX here. Keep the connection page open.'); };
 
     async function choose(entry: KeeWebXEntry): Promise<void> {
         const active = current;
@@ -168,14 +165,15 @@ async function start(): Promise<void> {
     }
     const lookup = async (event: MouseEvent) => {
         if (!event.isTrusted || ui.lookup.disabled || selecting) return;
+        if (!connector || connector.closed) { openConnection(); return; }
         clean(); ui.busy(true); ui.state(State.Connecting, 'Finding accounts in your authorized KeeWebX tab...');
         const epoch = generation;
-        let rpc: GmRpc | undefined;
+        let rpc: NativeRpc | undefined;
         try {
             const target = targets(selected), origin = location.origin;
             if (!await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
             const keys = await managerCall(() => identity()); guard(epoch);
-            rpc = new GmRpc(endpoint); pending = rpc; await rpc.connect(); guard(epoch);
+            rpc = new NativeRpc(endpoint, () => connector); pending = rpc; await rpc.connect(); guard(epoch);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request) }, runtime);
             await protocol.ping(); await protocol.changePublicKeys();
             if (!await protocol.pair(keys)) throw new Error('Authorize Connect once in your KeeWebX tab.');
@@ -197,10 +195,10 @@ async function start(): Promise<void> {
     };
     ui.lookup.onclick = lookup;
     ui.onOpen = event => { if (eligible(selected)) void lookup(event); };
-    const testConnection = async (focus = false) => {
+    const testConnection = async () => {
         clean(); const epoch = generation; ui.busy(true);
         let stage = 'Starting the connection test';
-        let rpc: GmRpc | undefined;
+        let rpc: NativeRpc | undefined;
         const startedAt = Date.now(), deadline = startedAt + 15000;
         const progress = () => {
             if (epoch !== generation) { clearInterval(timer); return; }
@@ -214,10 +212,10 @@ async function start(): Promise<void> {
         addEventListener('pageshow', progress); addEventListener('focus', progress);
         progress();
         try {
-            rpc = new GmRpc(endpoint, value => { guard(epoch); stage = value; progress(); }); pending = rpc;
+            rpc = new NativeRpc(endpoint, () => connector, value => { guard(epoch); stage = value; progress(); }); pending = rpc;
             const started = performance.now(); await rpc.connect(); guard(epoch);
             stage = 'Checking the KeeWebX reply'; progress(); guard(epoch);
-            const result = await rpc.call(focus ? 'focus' : 'probe', undefined, 5000); guard(epoch);
+            const result = await rpc.call('probe', undefined, 5000); guard(epoch);
             ui.state(State.Connected, `Connected to the authorized KeeWebX tab (${Math.round(performance.now() - started)} ms; ${result.visibility}).`);
         } catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
         finally {
@@ -225,7 +223,11 @@ async function start(): Promise<void> {
             rpc?.dispose(); if (pending === rpc) pending = undefined; if (epoch === generation) ui.busy(false);
         }
     };
-    ui.probe.onclick = event => { if (event.isTrusted) void testConnection(); };
+    ui.probe.onclick = event => {
+        if (!event.isTrusted) return;
+        if (!connector || connector.closed) { openConnection(); return; }
+        void testConnection();
+    };
     document.addEventListener('focusin', event => { const field = event.composedPath()[0]; if (eligible(field)) { selected = field; ui.anchor(field); } }, true);
     const invalidated = () => { if (current?.rpc.href !== undefined && current.rpc.href !== location.href || pending && pending.href !== location.href) clean(); };
     addEventListener('popstate', invalidated); addEventListener('hashchange', invalidated);

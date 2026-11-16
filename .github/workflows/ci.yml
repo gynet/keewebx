@@ -267,7 +267,7 @@ jobs:
       - name: Build and typecheck Userscripts Connect
         run: |
           bun modules/extension/userscript/build-connect.ts
-          bun test modules/extension/userscript/tests/gm-rpc.test.ts
+          bun test modules/extension/userscript/tests/native-connect.test.ts
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
           node --check modules/extension/userscript/keewebx-connect.user.js
           git diff --exit-code -- modules/extension/userscript/keewebx-connect.user.js
@@ -291,11 +291,7 @@ jobs:
             sleep 1
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
-          KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/gm-connect.mjs
-          KWX_APP_SERVER=http://127.0.0.1:8097 KWX_NATIVE_STORAGE=1 KWX_WITHHOLD_POLLS=1 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect/native-storage node modules/extension/userscript/tests/gm-connect.mjs
-          git fetch --depth=1 origin tag userscript-v0.4.0
-          git show userscript-v0.4.0:modules/extension/userscript/keewebx-connect.user.js > .cache/userscript-connect-legacy.user.js
-          KWX_APP_SERVER=http://127.0.0.1:8097 KWX_LEGACY_APP_USERSCRIPT=.cache/userscript-connect-legacy.user.js KWX_E2E_OUTPUT_DIR=.cache/userscript-connect/legacy node modules/extension/userscript/tests/gm-connect.mjs
+          KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
           FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
           KWX_RELAY_REPORT=.cache/userscript-connect/relay-transport.json node modules/extension/userscript/tests/relay-transport.mjs chromium
           bunx playwright test --config e2e/extension/new-interface.playwright.config.ts e2e/extension/new-interface-connection.spec.ts --reporter=line,html

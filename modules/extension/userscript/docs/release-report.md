@@ -1,6 +1,82 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current architecture: 0.4.5
+## Current release: 0.5.0
+
+The reported failure persisted after 0.4.5: the app displayed Authorized while
+website requests received no reply. Authorization state alone did not establish
+reachability. This release replaces the GM request/reply queue with native
+window messages, retaining the existing encrypted Connect protocol.
+
+### Flow
+
+1. Unlock the intended app and authorize the installed script once.
+2. From a login website, open its lightweight connection page with a trusted tap.
+3. Return to the website and select a matching account. Further lookups reuse
+   the page and the original unlocked app; no new website consent is required.
+4. If execution stops, visit the existing app, unlock if needed, return and retry.
+
+Website-to-connection-page traffic uses pinned native window identity and exact
+origin. Same-origin BroadcastChannel reaches the selected app. Signed envelopes
+bind app host, endpoint, document, origin, operation, session and deadline.
+Credential payloads remain encrypted by the existing ProtocolImpl/AppBridge
+implementation. The connection page cannot decrypt them. GM holds only identity,
+settings and routing metadata; there are no GM transport records or polling loops.
+
+The app endpoint has one native port. One active website session therefore owns
+it at a time. A fresh lookup invalidates previous handles; a busy request cannot
+be stolen by another website. Canceling or navigating prevents late filling.
+Native vault permissions and exact-origin form checks remain authoritative.
+
+### Corrections included in the rewrite
+
+- Acquire a named connection window without navigating an existing document.
+  Separate window names include both app endpoint and website origin.
+- Wait for the native setup response instead of failing during the first
+  handshake race. Retain pending requests during same-peer setup renewal.
+- Use manager tab identity for ownership across reload. Duplicated sessionStorage
+  cannot silently replace the selected app.
+- Invalidate pending authorization on cancellation; a late settings write cannot
+  reactivate the host. Check the selected route before serving each request.
+- Return an explicit locked-app result promptly, then reuse permission after
+  unlock. Do not change the app’s lock policy.
+- Bound request and connection-test lifetimes, and reject old sessions,
+  replayed requests, invalid signatures and changed form targets.
+
+### Verification
+
+The exact published installer passed **13 transport security/lifecycle unit
+checks**, TypeScript, JavaScript syntax and deterministic build checks. The
+application build passed. The updated extension instructions passed browser
+checks at **1280px and 320px**, with no retries.
+
+**12 end-to-end steps passed** in a real Chromium extension’s isolated
+content environment using native postMessage, BroadcastChannel and extension
+storage, a GM settings API adapter, a real encrypted KDBX and the New UI’s native
+permission dialog. The fixture used no GM request/reply simulation.
+
+Coverage includes one authorization across two origins; six alternating fills;
+connection testing; explicit reconnect without app navigation or lock; canceling
+and navigating during a real delayed encrypted field response; website reload
+with a preserved named connector; reopening a closed connector; prompt rejection
+while locked and recovery after unlock; and a complete audit of settings writes
+and signed, encrypted wire traffic. No plaintext fixture credentials or transport
+queue records appeared in settings history. No payload logs or browser errors
+were recorded.
+
+Installer size: **86,598 bytes**. SHA-256:
+`9e96fb8371811874b61bc65d2f5392d12dd1da53e92db96380d896023f73f67d`.
+
+Browser fixture: `tests/native-connect.mjs`. Unit checks:
+`tests/native-connect.test.ts`. Setup and reproducible commands:
+[Userscripts guide](../README.md).
+
+This is desktop browser evidence, not a claim of native iPhone certification.
+The installed iOS Userscripts manager, long suspension and standalone PWA
+communication still need device acceptance. Manual switching to the existing
+app is supported. Update the one installed script and reload app and website
+once so both run 0.5.0; an old 0.4.x receiver cannot use this transport.
+
+## Historical architecture: 0.4.5
 
 Authorize the intended KeeWebX app tab once with **Authorize Connect** and the
 native **Allow** dialog for account listing. All login websites then use the

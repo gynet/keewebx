@@ -16,7 +16,7 @@ const license = await readFile(path.join(import.meta.dir, '../../..', 'LICENSE')
 const metadata = `// ==UserScript==
 // @name         KeeWebX Connect (experimental)
 // @namespace    https://keewebx.app/
-// @version      0.4.5
+// @version      0.5.0
 // @description  Authorize KeeWebX once and fill accounts on all websites using the existing encrypted Connect protocol. Experimental iOS Safari support.
 // @match        https://*/*
 // @noframes
@@ -25,12 +25,11 @@ const metadata = `// ==UserScript==
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @grant        GM.deleteValue
-// @grant        GM.listValues
 // @grant        GM.getTab
 // @grant        GM.saveTab
 // ==/UserScript==
 
-// Cross-site transport uses script-private GM storage; credential payloads use Connect/TweetNaCl encryption.
+// Native window messages and BroadcastChannel carry encrypted Connect payloads. GM stores only identity and settings.
 /*! KeeWebX license:\n${license}\n*/
 `;
 const output = `${metadata}\n${(await result.outputs[0].text()).trimEnd()}\n`;

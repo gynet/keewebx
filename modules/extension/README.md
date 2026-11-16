@@ -43,24 +43,22 @@ include setup and troubleshooting even while disconnected.
 ## iOS Safari with Userscripts
 
 Use the separate experimental [KeeWebX Connect userscript](userscript/README.md)
-with the **Userscripts** app. Download the
-[0.4.5 installer](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.5/modules/extension/userscript/keewebx-connect.user.js)
-and allow the same installed script on KeeWebX and your login websites. Its
-own connection panel is separate from the desktop extension's settings.
+with the **Userscripts** app. Install the
+[0.5.0 script](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.0/modules/extension/userscript/keewebx-connect.user.js)
+and allow it on KeeWebX and your login websites. Its connection panel is
+separate from the desktop extension’s settings.
 
-Unlock a database in the intended KeeWebX tab, choose **Authorize Connect** in
-the script panel and select **Allow** for account listing once. All login
-websites then reuse that tab: focus a login field, tap the key and select an
-account. Normal fill opens no tab and does not submit the form. **Open KeeWebX**
-is an explicit setup action. The default flow has no helper, discovery,
-BroadcastChannel or per-website Connect approval.
+Unlock the intended app tab, choose **Authorize Connect**, then **Allow**
+account listing once. On a website, focus a login field and tap the key. Keep
+the connection page open, return to the website, choose **Find accounts**, and
+select your account. Subsequent fills reuse that page and the original app.
+No additional website authorization is needed; forms are not submitted.
 
-The manager-private GM queue carries signed requests and replies with Connect
-encrypted credential payloads, deleted after consumption or expiry. Persistent
-state holds the identity, settings and approved route. Keep the authorized app
-tab open; if it stops replying, visit it, unlock if needed and retry from the
-website. Native iOS long suspension and standalone Home Screen PWAs remain
-unverified; automatic OS wakeup is not guaranteed.
+Native window messages and same-origin BroadcastChannel forward the existing
+encrypted Connect protocol. GM stores identity and settings, never a request or
+reply queue. Keep the app and connection page open. If necessary, visit the
+existing app, unlock, return and retry. Native iOS and standalone Home Screen
+PWA acceptance remain unverified.
 
 ## Building
 
