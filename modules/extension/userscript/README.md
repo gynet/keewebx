@@ -1,11 +1,11 @@
-# Userscripts on iOS: KeeWebX Connect 0.5.2
+# Userscripts on iOS: KeeWebX Connect 0.5.3
 
 Authorize your unlocked KeeWebX app once, then select matching accounts beside
 login fields on any website. Finding accounts and testing the connection never
 open a page. Forms are filled only after an explicit account selection and are
 never submitted automatically.
 
-[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.2/modules/extension/userscript/keewebx-connect.user.js)
+[Install keewebx-connect.user.js](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.3/modules/extension/userscript/keewebx-connect.user.js)
 
 ## Install and use
 
@@ -20,21 +20,25 @@ never submitted automatically.
    listing in KeeWebX. That one grant is shared across websites.
 3. On a login website, focus a username or password field, tap the key, and
    select a matching account. Use **Find accounts** to refresh the list.
-   Navigating to another website does not require another authorization or
-   another connection page.
+   Navigating to another website does not require another authorization.
+   If a connection test times out, use the recovery action below.
 
 For a self-hosted app, save its complete HTTPS URL in **Connection → KeeWebX
 address**, then authorize that app. **Test connection** checks it without
-reading credential fields. **Open connection page** is an optional, explicit
-native-window setup action; normal lookup and recovery do not use this button.
+reading credential fields. If the test times out, **Reconnect to existing tab**
+opens or reuses a lightweight connection page and immediately checks the original
+authorized app through native messages. This action does not open a second vault.
+When the page confirms the existing app replied, choose **Back to website** and
+find accounts. Keep this small connection page open while using the restored link.
 
-## Upgrade from 0.5.0 or 0.5.1
+## Upgrade from 0.5.0–0.5.2
 
 Replace the one installed script. Save database changes, then reload the
-existing app and website once so both run **Connect 0.5.2**. Both the app receiver
+existing app and website once so both run **Connect 0.5.3**. Both the app receiver
 and website client must run the updated lifecycle and recovery checks. Existing
 signing identity and vault permission are retained. Close obsolete connection pages; they are not
-required for normal filling. Do not repeatedly open a connection page to retry.
+required for normal mailbox filling. Keep a recovery connection page open while
+using its native link.
 
 Replace the same filename in Userscripts. A renamed copy has a separate private
 storage namespace and cannot share the original script's authorization. Keep

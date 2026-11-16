@@ -30,9 +30,10 @@ export function managerCall<T>(operation: () => Promise<T>, description = 'Users
         Promise.resolve().then(operation).then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
     });
 }
-export async function approvedRoute(endpoint: URL): Promise<Route | undefined> {
+export async function approvedRoute(endpoint: URL, strict = false): Promise<Route | undefined> {
     const route = await managerCall(() => GM.getValue(routeKey(endpoint)));
     if (object(route) && isId(route.host) && isId(route.owner) && route.endpoint === endpoint.href && typeof route.publicKey === 'string') return route as Route;
+    if (strict && route != null) throw new Error('Saved app selection is invalid. Reauthorize your existing KeeWebX tab.');
 }
 const valid = (p: Packet) => isId(p.host) && isId(p.id) && isId(p.document) && /^https:\/\/[^/]+$/.test(p.origin) &&
     Number.isFinite(p.deadline) && p.deadline > Date.now() && p.deadline <= Date.now() + 66000 &&
@@ -229,7 +230,7 @@ export class NativeRpc {
     private expiresAt = 0;
     private cancelSetup?: () => void;
     private pending = new Map<string, { packet: Packet; resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>; stop?: () => void }>();
-    constructor(private endpoint: URL, private peer: () => Window | undefined, private progress: (stage: string) => void = () => {}) { addEventListener('message', this.receive); }
+    constructor(private endpoint: URL, private peer: () => Window | undefined, private progress: (stage: string) => void = () => {}, private setupTimeout = 2000) { addEventListener('message', this.receive); }
     assertCurrent(): void {
         if (!this.live || location.href !== this.href || this.window?.closed) throw new Error('The website or connection page changed. Connect again.');
         if (this.scope && Date.now() >= this.expiresAt) throw new Error('The account list expired. Find accounts again.');
@@ -256,7 +257,7 @@ export class NativeRpc {
                         event.data?.marker === MARK && event.data.kind === 'ready' &&
                         event.data.routingId === peers.get(this.window!)?.routingId && event.data.endpoint === this.endpoint.href) finish();
                 };
-                const timer = setTimeout(() => finish(new Error('The connection page did not respond.')), 2000);
+                const timer = setTimeout(() => finish(new Error('The connection page did not respond.')), this.setupTimeout);
                 this.cancelSetup = () => finish(new Error('The operation was canceled.'));
                 addEventListener('message', receive);
                 this.window!.postMessage({ marker: SETUP_MARK, kind: 'reconnect', routingId: peers.get(this.window!)?.routingId, endpoint: this.endpoint.href }, this.endpoint.origin);
@@ -344,10 +345,18 @@ export function startConnector(endpoint: URL): void {
     const status = document.createElement('p'); status.textContent = 'Connecting to your website…'; status.setAttribute('role', 'status');
     const back = document.createElement('button'); back.textContent = 'Back to website'; back.disabled = true;
     back.style.cssText = 'font:inherit;padding:12px 20px;border:0;border-radius:12px;background:#1769e0;color:white';
-    const app = document.createElement('a'); app.textContent = 'Open KeeWebX'; app.href = endpoint.href; app.target = '_blank'; app.rel = 'noopener noreferrer'; app.style.marginLeft = '16px';
-    const note = document.createElement('p'); note.textContent = 'Keep this connection page open. It forwards encrypted messages to the app you authorized. If the app is asleep, visit its existing tab and return.';
+    const app = document.createElement('a'); app.textContent = 'Open a new KeeWebX tab'; app.href = endpoint.href; app.target = '_blank'; app.rel = 'noopener noreferrer'; app.style.marginLeft = '16px'; app.hidden = true;
+    const note = document.createElement('p'); note.textContent = 'This connection page restores the link to the KeeWebX tab you already authorized. It does not open another vault. If that app does not reply, visit its existing tab, unlock if needed, and return.';
     note.style.fontSize = '13px';
     panel.append(heading, status, back, app, note); document.body.append(panel);
+    void approvedRoute(endpoint, true).then(selected => {
+        // A missing route is a first-use situation. An unresponsive authorized
+        // route must never be treated as permission to open a replacement vault.
+        if (!selected && window.opener) {
+            app.hidden = false;
+            note.textContent = 'No app is authorized. Authorize Connect in an existing KeeWebX tab first. Open a new tab only if you do not already have one.';
+        }
+    }).catch(() => { note.textContent = 'Connection settings could not be read. Return to your existing KeeWebX tab and retry; do not open another vault.'; });
     if (!window.opener) {
         status.textContent = 'This website did not keep a window link. Return to it and choose Find accounts; the authorized app can be used without this page.';
         note.textContent = 'You can close this optional connection page.';
@@ -361,10 +370,10 @@ export function startConnector(endpoint: URL): void {
     const link = new SiteLink(window.opener, (window, site) => {
         if (peer !== window || origin !== site) pending.clear();
         peer = window; origin = site; back.disabled = false;
-        status.textContent = `Connection page ready for ${site}. Return to your website and select an account.`;
+        status.textContent = `Connection page ready for ${site}. Checking your existing KeeWebX tab…`;
         peer.postMessage({ marker: MARK, kind: 'ready', routingId, endpoint: endpoint.href }, site);
     }, expired => {
-        if (!peer || expired) status.textContent = 'Return to your website. If the connection is unavailable, choose Connect to KeeWebX there.';
+        if (!peer || expired) status.textContent = 'Return to your website and choose Reconnect to existing tab if needed.';
     }, { followOpener: true, routingId, endpoint: endpoint.href });
     back.onclick = event => { if (event.isTrusted && peer && !peer.closed) peer.focus(); };
     addEventListener('message', event => {
@@ -376,12 +385,23 @@ export function startConnector(endpoint: URL): void {
         if (p.operation !== 'release') pending.set(p.id, p);
         channel.postMessage({ marker: MARK, value: event.data.value });
     });
-    channel.onmessage = event => {
+    channel.onmessage = event => { void (async () => {
         if (!active || !event.isTrusted || event.origin !== location.origin || event.data?.marker !== MARK || !object(event.data.value?.packet)) return;
         const p = event.data.value.packet as Packet, q = pending.get(p.id);
         if (!q || p.type !== 'reply' || !peer || peer.closed || p.origin !== origin || p.document !== q.document || p.host !== q.host || p.endpoint !== q.endpoint || p.scope !== q.scope || p.operation !== q.operation || p.deadline !== q.deadline || Date.now() >= p.deadline) return;
-        pending.delete(p.id); peer.postMessage({ marker: MARK, value: event.data.value }, origin!);
-    };
+        const destination = peer, site = origin;
+        const selected = await approvedRoute(endpoint, true);
+        // Same-origin channel messages are not proof of app identity. Verify
+        // before consuming a pending reply or displaying connectivity status.
+        if (!selected || selected.host !== p.host || !verified(event.data.value, fromBase64(selected.publicKey)) ||
+            !active || peer !== destination || origin !== site || pending.get(p.id) !== q || Date.now() >= p.deadline) return;
+        if (['hello', 'probe'].includes(p.operation)) {
+            app.hidden = true;
+            if (p.error) status.textContent = 'Your existing KeeWebX tab replied but is not ready. Visit that tab, unlock if needed, then return to the website.';
+            else if (p.body?.appBoot === selected.host) status.textContent = 'Connected to your existing KeeWebX tab. Return to the website to find accounts.';
+        }
+        pending.delete(p.id); destination.postMessage({ marker: MARK, value: event.data.value }, site!);
+    })().catch(() => { status.textContent = 'Could not verify the existing app connection. Return to your existing KeeWebX tab, then retry.'; }); };
     const resume = () => {
         active = true; link.restart();
     };

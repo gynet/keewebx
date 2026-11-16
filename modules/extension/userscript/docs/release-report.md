@@ -1,6 +1,55 @@
 # Userscripts Connect implementation and acceptance report
 
-## Current release: 0.5.2
+## Current release: 0.5.3
+
+The user reported that the first connection worked, but testing after closing
+other pages timed out; choosing Open KeeWebX then created another app. Closing
+the website and helper does not revoke the app. A fresh website has no native
+window association and therefore tests through the mailbox. The specific cause
+of the phone's mailbox timeout has not been established.
+
+Two recovery defects were confirmed: opening a helper did not automatically test
+the original app, and its Open KeeWebX link always opened another app even when
+an authorized route already existed.
+
+**Reconnect to existing tab** now opens or reuses only a lightweight connection
+page and immediately checks the original selected app using native window
+messages and BroadcastChannel. It allows a bounded initial helper load. The
+helper verifies the current host, reply signature, request binding, deadline,
+and app identity before showing connectivity or consuming a reply. Forged
+channel messages cannot consume a legitimate pending response. The new-app
+link is hidden when a route exists, is malformed, or cannot be read; it is
+offered only for first use with no saved selection.
+
+Acceptance includes closing every login/helper page, retaining the original
+unlocked app, then connecting three fresh websites. It also deliberately stops
+app mailbox delivery, reproduces the test timeout, restores native delivery,
+and fills an account while mailbox delivery remains stopped. That scenario
+checks the original app document and selected host remain unchanged, there is
+no new permission dialog, and the only extra page is the explicit connector.
+Injected forged replies are identified separately in the transport audit.
+
+**44 unit checks passed.** The exact installer passed **19 browser steps against
+live app assets**, and the same **19 steps with storage notifications disabled**.
+Both runs use real extension isolation and native browser events, a GM API
+adapter, an encrypted KDBX and the app's permission dialog. They include actual
+hidden/frozen lifecycle coverage, cancellation, and transport confidentiality
+checks. TypeScript, syntax and deterministic bundle checks passed.
+
+Installer: **95,567 bytes**. SHA-256:
+`1970a67ca827e0952a36f6a6f2e6adf8fc3dceb1adf0f4ed227b709deb53947f`.
+
+The prior full CI failure was a help-page test still expecting the 0.5.1 download
+link. That test now compares the page link with the committed installer's version
+so release updates cannot leave a stale hardcoded expectation. The New UI build
+and both help-page viewports passed in Chromium and Firefox (four browser cases).
+
+The existing 0.5.2 security and lifecycle regression checks remain applicable.
+This is a verified recovery path for a transport failure, not proof of the
+phone-specific timeout's root cause or a guarantee that a frozen app can run.
+If the app itself does not reply, return to its existing tab and unlock if needed.
+
+## Historical release: 0.5.2
 
 An independent fault-injection audit reproduced defects in mailbox cleanup,
 queue fairness, cancellation, delayed writes, and competing app selection.

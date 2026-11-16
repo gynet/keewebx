@@ -89,7 +89,7 @@ export class ConnectUI {
             this.targetSite.type = 'url'; this.targetSite.value = 'https://example.com/'; this.targetSite.autocomplete = 'off'; siteLabel.append(this.targetSite);
             this.config.append(appActions, siteLabel, configActions, text(document.createElement('p'), 'First use: unlock the database, authorize Connect, then return to the website.'));
         }
-        else this.config.append(configActions, extraActions, text(document.createElement('p'), 'Open KeeWebX to authorize Connect first. Then select an account beside the login field.'));
+        else this.config.append(configActions, extraActions, text(document.createElement('p'), 'Keep your authorized KeeWebX tab open. If testing times out, reconnect to that existing tab. A connection page can restore the link without opening another vault.'));
         this.config.lastElementChild!.className = 'note';
         this.panel.hidden = true;
         this.panel.append(header, tabs, statusLine, this.accounts, this.config);

@@ -1,5 +1,11 @@
 import { activateVaultUtility } from './vault-utilities';
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const installer = readFileSync(resolve(__dirname, '../../modules/extension/userscript/keewebx-connect.user.js'), 'utf8');
+const installerVersion = installer.match(/^\/\/ @version\s+(\d+\.\d+\.\d+)$/m)?.[1];
+if (!installerVersion) throw new Error('Userscript installer version is missing');
 
 for (const width of [1280, 320]) test(`extension guidance and diagnostics are usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -18,7 +24,7 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     await expect(setup).toContainText('Use a supported Chrome, Chromium, Edge, or Firefox desktop browser. For iOS Safari, see the Userscripts setup below.');
     await setup.getByText('iOS Safari with Userscripts (experimental)', { exact: true }).click();
     await expect(setup.getByRole('link', { name: 'Download Connect userscript', exact: true }))
-        .toHaveAttribute('href', 'https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.1/modules/extension/userscript/keewebx-connect.user.js');
+        .toHaveAttribute('href', `https://raw.githubusercontent.com/gynet/keewebx/userscript-v${installerVersion}/modules/extension/userscript/keewebx-connect.user.js`);
     await expect(setup.getByRole('link', { name: 'Userscripts setup guide', exact: true }))
         .toHaveAttribute('href', 'https://github.com/gynet/keewebx/tree/master/modules/extension/userscript#readme');
     await expect(setup).toContainText('select Allow for account listing once. All login websites then use this tab.');

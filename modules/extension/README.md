@@ -43,7 +43,7 @@ include setup and troubleshooting even while disconnected.
 ## iOS Safari with Userscripts
 
 Install the experimental [KeeWebX Connect userscript](userscript/README.md)
-[version 0.5.2](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.2/modules/extension/userscript/keewebx-connect.user.js)
+[version 0.5.3](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.3/modules/extension/userscript/keewebx-connect.user.js)
 with **Userscripts**, and allow it on KeeWebX and your login websites.
 
 Authorize the unlocked app once. On a website, focus a login field, tap the key

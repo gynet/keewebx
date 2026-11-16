@@ -13,7 +13,7 @@ function replace(key: string, value: any) {
 }
 // Module-level setup listeners are exercised by the real browser fixture.
 replace('addEventListener', () => {});
-const { NativeHost, NativeRpc } = await import('../src/native-connect');
+const { NativeHost, NativeRpc, approvedRoute } = await import('../src/native-connect');
 let host: InstanceType<typeof NativeHost>, keys: ReturnType<typeof sign.keyPair>;
 let storage: Map<string, any>, replies: any[], reads: number, lastBridge: AppBridge;
 let locks: ReturnType<typeof sharedLocks>;
@@ -82,6 +82,12 @@ test('authorized session carries wire without storing any request or reply', asy
     await send(envelope(await session()));
     expect(reads).toBe(1); expect(replies.at(-1).value.packet.body.action).toBe('test-wire');
     expect([...storage.keys()]).toEqual([routeKey]);
+});
+test('recovery distinguishes invalid saved selection from first use', async () => {
+    storage.set(routeKey, { host: 'invalid' });
+    await expect(approvedRoute(endpoint, true)).rejects.toThrow('Saved app selection is invalid');
+    storage.delete(routeKey);
+    expect(await approvedRoute(endpoint, true)).toBeUndefined();
 });
 test('tampered origin and forged signature never reach the app', async () => {
     const p = await session();

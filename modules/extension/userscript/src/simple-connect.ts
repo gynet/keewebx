@@ -7,7 +7,7 @@ import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { eligible, targets, assertTargets, fill, matchesOrigin, type Targets } from './form-targets';
 
-const VERSION = '0.5.2';
+const VERSION = '0.5.3';
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -144,13 +144,15 @@ async function start(): Promise<void> {
         try { endpoint = await saveEndpoint(ui.address.value); guard(epoch); connector = undefined; register(); ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
         catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
     };
-    ui.open.textContent = 'Open connection page';
+    ui.open.textContent = 'Reconnect to existing tab';
     const openConnection = () => {
         clean();
         try {
             if (!clientId) throw new Error('Connection settings are not ready. Reopen the panel and retry.');
             connector = openConnector(endpoint, clientId, connector);
-            ui.state(State.ReadyToConnect, 'Connection page opened. Return here and find accounts. Keep that page open.');
+            // Start the native handshake while its connection page is active.
+            // The user should not need another test after returning here.
+            void testConnection(true);
         } catch (error) { ui.state(State.Error, message(error)); }
     };
     ui.open.onclick = event => { if (event.isTrusted) openConnection(); };
@@ -210,7 +212,7 @@ async function start(): Promise<void> {
     };
     ui.lookup.onclick = lookup;
     ui.onOpen = event => { if (eligible(selected)) void lookup(event); };
-    const testConnection = async () => {
+    const testConnection = async (recovery = false) => {
         clean(); const epoch = generation; ui.busy(true);
         let stage = 'Starting the connection test';
         let rpc: NativeRpc | undefined;
@@ -227,7 +229,7 @@ async function start(): Promise<void> {
         addEventListener('pageshow', progress); addEventListener('focus', progress);
         progress();
         try {
-            rpc = new NativeRpc(endpoint, () => connector, value => { guard(epoch); stage = value; progress(); }); pending = rpc;
+            rpc = new NativeRpc(endpoint, () => connector, value => { guard(epoch); stage = value; progress(); }, recovery ? 5000 : 2000); pending = rpc;
             const started = performance.now(); await rpc.connect(); guard(epoch);
             stage = 'Checking the KeeWebX reply'; progress(); guard(epoch);
             const result = await rpc.call('probe', undefined, 5000); guard(epoch);
