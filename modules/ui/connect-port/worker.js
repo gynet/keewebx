@@ -249,16 +249,27 @@ async function discover(candidates, appBoot, endpoint, timeout = PROBE_MS, portI
     return results;
 }
 
+async function findRelay(id, data) {
+    let relay = await self.clients.get(id);
+    if (!relay) {
+        // A missing lookup alone does not establish that the helper closed.
+        // Require the same browser client and exact relay URL in a fresh list.
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
+        relay = windows.find((client) => client.id === id);
+    }
+    return relay && relay.id === id && validRelay(relay, data) ? relay : undefined;
+}
+
 async function recoveryClients(sourceId, data, endpoint, deadline) {
     let timer;
     try {
         // Browser-owned lookups must also fit inside the discovery budget.
         return await Promise.race([
             (async () => {
-                const relay = await self.clients.get(sourceId);
-                if (!relay || !validRelay(relay, data)) return { invalid: true };
+                const relay = await findRelay(sourceId, data);
+                if (!relay) return { invalid: true };
                 const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-                return { relay, candidates: clients.filter((client) => client.id !== relay.id && isApp(client, endpoint)).slice(0, MAX_CANDIDATES) };
+                return { candidates: clients.filter((client) => client.id !== relay.id && isApp(client, endpoint)).slice(0, MAX_CANDIDATES) };
             })(),
             new Promise((resolve) => { timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now())); })
         ]);
@@ -281,8 +292,8 @@ async function attach(event) {
         const data = event.data;
         const handoffDeadline = Date.now() + 25000;
         // Re-read the browser-owned client so a navigated relay cannot authorize a handoff.
-        let relay = await self.clients.get(event.source.id);
-        if (!relay || !validRelay(relay, data)) {
+        const relay = await findRelay(event.source.id, data);
+        if (!relay) {
             fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
             return;
         }
@@ -308,7 +319,6 @@ async function attach(event) {
                 return;
             }
             if (refreshed) {
-                relay = refreshed.relay;
                 if (!refreshed.candidates.length) {
                     fail(event, 'noapp', 'No KeeWebX app tab was found. Keep your original app open in the same browser profile and browsing mode, then retry.');
                     return;
@@ -334,13 +344,12 @@ async function attach(event) {
             return;
         }
         const [currentRelay, app] = await Promise.all([
-            self.clients.get(event.source.id), self.clients.get(matches[0].client.id)
+            findRelay(event.source.id, data), self.clients.get(matches[0].client.id)
         ]);
-        if (!currentRelay || currentRelay.id !== event.source.id || !validRelay(currentRelay, data)) {
+        if (!currentRelay) {
             fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
             return;
         }
-        relay = currentRelay;
         if (!app || app.id !== matches[0].client.id || !isApp(app, endpoint)) {
             fail(event, 'refreshed', 'The KeeWebX app tab changed or closed. Select it again for Connect, then retry from the website.');
             return;

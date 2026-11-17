@@ -34,7 +34,7 @@ class FakeWindowClient {
     }
 }
 
-function fixture(withSilentApp = false, options: { base?: string; endpoint?: string; appURL?: string } = {}) {
+function fixture(withSilentApp = false, options: { base?: string; endpoint?: string; appURL?: string; missingRelayLookup?: number } = {}) {
     const base = options.base ?? 'https://keewebx.app/';
     const data = { marker, kind: 'attach', nonce: crypto.randomUUID(), appBoot: crypto.randomUUID(),
         connectionId: crypto.randomUUID(), endpoint: options.endpoint ?? endpoint, siteOrigin: 'https://login.example.org' };
@@ -51,10 +51,17 @@ function fixture(withSilentApp = false, options: { base?: string; endpoint?: str
     const timers = new Map<number, { callback: () => void; due: number }>();
     const channels: { port1: FakePort; port2: FakePort }[] = [];
     const listeners = new Map<string, (event: any) => void>();
-    const queries = { get: [] as string[], matchAll: 0, locks: 0 };
+    const queries = { get: [] as string[], missingRelay: 0, matchAll: 0, locks: 0 };
     const navigator: { locks?: { query: () => Promise<any> } } = {};
     const browserClients = {
-        async get(id: string) { queries.get.push(id); return clients.get(id); },
+        async get(id: string) {
+            queries.get.push(id);
+            if (id === relay.id && queries.get.filter(key => key === id).length === options.missingRelayLookup) {
+                queries.missingRelay++;
+                return undefined;
+            }
+            return clients.get(id);
+        },
         async matchAll() { queries.matchAll++; return [...clients.values()]; }
     };
     let nextTimer = 0, now = Date.now(), settled = false, work: Promise<void> | undefined;
@@ -242,7 +249,7 @@ test.each(['closed', 'navigated'])('the helper is revalidated before the recover
     expect(f.website.messages.at(-1).code).toBe('invalid');
     expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
-    expect(f.queries.matchAll).toBe(1);
+    expect(f.queries.matchAll).toBe(change === 'closed' ? 2 : 1);
     expect(f.timers.size).toBe(0);
 });
 
@@ -261,6 +268,29 @@ test('recovery enumerates current App clients instead of probing a client that n
     expect(f.website.messages).toEqual([]);
     expect(f.timers.size).toBe(0);
 });
+
+test.each(['initial lookup', 'recovery lookup', 'handoff lookup'])(
+    'a live helper survives a missing client lookup during %s', async phase => {
+        const missingLookup = phase === 'initial lookup' ? 1 : 2;
+        const f = fixture(false, { missingRelayLookup: missingLookup });
+        acknowledge(f);
+        if (phase === 'recovery lookup') {
+            const answer = f.app.onPost!;
+            const recoveryTime = f.time() + 8000;
+            f.app.onPost = (request, ports) => {
+                if (f.time() >= recoveryTime) answer(request, ports);
+            };
+            await flush();
+            await f.tick(8000);
+        }
+        await flush();
+        await f.work();
+        expect(f.queries.missingRelay).toBe(1);
+        expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+        expect(f.website.messages).toEqual([]);
+        expect(f.website.closed).toBe(false);
+    }
+);
 
 test('discovery retries remain bounded by two eight-second rounds and close every temporary port', async () => {
     const f = fixture(); await flush(); await f.tick(8000);
