@@ -8,13 +8,18 @@ name: Release self-host bundle
 #
 # Triggers:
 #   - push of a tag `v*`   -> attach archives to the matching GitHub Release
-#   - workflow_dispatch    -> upload as workflow artifact (testable without a tag)
+#   - workflow_dispatch    -> artifacts only, or publish an existing immutable tag
 
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing vX.Y.Z tag to publish; blank builds artifacts only'
+        type: string
+        required: false
 
 permissions:
   contents: write   # required to create/upload GitHub Releases
@@ -27,7 +32,7 @@ jobs:
     # negation (e.g., `tags-ignore: 'v*-extension'` combined with
     # `tags: 'v*'` is ignored), so we gate at the job level instead. On
     # workflow_dispatch github.ref_name is the branch, which never matches.
-    if: ${{ !endsWith(github.ref_name, '-extension') }}
+    if: ${{ !endsWith(inputs.release_tag || github.ref_name, '-extension') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -36,6 +41,19 @@ jobs:
           # diff commit messages between $PREV_TAG..$NEW_TAG for the
           # release notes "What's new" section.
           fetch-depth: 0
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Resolve immutable source
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "$RELEASE_TAG" ]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@v2.2.0
       - uses: actions/setup-node@v6
@@ -53,7 +71,7 @@ jobs:
         env:
           # Pin the build's embedded commit SHA to the CI commit so the
           # live-demo drift check in deploy-pages.yml stays consistent.
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ steps.source.outputs.sha }}
           KEEWEBX_NEW_EXTENSION: "1"
 
       - name: Verify static assets present in dist
@@ -88,13 +106,18 @@ jobs:
               || { echo "::error::build SHA missing from $bundle"; exit 1; }
           done
         env:
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ steps.source.outputs.sha }}
 
       - name: Compute version label
         id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GITHUB_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -e
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          if [ -n "$RELEASE_TAG" ]; then
+            VERSION="$RELEASE_TAG"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME}"
           else
             VERSION="dev-${GITHUB_SHA::7}"
@@ -155,11 +178,11 @@ jobs:
         #   - Full Changelog link (auto-resolved to previous tag)
         # If there is no previous tag (first release ever), the diff
         # falls back to "since beginning" and we omit the compare link.
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         id: notes
         run: |
           set -euo pipefail
-          NEW_TAG="${GITHUB_REF_NAME}"
+          NEW_TAG="${{ steps.version.outputs.version }}"
           VERSION="${{ steps.version.outputs.version }}"
           # Previous non-extension v* tag, sorted by version. `git tag
           # --sort=-v:refname` lists newest first; we exclude the current
@@ -195,6 +218,8 @@ jobs:
             echo ""
             if [ -f "docs/releases/${NEW_TAG}.md" ]; then
               cat "docs/releases/${NEW_TAG}.md"
+            elif [ -f "docs/release-${NEW_TAG#v}.md" ]; then
+              cat "docs/release-${NEW_TAG#v}.md"
             else
               echo "## What's new"
               echo ""
@@ -221,9 +246,10 @@ jobs:
           echo "::endgroup::"
 
       - name: Attach to GitHub Release (tag push only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ steps.version.outputs.version }}
           files: |
             artifacts/*.zip
             artifacts/*.tar.gz
