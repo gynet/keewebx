@@ -1201,7 +1201,9 @@ async function openerSelfClose() {
 async function revocationAcceptance(account) {
     await clearFields(first); await lookup(first, account);
     const reads = await fieldReads(), count = helpers.size;
-    await app.bringToFront(); await action(app, 'revoke'); await untilStatus(app, /Disconnected/);
+    await app.bringToFront();
+    if (await shadowValue(app, 'section', 'hidden')) await action(app, 'toggle');
+    await action(app, 'revoke'); await untilStatus(app, /Disconnected/);
     await first.bringToFront(); await startLookup(first);
     await untilStatus(first, /revoked|authorize|disabled|Enable Connect|disconnected|selected app changed|session changed|no longer connected/i, 15000);
     await emptyFields(first); expect(await fieldReads()).toBe(reads);
