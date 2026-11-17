@@ -123,3 +123,21 @@ test('an old controller that never upgrades fails within the existing worker bud
     expect(f.back.textContent).toBe('Close connection page');
     expect(f.oldWorker.posts.filter(post => post.data.kind === 'attach')).toHaveLength(0);
 });
+
+test('a matching worker failure closes its own helper without a remote close', async () => {
+    const f = fixture(); await f.attach();
+    await f.complete({}, { data: { marker, kind: 'error', code: 'disabled',
+        message: 'Connect is disabled.', nonce: (f.worker.posts.find(post => post.data.kind === 'attach').data.nonce),
+        connectionId: f.worker.posts.find(post => post.data.kind === 'attach').data.connectionId } });
+    expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
+    expect(f.status.textContent).toBe('Connect is disabled.');
+});
+test('untrusted, stale or port-bearing worker errors cannot close the helper', async () => {
+    const f = fixture(); await f.attach();
+    const attach = f.worker.posts.find(post => post.data.kind === 'attach').data;
+    const data = { marker, kind: 'error', code: 'disabled', message: 'Connect is disabled.', nonce: attach.nonce, connectionId: attach.connectionId };
+    for (const event of [{ isTrusted: false }, { source: {} }, { ports: [{ close() {} }] },
+        { data: { ...data, nonce: crypto.randomUUID() } }, { data: { ...data, connectionId: crypto.randomUUID() } }])
+        await f.complete({}, { data, ...event });
+    expect(f.closes()).toBe(0);
+});

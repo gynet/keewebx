@@ -41,7 +41,7 @@ older receiver.
 
 ## Verification
 
-- 333 unit cases pass, including actual relay and worker execution, signed-ready
+- 335 unit cases pass, including actual relay and worker execution, signed-ready
   rejection, spoofed completion controls, denied close, bounded failure, worker
   upgrade and safe retained-reference cleanup.
 - Userscript and App TypeScript checks, installer syntax and App build pass.
@@ -53,7 +53,18 @@ while hello is held, and closure through the trusted opener when the worker
 completion notice is deliberately lost. The traffic audit verifies 3,059 signed
 envelopes, 1,610 encrypted sensitive envelopes, 12 signed ready receipts and no
 plaintext credential transport. Every account request follows signed-ready and
-signed-hello verification. WebKit and old-installer compatibility runs continue
-separately.
+signed-hello verification. WebKit passes its 11 checks under the same fault.
+Both engines repeat their full pass with the actual old worker preinstalled,
+verifying a successful first-connection upgrade before attachment. The exact
+hosted 0.6.3 installer passes six compatibility checks with three closed helpers;
+the old-server negative control fails at the intended first-helper assertion.
+The deployed production assets also pass all 23 Chromium checks.
+
+A subsequent combined CI check (unresolved App storage plus denied remote close)
+exposed a second closure omission: worker rejection after revocation left error
+helpers open. A server-only follow-up closes the helper after a trusted, matching
+worker error, which is also delivered through the port to the website. Untrusted,
+wrong-source, stale and port-bearing errors cannot trigger closure. The 0.6.4
+installer is unchanged; this helper update also applies to existing 0.6.3 clients.
 Physical iOS acceptance of this fix still requires a device test; desktop
 WebKit is separate evidence.

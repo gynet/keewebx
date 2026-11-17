@@ -249,10 +249,13 @@
         if (event.ports.length === 0 && event.isTrusted && controller && event.source === controller && data?.kind === 'handoff-complete') {
             complete(data); return;
         }
-        if (event.isTrusted && controller && event.source === controller &&
+        if (event.ports.length === 0 && event.isTrusted && controller && event.source === controller &&
             messageWithKeys(data, ERROR_KEYS) && data.marker === MARK && data.kind === 'error' &&
             data.nonce === nonce && data.connectionId === connectionId) {
+            // The worker also sent this error through the transferred port.
+            // Leave the error on the website, not a stranded foreground helper.
             showError(data.message);
+            closeSelf();
         }
     });
 
