@@ -28,7 +28,7 @@ jobs:
     # `tags: 'v*'` is ignored), so we gate at the job level instead. On
     # workflow_dispatch github.ref_name is the branch, which never matches.
     if: ${{ !endsWith(github.ref_name, '-extension') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
