@@ -1,5 +1,7 @@
 # KeeWebX 0.4.11
 
+Superseded by 0.4.12, which restores configured synchronization in local HTML.
+
 ## Changes
 
 - Updates found during an unlocked session wait silently for the next startup.

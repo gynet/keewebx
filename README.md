@@ -34,9 +34,9 @@ Double-click `index.html`, or serve the extracted directory with any static HTTP
 python3 -m http.server 8080
 ```
 
-Keep the HTML files and bundled assets together. HTTPS or localhost enables features that require a secure context; passkeys also depend on browser and authenticator support. Direct `file://` use does not register a service worker or contact an update server. Local HTML disables remote configuration, synchronization and online password checks, regardless of saved settings. A browser-enforced policy blocks other network requests; website icons are the allowed exception. Download a newer release separately to update.
+Keep the HTML files and bundled assets together. HTTPS or localhost enables features that require a secure context; passkeys also depend on browser and authenticator support. Direct `file://` use does not register a service worker or check an update server. Local HTML blocks communication with `keewebx.app` and its subdomains. Your configured WebDAV synchronization and other external services remain available. Website icons are downloaded directly instead of through an app server. Download a newer release separately to update.
 
-KDBX encryption and decryption run in your browser. A browser-cache save does not update the external file you originally selected: download KDBX to save an external copy. Keep an independent encrypted backup. When served over HTTP or HTTPS, WebDAV synchronization and optional network features make requests only when configured or used.
+KDBX encryption and decryption run in your browser. A browser-cache save does not update the external file you originally selected: download KDBX to save an external copy. Keep an independent encrypted backup. WebDAV synchronization and optional network features make requests only when configured or used, including in local HTML.
 
 See [the self-host guide](docs/self-host.md) for deployment details.
 

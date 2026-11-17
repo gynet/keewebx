@@ -67,11 +67,11 @@ jobs:
         run: bun test scripts/tests/build-entries.test.ts
 
       - name: Build database and both interfaces
-        run: bun run build
+        run: env -u GITHUB_SHA GIT_SHA="$SOURCE_SHA" bun run build
         env:
           # Pin the build's embedded commit SHA to the CI commit so the
           # live-demo drift check in deploy-pages.yml stays consistent.
-          GITHUB_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
           KEEWEBX_NEW_EXTENSION: "1"
 
       - name: Verify static assets present in dist
@@ -102,11 +102,11 @@ jobs:
           set -e
           cd dist
           for bundle in js/app.js js/next.js; do
-            grep -q "${GITHUB_SHA}" "$bundle" \
+            grep -q "${SOURCE_SHA}" "$bundle" \
               || { echo "::error::build SHA missing from $bundle"; exit 1; }
           done
         env:
-          GITHUB_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
 
       - name: Compute version label
         id: version

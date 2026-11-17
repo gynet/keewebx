@@ -381,6 +381,11 @@ jobs:
           curl --fail --silent --show-error "$KW_E2E_APP_ORIGIN/next.html" > /dev/null
           node modules/ui/tests/startup-update-browser.mjs --browser=${{ matrix.browser }}
           KW_LOCAL_HTML_BROWSERS=${{ matrix.browser }} node scripts/smoke-local-html-network.mjs > "$KW_STARTUP_UPDATE_OUTPUT/local-html-network.json"
+      - name: Verify local HTML WebDAV persistence
+        if: matrix.shard == 1
+        env:
+          KW_LOCAL_HTML_ENTRY: file://${{ github.workspace }}/dist/next.html
+        run: bunx playwright test --config e2e/core-ci.playwright.config.ts --project=new-${{ matrix.browser }} e2e/core/next-webdav.spec.ts --grep 'preserves the original remote file on HTTP write failure' --workers=1
       - name: Run New core suite
         run: bunx playwright test --config e2e/core-ci.playwright.config.ts --project=new-${{ matrix.browser }} --shard=${{ matrix.shard }}/2
       - uses: actions/upload-artifact@v7

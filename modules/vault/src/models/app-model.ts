@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { requireNetwork } from 'comp/browser/local-html';
+import { isLocalHtml } from 'comp/browser/local-html';
 import { Events } from 'framework/events';
 import { Storage } from 'storage';
 import { SearchResultCollection } from 'collections/search-result-collection';
@@ -298,7 +298,7 @@ class AppModel {
     }
 
     ensureCanLoadConfig(url: string): void {
-        requireNetwork();
+        if (isLocalHtml()) throw new Error('Remote startup configuration is disabled in local HTML.');
         if (!Features.isSelfHosted) {
             throw 'Configs are supported only in self-hosted installations';
         }

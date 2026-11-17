@@ -171,7 +171,7 @@ const synced = (page: Page) => expect(page.locator('#sync-state')).toHaveText('U
 const cached = (page: Page) => expect(page.locator('#sync-state')).toHaveText('Offline, saved on this device', { timeout: SYNC_TIMEOUT });
 
 async function connect(page: Page, dav: Dav): Promise<void> {
-    await page.goto('/next.html');
+    await page.goto(process.env.KW_LOCAL_HTML_ENTRY || '/next.html');
     await page.click('#open-webdav');
     await page.fill('#webdav-url', dav.url);
     await page.fill('#webdav-user', 'alice');

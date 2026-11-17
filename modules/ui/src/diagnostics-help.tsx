@@ -28,7 +28,7 @@ export function DiagnosticsHelp() {
             {status && <p role="status">{status}</p>}
         </details>
         <details class="preference-help"><summary>{t('Web app updates')}</summary>
-            {isLocalHtml() ? <p>{t('Local HTML does not check servers or updates. Remote configuration, synchronization and online password checks are disabled. Website icons may use the network. To update, download a new release separately.')}</p> : <>
+            {isLocalHtml() ? <p>{t('Local HTML does not contact KeeWebX servers or check for updates. Your configured WebDAV and other external services remain available. Website icons are downloaded directly. To update, download a new release separately.')}</p> : <>
             <p>{t('KeeWebX checks for updates before unlocking. Updates found during a session are applied the next time you open the app.')}</p>
             <p>{t('If no update appears, close other KeeWebX tabs and reopen the app. Keep a verified encrypted backup before clearing browser data.')}</p>
             </>}

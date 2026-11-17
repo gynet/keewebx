@@ -71,7 +71,7 @@
     },
     "modules/ui": {
       "name": "@keewebx/ui",
-      "version": "0.4.11",
+      "version": "0.4.12",
       "dependencies": {
         "@keewebx/ui-kit": "workspace:*",
         "jsqrcode": "antelle/jsqrcode",
@@ -94,7 +94,7 @@
     },
     "modules/ui-classic": {
       "name": "@keewebx/ui-classic",
-      "version": "0.4.11",
+      "version": "0.4.12",
       "dependencies": {
         "@fortawesome/fontawesome-free": "^5.15.4",
         "@keewebx/ui-kit": "workspace:*",
