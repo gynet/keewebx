@@ -1191,9 +1191,27 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         reads: 0, allowedReads: 0, blockedReads: 0, mailboxAttempts: [], packets: [], attachments: [], statuses: [], actions: [],
         holdAppReady: false, heldReady: [], releaseReady: undefined,
         holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null,
-        holdRouteReads: false, heldRouteReads: []
+        holdRouteReads: false, heldRouteReads: [], heldMailboxScans: []
     };
     globalThis.__kwxPortAdapter = state;
+    if (isApp && allowMailbox) {
+        const changes = (globalThis.browser ?? chrome).storage.onChanged;
+        const add = changes.addListener.bind(changes), remove = changes.removeListener.bind(changes);
+        const wrappers = new WeakMap();
+        changes.addListener = listener => {
+            const wrapped = (items, area) => {
+                if (!state.dropMailboxNotifications) { listener(items, area); return; }
+                const visible = Object.fromEntries(Object.entries(items).filter(([name]) =>
+                    !name.startsWith(prefix + 'keewebx-connect-mailbox-v1:')));
+                state.droppedMailboxNotifications = (state.droppedMailboxNotifications || 0) +
+                    Object.keys(items).length - Object.keys(visible).length;
+                if (Object.keys(visible).length) listener(visible, area);
+            };
+            wrappers.set(listener, wrapped);
+            add(wrapped);
+        };
+        changes.removeListener = listener => remove(wrappers.get(listener) ?? listener);
+    }
     const NativeObserver = MutationObserver;
     globalThis.MutationObserver = class extends NativeObserver {
         constructor(callback) {
@@ -1358,6 +1376,10 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         for (const resolve of pending) resolve();
         return pending.length;
     };
+    state.releaseMailboxScans = () => {
+        state.holdMailboxScan = false;
+        for (const release of state.heldMailboxScans.splice(0)) release();
+    };
     state.snapshot = () => ({
         boot: state.boot, href: state.href, role: state.role, blockGM: state.blockGM,
         installerRuns: state.installerRuns, workerMessageListeners: workerListeners.map(item => item.id),
@@ -1368,7 +1390,9 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
         droppedDiscoveryReplies: state.droppedDiscoveryReplies || 0,
         delayedDiscoveryReplies: state.delayedDiscoveryReplies || 0,
-        heldRouteReads: state.heldRouteReads.length
+        heldRouteReads: state.heldRouteReads.length,
+        heldMailboxScans: state.heldMailboxScans.length,
+        droppedMailboxNotifications: state.droppedMailboxNotifications || 0
     });
     function mailbox(operation, key) {
         if (!String(key).startsWith('keewebx-connect-mailbox-v1:')) return;
@@ -1387,6 +1411,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
             if (blocked()) return new Promise(() => {});
             state.allowedReads++;
             const values = await chrome.storage.local.get();
+            if (isApp && state.holdMailboxScan) await new Promise(resolve => state.heldMailboxScans.push(resolve));
             return Object.keys(values).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length));
         },
         async getValue(key, fallback) {
@@ -1732,7 +1757,7 @@ acceptance: try {
             await first.close(); first = await newWebsite(ACCOUNTS[0]);
             await foreground.close();
             const before = helpers.size;
-            await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
+            await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true; __kwxPortAdapter.dropMailboxNotifications = true');
             await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
             await noHelpers(); expect(helpers.size).toBe(before + 1);
             const receiving = await snapshot(first);
@@ -1746,12 +1771,23 @@ acceptance: try {
             try {
                 await action(first, 'entry-0');
                 await expect.poll(() => app.evaluate(() => globalThis.__kwxNativeTest.heldFields.length)).toBe(1);
+                await adapter(app, '__kwxPortAdapter.holdMailboxScan = true');
                 await action(first, 'close');
                 expect(await app.evaluate(() => globalThis.__kwxNativeTest.releaseFields())).toBe(1);
                 await first.waitForTimeout(350);
                 await emptyFields(first);
             } finally { await app.evaluate(() => globalThis.__kwxNativeTest.releaseFields()); }
-            await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            try {
+                await expect.poll(async () => (await snapshot(app)).heldMailboxScans).toBeGreaterThan(0);
+                const helloCount = () => nativeWorker.evaluate(() => globalThis.audit.filter(item =>
+                    item.key.includes('keewebx-connect-mailbox-v1:request:') && item.value?.packet.operation === 'hello').length);
+                const beforeRetry = await helloCount(), readsBefore = await fieldReads();
+                await startLookup(first);
+                await expect.poll(helloCount).toBeGreaterThan(beforeRetry);
+                await adapter(app, '__kwxPortAdapter.releaseMailboxScans()');
+                await matchingList(first, ACCOUNTS[0], readsBefore);
+                await fill(first, ACCOUNTS[0]);
+            } finally { await adapter(app, '__kwxPortAdapter.releaseMailboxScans()'); }
             expect(helpers.size).toBe(before + 1);
 
             await app.bringToFront(); await app.getByRole('button', { name: 'Lock', exact: true }).filter({ visible: true }).click();
@@ -1762,6 +1798,7 @@ acceptance: try {
             expect(await fieldReads()).toBe(reads);
             expect(helpers.size).toBe(before + 1);
             await sameApp({ unlocked: false });
+            expect((await snapshot(app)).droppedMailboxNotifications).toBeGreaterThan(0);
 
             const audit = await nativeWorker.evaluate(() => globalThis.audit);
             const stored = audit.filter(item => item.key.includes('keewebx-connect-mailbox-v1:') && item.value);
@@ -1772,7 +1809,8 @@ acceptance: try {
             for (const secret of [DB_PASSWORD, ...ACCOUNTS.flatMap(item => [item.user, item.password])]) {
                 expect(JSON.stringify(stored)).not.toContain(secret);
             }
-            return { fallbackFilled: true, canceledFillIgnored: true, lockedVaultDenied: true, reusedOriginalApp: true };
+            return { fallbackFilled: true, mailboxNotificationsSuppressed: true, canceledFillIgnored: true, retryArrivedDuringStaleScan: true,
+                lockedVaultDenied: true, reusedOriginalApp: true };
         });
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'mailbox-recovery'; break acceptance;
     }

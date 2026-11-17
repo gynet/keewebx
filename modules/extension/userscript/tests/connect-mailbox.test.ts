@@ -151,6 +151,46 @@ test('event-driven compatibility work drains once and returns to idle', async ()
     expect(delivered).toEqual([value.packet.id]); expect(timers.size).toBe(0);
     const before = reads; await advance(10000); expect(reads).toBe(before);
 });
+
+test('an event recorded during an empty snapshot wakes an idle receiver again', async () => {
+    let notify!: (changes: Record<string, unknown>, area: string) => void;
+    replace('chrome', { storage: { onChanged: {
+        addListener: (callback: typeof notify) => { notify = callback; }, removeListener() {}
+    } } });
+    const manager = (globalThis as any).GM;
+    manager.info = { scriptHandler: 'Userscripts', script: { filename: 'Connect.user.js' } };
+    let release!: () => void;
+    manager.listValues = () => new Promise<string[]>(resolve => { release = () => resolve([]); });
+    const mailbox = new ConnectMailbox(host, async value => { delivered.push(value.packet.id); }, error => errors.push(error.message));
+    stops.push(() => mailbox.stop()); mailbox.start(false); await flush();
+
+    const request = envelope();
+    const requestKey = key('request', request.packet.id);
+    storage.set(requestKey, request);
+    notify({ ['Connect.user.js---' + requestKey]: {} }, 'local');
+    manager.listValues = async () => [...storage.keys()];
+    release(); await flush(); await advance(150);
+    expect(delivered).toEqual([request.packet.id]);
+    expect(timers.size).toBe(0);
+    expect(errors).toEqual([]);
+});
+
+test('an authorized receiver finds a queued request with no manager notifications', async () => {
+    const mailbox = new ConnectMailbox(host, async (value, reply) => {
+        delivered.push(value.packet.id);
+        await reply({ ...value, packet: { ...value.packet, type: 'reply' } });
+    }, error => errors.push(error.message));
+    stops.push(() => mailbox.stop()); mailbox.start(false, true); await flush();
+    const request = envelope();
+    const replies: any[] = [];
+    stops.push(mailboxRequest(request, value => replies.push(value), error => errors.push(error.message)));
+    await flush();
+    expect(delivered).toEqual([]);
+    await advance(1600);
+    expect(delivered).toEqual([request.packet.id]);
+    expect(replies[0]?.packet).toMatchObject({ id: request.packet.id, type: 'reply' });
+    expect(errors).toEqual([]);
+});
 test('unavailable idle storage does not start a permanent background retry loop', async () => {
     let reads = 0;
     (globalThis as any).GM.listValues = () => { reads++; return new Promise(() => {}); };

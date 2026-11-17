@@ -236,9 +236,9 @@ export class NativeHost {
             });
         } catch (error) { if (generation === this.authorization) this.authorization++; throw error; }
         if (!valid()) throw new Error('Authorization was canceled.');
-        this.keys = keys; this.locked = false; this.live = true; this.mailbox.start(!this.direct);
+        this.keys = keys; this.locked = false; this.live = true; this.mailbox.start(!this.direct, !!this.direct);
     }
-    resume(): void { if (this.keys && this.canServe()) { this.live = true; this.mailbox.start(!this.direct); } }
+    resume(): void { if (this.keys && this.canServe()) { this.live = true; this.mailbox.start(!this.direct, !!this.direct); } }
     unlock(): boolean {
         if (!this.canServe() || !this.direct || !this.live || !this.keys || !this.selectedDirect()) return false;
         // Unlock resumes the grant, never a locked protocol scope or its receipts.
