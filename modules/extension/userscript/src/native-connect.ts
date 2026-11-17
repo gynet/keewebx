@@ -9,6 +9,7 @@ import { identity } from './identity';
 import { isId, object, SESSION_TTL, uuid } from './native-rpc';
 import { SiteLink, SETUP_MARK } from './site-link';
 import { ConnectMailbox, mailboxRequest, mailboxRelease } from './connect-mailbox';
+import { transportEvent } from './transport-events';
 
 const MARK = 'keewebx-native-connect-v1';
 class RequestDeadlineError extends Error {}
@@ -137,9 +138,9 @@ export class NativeHost {
         });
     }
     get hasDirectReceiver(): boolean { return !!this.direct; }
-    diagnostics(): Readonly<{ locked: boolean; live: boolean; selected: boolean; direct: boolean; hasSession: boolean; authorization: number }> {
+    diagnostics(): Readonly<{ locked: boolean; live: boolean; selected: boolean; direct: boolean; hasSession: boolean; authorization: number; runtimeCount: number }> {
         return Object.freeze({ locked: this.locked || !!this.session?.locked, live: this.live, selected: this.selectedDirect(),
-            direct: !!this.direct, hasSession: !!this.session, authorization: this.authorization });
+            direct: !!this.direct, hasSession: !!this.session, authorization: this.authorization, runtimeCount: this.direct?.runtimeCount ?? 0 });
     }
     private selectedDirect(): boolean { try { return localStorage.getItem(this.leaseKey) === this.host; } catch { return false; } }
     private restorationBlocked(): boolean { try { return localStorage.getItem(this.leaseKey + ':restore-blocked') === '1'; } catch { return false; } }
@@ -229,11 +230,14 @@ export class NativeHost {
         if (!this.live || !keys || !verified(value, keys.publicKey)) return;
         const p = value.packet;
         if (p.type !== 'request' || p.host !== this.host || p.endpoint !== this.endpoint.href || !valid(p) || direct && p.origin !== direct.origin) return;
+        if (direct) transportEvent({ event: 'rpc-received', traceId: p.id, portId: direct.id });
         for (const [id, until] of this.consumed) if (until <= Date.now()) this.consumed.delete(id);
         if (direct && p.operation === 'hello') this.diagnostic('Signed hello received; checking selected App grant');
         // A previously selected tab must stop serving after another app wins.
         const selected = direct ? this.selectedDirect() : (await approvedRoute(this.endpoint))?.host === this.host;
         if (!selected || authorization !== this.authorization || !this.live || this.keys !== keys || Date.now() >= p.deadline) {
+            if (direct) transportEvent({ event: 'rpc-rejected', traceId: p.id, portId: direct.id,
+                detail: !selected ? 'not-selected' : Date.now() >= p.deadline ? 'expired' : 'wrong-generation' });
             if (direct && p.operation === 'hello') this.diagnostic(`Hello rejected: selected=${selected}; current=${authorization === this.authorization && this.live && this.keys === keys}; expired=${Date.now() >= p.deadline}`);
             return;
         }
@@ -246,6 +250,7 @@ export class NativeHost {
                 session.hello.request === JSON.stringify(canonical(p))) {
                 try {
                     await reply(session.hello.reply);
+                    transportEvent({ event: 'rpc-sent', traceId: p.id, portId: direct.id });
                     this.diagnostic('Cached signed hello reply posted');
                 } catch (reason) {
                     this.diagnostic('Hello reply failed: ' + (reason instanceof Error ? reason.name : 'Error'));
@@ -263,6 +268,7 @@ export class NativeHost {
                         if (this.session === session && !session.locked && !this.locked && this.live &&
                             authorization === this.authorization && this.keys === keys && this.selectedDirect() && Date.now() < p.deadline) {
                             await reply(signed({ ...p, type: 'reply', body }, keys));
+                            transportEvent({ event: 'rpc-sent', traceId: p.id, portId: direct.id });
                             this.diagnostic('Revalidated encrypted protocol receipt posted');
                         }
                     } catch (error) {
@@ -314,6 +320,7 @@ export class NativeHost {
                     this.session.wire.remember(this.receiptBinding(p, direct.id, authorization, keys), true);
                 }
                 await reply(response);
+                if (direct) transportEvent({ event: 'rpc-sent', traceId: p.id, portId: direct.id });
                 if (direct && p.operation === 'wire') this.diagnostic(error ? 'Encrypted protocol error reply posted' : 'Encrypted protocol reply posted');
                 if (direct && p.operation === 'hello') this.diagnostic(error ? 'Signed hello error reply posted' : 'Signed hello reply posted');
             }
@@ -513,15 +520,23 @@ export class NativeRpc {
         this.accept(event.data.value);
     };
     private accept = (value: unknown) => {
-        if (!this.keys || !verified(value, this.keys.publicKey)) return;
+        const traceId = object(value) && object(value.packet) && isId(value.packet.id) ? value.packet.id : undefined;
+        const trace = { traceId, portId: this.direct?.connectionId };
+        transportEvent({ ...trace, event: 'rpc-received' });
+        if (!this.keys || !verified(value, this.keys.publicKey)) {
+            transportEvent({ ...trace, event: 'rpc-rejected', detail: 'bad-signature' }); return;
+        }
         const p = value.packet, pending = this.pending.get(p.id);
-        if (!pending) return;
+        if (!pending) { transportEvent({ ...trace, event: 'rpc-rejected', detail: 'no-pending' }); return; }
         const q = pending.packet;
-        if (p.type !== 'reply' || p.host !== q.host || p.endpoint !== q.endpoint || p.document !== q.document || p.origin !== q.origin || p.operation !== q.operation || p.scope !== q.scope || p.deadline !== q.deadline) return;
+        if (p.type !== 'reply' || p.host !== q.host || p.endpoint !== q.endpoint || p.document !== q.document || p.origin !== q.origin || p.operation !== q.operation || p.scope !== q.scope || p.deadline !== q.deadline) {
+            transportEvent({ ...trace, event: 'rpc-rejected', detail: p.host !== q.host ? 'wrong-host' : p.origin !== q.origin ? 'wrong-origin' : 'wrong-shape' }); return;
+        }
         this.pending.delete(p.id); clearTimeout(pending.timer); pending.stop?.();
         try {
             this.assertCurrent();
             if (Date.now() >= p.deadline) {
+                transportEvent({ ...trace, event: 'rpc-rejected', detail: 'expired' });
                 // A suspended tab may deliver its expired reply before its timer.
                 if (this.direct && this.directGeneration !== undefined) this.direct.requestTimedOut(this.directGeneration);
                 throw new RequestDeadlineError('The reply expired. Retry.');
@@ -529,6 +544,7 @@ export class NativeRpc {
             if (this.direct && this.directGeneration !== undefined) {
                 this.direct.acknowledge(this.directGeneration); this.authenticated = true; this.direct.confirm();
             }
+            transportEvent({ ...trace, event: 'rpc-accepted', pending: this.pending.size });
             if (p.error) throw new Error(p.error);
             pending.resolve(p.body);
         }
@@ -550,10 +566,12 @@ export class NativeRpc {
                 if (!pending) return;
                 pending.stop?.();
                 this.pending.delete(p.id);
+                transportEvent({ event: 'rpc-rejected', traceId: p.id, portId: this.direct?.connectionId, detail: 'expired' });
                 if (this.direct && this.directGeneration !== undefined) this.direct.requestTimedOut(this.directGeneration);
                 reject(new RequestDeadlineError('The KeeWebX request timed out. Try Find accounts again.'));
             }, Math.max(1, p.deadline - Date.now()));
             this.pending.set(p.id, { packet: p, resolve, reject, timer });
+            transportEvent({ event: 'rpc-sent', traceId: p.id, portId: this.direct?.connectionId, pending: this.pending.size });
             try {
                 if (this.direct) {
                     const envelope = signed(p, keys), port = this.direct, generation = port.generation;

@@ -520,20 +520,26 @@ test('callback exceptions never expose error text or arbitrary snapshot fields',
     expect(JSON.stringify(h.calls.at(-1)!.body)).not.toMatch(/password|private/);
 });
 
-test('event queues retain at most 32 recent sanitized events with monotonically increasing sequence', async () => {
+test('a bounded burst preserves 128 recent events in ordered 32-item exchanges', async () => {
     const h = harness();
     await h.client.enable();
-    for (let n = 0; n < 50; n++) h.client.record('transport.event', {
+    for (let n = 0; n < 160; n++) h.client.record('transport.event', {
         elapsedMs: n, layer: 'worker', event: 'discovery-timeout', password: 'private'
     } as DiagnosticData);
     h.client.record('unknown' as any, { locked: true });
+    const events: any[] = [];
+    for (let batch = 0; batch < 4; batch++) {
+        await h.client.flush();
+        const body = h.calls.at(-1)!.body;
+        expect(body.events).toHaveLength(32);
+        expect(body.events.length + body.results.length).toBeLessThanOrEqual(32);
+        expect(JSON.stringify(body)).not.toMatch(/password|private|unknown/);
+        events.push(...body.events);
+    }
+    expect(events.map(value => value.seq)).toEqual(Array.from({ length: 128 }, (_, n) => n + 34));
+    expect(events[0].data).toEqual({ elapsedMs: 32, layer: 'worker', event: 'discovery-timeout' });
     await h.client.flush();
-    const body = h.calls.at(-1)!.body;
-    expect(body.events).toHaveLength(32);
-    expect(body.events[0].seq).toBe(20);
-    expect(body.events[31].seq).toBe(51);
-    expect(body.events[0].data).toEqual({ elapsedMs: 18, layer: 'worker', event: 'discovery-timeout' });
-    expect(JSON.stringify(body)).not.toMatch(/password|private|unknown/);
+    expect(h.calls.at(-1)!.body.events).toEqual([]);
 });
 
 test('oversize or malformed exchange envelopes cannot execute commands', async () => {

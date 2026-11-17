@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.7
+# Userscripts on iOS: KeeWebX Connect 0.6.8
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,10 +7,10 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.7)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.7/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.8)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.8/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
-· [0.6.7 acceptance report](docs/release-0.6.7.md)
+· [0.6.8 acceptance report](docs/release-0.6.8.md)
 
 ## Install or upgrade
 
@@ -19,8 +19,9 @@ Forms are never submitted automatically.
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. Update the existing script and reload the login website to load **Connect 0.6.7**.
-   Save database edits before reloading the App if you want its new panel too.
+2. Update the existing script, save pending database edits, and reload the original
+   App and the login website to load **Connect 0.6.8** at both ends. The App reload
+   replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App, open its Connect key panel, and choose
    **Authorize Connect**. Approve account listing once in the native permission

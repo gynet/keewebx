@@ -128,28 +128,30 @@ function diagnosticControl(event) {
     diagnostics.set(event.source.id, data.expiresAt);
 }
 
-function diagnostic(client, event) {
+function diagnostic(client, event, extra = {}) {
     const expiresAt = diagnostics.get(client.id);
     if (!expiresAt) return;
     if (expiresAt <= Date.now()) { diagnostics.delete(client.id); return; }
     try { client.postMessage({ kwDiagnostics: DIAGNOSTICS_MARK, kind: 'event', code: 'transport.event',
-        data: { layer: 'worker', event } }); } catch { /* Diagnostics cannot affect handoff. */ }
+        data: { layer: 'worker', event, ...extra } }); } catch { /* Diagnostics cannot affect handoff. */ }
 }
 
-function probe(client, appBoot, endpoint, timeout = PROBE_MS) {
+function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
     let cancel = () => {};
     const result = new Promise((resolve) => {
         const channels = [];
         let finished = false;
         let retry;
         let attempts = 0;
+        const traceId = crypto.randomUUID();
+        const trace = { traceId, portId };
         const timer = setTimeout(() => finish('timeout'), timeout);
 
         function finish(state) {
             if (finished) return;
             finished = true;
             clearTimeout(timer); clearTimeout(retry);
-            if (state === 'timeout') diagnostic(client, 'discovery-timeout');
+            if (state === 'timeout') diagnostic(client, 'discovery-timeout', { ...trace, detail: 'expired' });
             for (const channel of channels) {
                 // Let the app release every temporary probe endpoint.
                 try { channel.port1.postMessage({ marker: MARK, kind: 'probe-done', state }); } catch { /* Already closed. */ }
@@ -164,8 +166,14 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS) {
         function receive(event) {
             const data = event.data;
             for (const port of event.ports) port.close();
-            if (finished || event.ports.length !== 0 || !smallMessage(data) || data.marker !== MARK ||
-                data.endpoint !== endpoint || !UUID.test(data.appBoot)) return;
+            if (finished) return;
+            diagnostic(client, 'discovery-received', trace);
+            if (event.ports.length !== 0 || !smallMessage(data) || data.marker !== MARK ||
+                data.endpoint !== endpoint || !UUID.test(data.appBoot) || data.traceId !== undefined && data.traceId !== traceId) {
+                diagnostic(client, 'discovery-rejected', { ...trace,
+                    detail: data?.endpoint !== endpoint ? 'wrong-address' : 'wrong-shape' });
+                return;
+            }
             let state;
             if (data.kind === 'app-ready' && (data.state === undefined || data.state === 'enabled')) {
                 state = data.appBoot === appBoot ? 'ready' : 'refreshed';
@@ -174,7 +182,8 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS) {
             } else if (data.kind === 'app-state' && (data.state === 'enabled' || data.state === 'disabled')) {
                 state = data.appBoot !== appBoot ? 'refreshed' : data.state === 'enabled' ? 'ready' : 'disabled';
             }
-            if (state) { diagnostic(client, 'discovery-reply'); finish(state); }
+            if (state) { diagnostic(client, 'discovery-reply', { ...trace, detail: data.traceId === undefined ? 'legacy' : 'matched' }); finish(state); }
+            else diagnostic(client, 'discovery-rejected', { ...trace, detail: 'wrong-shape' });
         }
 
         function attempt() {
@@ -185,8 +194,8 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS) {
             channel.port1.onmessageerror = () => {};
             channel.port1.start();
             ++attempts;
-            diagnostic(client, 'discovery');
-            try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint }, [channel.port2]); }
+            diagnostic(client, 'discovery', trace);
+            try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint, traceId }, [channel.port2]); }
             catch { if (attempts >= MAX_PROBE_ATTEMPTS) { finish('unreachable'); return; } }
             // Discovery reads public receiver state only. A fresh channel can
             // recover a lost reply after suspension without retransferring the
@@ -198,8 +207,8 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS) {
     return { result, cancel: () => cancel() };
 }
 
-async function discover(candidates, appBoot, endpoint, timeout = PROBE_MS) {
-    const probes = candidates.map((client) => probe(client, appBoot, endpoint, timeout));
+async function discover(candidates, appBoot, endpoint, timeout = PROBE_MS, portId) {
+    const probes = candidates.map((client) => probe(client, appBoot, endpoint, timeout, portId));
     let found;
     const selected = new Promise((resolve) => { found = resolve; });
     const all = Promise.all(probes.map((probe) => probe.result.then((result) => {
@@ -258,7 +267,7 @@ async function attach(event) {
             return;
         }
         const discoveryDeadline = Date.now() + DISCOVERY_MS;
-        let probes = await discover(candidates, data.appBoot, data.endpoint);
+        let probes = await discover(candidates, data.appBoot, data.endpoint, PROBE_MS, data.connectionId);
         if (!probes.some((result) => ['ready', 'disabled', 'address-mismatch'].includes(result.state)) &&
             probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
             // iOS can queue every probe until the App resumes after round one.
@@ -275,7 +284,7 @@ async function attach(event) {
                     return;
                 }
                 const remaining = Math.min(PROBE_MS, discoveryDeadline - Date.now());
-                if (remaining > 0) probes = await discover(refreshed.candidates, data.appBoot, data.endpoint, remaining);
+                if (remaining > 0) probes = await discover(refreshed.candidates, data.appBoot, data.endpoint, remaining, data.connectionId);
             }
         }
         const matches = probes.filter((result) => result.state === 'ready');
@@ -300,7 +309,7 @@ async function attach(event) {
             return;
         }
         // Ownership moves once to the selected app. The website verifies the signed handshake.
-        diagnostic(app, 'handoff');
+        diagnostic(app, 'handoff', { portId: data.connectionId });
         app.postMessage({
             marker: MARK,
             kind: 'attach-port',

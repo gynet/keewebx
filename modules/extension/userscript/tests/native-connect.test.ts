@@ -748,7 +748,7 @@ test('host diagnostics are a frozen primitive snapshot without manager reads or 
     (globalThis as any).GM.getValue = () => { throw new Error('Diagnostics must not read manager storage'); };
     const before = host.diagnostics();
     expect(Object.isFrozen(before)).toBe(true);
-    expect(before).toEqual({ locked: false, live: true, selected: true, direct: true, hasSession: false, authorization: 1 });
+    expect(before).toEqual({ locked: false, live: true, selected: true, direct: true, hasSession: false, authorization: 1, runtimeCount: 1 });
     await directSession(); host.lock();
     expect(host.diagnostics()).toEqual({ ...before, locked: true });
     expect(before.locked).toBe(false);

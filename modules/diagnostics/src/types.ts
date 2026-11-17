@@ -21,17 +21,27 @@ export interface DiagnosticData {
     online?: boolean;
     visible?: boolean;
     persisted?: boolean;
+    /** Ephemeral protocol UUIDs, never credentials or stable identifiers. */
+    traceId?: string;
+    portId?: string;
     elapsedMs?: number;
     pending?: number;
     ports?: number;
     authorization?: number;
+    /** Integer from 0 through 32. */
+    runtimeCount?: number;
     state?: 'Initializing' | 'ReadyToConnect' | 'Connecting' | 'Connected' | 'Error';
     action?: 'open' | 'authorize' | 'revoke' | 'lookup' | 'probe' | 'save' | 'close';
     stage?: 'connect' | 'access' | 'lookup' | 'fields' | 'fill' | 'test' | 'authorize' | 'restore';
     event?: 'receiver-ready' | 'discovery' | 'discovery-reply' | 'discovery-timeout' | 'handoff' | 'port-ready' | 'hello-received'
         | 'hello-replied' | 'wire-received' | 'wire-replied' | 'wire-error' | 'receipt'
-        | 'suppressed' | 'unavailable';
+        | 'suppressed' | 'unavailable'
+        | 'discovery-received' | 'discovery-sent' | 'discovery-rejected' | 'port-received' | 'port-rejected'
+        | 'rpc-sent' | 'rpc-received' | 'rpc-accepted' | 'rpc-rejected' | 'runtime-duplicate';
     reason?: 'timeout' | 'locked' | 'canceled' | 'unavailable' | 'changed' | 'other';
+    detail?: 'wrong-source' | 'wrong-address' | 'wrong-host' | 'wrong-origin' | 'wrong-generation'
+        | 'wrong-port' | 'wrong-shape' | 'bad-signature' | 'no-pending' | 'expired' | 'closed'
+        | 'not-selected' | 'duplicate-runtime' | 'legacy' | 'matched';
 }
 
 export interface DiagnosticSession {

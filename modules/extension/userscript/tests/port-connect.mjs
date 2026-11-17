@@ -7,6 +7,7 @@
 // KWX_APP_USERSCRIPT=/path/to/historical.user.js overrides only the original App's installer.
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
 // KWX_FOCUS_HELLO=1 runs startup and delayed-hello recovery without the later stress cases.
+// KWX_FOCUS_REINJECT=1 runs startup and same-document installer reinjection acceptance.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
@@ -29,6 +30,7 @@ const OUT = resolve(process.env.KWX_E2E_OUTPUT_DIR || mkdtempSync(join(tmpdir(),
 const BLOCK_APP_GM = process.env.KWX_APP_GM_BLOCK === '1';
 const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
 const FOCUS_HELLO = process.env.KWX_FOCUS_HELLO === '1';
+const FOCUS_REINJECT = process.env.KWX_FOCUS_REINJECT === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
 const OPERATION_BUDGET = 30000;
@@ -605,6 +607,47 @@ async function recoverOperation(page, account, kind, wireAction) {
     await sameApp(); await noHelpers();
     return { ...recovery, logicalFieldRequests: 1, logicalAccountListRequests: 1, physicalPortReused: true };
 }
+async function sameDocumentReinjection() {
+    const pages = [app, first], hosts = await Promise.all(pages.map(page => page.locator('#keewebx-userscript-connect').elementHandle()));
+    const before = await Promise.all(pages.map(snapshot)), siteDocument = await documentState(first);
+    const port = await physicalPort(first), count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+    // App registrations exclude the fixture observer: one diagnostics listener and one receiver.
+    expect(before[0].workerMessageListeners).toHaveLength(2);
+    expect(before[1].workerMessageListeners).toEqual([]);
+    expect(before.map(document => document.installerRuns)).toEqual([1, 1]);
+    try {
+        for (let reinjection = 1; reinjection <= 2; reinjection++) {
+            for (const page of pages) {
+                expect(await adapter(page, '__kwxPortAdapter.reinject()')).toBe(reinjection + 1);
+            }
+            // Exercise multiple trusted lookups and selections after each installer run.
+            // A retained DOM host alone cannot prove the original receiver still works.
+            for (let cycle = 0; cycle < 3; cycle++) {
+                await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+                expect(await physicalPort(first)).toEqual(port);
+            }
+            for (const [index, page] of pages.entries()) {
+                await expect(page.locator('#keewebx-userscript-connect')).toHaveCount(1);
+                expect(await hosts[index].evaluate(host => host.isConnected
+                    && host === document.querySelector('#keewebx-userscript-connect'))).toBe(true);
+                const after = await snapshot(page);
+                expect(after.boot).toBe(before[index].boot);
+                expect(after.installerRuns).toBe(reinjection + 1);
+                expect(after.workerMessageListeners).toEqual(before[index].workerMessageListeners);
+                expect(after.appReceivers).toBe(index === 0 ? 1 : 0);
+            }
+            expect(await documentState(first)).toEqual(siteDocument);
+            expect(helpers.size).toBe(count);
+            await sameApp(); await noHelpers();
+        }
+        expect(await fieldReads()).toBe(reads + 6);
+        expect(await entryReads()).toBe(lists + 6);
+        return { reinjectionsPerDocument: 2, installerRunsPerDocument: 3, successfulFillsAfterReinjection: 6,
+            connectWidgetsPerDocument: 1, appReceivers: 1, originalWorkerListenersRetained: true,
+            sameIsolatedWorld: true, sameAppAndWebsiteDocuments: true, physicalPortReused: true,
+            additionalHelpers: 0, additionalAppNavigations: 0, additionalConsentDialogs: 0 };
+    } finally { await Promise.all(hosts.map(host => host.dispose())); }
+}
 async function recoverInnerReply(page, account) {
     await clearFields(page); await lookup(page, account);
     const reads = await fieldReads(), port = await physicalPort(page), count = helpers.size, before = await windowTraffic();
@@ -979,6 +1022,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
     const isApp = location.href === appURL;
     const state = {
         boot: crypto.randomUUID(), href: location.href, role: isApp ? 'app' : 'site', blockGM: false,
+        installerRuns: 0,
         reads: 0, allowedReads: 0, blockedReads: 0, mailboxAttempts: [], packets: [], attachments: [], statuses: [], actions: [],
         holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null
     };
@@ -1076,6 +1120,28 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         state.attachments.push({ at: Date.now(), trusted: event.isTrusted,
             worker: event.source?.scriptURL, data: structuredClone(event.data) });
     });
+    // Observe native registrations without wrapping callbacks or handling their events.
+    // IDs let acceptance reject replacing the receiver as well as adding another one.
+    const worker = navigator.serviceWorker, workerListeners = [];
+    const addWorkerListener = worker.addEventListener, removeWorkerListener = worker.removeEventListener;
+    let workerListenerSequence = 0;
+    const captureOf = options => typeof options === 'boolean' ? options : !!options?.capture;
+    worker.addEventListener = function (type, listener, options) {
+        const result = addWorkerListener.call(this, type, listener, options);
+        if (this === worker && type === 'message' && listener
+            && !workerListeners.some(item => item.listener === listener && item.capture === captureOf(options))) {
+            workerListeners.push({ listener, capture: captureOf(options), id: ++workerListenerSequence });
+        }
+        return result;
+    };
+    worker.removeEventListener = function (type, listener, options) {
+        const result = removeWorkerListener.call(this, type, listener, options);
+        if (this === worker && type === 'message') {
+            const index = workerListeners.findIndex(item => item.listener === listener && item.capture === captureOf(options));
+            if (index >= 0) workerListeners.splice(index, 1);
+        }
+        return result;
+    };
     state.releaseHello = (dropFirst = false) => {
         state.holdHello = false;
         const pending = state.heldHello.splice(0);
@@ -1098,6 +1164,8 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
     };
     state.snapshot = () => ({
         boot: state.boot, href: state.href, role: state.role, blockGM: state.blockGM,
+        installerRuns: state.installerRuns, workerMessageListeners: workerListeners.map(item => item.id),
+        appReceivers: worker[Symbol.for(portMarker + ':app-receivers')]?.size || 0,
         reads: state.reads, allowedReads: state.allowedReads, blockedReads: state.blockedReads,
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
         helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
@@ -1221,7 +1289,18 @@ async function setup(bundle, appBundle = bundle) {
     writeFileSync(join(extension, 'content.js'), `(() => {
         ${helperCloseFault.toString()}
         const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE })});
-        ${installer}
+        // Retain this exact source and its lexical GM adapter in the original isolated world.
+        // Only CDP can reach the hook; it accepts no source or privileged arguments.
+        const runInstaller = () => {
+            ${installer}
+        };
+        const state = globalThis.__kwxPortAdapter;
+        Object.defineProperty(state, 'reinject', { value: () => {
+            state.installerRuns++;
+            runInstaller();
+            return state.installerRuns;
+        } });
+        state.reinject();
     })();`);
     const proxy = await publishedOriginServer();
     context = await chromium.launchPersistentContext(join(OUT, 'profile'), {
@@ -1334,6 +1413,7 @@ acceptance: try {
     report.appBundle = { path: APP_SOURCE, version: expectedAppVersion, overridden: APP_SOURCE !== SOURCE,
         bytes: Buffer.byteLength(appBundle), sha256: createHash('sha256').update(appBundle).digest('hex') };
     await step('require the current production installer and built MessagePort assets', async () => {
+        if (FOCUS_REINJECT) expect(appBundle === bundle, 'Reinjection acceptance requires the same installer in both documents').toBe(true);
         expect(expectedSiteVersion, 'Website installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
         expect(bundle).toContain(PORT_MARK);
         expect(expectedAppVersion, 'App installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
@@ -1426,6 +1506,12 @@ acceptance: try {
             return { helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
         } finally { await adapter(app, '__kwxPortAdapter.releaseHello()'); }
     });
+    // Historical App overrides remain compatibility runs for that older installer.
+    if (appBundle === bundle) await step('reinjecting the exact installer twice retains one UI and App receiver while the same website repeatedly fills', sameDocumentReinjection);
+    if (FOCUS_REINJECT) {
+        expect(report.errors).toEqual([]);
+        report.passed = true; report.focus = 'same-document-reinjection'; break acceptance;
+    }
     await step('a delayed hello resumes automatically on the same signed port and ignores expired replies', async () => {
         const page = await newWebsite(ACCOUNTS[0]), count = helpers.size;
         const reads = await fieldReads(), lists = await entryReads(), started = Date.now();
@@ -1766,6 +1852,7 @@ acceptance: try {
             const document = await snapshot(page).catch(() => null);
             if (document) report[name + 'Diagnostics'] = {
                 boot: document.boot, role: document.role, blockedReads: document.blockedReads,
+                installerRuns: document.installerRuns, workerMessageListeners: document.workerMessageListeners, appReceivers: document.appReceivers,
                 mailboxAttempts: document.mailboxAttempts,
                 traffic: document.packets.map(item => ({ port: item.port, direction: item.direction,
                     kind: item.data.kind, operation: item.data.value?.packet?.operation, error: item.data.value?.packet?.error }))

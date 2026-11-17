@@ -22,6 +22,13 @@ website URLs, database names, entry values, passwords, ciphertext or signing key
 are uploaded. Unknown properties and arbitrary strings are discarded by the
 client; the Worker independently validates the entire request.
 
+Temporary request and port UUIDs correlate each send, receive and validation
+decision without identifying a website or account. The receiver count exposes
+duplicate runtimes. A bounded 128-event backlog preserves short bursts; each
+upload still contains at most 32 combined events and command results. Client
+release versions are metadata, independently bounded by the Worker rather than
+required to match one hard-coded release.
+
 Collection and network requests are off by default. Enabling diagnostics starts
 a new temporary collection; old local logs are not uploaded. It does not grant
 vault access, list accounts or fill a form. Support requests use the script

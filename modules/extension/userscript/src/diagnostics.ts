@@ -3,6 +3,7 @@ import { managerCall } from './native-connect';
 import { watchManagerStorage } from './manager-events';
 import { CONNECT_VERSION } from './version';
 import type { ConnectUI } from './connect-ui';
+import { watchTransport } from './transport-events';
 
 const ORIGIN = 'https://keewebx.app';
 const KEY = 'keewebx-connect-diagnostics-session-v1';
@@ -143,6 +144,9 @@ export function attachDiagnostics(ui: ConnectUI, read: () => DiagnosticData = ()
     ui.onDiagnostic = (code, data) => client.record(code as Parameters<DiagnosticClient['record']>[0], {
         ...data, layer: ui.mode === 'app' ? 'userscript' : 'website'
     });
+    const unwatchTransport = watchTransport(data => client.record('transport.event', {
+        ...data, layer: ui.mode === 'app' ? 'userscript' : 'website'
+    }));
     ui.onDiagnosticsChange = enabled => {
         if (pending && enabled) return;
         const epoch = ++preferenceRevision;
@@ -180,7 +184,7 @@ export function attachDiagnostics(ui: ConnectUI, read: () => DiagnosticData = ()
         client.record('page.hide', { persisted: event.persisted });
         appEnabledUntil = 0; notifyApp('disable'); notifyWorker(false);
         pageAlive = false;
-        if (!event.persisted) { client.dispose(); unwatch(); }
+        if (!event.persisted) { client.dispose(); unwatch(); unwatchTransport(); }
     });
     // A restored document is allowed to opt back into the still-live stored grant.
     // No vault state or Connect authorization is changed by diagnostics.

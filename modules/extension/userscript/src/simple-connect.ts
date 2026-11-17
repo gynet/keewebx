@@ -11,6 +11,7 @@ import { targets, assertTargets, fill, type Targets } from './form-targets';
 import { isLoginField, watchLoginFields } from './login-fields';
 import { userscriptPreferences } from './preferences';
 import { attachDiagnostics } from './diagnostics';
+import { claimRuntime } from './runtime-owner';
 
 const VERSION = CONNECT_VERSION;
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
@@ -23,6 +24,8 @@ const assertWebsiteScope = (features: { features: string[]; websiteOrigin?: stri
 
 async function start(): Promise<void> {
     if (window.top !== window || location.protocol !== 'https:' || /\/connect-port(?:-poc)?\//.test(location.pathname)) return;
+    const owner = claimRuntime(globalThis, document);
+    if (!owner) return;
     let endpoint: URL;
     try { endpoint = await loadEndpoint(); } catch { endpoint = new URL(DEFAULT_ENDPOINT); }
     if (location.origin === endpoint.origin && location.pathname === new URL('connect.html', endpoint).pathname && new URL(location.href).searchParams.get('kwx-native') === '1') {
@@ -32,6 +35,8 @@ async function start(): Promise<void> {
     const app = location.origin === endpoint.origin && (location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '') || endpoint.pathname === '/app' && ['/next.html', '/index.html'].includes(location.pathname));
     const ui = new ConnectUI(app ? 'app' : 'website', endpoint.href);
     const diagnostics = attachDiagnostics(ui);
+    owner.onDuplicate(() => diagnostics.client.record('transport.event', { event: 'runtime-duplicate',
+        detail: 'duplicate-runtime', runtimeCount: Math.min(32, document.querySelectorAll('#keewebx-userscript-connect').length) }));
     if (app) {
         const record = (value: string) => ui.diagnostic(value);
         const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)), record);

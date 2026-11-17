@@ -8,6 +8,10 @@ class Failure {
     constructor(readonly code: DiagnosticError | 'aborted') {}
 }
 
+// A single lookup can emit several exchanges' worth of correlated metadata.
+// Keep a bounded backlog while preserving the 32-item wire limit and poll rate.
+const EVENT_BUFFER_SIZE = BATCH_SIZE * 4;
+
 interface StoredConsent {
     value: unknown;
     fence?: string;
@@ -100,7 +104,7 @@ export class DiagnosticClient {
         const event = sanitizeEvent(code, data);
         if (!event) return;
         this.events.push({ seq: ++this.seq, at: this.now(), ...event });
-        if (this.events.length > BATCH_SIZE) this.events.shift();
+        if (this.events.length > EVENT_BUFFER_SIZE) this.events.shift();
     }
 
     /** Recheck shared consent and perform one exchange, including empty polling exchanges. */
@@ -284,7 +288,7 @@ export class DiagnosticClient {
             if (code) this.emitSession('offline', code);
         } finally {
             if (!acknowledged && this.live(session, generation)) {
-                this.events = [...events, ...this.events].slice(-BATCH_SIZE);
+                this.events = [...events, ...this.events].slice(-EVENT_BUFFER_SIZE);
                 this.results = [...results, ...this.results].slice(-BATCH_SIZE);
             }
         }

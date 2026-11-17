@@ -21,8 +21,15 @@ const enums = {
     action: ['open', 'authorize', 'revoke', 'lookup', 'probe', 'save', 'close'],
     stage: ['connect', 'access', 'lookup', 'fields', 'fill', 'test', 'authorize', 'restore'],
     event: ['receiver-ready', 'discovery', 'discovery-reply', 'discovery-timeout', 'handoff', 'port-ready', 'hello-received', 'hello-replied',
-        'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable'],
-    reason: ['timeout', 'locked', 'canceled', 'unavailable', 'changed', 'other']
+        'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable',
+        'discovery-received', 'discovery-sent', 'discovery-rejected', 'port-received', 'port-rejected',
+        'rpc-sent', 'rpc-received', 'rpc-accepted', 'rpc-rejected', 'runtime-duplicate'],
+    reason: ['timeout', 'locked', 'canceled', 'unavailable', 'changed', 'other'],
+    detail: [
+        'wrong-source', 'wrong-address', 'wrong-host', 'wrong-origin', 'wrong-generation',
+        'wrong-port', 'wrong-shape', 'bad-signature', 'no-pending', 'expired', 'closed',
+        'not-selected', 'duplicate-runtime', 'legacy', 'matched'
+    ]
 } as const;
 
 /** Never invoke getters, inspect nested values, or coerce input to strings. */
@@ -60,9 +67,13 @@ export function sanitizeData(value: unknown): DiagnosticData {
         const item = field(record, key);
         if (typeof item === 'boolean') result[key] = item;
     }
-    for (const key of ['elapsedMs', 'pending', 'ports', 'authorization'] as const) {
+    for (const key of ['traceId', 'portId'] as const) {
         const item = field(record, key);
-        const maximum = key === 'elapsedMs' ? SESSION_MS : 10_000;
+        if (typeof item === 'string' && item.length === 36 && UUID.test(item)) result[key] = item;
+    }
+    for (const key of ['elapsedMs', 'pending', 'ports', 'authorization', 'runtimeCount'] as const) {
+        const item = field(record, key);
+        const maximum = key === 'elapsedMs' ? SESSION_MS : key === 'runtimeCount' ? 32 : 10_000;
         if (typeof item === 'number' && Number.isFinite(item) && item >= 0 && item <= maximum
             && (key === 'elapsedMs' || Number.isInteger(item))) result[key] = item;
     }

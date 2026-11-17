@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { AppPortReceiver } from '../src/direct-ports';
+import { watchTransport } from '../src/transport-events';
 
 const marker = 'keewebx-connect-port-v1';
 const endpoint = new URL('https://keewebx.app/app');
@@ -47,6 +48,7 @@ beforeEach(() => {
         addEventListener(type: string, callback: (event: MessageEvent) => void) {
             expect(type).toBe('message'); listener = callback;
         },
+        removeEventListener() {},
         startMessages() {}
     } });
     replace('setInterval', () => 0);
@@ -60,7 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
     try {
-        receiver?.clear();
+        receiver?.dispose();
         for (const port of ports) port.close();
     } finally {
         for (const [name, descriptor] of original) {
@@ -101,6 +103,20 @@ test('discovery reports a same-origin address mismatch and echoes the requested 
         endpoint: requested, state: 'address-mismatch' });
     expect(requests).toHaveLength(0);
     expect(released).toEqual([]);
+});
+
+test('discovery echoes a valid trace and records only bounded ownership metadata', () => {
+    const traceId = crypto.randomUUID(), events: any[] = [];
+    const unwatch = watchTransport(data => events.push(data));
+    try {
+        const port = receive({ kind: 'find-app', traceId, privateValue: 'Do not record this value' });
+        expect(port.messages[0].traceId).toBe(traceId);
+        expect(events).toContainEqual({ event: 'discovery-received', traceId, portId: undefined, detail: undefined, runtimeCount: 1 });
+        expect(events).toContainEqual({ event: 'discovery-sent', traceId, portId: undefined, detail: 'matched', runtimeCount: 1 });
+        expect(JSON.stringify(events)).not.toContain(endpoint.href);
+        expect(JSON.stringify(events)).not.toContain('Do not record this value');
+        expect(receive({ kind: 'find-app', traceId: 'invalid' }).messages[0].traceId).toBeUndefined();
+    } finally { unwatch(); }
 });
 
 test('an inactive grant denies attachment without invoking the request handler', () => {

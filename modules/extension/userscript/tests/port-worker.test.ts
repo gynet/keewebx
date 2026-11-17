@@ -58,7 +58,7 @@ function fixture(withSilentApp = false) {
     let nextTimer = 0, now = Date.now(), settled = false, work: Promise<void> | undefined;
 
     runInNewContext(source, {
-        URL, TextEncoder, WindowClient: FakeWindowClient,
+        URL, TextEncoder, crypto, WindowClient: FakeWindowClient,
         MessageChannel: class {
             port1 = new FakePort();
             port2 = new FakePort();
@@ -345,9 +345,36 @@ test('worker diagnostics require App opt-in and contain only fixed transport sta
         if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, state: 'enabled' });
     };
     await flush(); await f.work();
-    expect(diagnosticEvents(f)).toEqual(['discovery', 'discovery-reply', 'handoff'].map(event => ({
-        kwDiagnostics: diagnosticMarker, kind: 'event', code: 'transport.event', data: { layer: 'worker', event }
-    })));
+    const events = diagnosticEvents(f);
+    expect(events.map(value => value.data.event)).toEqual(['discovery', 'discovery-received', 'discovery-reply', 'handoff']);
+    const traceId = f.app.posts.find(post => post.data.kind === 'find-app')!.data.traceId;
+    expect(traceId).toMatch(/^[a-f0-9-]{36}$/);
+    for (const value of events) {
+        expect(value).toMatchObject({ kwDiagnostics: diagnosticMarker, kind: 'event', code: 'transport.event',
+            data: { layer: 'worker', portId: f.data.connectionId } });
+        expect(Object.keys(value.data).every(key => ['layer', 'event', 'traceId', 'portId', 'detail'].includes(key))).toBe(true);
+    }
+    expect(events.slice(0, 3).every(value => value.data.traceId === traceId)).toBe(true);
+    expect(events[2].data.detail).toBe('legacy');
+});
+
+test('discovery traces distinguish a rejected reply from a matching acknowledgement', async () => {
+    const f = fixture();
+    f.control({ kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: Date.now() + 60000 });
+    f.app.onPost = (request, ports) => {
+        if (request.kind !== 'find-app') return;
+        const reply = { marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, state: 'enabled' };
+        ports[0].postMessage({ ...reply, traceId: crypto.randomUUID() });
+        ports[0].postMessage({ ...reply, traceId: request.traceId });
+    };
+    await flush(); await f.work();
+    const events = diagnosticEvents(f).map(value => value.data);
+    expect(events.filter(value => value.event === 'discovery-rejected')).toEqual([
+        { layer: 'worker', event: 'discovery-rejected', detail: 'wrong-shape',
+            traceId: events[0].traceId, portId: f.data.connectionId }
+    ]);
+    expect(events.find(value => value.event === 'discovery-reply')?.detail).toBe('matched');
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
 });
 
 test.each(['helper', 'subframe', 'foreign', 'expired', 'overlong', 'disabled'])
