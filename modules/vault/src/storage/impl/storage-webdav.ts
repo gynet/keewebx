@@ -1,5 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { StorageBase } from 'storage/storage-base';
+import { isLocalHtml } from 'comp/browser/local-html';
 import { Locale } from 'util/locale';
 import {
     AESGCM_PREFIX,
@@ -53,7 +54,7 @@ type WebDavFile = { uuid: string; db?: { credentials?: { keyFileHash?: kdbxweb.P
 class StorageWebDav extends StorageBase {
     name = 'webdav';
     icon = 'server';
-    enabled = true;
+    enabled = !isLocalHtml();
     uipos = 10;
 
     /** A strong ETag binds explicit replacement consent to the inspected destination. */
@@ -514,7 +515,7 @@ class StorageWebDav extends StorageBase {
         // Firefox can leave an XHR pending indefinitely in browser offline mode.
         // Complete asynchronously so the caller can finish caching and publish
         // its offline state; the sync scheduler retries when connectivity returns.
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        if (isLocalHtml() || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
             queueMicrotask(() => callback?.('offline'));
             return;
         }

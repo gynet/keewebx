@@ -1,4 +1,5 @@
 import { hasInterface } from 'comp/browser/ui-entry';
+import { isLocalHtml } from 'comp/browser/local-html';
 import '../styles/main.scss';
 import { Events } from 'framework/events';
 import { storageKey } from 'comp/settings/storage-namespace';
@@ -159,6 +160,7 @@ $(() => {
         return Promise.resolve()
             .then(() => {
                 SettingsManager.setBySettings();
+                if (isLocalHtml()) return;
                 const configParam = getConfigParam();
                 if (configParam) {
                     return appModel

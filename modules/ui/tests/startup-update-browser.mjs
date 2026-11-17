@@ -87,6 +87,8 @@ self.addEventListener('fetch', event => {
 self.addEventListener('message', event => {
     if (event.data?.fixture === 'version') {
         event.ports[0]?.postMessage({ version, scope: self.registration.scope });
+    } else if (event.data?.fixture === 'activate') {
+        event.waitUntil(self.skipWaiting());
     } else if (event.data?.type === 'skip-waiting') {
         event.waitUntil((async () => {
             await audit('skip-waiting', { ignored });
@@ -403,6 +405,18 @@ const cases = {
         await usable(page);
     },
 
+    async 'network-update-before-model'(context, local, result, dir) {
+        const page = await seed(context, local);
+        local.state.version = 2;
+        await page.goto(local.appUrl);
+        await normalUnlock(page);
+        await stable(page, 2);
+        await capture(page, result, dir, 'network-update-before-unlock');
+        expect(result.documents[0].events.filter(event => ['app-element', 'model-storage-read', 'connect-state'].includes(event.kind))).toEqual([]);
+        expect(result.controller.version).toBe(2);
+        await usable(page);
+    },
+
     async 'offline-cached-app-continues'(context, local, result, dir) {
         const page = await seed(context, local);
         await page.goto(local.appUrl);
@@ -464,19 +478,20 @@ const cases = {
         local.release(2);
         await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.getRegistration('/'))?.waiting?.state)).toBe('installed');
         const notice = page.getByRole('complementary', { name: 'App update', exact: true });
-        const status = notice.getByRole('status');
-        await expect(status).toHaveText('An update is ready for the next time you open KeeWebX.');
-        await expect(notice).toBeVisible();
+        await expect(notice).toHaveCount(0);
         await expect(page.locator('#apply-app-update')).toHaveCount(0);
-        await expect(notice.getByRole('button')).toHaveCount(0);
-        await expect(notice).not.toContainText(/lock your vaults|reload to update/i);
         await stable(page, 1);
         await capture(page, result, dir, 'late-update-remains-waiting');
         expect(result.controller.version).toBe(1);
         expect(result.workerAudit.filter(event => event.version === 2 && event.kind === 'skip-waiting')).toEqual([]);
         await expect(page.locator('#entry-title')).toHaveText(title);
-        result.passiveNotice = await status.innerText();
+        result.noticeCountWhileOpen = await notice.count();
         result.updateActionCount = await page.locator('#apply-app-update').count();
+        await page.getByRole('button', { name: 'Lock', exact: true }).click();
+        await expect(notice).toBeVisible();
+        await expect(notice.getByRole('status')).toHaveText('An update is ready.');
+        await expect(page.locator('#apply-app-update')).toBeEnabled();
+        await stable(page, 1, 250);
         result.demo = 'Demo entry opened before delayed v2 arrived; the same entry remains open without a reload.';
     },
 
@@ -491,6 +506,23 @@ const cases = {
         expect(result.controller.version).toBe(1);
         expect(result.workerAudit.filter(event => event.version === 2 && event.kind === 'skip-waiting' && event.ignored)).toHaveLength(1);
         await usable(page);
+    },
+
+    async 'manual-activation-cancelled-by-unlock'(context, local, result, dir) {
+        const page = await seed(context, local, true, true);
+        await page.goto(local.appUrl);
+        await normalUnlock(page);
+        await expect(page.locator('#apply-app-update')).toBeEnabled();
+        await page.locator('#apply-app-update').click();
+        await expect.poll(async () => (await workerAudit(page)).filter(event => event.kind === 'skip-waiting')).toHaveLength(2);
+        await usable(page);
+        await expect(page.getByRole('complementary', { name: 'App update', exact: true })).toHaveCount(0);
+        // Complete the earlier request after the user has opened a vault.
+        await page.evaluate(async () => (await navigator.serviceWorker.getRegistration('/')).waiting.postMessage({ fixture: 'activate' }));
+        await expect.poll(async () => (await controllerVersion(page)).version).toBe(2);
+        await stable(page, 1);
+        await expect(page.locator('.entry-row').first()).toBeVisible();
+        await capture(page, result, dir, 'manual-activation-after-unlock');
     },
 
     async 'updated-root-app-single-instance'(context, local, result, dir) {

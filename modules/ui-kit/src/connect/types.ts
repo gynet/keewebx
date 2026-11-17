@@ -54,4 +54,5 @@ export interface ConnectPanelProps {
     onSelectAccount(id: string, event: MouseEvent): void;
     onPanelKeyDown(event: KeyboardEvent): void;
     panelRef?(element: HTMLElement | null): void;
+    launcherRef?(element: HTMLButtonElement | null): void;
 }

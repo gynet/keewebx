@@ -114,6 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           bunx playwright install --with-deps chromium
+          KW_LOCAL_HTML_BROWSERS=chromium node scripts/smoke-local-html-network.mjs > artifacts/smoke-local-html-network.json
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p unpacked/zip unpacked/tar
           for UI in new classic web; do

@@ -300,6 +300,7 @@ jobs:
           mkdir -p .cache/userscript-connect
           LOGIN_FIELD_RESULTS=.cache/userscript-connect/login-fields.json node modules/extension/userscript/tests/login-fields.mjs chromium
           CONNECT_COMPONENT_RESULTS=.cache/userscript-connect/components.json node modules/ui-kit/tests/connect.mjs chromium
+          CONNECT_DRAG_RESULTS=.cache/userscript-connect/drag.json node modules/extension/userscript/tests/connect-drag.mjs chromium
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_APP_REFRESH=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-app-refresh node modules/extension/userscript/tests/port-connect.mjs
@@ -379,6 +380,7 @@ jobs:
           done
           curl --fail --silent --show-error "$KW_E2E_APP_ORIGIN/next.html" > /dev/null
           node modules/ui/tests/startup-update-browser.mjs --browser=${{ matrix.browser }}
+          KW_LOCAL_HTML_BROWSERS=${{ matrix.browser }} node scripts/smoke-local-html-network.mjs > "$KW_STARTUP_UPDATE_OUTPUT/local-html-network.json"
       - name: Run New core suite
         run: bunx playwright test --config e2e/core-ci.playwright.config.ts --project=new-${{ matrix.browser }} --shard=${{ matrix.shard }}/2
       - uses: actions/upload-artifact@v7
@@ -478,8 +480,10 @@ jobs:
           done
           KW_E2E_APP_ORIGIN=http://127.0.0.1:8159 KW_SINGLE_APP_OUTPUT=.cache/messageport-webkit/single-app run_check single-app modules/ui/tests/app-instance-browser.mjs --browser=webkit || failed=1
           KW_E2E_APP_ORIGIN=http://127.0.0.1:8159 KW_STARTUP_UPDATE_OUTPUT=.cache/messageport-webkit/startup-update run_check startup-update modules/ui/tests/startup-update-browser.mjs --browser=webkit || failed=1
+          KW_LOCAL_HTML_BROWSERS=webkit run_check local-html-network scripts/smoke-local-html-network.mjs || failed=1
           LOGIN_FIELD_RESULTS=.cache/messageport-webkit/login-fields.json run_check login-fields modules/extension/userscript/tests/login-fields.mjs webkit || failed=1
           CONNECT_COMPONENT_RESULTS=.cache/messageport-webkit/components.json run_check components modules/ui-kit/tests/connect.mjs webkit || failed=1
+          CONNECT_DRAG_RESULTS=.cache/messageport-webkit/drag.json run_check drag modules/extension/userscript/tests/connect-drag.mjs webkit || failed=1
           KWX_RELAY_BROWSERS=webkit KWX_RELAY_LIFECYCLE_OUTPUT=.cache/messageport-webkit/lifecycle run_check lifecycle modules/extension/userscript/tests/relay-lifecycle.mjs || failed=1
           run_check selection modules/extension/userscript/tests/messageport-selection.mjs || failed=1
           run_check lab modules/extension/userscript/tests/messageport-poc.mjs || failed=1

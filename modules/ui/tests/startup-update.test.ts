@@ -91,3 +91,72 @@ test('expiry before a queued state event cannot activate a new worker', async ()
     f.registration.waiting = f.waiting; f.waiting.dispatchEvent(new Event('statechange'));
     expect(f.waiting.posts).toEqual([]); jest.advanceTimersByTime(2500); expect(await checking).toBe('continue');
 });
+
+test('an update discovered by the startup network check finishes before continuing', async () => {
+    const f = fixture();
+    f.registration.update = async () => {
+        f.registration.installing = f.waiting; f.waiting.state = 'installing';
+        f.registration.dispatchEvent(new Event('updatefound'));
+    };
+    let continued = false;
+    const checking = checkStartupUpdate(f.options).then(result => { continued = true; return result; });
+    await settle(); expect(continued).toBe(false);
+    f.registration.installing = null; f.registration.waiting = f.waiting;
+    f.waiting.state = 'installed'; f.waiting.dispatchEvent(new Event('statechange'));
+    expect(f.waiting.posts).toEqual([{ type: 'skip-waiting' }]); expect(continued).toBe(false);
+    f.activate(); expect(await checking).toBe('reloading'); expect(f.reloads()).toBe(1);
+});
+
+test('an unrelated controller change does not reload before the requested worker takes control', async () => {
+    const f = fixture(); f.registration.waiting = f.waiting;
+    const checking = checkStartupUpdate(f.options); await settle();
+    f.container.controller = new f.Worker(); f.container.dispatchEvent(new Event('controllerchange'));
+    expect(f.reloads()).toBe(0);
+    f.activate(); expect(await checking).toBe('reloading'); expect(f.reloads()).toBe(1);
+});
+
+test('a requested activation that completes after timeout cannot reload', async () => {
+    jest.useFakeTimers(); const f = fixture(); f.registration.waiting = f.waiting;
+    const checking = checkStartupUpdate(f.options); await settle();
+    expect(f.waiting.posts).toHaveLength(1);
+    jest.advanceTimersByTime(2500); expect(await checking).toBe('continue');
+    f.activate(); expect(f.reloads()).toBe(0);
+});
+
+test('aborting an activation removes its reload permission', async () => {
+    const f = fixture(), controller = new AbortController(); f.registration.waiting = f.waiting;
+    const checking = checkStartupUpdate({ ...f.options, signal: controller.signal }); await settle();
+    controller.abort(); expect(await checking).toBe('continue'); f.activate(); expect(f.reloads()).toBe(0);
+});
+
+test('an unsafe caller cannot begin or resume registration work', async () => {
+    const f = fixture(); f.deny();
+    expect(await checkStartupUpdate(f.options)).toBe('continue'); expect(f.updates()).toBe(0);
+    const pending = fixture(); let resolve!: (value: undefined) => void;
+    pending.container.getRegistration = () => new Promise(yes => { resolve = yes; });
+    const checking = checkStartupUpdate(pending.options); pending.deny(); resolve(undefined);
+    expect(await checking).toBe('continue'); expect(pending.registrations()).toBe(0);
+});
+
+test('a worker outside the app scope cannot be updated or activated at startup', async () => {
+    const f = fixture(); f.registration.scope = 'https://keewebx.app/other/';
+    f.container.register = async (_url, options) => {
+        expect(options.scope).toBe('https://keewebx.app/');
+        throw new Error('App registration unavailable');
+    };
+    expect(await checkStartupUpdate(f.options)).toBe('continue'); expect(f.updates()).toBe(0);
+    expect(f.waiting.posts).toEqual([]);
+});
+
+test('direct startup checks in local HTML never access service workers', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: { protocol: 'file:' } });
+    try {
+        const options = { get container(): ServiceWorkerContainer { throw new Error('Local HTML accessed service workers'); },
+            scriptURL, reload: () => { throw new Error('Local HTML reloaded'); }, canReload: () => true };
+        expect(await checkStartupUpdate(options)).toBe('continue');
+    } finally {
+        if (original) Object.defineProperty(globalThis, 'location', original);
+        else Reflect.deleteProperty(globalThis, 'location');
+    }
+});

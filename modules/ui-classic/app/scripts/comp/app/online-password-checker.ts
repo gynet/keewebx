@@ -1,5 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { Logger } from 'util/logger';
+import { isLocalHtml } from 'comp/browser/local-html';
 
 const logger = new Logger('online-password-checker');
 
@@ -15,7 +16,7 @@ interface ProtectedValueLike {
 function checkIfPasswordIsExposedOnline(
     password: ProtectedValueLike | null | undefined
 ): false | Promise<boolean | void> {
-    if (!password || !password.isProtected || !password.byteLength) {
+    if (isLocalHtml() || !password || !password.isProtected || !password.byteLength) {
         return false;
     }
     const saltedValue = password.saltedValue();

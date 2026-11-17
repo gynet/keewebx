@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { Logger } from 'util/logger';
 import { Links } from 'const/links';
 import { RuntimeInfo } from 'const/runtime-info';
+import { isLocalHtml } from 'comp/browser/local-html';
 import { diagnosticsText, safeLogs } from './diagnostics-data';
 import { t } from './i18n';
 import { ShortcutReference } from './shortcut-reference';
@@ -27,8 +28,10 @@ export function DiagnosticsHelp() {
             {status && <p role="status">{status}</p>}
         </details>
         <details class="preference-help"><summary>{t('Web app updates')}</summary>
+            {isLocalHtml() ? <p>{t('Local HTML does not check servers or updates. Remote configuration, synchronization and online password checks are disabled. Website icons may use the network. To update, download a new release separately.')}</p> : <>
             <p>{t('KeeWebX checks for updates before unlocking. Updates found during a session are applied the next time you open the app.')}</p>
             <p>{t('If no update appears, close other KeeWebX tabs and reopen the app. Keep a verified encrypted backup before clearing browser data.')}</p>
+            </>}
         </details>
         <details class="preference-help"><summary>{t('Application logs')}</summary>
             <p>{t('Recent application activity is summarized below. Sensitive log text and arguments are omitted. Logs are never uploaded automatically.')}</p>

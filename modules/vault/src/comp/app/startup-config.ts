@@ -1,5 +1,6 @@
 import type { AppModel } from 'models/app-model';
 import { DefaultAppSettings } from 'const/default-app-settings';
+import { isLocalHtml } from 'comp/browser/local-html';
 
 export function validateStartupConfig(value: unknown): Parameters<AppModel['applyUserConfig']>[0] {
     const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -21,6 +22,7 @@ export function validateStartupConfig(value: unknown): Parameters<AppModel['appl
 
 /** Load the same self-hosted configuration used by Classic before exposing UI. */
 export async function loadStartupConfig(model: AppModel): Promise<void> {
+    if (isLocalHtml()) return;
     const embedded = document.querySelector<HTMLMetaElement>('meta[name=kw-config]')?.content;
     const configured = embedded && !embedded.startsWith('(') ? embedded : new URLSearchParams(location.search).get('config');
     if (!configured) return;

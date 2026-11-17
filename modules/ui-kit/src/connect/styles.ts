@@ -108,6 +108,9 @@ export const connectStyles = `
 .kwx-connect .kwx-connect__error { margin: 8px 0; color: var(--kwx-connect-danger); font-size: 12px; overflow-wrap: anywhere; }
 .kwx-connect .kwx-connect__version { margin-top: 12px; color: var(--kwx-connect-muted); font-size: 11px; text-align: end; overflow-wrap: anywhere; }
 .kwx-connect .kwx-connect__toggle { width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 14px; background: var(--kwx-connect-accent); color: var(--kwx-connect-on-accent); box-shadow: 0 4px 14px #1769e033; }
+.kwx-connect[data-mode="app"] .kwx-connect__toggle[data-draggable] { touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.kwx-connect[data-mode="app"] .kwx-connect__toggle[data-dragging] { cursor: grabbing; }
+.kwx-connect .kwx-connect__move-hint { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .kwx-connect[data-mode="relay"] .kwx-connect__panel { position: fixed; left: 50%; top: 50%; right: auto; bottom: auto; transform: translate(-50%, -50%); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); }
 @media (hover: hover) {
     .kwx-connect .kwx-connect__button:hover:not(:disabled) { filter: brightness(.97); }

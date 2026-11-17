@@ -1,4 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
+import { requireNetwork } from 'comp/browser/local-html';
 import { Events } from 'framework/events';
 import { Storage } from 'storage';
 import { SearchResultCollection } from 'collections/search-result-collection';
@@ -297,6 +298,7 @@ class AppModel {
     }
 
     ensureCanLoadConfig(url: string): void {
+        requireNetwork();
         if (!Features.isSelfHosted) {
             throw 'Configs are supported only in self-hosted installations';
         }

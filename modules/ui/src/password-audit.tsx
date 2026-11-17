@@ -8,6 +8,7 @@ import { Events } from 'framework/events';
 import { passwordStrength, PasswordStrengthLevel } from 'util/data/password-strength';
 import { usePreferences } from './app-preferences';
 import { t } from './i18n';
+import { isLocalHtml } from 'comp/browser/local-html';
 
 export function PasswordAudit({ model, entry }: { model: AppModel; entry: EntryModel }) {
     const settings = usePreferences();
@@ -21,7 +22,7 @@ export function PasswordAudit({ model, entry }: { model: AppModel; entry: EntryM
     const issue = !eligible ? '' : settings.auditPasswordEntropy && strength!.level < PasswordStrengthLevel.Good
         ? 'This password is weak.' : settings.auditPasswordAge && expiry.getTime() < Date.now()
             ? 'This password is older than your chosen limit.' : '';
-    const checkOnline = eligible && !issue && settings.checkPasswordsOnHIBP;
+    const checkOnline = !isLocalHtml() && eligible && !issue && settings.checkPasswordsOnHIBP;
     useEffect(() => {
         setOnline('');
         if (!checkOnline) return;

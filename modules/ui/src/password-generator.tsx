@@ -4,7 +4,7 @@ import { ProtectedValue } from 'kdbxweb';
 import { GeneratorPresetEditor } from './generator-preset-editor';
 import { validateGeneratorOptions } from './generator-preset-settings';
 import { GeneratorPresets } from 'comp/app/generator-presets';
-import { CharRanges, PasswordGenerator } from 'util/generators/password-generator';
+import { PasswordGenerator } from 'util/generators/password-generator';
 import { t } from './i18n';
 import './password-generator.css';
 
@@ -14,9 +14,12 @@ const PRESET_LABELS: Record<string, string> = {
     Default: 'Default', Pronounceable: 'Pronounceable', Med: 'All characters', Long: 'Long',
     Pin4: '4-digit PIN', Mac: 'MAC address', Hash128: '128-bit hex', Hash256: '256-bit hex'
 };
-const CHARACTER_SETS = [
+const COMMON_CHARACTER_SETS = [
     ['upper', 'Uppercase letters'], ['lower', 'Lowercase letters'], ['digits', 'Digits'],
-    ['special', 'Symbols'], ['brackets', 'Brackets'], ['high', 'Extended characters'],
+    ['special', 'Symbols']
+] as const;
+const ADVANCED_CHARACTER_SETS = [
+    ['brackets', 'Brackets'], ['high', 'Extended characters'],
     ['ambiguous', 'Ambiguous characters']
 ] as const;
 
@@ -100,7 +103,7 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
             </div>
             <fieldset class="password-generator__sets">
                 <legend>{t('Character sets')}</legend>
-                {CHARACTER_SETS.map(([key, label]) => (
+                {COMMON_CHARACTER_SETS.map(([key, label]) => (
                     <label key={key}>
                         <input type="checkbox" checked={!!options[key]}
                             onChange={(event) => change({ [key]: event.currentTarget.checked })} />
@@ -108,26 +111,41 @@ export function PasswordGeneratorPanel({ onUse, onClose, actionLabel, sourcePass
                     </label>
                 ))}
             </fieldset>
-            <label class="field-label">
-                <span>{t('Additional characters')}</span>
-                <input class="input" value={options.include ?? ''} autoComplete="off" spellcheck={false}
-                    onInput={(event) => change({ include: event.currentTarget.value })} />
-            </label>
-            <label class="field-label"><span>{t('Pattern')}</span>
-                <input class="input" value={options.pattern ?? ''} maxLength={128} autoComplete="off" spellcheck={false}
-                    onInput={event => change({ pattern: event.currentTarget.value })} />
-            </label>
-            <details><summary>{t('Pattern help')}</summary>
-                <p>{t('The pattern repeats to fill Length. X uses selected character sets; A uppercase, a lowercase, 1 digits, * symbols, [ brackets, Ä extended characters, 0 ambiguous characters, I additional characters. Other characters are literal separators. Example: XX- repeats pairs separated by a dash.')}</p>
+            <details class="password-generator__advanced">
+                <summary>{t('Advanced')}</summary>
+                <div class="password-generator__advanced-options">
+                    <fieldset class="password-generator__sets">
+                        <legend>{t('Character sets')}</legend>
+                        {ADVANCED_CHARACTER_SETS.map(([key, label]) => (
+                            <label key={key}>
+                                <input type="checkbox" checked={!!options[key]}
+                                    onChange={(event) => change({ [key]: event.currentTarget.checked })} />
+                                {t(label)}
+                            </label>
+                        ))}
+                    </fieldset>
+                    <label class="field-label">
+                        <span>{t('Additional characters')}</span>
+                        <input class="input" value={options.include ?? ''} autoComplete="off" spellcheck={false}
+                            onInput={(event) => change({ include: event.currentTarget.value })} />
+                    </label>
+                    <label class="field-label"><span>{t('Pattern')}</span>
+                        <input class="input" value={options.pattern ?? ''} maxLength={128} autoComplete="off" spellcheck={false}
+                            onInput={event => change({ pattern: event.currentTarget.value })} />
+                    </label>
+                    <details><summary>{t('Pattern help')}</summary>
+                        <p>{t('The pattern repeats to fill Length. X uses selected character sets; A uppercase, a lowercase, 1 digits, * symbols, [ brackets, Ä extended characters, 0 ambiguous characters, I additional characters. Other characters are literal separators. Example: XX- repeats pairs separated by a dash.')}</p>
+                    </details>
+                    <details><summary>{t('Derive options from a password')}</summary>
+                        <p>{t('Only length and character classes are used. The source password is not saved or copied into a preset.')}</p>
+                        {sourcePassword !== undefined && <button type="button" class="pill" disabled={!sourcePassword} onClick={() => derive(sourcePassword)}>{t('Use current password options')}</button>}
+                        <label class="field-label">{t('Source password')}<input class="input" type="password" value={deriveSource} autoComplete="off"
+                            onInput={event => setDeriveSource(event.currentTarget.value)} /></label>
+                        <button type="button" class="pill" disabled={!deriveSource} onClick={() => derive(deriveSource)}>{t('Derive options')}</button>
+                    </details>
+                    <GeneratorPresetEditor options={options} select={preset => select({ ...preset })} changed={() => setPresets(GeneratorPresets.enabled)} />
+                </div>
             </details>
-            <details><summary>{t('Derive options from a password')}</summary>
-                <p>{t('Only length and character classes are used. The source password is not saved or copied into a preset.')}</p>
-                {sourcePassword !== undefined && <button type="button" class="pill" disabled={!sourcePassword} onClick={() => derive(sourcePassword)}>{t('Use current password options')}</button>}
-                <label class="field-label">{t('Source password')}<input class="input" type="password" value={deriveSource} autoComplete="off"
-                    onInput={event => setDeriveSource(event.currentTarget.value)} /></label>
-                <button type="button" class="pill" disabled={!deriveSource} onClick={() => derive(deriveSource)}>{t('Derive options')}</button>
-            </details>
-            <GeneratorPresetEditor options={options} select={preset => select({ ...preset })} changed={() => setPresets(GeneratorPresets.enabled)} />
             <div class="password-generator__actions">
                 <button class="pill" type="button" onClick={() => setResult(generate(options))}>{t('Generate again')}</button>
                 <button class="pill pill--primary" type="button" disabled={!result.password || !!result.error}

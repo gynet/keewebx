@@ -6,7 +6,7 @@ import { AddressInfo } from 'net';
 import * as kdbx from '../../modules/db/lib';
 import { argon2 } from '../../modules/db/test/test-support/argon2';
 
-const DIST = path.join(__dirname, '../../dist');
+const DIST = path.resolve(process.env.KEEWEBX_OFFLINE_DIST || path.join(__dirname, '../../dist'));
 const TYPES: Record<string, string> = {
     '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
     '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.xml': 'application/xml'
@@ -231,9 +231,14 @@ for (const classic of [false, true]) {
             await page.click('.settings__general-restart-btn');
         } else {
             await expect(page.locator('#apply-app-update')).toHaveCount(0);
-            await expect(page.getByRole('status').filter({ hasText: 'An update is ready for the next time you open KeeWebX.' })).toBeVisible();
+            await expect(page.getByRole('complementary', { name: 'App update', exact: true })).toHaveCount(0);
             await expect(page.locator('.entry-editor').getByLabel('Notes', { exact: true })).toHaveValue('Unsaved update draft');
             await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
+            await page.getByRole('button', { name: 'Lock', exact: true }).click();
+            await expect(page.locator('#apply-app-update')).toBeEnabled();
+            await unlock(page);
+            await expect(page.getByRole('complementary', { name: 'App update', exact: true })).toHaveCount(0);
+            expect(await page.evaluate(() => (window as unknown as { beforeUpdate?: boolean }).beforeUpdate)).toBe(true);
             await page.getByRole('button', { name: 'Lock', exact: true }).click();
             await expect(page.locator('#apply-app-update')).toBeEnabled();
             const saved = await encryptedRecords(page);

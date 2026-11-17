@@ -3,6 +3,7 @@ import { ConnectPanel, connectStyles } from 'ui-kit/connect';
 import type { ActionState, ConnectAction, ConnectMode, ConnectTab, ConnectViewState } from 'ui-kit/connect';
 import type { BackendConnectionState } from '../../src/common/backend-connection-state';
 import { CONNECT_VERSION } from './version';
+import { ConnectLauncherDrag } from './connect-drag';
 
 type ActionHandler = (event: MouseEvent) => void;
 
@@ -27,6 +28,7 @@ export class ConnectUI {
     private view: ConnectViewState;
     private panel?: HTMLElement;
     private panelStyle?: JSX.CSSProperties;
+    private appDrag?: ConnectLauncherDrag;
     private field?: HTMLInputElement;
     private connectionPending = false;
     private actions = new Map<ConnectAction, ActionHandler>();
@@ -53,8 +55,11 @@ export class ConnectUI {
                     : 'Keep your authorized KeeWebX tab open. A temporary page connects this website and closes automatically.'
         };
         if (mode === 'relay') this.panelStyle = { position: 'relative', inset: 'auto', width: 'min(420px,calc(100vw - 32px))', maxHeight: 'calc(100dvh - 32px)', transform: 'none' };
+        if (mode === 'app') this.appDrag = new ConnectLauncherDrag(this.host, () => this.place());
         document.body.append(this.host);
         this.paint();
+        this.appDrag?.reposition();
+        if (mode === 'app' && this.panel) new ResizeObserver(() => this.place()).observe(this.panel);
         if (mode === 'website') {
             const reposition = () => { if (this.field?.isConnected) this.place(); };
             addEventListener('scroll', reposition, true); addEventListener('resize', reposition);
@@ -113,7 +118,7 @@ export class ConnectUI {
             open: { ...this.view.actions.open, disabled: true }
         } } : this.view;
         render(h(Fragment, null, h('style', null, connectStyles), h(ConnectPanel, {
-            state, panelStyle: this.panelStyle, panelRef: this.panelRef,
+            state, panelStyle: this.panelStyle, panelRef: this.panelRef, launcherRef: this.appDrag?.ref,
             onAction: (action, event) => { if (event.isTrusted && !this.isDisabled(action)) {
                 this.actions.get(action)?.(event);
             } },
@@ -134,6 +139,24 @@ export class ConnectUI {
     private panelRef = (element: HTMLElement | null): void => { this.panel = element ?? undefined; };
 
     private place(): void {
+        if (this.mode === 'app') {
+            if (!this.view.open) return;
+            const rect = this.host.getBoundingClientRect();
+            const vx = visualViewport?.offsetLeft || 0, vy = visualViewport?.offsetTop || 0;
+            const vw = visualViewport?.width || innerWidth, vh = visualViewport?.height || innerHeight;
+            const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), Math.max(lo, hi));
+            const width = Math.min(348, vw - 24);
+            const desiredHeight = Math.max(this.panel?.offsetHeight || 0, (this.panel?.scrollHeight || 0) + 2, 310);
+            const above = Math.max(0, rect.top - vy - 24), below = Math.max(0, vy + vh - rect.bottom - 24);
+            const useAbove = above >= desiredHeight || above >= below;
+            const maxHeight = useAbove ? above : below, height = Math.min(desiredHeight, maxHeight);
+            const py = useAbove ? rect.top - height - 12 : rect.bottom + 12;
+            const style: JSX.CSSProperties = { position: 'fixed', left: `${clamp(rect.right - width, vx + 12, vx + vw - width - 12)}px`,
+                top: `${clamp(py, vy + 12, vy + vh - height - 12)}px`, right: 'auto', bottom: 'auto',
+                width: `${width}px`, maxHeight: `${maxHeight}px` };
+            if (JSON.stringify(style) !== JSON.stringify(this.panelStyle)) { this.panelStyle = style; this.paint(); }
+            return;
+        }
         const field = this.field;
         if (this.mode !== 'website' || !field?.isConnected) return;
         const rect = field.getBoundingClientRect();

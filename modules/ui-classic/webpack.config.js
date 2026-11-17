@@ -305,7 +305,7 @@ module.exports = (env, argv) => {
             ...['index.html', 'classic.html', 'classic/index.html'].map(filename => new HtmlWebpackPlugin({
                 template: path.join(rootDir, 'app/index.html'),
                 filename,
-                templateParameters: { offlineEnabled, nested: filename.startsWith('classic/') },
+                templateParameters: { offlineEnabled, localHtmlPolicy: fs.readFileSync(path.join(rootDir, '../vault/resources/local-html-policy.js'), 'utf8'), nested: filename.startsWith('classic/') },
                 inject: false
             })),
             new CopyWebpackPlugin({

@@ -22,9 +22,9 @@ python3 -m http.server 8080
 
 Open `http://localhost:8080/`. HTTPS or localhost enables service workers and browser APIs that require a secure context. Browser and authenticator support determines passkey availability.
 
-On `file://`, the app reads its assets directly from the extracted directory; service workers do not register. Enable “Allow access to file URLs” in Chromium's extension settings if you use extension autofill with local files. Keep all files in the archive together.
+On `file://`, the app reads its assets directly from the extracted directory. It never checks an update server or loads remote configuration. Remote synchronization and online password checks are disabled even if previously enabled in saved settings. Browser CSP blocks network connections except direct website icons (`/favicon.ico`) and the optional DuckDuckGo icon display. Icon downloads use the website directly instead of an app server or a configured proxy. Download a newer archive separately to update. Service workers do not register. Enable “Allow access to file URLs” in Chromium's extension settings if you use extension autofill with local files. Keep all files in the archive together.
 
-Browser storage is not a backup. Keep an encrypted KDBX copy outside the browser before clearing site data or moving to a different origin. Remote storage and browser extensions require separate configuration.
+Browser storage is not a backup. Keep an encrypted KDBX copy outside the browser before clearing site data or moving to a different origin. Remote storage requires a served HTTP(S) installation and separate configuration. Browser extensions require separate configuration.
 
 Automated release smoke checks open the packaged demo in New and Classic over localhost HTTP, nested hosting paths, and `file://`. The combined bundle retains its 26 startup checks. Standalone checks also cover prior interface preferences, hidden unavailable switches, installed service workers, offline reloads, missing assets, script errors, and content security policy violations. Both ZIP and TAR are extracted and checked before release.
 

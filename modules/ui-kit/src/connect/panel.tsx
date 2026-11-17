@@ -25,10 +25,12 @@ export function ConnectPanel({
     idPrefix = 'kwx-connect',
     panelStyle,
     panelRef,
+    launcherRef,
     ...callbacks
 }: ConnectPanelProps) {
     const accountsActive = state.mode === 'website' && state.tab === 'accounts';
     const relay = state.mode === 'relay';
+    const draggable = state.mode === 'app' && !!launcherRef;
 
     return (
         <div class="kwx-connect" data-mode={state.mode} onKeyDown={callbacks.onPanelKeyDown}>
@@ -120,15 +122,22 @@ export function ConnectPanel({
                 type="button"
                 class="kwx-connect__button kwx-connect__toggle"
                 data-action="toggle"
+                data-draggable={draggable || undefined}
                 hidden={relay || !state.launcherVisible}
                 aria-label="KeeWebX Connect"
                 aria-controls={`${idPrefix}-panel`}
                 aria-expanded={state.open}
                 aria-haspopup="dialog"
+                aria-describedby={draggable ? `${idPrefix}-move-hint` : undefined}
+                title={draggable ? 'Drag to move. Arrow keys move; Shift moves farther.' : undefined}
+                ref={draggable ? launcherRef : undefined}
                 onClick={callbacks.onToggle}
             >
                 <KeyIcon />
             </button>
+            {draggable && <span class="kwx-connect__move-hint" id={`${idPrefix}-move-hint`}>
+                Drag to move. When focused, use arrow keys to move, or Shift and arrow keys to move farther. Enter or Space opens Connect.
+            </span>}
         </div>
     );
 }

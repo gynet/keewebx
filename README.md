@@ -34,9 +34,9 @@ Double-click `index.html`, or serve the extracted directory with any static HTTP
 python3 -m http.server 8080
 ```
 
-Keep the HTML files and bundled assets together. HTTPS or localhost enables features that require a secure context; passkeys also depend on browser and authenticator support. Direct `file://` use does not install the offline service worker.
+Keep the HTML files and bundled assets together. HTTPS or localhost enables features that require a secure context; passkeys also depend on browser and authenticator support. Direct `file://` use does not register a service worker or contact an update server. Local HTML disables remote configuration, synchronization and online password checks, regardless of saved settings. A browser-enforced policy blocks other network requests; website icons are the allowed exception. Download a newer release separately to update.
 
-KDBX encryption and decryption run in your browser. A browser-cache save does not update the external file you originally selected: download KDBX to save an external copy. Keep an independent encrypted backup. WebDAV synchronization and optional network features make requests only when configured or used.
+KDBX encryption and decryption run in your browser. A browser-cache save does not update the external file you originally selected: download KDBX to save an external copy. Keep an independent encrypted backup. When served over HTTP or HTTPS, WebDAV synchronization and optional network features make requests only when configured or used.
 
 See [the self-host guide](docs/self-host.md) for deployment details.
 
@@ -63,7 +63,7 @@ If Safari refuses to switch tabs, select the existing tab manually. See
 On startup, the web App checks for updates before showing the unlock screen.
 A ready update is applied first. The check waits at most 2.5 seconds so offline
 or slow connections can still open the App. Updates discovered during an active
-session can wait until the next startup.
+session wait silently until the next startup; no update notice interrupts an unlocked vault.
 
 ## Browser extension
 

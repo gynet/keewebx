@@ -115,7 +115,7 @@ module.exports = (env, argv) => {
             new MiniCssExtractPlugin({ filename: 'css/[name].css' }),
             ...['index.html', 'next.html'].map(filename => new HtmlWebpackPlugin({
                 template: path.join(rootDir, 'src/next.html'),
-                templateParameters: { offlineEnabled, manifest: filename === 'index.html' ? 'manifest.json' : 'manifest-new.json' },
+                templateParameters: { offlineEnabled, localHtmlPolicy: fs.readFileSync(path.join(vaultDir, 'resources/local-html-policy.js'), 'utf8'), manifest: filename === 'index.html' ? 'manifest.json' : 'manifest-new.json' },
                 filename,
                 chunks: ['next'],
                 inject: 'body',

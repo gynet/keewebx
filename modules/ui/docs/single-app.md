@@ -46,8 +46,10 @@ startup; the first uncontrolled visit can continue after registering its fresh
 shell without waiting for the initial offline precache. A 2.5-second total budget
 keeps offline and stalled checks from blocking access. Expired or aborted checks
 cannot reload a model that has since started. Updates discovered during an
-active session show a passive next-startup notice instead of a disabled action
-asking the user to lock the vault.
+active session wait silently until the next startup. No update banner asks the
+user to interrupt an unlocked vault. Manual updates are offered only with no
+open vault or recovery flow, and their pending activation is canceled when that
+condition changes.
 
 This feature coordinates top-level HTTP(S) pages in a browser that supports Web
 Locks. Downloaded file pages, extension documents and embedded frames retain

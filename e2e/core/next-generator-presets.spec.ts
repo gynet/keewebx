@@ -9,8 +9,13 @@ async function open(page: Page) {
     await page.getByRole('button', { name: 'Password generator', exact: true }).click();
     await expect(generator(page)).toBeVisible();
 }
-async function manage(page: Page) { await manager(page).locator('summary').click(); }
+async function advanced(page: Page) {
+    const details = generator(page).locator('.password-generator__advanced');
+    if (!await details.evaluate(element => element.hasAttribute('open'))) await details.locator(':scope > summary').click();
+}
+async function manage(page: Page) { await advanced(page); await manager(page).locator('summary').click(); }
 async function pattern(page: Page) {
+    await advanced(page);
     await generator(page).getByLabel('Length', { exact: true }).fill('10');
     await generator(page).getByLabel('Pattern', { exact: true }).fill('AA-11');
     await expect(generator(page).getByLabel('Generated password', { exact: true })).toHaveValue(/^[A-Z]{2}-[1-9]{2}[A-Z]{2}-[1-9]{2}$/);
@@ -36,6 +41,7 @@ for (const width of [1280, 320]) test.describe(`${width}px generator presets`, (
         await open(page);
         await expect(generator(page).getByLabel('Preset', { exact: true }).locator('option:checked')).toHaveText('Renamed pattern');
         await expect(generator(page).getByLabel('Generated password', { exact: true })).toHaveValue(/^[A-Z]{2}-[1-9]{2}[A-Z]{2}-[1-9]{2}$/);
+        await expect(generator(page).getByLabel('Pattern', { exact: true })).toBeHidden();
         await manage(page); await manager(page).getByLabel('Manage preset', { exact: true }).selectOption('Default');
         await manager(page).getByRole('button', { name: 'Make default', exact: true }).click();
         const custom = saved.user[0].name;

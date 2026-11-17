@@ -5,6 +5,7 @@ import { Events } from 'framework/events';
 import { IdleTracker } from 'comp/browser/idle-tracker';
 import { Links } from 'const/links';
 import { RuntimeInfo } from 'const/runtime-info';
+import { isLocalHtml } from 'comp/browser/local-html';
 import { currentLocale, t } from './i18n';
 import './app-preferences.css';
 
@@ -77,7 +78,7 @@ export function AuditPreferences() {
             <PreferenceCheck name="excludePinsFromAudit" label="Exclude PINs of up to six digits" disabled={!values.auditPasswords} />
             <PreferenceSelect name="auditPasswordAge" label="Warn about password age" disabled={!values.auditPasswords} options={[
                 [0, 'Off'], [1, '1 year'], [2, '2 years'], [3, '3 years'], [5, '5 years'], [10, '10 years']]} />
-            <PreferenceCheck name="checkPasswordsOnHIBP" label="Check Have I Been Pwned" disabled={!values.auditPasswords} />
+            <PreferenceCheck name="checkPasswordsOnHIBP" label="Check Have I Been Pwned" disabled={isLocalHtml() || !values.auditPasswords} />
             <details class="preference-help"><summary>{t('How online password checks work')}</summary>
                 <p>{t('Online checks are off by default. If you opt in, only the first five characters of a password’s SHA-1 hash are sent to the Pwned Passwords service. The password and full hash stay on this device. Your IP address is visible to the service. Checks run when you view an eligible entry.')}</p>
                 <a href={Links.HaveIBeenPwnedPrivacy} target="_blank" rel="noopener noreferrer">{t('Have I Been Pwned privacy information')}</a>

@@ -1,6 +1,10 @@
+import { isLocalHtml } from 'comp/browser/local-html';
+
 export const faviconCap = (value: number) => [32, 64, 128].includes(value) ? value : 32;
 /** Build an explicit download destination; no service is used unless configured. */
 export function faviconUrl(website: string, service?: string, cap = 32): string {
+    // Local files allow the site's icon, without involving an app server or proxy.
+    if (isLocalHtml()) service = undefined;
     if (!website.trim() || /[\x00-\x20\\]/.test(website)) throw new Error('Enter a valid HTTP or HTTPS website first.');
     const url = new URL(website.includes('://') ? website : `https://${website}`);
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error('Enter a valid HTTP or HTTPS website first.');

@@ -1,3 +1,5 @@
+import { isLocalHtml } from 'comp/browser/local-html';
+
 export interface StartupUpdateOptions {
     container: ServiceWorkerContainer;
     scriptURL: string;
@@ -10,6 +12,7 @@ export interface StartupUpdateOptions {
 
 /** Check the web shell before constructing a vault. Offline startup stays bounded. */
 export function checkStartupUpdate(options: StartupUpdateOptions): Promise<'continue' | 'reloading'> {
+    if (isLocalHtml()) return Promise.resolve('continue');
     const { container, signal } = options;
     const url = new URL(options.scriptURL);
     const scope = new URL('.', url).href;
@@ -17,7 +20,8 @@ export function checkStartupUpdate(options: StartupUpdateOptions): Promise<'cont
     const budget = options.timeoutMs ?? 2500;
     const deadline = Date.now() + budget;
     return new Promise(resolve => {
-        let settled = false, activating = false;
+        let settled = false;
+        let activating: ServiceWorker | undefined;
         let registration: ServiceWorkerRegistration | undefined;
         const cleanups: (() => void)[] = [];
         const watched = new Set<ServiceWorker>();
@@ -35,6 +39,7 @@ export function checkStartupUpdate(options: StartupUpdateOptions): Promise<'cont
         if (signal?.aborted) { finish(); return; }
         const controlled = () => {
             if (!live() || !activating) return;
+            if (container.controller !== activating) return;
             if (!hadController || !options.canReload()) { finish(); return; }
             try { options.reload(); finish('reloading'); } catch { finish(); }
         };
@@ -46,7 +51,7 @@ export function checkStartupUpdate(options: StartupUpdateOptions): Promise<'cont
             if (waiting && !activating) {
                 if (waiting.scriptURL !== url.href) { finish(); return; }
                 if (!options.canReload()) { finish(); return; }
-                activating = true;
+                activating = waiting;
                 try { waiting.postMessage({ type: 'skip-waiting' }); } catch { finish(); }
                 return;
             }
@@ -64,12 +69,15 @@ export function checkStartupUpdate(options: StartupUpdateOptions): Promise<'cont
             }
         };
         void (async () => {
+            if (!live() || !options.canReload()) { finish(); return; }
             const existing = await container.getRegistration(url.href);
             if (!live()) return;
+            if (!options.canReload()) { finish(); return; }
             const matches = existing?.scope === scope && [existing.active, existing.waiting, existing.installing]
                 .some(worker => worker?.scriptURL === url.href);
             registration = matches ? existing : await container.register(url.href, { scope, updateViaCache: 'none' });
             if (!live()) return;
+            if (!options.canReload()) { finish(); return; }
             options.onRegistration?.(registration);
             const found = () => inspect();
             registration.addEventListener('updatefound', found);
