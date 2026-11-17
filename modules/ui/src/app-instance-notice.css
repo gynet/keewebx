@@ -1,0 +1,38 @@
+.app-instance-notice.start__main {
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 24px 20px;
+    overflow: auto;
+    background: var(--kx-bg);
+    color: var(--kx-text);
+}
+
+.app-instance-notice__card.card {
+    width: 320px;
+    margin: auto;
+    gap: 16px;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.app-instance-notice__title {
+    max-width: 100%;
+    margin: 0;
+    font-size: 24px;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+}
+
+.app-instance-notice__body,
+.app-instance-notice__status {
+    max-width: 100%;
+    margin: 0;
+    color: var(--kx-muted);
+}
+
+.app-instance-notice__action.pill {
+    width: 100%;
+    min-height: 44px;
+    margin-top: 0;
+    white-space: normal;
+}

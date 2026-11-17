@@ -10,6 +10,7 @@ const DISCOVERY_MS = 2 * PROBE_MS;
 const PROBE_RETRY_MS = 750;
 const MAX_PROBE_ATTEMPTS = 4;
 const DIAGNOSTICS_MARK = 'keewebx-connect-diagnostics-v1';
+const INSTANCE_MARK = 'keewebx-app-instance-v1';
 const diagnostics = new Map();
 const ATTACH_KEYS = ['marker', 'kind', 'nonce', 'appBoot', 'connectionId', 'endpoint', 'siteOrigin'];
 const APP_PATHS = new Set(['/app', '/next.html', '/index.html']);
@@ -112,6 +113,61 @@ function isApp(client, endpoint) {
             (path === endpointPath || (endpointPath === '/app' && APP_PATHS.has(path)));
     } catch {
         return false;
+    }
+}
+
+function instancePage(client) {
+    try {
+        if (!outerWindow(client)) return false;
+        const url = new URL(client.url), base = new URL('../', self.location.href);
+        return url.origin === base.origin && ['', 'app', 'index.html', 'next.html'].some(path =>
+            normalizePath(url.pathname) === normalizePath(new URL(path || './', base).pathname));
+    } catch { return false; }
+}
+
+/** Focus the actual lock holder; no stored owner, heartbeat or new window. */
+async function focusInstance(event) {
+    const data = event.data, port = event.ports[0];
+    const prefix = `${INSTANCE_MARK}:${new URL('../', self.location.href).pathname}:`;
+    if (port && event.ports.length === 1 && instancePage(event.source) && data.kind === 'identify' &&
+        Object.keys(data).length === 2 && /^[a-zA-Z0-9{}-]{1,128}$/.test(event.source.id)) {
+        port.postMessage({ marker: INSTANCE_MARK, kind: 'identified', clientId: event.source.id }); port.close(); return;
+    }
+    if (!port || event.ports.length !== 1 || !instancePage(event.source) ||
+        !data || Object.keys(data).length !== 3 || data.kind !== 'focus' ||
+        typeof data.lockName !== 'string' || !data.lockName.startsWith(prefix) ||
+        data.lockName.length > 512 || /[\u0000-\u001f\u007f]/.test(data.lockName)) {
+        for (const endpoint of event.ports) endpoint.close();
+        return;
+    }
+    let timer, live = true;
+    port.onmessage = message => {
+        if (message.data?.marker === INSTANCE_MARK && message.data.kind === 'cancel') live = false;
+    };
+    port.start();
+    try {
+        const focused = await Promise.race([
+            (async () => {
+                const locks = await self.navigator?.locks?.query();
+                if (!live) return false;
+                const owner = locks?.held?.find(lock => lock.name === data.lockName && lock.mode === 'exclusive');
+                if (!owner?.clientId) return false;
+                const locator = locks.held.find(lock => lock.mode === 'exclusive' && lock.clientId === owner.clientId &&
+                    lock.name.startsWith(data.lockName + ':client:'));
+                // Lock client IDs identify execution contexts; they are not the
+                // IDs exposed by ServiceWorker WindowClients in every browser.
+                const id = locator ? decodeURIComponent(locator.name.slice((data.lockName + ':client:').length)) : owner.clientId;
+                const client = await self.clients.get(id);
+                if (!live || !instancePage(client)) return false;
+                return (await client.focus()).focused === true;
+            })(),
+            new Promise(resolve => { timer = setTimeout(() => { live = false; resolve(false); }, 1200); })
+        ]);
+        port.postMessage({ marker: INSTANCE_MARK, kind: 'focused', ok: focused === true });
+    } catch {
+        try { port.postMessage({ marker: INSTANCE_MARK, kind: 'focused', ok: false }); } catch {}
+    } finally {
+        live = false; clearTimeout(timer); port.onmessage = null; port.close();
     }
 }
 
@@ -334,6 +390,7 @@ async function attach(event) {
 
 self.addEventListener('message', (event) => {
     const data = event.data;
+    if (data?.marker === INSTANCE_MARK) { event.waitUntil(focusInstance(event)); return; }
     if (data?.kwDiagnostics === DIAGNOSTICS_MARK) { diagnosticControl(event); return; }
     if (data?.kind === 'probe-relay') {
         if (event.ports.length || !smallMessage(data) || Object.keys(data).length !== 5 || data.marker !== MARK ||

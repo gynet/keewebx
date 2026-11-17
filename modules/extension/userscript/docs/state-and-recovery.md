@@ -36,6 +36,13 @@ delayed manager events that must not revoke a newer grant.
 
 ## Further reductions identified by the audit
 
+The current web App now also coordinates its lifetime with a browser-owned
+exclusive lock before starting the vault. Repeated App pages wait at a compact
+return notice. Its temporary locator lock binds the browser's two client-ID
+formats without a persistent registry. This App role grants no Connect access;
+the existing selected-App authorization still applies. See the
+[single-instance lifecycle](../../../ui/docs/single-app.md).
+
 The following are findings and recommendations, not shipped behavior changes:
 
 1. Derive the App panel's current authorization display from host readiness,

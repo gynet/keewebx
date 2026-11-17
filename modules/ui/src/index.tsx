@@ -34,6 +34,10 @@ import { MultiVaultOpen } from './multi-vault-open';
 import { useVaultCommands } from './vault-commands';
 import { hasInterface, legacyClassicEntry } from 'comp/browser/ui-entry';
 import { KeyChangeReminder } from './key-change-reminder';
+import { getStorageNamespace } from 'comp/settings/storage-namespace';
+import { AppInstance, appInstanceLock } from './app-instance';
+import { AppInstanceNotice } from './app-instance-notice';
+import { identifyInstance, prepareInstanceReturn, returnToInstance } from './app-instance-return';
 
 declare const __KW_NEW_EXTENSION__: boolean;
 declare const __KEEWEBX_BUILD_SHA__: string;
@@ -273,11 +277,23 @@ function App({ model }: { model: AppModel }) {
 
 const classicEntry = hasInterface('classic') && legacyClassicEntry(location.href, document.baseURI);
 if (classicEntry) location.replace(classicEntry);
-else void startVault().then((model) => {
-    render(<App model={model} />, document.getElementById('root')!);
-    ServiceWorkerClient.init();
-}).catch(() => {
-    render(
+else {
+    const root = document.getElementById('root')!;
+    let started: Promise<AppModel> | undefined;
+    let instance: AppInstance | undefined;
+    let returnWorker: ReturnType<typeof prepareInstanceReturn> | undefined;
+    let returning = false;
+    let returnOperation: AbortController | undefined;
+    let returnMessage = '';
+    const showApp = () => {
+        started ??= startVault();
+        void started.then(model => {
+            if (instance && !instance.primary) return;
+            render(<App model={model} />, root);
+            ServiceWorkerClient.init();
+        }).catch(() => {
+            if (instance && !instance.primary) return;
+            render(
         <main class="start__main">
             <div class="card" role="alert">
                 <h1>{t('Unable to open the vault')}</h1>
@@ -285,6 +301,56 @@ else void startVault().then((model) => {
                 {hasInterface('classic') && <a href="classic.html">{t('Open Classic')}</a>}
             </div>
         </main>,
-        document.getElementById('root')!
-    );
-});
+        root
+        ); });
+    };
+    const notice = () => {
+        if (!instance || instance.state === 'primary') return;
+        render(<><PreferenceEffects /><AppInstanceNotice state={instance.state} returning={returning} message={returnMessage}
+            onRetry={() => instance?.start()} onReturn={() => {
+                if (!instance || instance.state !== 'secondary' || returning) return;
+                const operation = returnOperation = new AbortController();
+                returning = true; returnMessage = ''; notice();
+                void returnToInstance(returnWorker ??= prepareInstanceReturn(document.baseURI), instance.name, operation.signal).then(focused => {
+                    if (returnOperation !== operation) return;
+                    returnOperation = undefined;
+                    returning = false;
+                    if (operation.signal.aborted) { notice(); return; }
+                    returnMessage = focused
+                        ? t('Your KeeWebX tab is open. If your browser did not switch, select it from your tabs.')
+                        : t('Your browser may not switch tabs automatically. Select your existing KeeWebX tab to continue.');
+                    notice();
+                });
+            }} /></>, root);
+    };
+    // File downloads, extension documents and embedded frames keep their own
+    // startup policy. Only top-level browser Apps share this origin's lock.
+    const locks = 'locks' in navigator ? navigator.locks : undefined;
+    if (window.top === window && /^https?:$/.test(location.protocol) && locks) {
+        instance = new AppInstance(appInstanceLock(document.baseURI, getStorageNamespace()), locks, state => {
+            root.dataset.appInstance = state;
+            document.documentElement.dataset.appInstance = state;
+            if (state === 'primary') {
+                returnOperation?.abort();
+                showApp();
+                void identifyInstance(returnWorker ??= prepareInstanceReturn(document.baseURI)).then(id => {
+                    if (id) instance?.attachClient(id);
+                });
+            }
+            else {
+                if (state === 'secondary') returnWorker ??= prepareInstanceReturn(document.baseURI);
+                notice();
+                if (state === 'secondary' && document.hidden) queueMicrotask(() => {
+                    if (document.hidden) instance?.visibility(false);
+                });
+            }
+        });
+        window.addEventListener('pagehide', event => { returnOperation?.abort(); instance?.pageHide(event.persisted); });
+        window.addEventListener('pageshow', event => { if (event.persisted) instance?.start(); });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) returnOperation?.abort();
+            instance?.visibility(!document.hidden);
+        });
+        instance.start();
+    } else showApp();
+}

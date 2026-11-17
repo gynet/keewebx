@@ -53,6 +53,13 @@ Use the sidebar’s database menu to save or close a vault. The key icon in the 
 
 Switching interfaces checks pending edits and saves before navigating. A failed save keeps the vault available for recovery.
 
+The current web interface keeps one main App per site and browser storage partition.
+Opening it again shows **KeeWebX is already open** with a **Return to KeeWebX**
+button. The existing App keeps its vault; the waiting page does not start another
+database session. A visible waiting page can continue after the main App closes.
+If Safari refuses to switch tabs, select the existing tab manually. See
+[single-instance behavior and limits](modules/ui/docs/single-app.md).
+
 ## Browser extension
 
 [KeeWebX Connect releases](https://github.com/gynet/keewebx/releases) provide browser autofill. Choose the app location in the extension, open and unlock a vault, then approve the connection in KeeWebX. Access can be limited to selected vaults and revoked from the app's extension settings.

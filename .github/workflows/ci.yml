@@ -270,6 +270,7 @@ jobs:
           bun modules/extension/userscript/build-connect.ts
           bun test modules/diagnostics/tests/ modules/extension/userscript/tests/diagnostics-http.test.ts modules/extension/userscript/tests/site-return-path.test.ts
           bun test modules/extension/userscript/tests/runtime-owner.test.ts modules/extension/userscript/tests/receiver-ownership.test.ts
+          bun test modules/extension/userscript/tests/app-instance-worker.test.ts
           bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
           node --check modules/extension/userscript/keewebx-connect.user.js
@@ -294,6 +295,7 @@ jobs:
             sleep 1
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
+          KW_E2E_APP_ORIGIN=http://127.0.0.1:8097 KW_SINGLE_APP_OUTPUT=.cache/single-app node modules/ui/tests/app-instance-browser.mjs --browser=chromium
           KWX_RELAY_BROWSERS=chromium KWX_RELAY_LIFECYCLE_OUTPUT=.cache/userscript-relay-lifecycle node modules/extension/userscript/tests/relay-lifecycle.mjs
           mkdir -p .cache/userscript-connect
           LOGIN_FIELD_RESULTS=.cache/userscript-connect/login-fields.json node modules/extension/userscript/tests/login-fields.mjs chromium
@@ -324,6 +326,7 @@ jobs:
             .cache/userscript-relay-lifecycle/
             .cache/userscript-port/
             .cache/userscript-port-blocked/
+            .cache/single-app/
             ${{ runner.temp }}/connect-diagnostics-chromium/
           retention-days: 7
 
@@ -441,6 +444,15 @@ jobs:
             return 1
           }
           failed=0
+          KEEWEBX_E2E_PORT=8159 bun e2e/serve-app.ts > .cache/messageport-webkit/single-app-server.log 2>&1 &
+          instance_server=$!
+          trap 'kill "$instance_server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8159/next.html > /dev/null; then break; fi
+            if ! kill -0 "$instance_server" 2>/dev/null; then cat .cache/messageport-webkit/single-app-server.log; exit 1; fi
+            sleep 1
+          done
+          KW_E2E_APP_ORIGIN=http://127.0.0.1:8159 KW_SINGLE_APP_OUTPUT=.cache/messageport-webkit/single-app run_check single-app modules/ui/tests/app-instance-browser.mjs --browser=webkit || failed=1
           LOGIN_FIELD_RESULTS=.cache/messageport-webkit/login-fields.json run_check login-fields modules/extension/userscript/tests/login-fields.mjs webkit || failed=1
           CONNECT_COMPONENT_RESULTS=.cache/messageport-webkit/components.json run_check components modules/ui-kit/tests/connect.mjs webkit || failed=1
           KWX_DIAGNOSTICS_OUTPUT="$RUNNER_TEMP/connect-diagnostics-webkit" run_check diagnostics modules/extension/userscript/tests/diagnostics.mjs webkit || failed=1
