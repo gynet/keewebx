@@ -24,12 +24,13 @@ const enums = {
         'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable',
         'discovery-received', 'discovery-sent', 'discovery-rejected', 'port-received', 'port-rejected',
         'rpc-sent', 'rpc-received', 'rpc-accepted', 'rpc-rejected', 'runtime-duplicate', 'relay-opened', 'relay-ready', 'relay-error', 'mailbox-start', 'mailbox-notified',
-        'mailbox-signal', 'mailbox-signal-read', 'mailbox-read-failed', 'mailbox-request', 'mailbox-reply'],
+        'mailbox-signal', 'mailbox-signal-read', 'mailbox-read-failed', 'mailbox-request', 'mailbox-reply',
+        'port-message', 'port-posted', 'port-closed', 'page-focus', 'page-blur', 'page-show', 'page-hide', 'page-interaction'],
     reason: ['timeout', 'locked', 'canceled', 'unavailable', 'changed', 'other'],
     detail: [
         'wrong-source', 'wrong-address', 'wrong-host', 'wrong-origin', 'wrong-generation',
         'wrong-port', 'wrong-shape', 'bad-signature', 'no-pending', 'expired', 'closed',
-        'not-selected', 'duplicate-runtime', 'legacy', 'matched'
+        'not-selected', 'duplicate-runtime', 'legacy', 'matched', 'inactive', 'missing-key', 'handler-error', 'decode-error'
     ]
 } as const;
 

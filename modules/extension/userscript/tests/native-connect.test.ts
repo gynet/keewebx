@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { sign } from 'tweetnacl';
 import { AppBridge } from '../src/app-bridge';
 import { toBase64 } from '../../src/background/utils';
+import { watchTransport } from '../src/transport-events';
 
 const endpoint = new URL('https://keewebx.app/app');
 const routeKey = `keewebx-native-connect-v1:selected:${endpoint.href}`;
@@ -872,7 +873,7 @@ test('host diagnostics are a frozen primitive snapshot without manager reads or 
     (globalThis as any).GM.getValue = () => { throw new Error('Diagnostics must not read manager storage'); };
     const before = host.diagnostics();
     expect(Object.isFrozen(before)).toBe(true);
-    expect(before).toEqual({ locked: false, live: true, selected: true, direct: true, hasSession: false, authorization: 1, runtimeCount: 1 });
+    expect(before).toEqual({ locked: false, live: true, selected: true, direct: true, hasSession: false, authorization: 1, runtimeCount: 1, ports: 0 });
     await directSession(); host.lock();
     expect(host.diagnostics()).toEqual({ ...before, locked: true });
     expect(before.locked).toBe(false);
@@ -880,6 +881,23 @@ test('host diagnostics are a frozen primitive snapshot without manager reads or 
     expect(host.diagnostics().selected).toBe(false);
     host.pause();
     expect(host.diagnostics()).toEqual({ ...before, locked: true, live: false, selected: false, authorization: 2 });
+});
+
+test.each(['bad-signature', 'wrong-host', 'expired', 'inactive'])('rejection logs expose %s before RPC admission without payloads', async reason => {
+    const events: unknown[] = [], request = packet();
+    const stop = watchTransport(event => events.push(event));
+    try {
+        if (reason === 'wrong-host') request.host = crypto.randomUUID();
+        if (reason === 'expired') request.deadline = Date.now() - 1;
+        if (reason === 'inactive') host.pause();
+        const message = envelope(request);
+        if (reason === 'bad-signature') message.signature = 'invalid';
+        await send(message);
+        expect(events).toContainEqual({ event: 'rpc-rejected', traceId: request.id, portId: undefined, detail: reason });
+        expect(JSON.stringify(events)).not.toContain(endpoint.href);
+        expect(JSON.stringify(events)).not.toContain(request.origin);
+        expect(replies).toHaveLength(0);
+    } finally { stop(); }
 });
 
 test('a legacy-only host selection invalidates the previous direct marker', async () => {

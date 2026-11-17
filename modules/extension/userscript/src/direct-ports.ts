@@ -184,7 +184,11 @@ export class SitePortLink {
     }
     send(value: unknown): void {
         this.assert(this.generation); this.lastSeen = Date.now();
-        try { this.port!.postMessage({ marker: PORT_MARK, kind: 'request', connectionId: this.id, value }); }
+        try {
+            this.port!.postMessage({ marker: PORT_MARK, kind: 'request', connectionId: this.id, value });
+            transportEvent({ event: 'port-posted', portId: this.id,
+                traceId: object(value) && object(value.packet) ? protocolId(value.packet.id) : undefined });
+        }
         catch (error) { this.reset('The website port could not send a request. Reconnect.'); throw error; }
     }
     subscribe(listener: (value: unknown) => void, closed?: (reason: string) => void): () => void {
@@ -284,12 +288,16 @@ export class AppPortReceiver {
         this.idleTimer = setInterval(() => { for (const [id, peer] of this.ports) if (Date.now() - peer.lastSeen > PORT_IDLE_MS) this.remove(id); }, 30000);
     }
     get runtimeCount(): number { return this.coordinator.size; }
+    get portCount(): number { return this.ports.size; }
     private closeProbe(port: MessagePort): void {
         clearTimeout(this.probes.get(port)); this.probes.delete(port);
         port.onmessage = null; port.close();
     }
     private remove(id: string, reason = 'expired'): void {
         const peer = this.ports.get(id); if (!peer) return;
+        transportEvent({ event: 'port-closed', portId: id, reason: reason === 'expired' ? 'timeout'
+            : reason === 'authorization-ended' || reason === 'replaced' ? 'changed'
+                : reason === 'peer-closed' ? 'canceled' : 'unavailable' });
         clearTimeout(peer.setupTimer);
         try { peer.port.postMessage({ marker: PORT_MARK, kind: 'closed', connectionId: id, appBoot: this.snapshot().host,
             endpoint: this.endpoint.href, siteOrigin: peer.origin, reason }); } catch {}
@@ -367,29 +375,44 @@ export class AppPortReceiver {
         }
         for (const [id, peer] of this.ports) if (Date.now() - peer.lastSeen > PORT_IDLE_MS) this.remove(id);
         if (this.ports.size >= 32) { port.postMessage({ marker: PORT_MARK, kind: 'error', message: 'Too many website connections. Close an old website and retry.' }); port.close(); return; }
-        const id = data.connectionId, origin = data.siteOrigin; this.remove(id);
+        const id = data.connectionId, origin = data.siteOrigin; this.remove(id, 'replaced');
         const peer = { port, origin, lastSeen: Date.now(), setupDeadline: Date.now() + PORT_SETUP_MS,
             setupTimer: undefined as ReturnType<typeof setTimeout> | undefined };
         this.ports.set(id, peer);
         // A dead website must not leave an unauthenticated peer occupying a slot.
         peer.setupTimer = setTimeout(() => { if (this.ports.get(id) === peer) this.remove(id); }, PORT_SETUP_MS);
         const reply = (value: unknown) => {
+            const traceId = object(value) && object(value.packet) ? protocolId(value.packet.id) : undefined;
             if (this.ports.get(id) === peer && this.snapshot().active) {
                 if (peer.setupTimer !== undefined && Date.now() >= peer.setupDeadline) { this.remove(id); return; }
                 clearTimeout(peer.setupTimer); peer.setupTimer = undefined;
                 peer.lastSeen = Date.now(); port.postMessage({ marker: PORT_MARK, kind: 'reply', connectionId: id,
                     appBoot: state.host, endpoint: this.endpoint.href, siteOrigin: origin, value });
-            }
+                transportEvent({ event: 'port-posted', portId: id, traceId });
+            } else transportEvent({ event: 'port-rejected', portId: id, traceId,
+                detail: this.ports.get(id) !== peer ? 'wrong-generation' : 'inactive' });
         };
         port.onmessage = message => {
             const value = message.data;
-            if (this.ports.get(id) !== peer || !small(value) || value.marker !== PORT_MARK || value.connectionId !== id) return;
+            const traceId = object(value) && object(value.value) && object(value.value.packet) ? protocolId(value.value.packet.id) : undefined;
+            transportEvent({ event: 'port-message', portId: id, traceId });
+            const rejection = this.ports.get(id) !== peer ? 'wrong-generation' : !small(value) || value.marker !== PORT_MARK
+                ? 'wrong-shape' : value.connectionId !== id ? 'wrong-port' : undefined;
+            if (rejection) { transportEvent({ event: 'port-rejected', portId: id, traceId, detail: rejection }); return; }
             if (peer.setupTimer !== undefined && Date.now() >= peer.setupDeadline) { this.remove(id); return; }
-            if (!this.snapshot().active || Date.now() - peer.lastSeen > PORT_IDLE_MS || value.kind === 'close') { this.remove(id); return; }
+            if (!this.snapshot().active) { this.remove(id, 'inactive'); return; }
+            if (Date.now() - peer.lastSeen > PORT_IDLE_MS) { this.remove(id); return; }
+            if (value.kind === 'close') { this.remove(id, 'peer-closed'); return; }
             peer.lastSeen = Date.now();
-            if (value.kind === 'request') void this.request(value.value, reply, origin, id).catch(() => this.remove(id));
+            if (value.kind === 'request') void this.request(value.value, reply, origin, id).catch(() => {
+                transportEvent({ event: 'rpc-rejected', portId: id, traceId, detail: 'handler-error' });
+                this.remove(id, 'handler-error');
+            });
         };
-        port.onmessageerror = () => this.remove(id); port.start();
+        port.onmessageerror = () => {
+            transportEvent({ event: 'port-rejected', portId: id, detail: 'decode-error' });
+            this.remove(id, 'decode-error');
+        }; port.start();
         port.postMessage({ ...ready, ...(proof ? { proof } : {}) });
         recordPortEvent('port-ready', data, proof ? 'matched' : 'legacy', this.runtimeCount);
         this.diagnostic(proof ? 'Authenticated port ready posted' : 'Legacy port ready posted');

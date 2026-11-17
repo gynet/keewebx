@@ -36,13 +36,13 @@ async function start(): Promise<void> {
     const ui = new ConnectUI(app ? 'app' : 'website', endpoint.href);
     if (app) {
         const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)));
-        ui.connectionSnapshot = () => host.diagnostics();
         const bridge = new AppBridge();
-        let generation = 0, authorizing = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
+        let generation = 0, authorizing = false, authorizationExplicit = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
+        ui.connectionSnapshot = () => ({ ...host.diagnostics(), authorized, authorizing });
         let appUnlocked: boolean | undefined;
         const authorize = async (explicit: boolean) => {
             if (authorizing) return;
-            authorizing = true; ui.action('authorize', { disabled: true });
+            authorizing = true; authorizationExplicit = explicit; ui.action('authorize', { disabled: true });
             const epoch = ++generation;
             const guard = () => { if (epoch !== generation) throw new Error('Authorization was canceled.'); };
             try {
@@ -92,7 +92,15 @@ async function start(): Promise<void> {
             });
         });
         ui.onClose = () => {
-            if (authorizing) { generation++; authorizing = false; host.pause(); bridge.reset(); ui.action('authorize', { disabled: false }); }
+            // Silent restoration belongs to the App lifecycle, not this panel.
+            if (!authorizing || !authorizationExplicit) return;
+            const resumeAuthorized = authorized;
+            generation++; authorizing = false; authorized = false; attempted = true; restoreRequested = false;
+            host.pause(); bridge.reset(); ui.action('authorize', { disabled: false });
+            ui.state(State.ReadyToConnect, 'Connection setup canceled.');
+            // Closing setup cancels the pending attempt. Restore a previously
+            // approved grant through the same unlock and permission checks.
+            if (resumeAuthorized) queueMicrotask(retryRestore);
         };
         const restored = () => {
             const unlocked = appUnlocked ?? !!document.querySelector('.vault');

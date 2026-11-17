@@ -167,6 +167,21 @@ test('discovery echoes a valid trace and records only bounded ownership metadata
     } finally { unwatch(); }
 });
 
+test('a port records receipt before rejecting a request for another connection', () => {
+    const events: any[] = [], connectionId = crypto.randomUUID(), traceId = crypto.randomUUID();
+    const port = receive({ kind: 'attach-port', connectionId, siteOrigin });
+    const stop = watchTransport(event => events.push(event));
+    try {
+        port.dispatch({ marker, kind: 'request', connectionId: crypto.randomUUID(), value: { packet: { id: traceId, secret: 'private-payload' } } });
+        expect(events).toEqual([
+            { event: 'port-message', portId: connectionId, traceId },
+            { event: 'port-rejected', portId: connectionId, traceId, detail: 'wrong-port' }
+        ]);
+        expect(requests).toHaveLength(0);
+        expect(JSON.stringify(events)).not.toContain('private-payload');
+    } finally { stop(); }
+});
+
 test('an inactive grant denies attachment without invoking the request handler', () => {
     state.active = false;
     const port = receive({ kind: 'attach-port', connectionId: crypto.randomUUID(), siteOrigin }, { scriptURL: workerURL }, true);

@@ -5,7 +5,7 @@ import type { DiagnosticData } from '../../../diagnostics/src/types';
 import { watchTransport } from './transport-events';
 import { CONNECT_VERSION } from './version';
 
-const MAX_LINES = 120;
+const MAX_LINES = 300;
 
 export function LocalConnectLog({ mode, snapshot }: { mode: 'app' | 'website'; snapshot(): DiagnosticData }) {
     const [enabled, setEnabled] = useState(false);
@@ -25,10 +25,23 @@ export function LocalConnectLog({ mode, snapshot }: { mode: 'app' | 'website'; s
             if (lines.current.length > MAX_LINES) lines.current.shift();
         };
         const visible = () => record({ ...snapshot(), visible: !document.hidden });
+        const lifecycle = (event: Event) => {
+            const names: Record<string, DiagnosticData['event']> = {
+                focus: 'page-focus', blur: 'page-blur', pageshow: 'page-show', pagehide: 'page-hide', pointerdown: 'page-interaction'
+            };
+            if (!event.isTrusted) return;
+            record({ ...snapshot(), event: names[event.type], visible: !document.hidden,
+                ...(event instanceof PageTransitionEvent ? { persisted: event.persisted } : {}) });
+        };
         visible();
         const stop = watchTransport(record);
         document.addEventListener('visibilitychange', visible);
-        return () => { stop(); document.removeEventListener('visibilitychange', visible); };
+        const events = ['focus', 'blur', 'pageshow', 'pagehide', 'pointerdown'];
+        for (const event of events) window.addEventListener(event, lifecycle, true);
+        return () => {
+            stop(); document.removeEventListener('visibilitychange', visible);
+            for (const event of events) window.removeEventListener(event, lifecycle, true);
+        };
     }, [enabled, snapshot]);
 
     const copy = async (event: MouseEvent) => {
@@ -55,7 +68,7 @@ export function LocalConnectLog({ mode, snapshot }: { mode: 'app' | 'website'; s
             }} />
             Record local connection events
         </label>
-        <p class="kwx-connect__note">This tab keeps the latest 120 events in memory until you turn logging off or reload. You can copy the log manually.</p>
+        <p class="kwx-connect__note">This tab keeps the latest 300 events in memory until you turn logging off or reload. You can copy the log manually.</p>
         {enabled && <button type="button" class="kwx-connect__button" onClick={copy}>Copy connection log</button>}
         {enabled && output && <>
             <p class="kwx-connect__note" aria-live="polite">{copied ? 'Copied.' : 'You can also select and copy the text below.'}</p>

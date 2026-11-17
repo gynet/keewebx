@@ -13,6 +13,7 @@
 // FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
 // KWX_FOCUS_MAILBOX_RECOVERY=1 drops App discovery and the port's error to verify local recovery.
 // KWX_FOCUS_RELEASED_PORT_RECOVERY=1 checks mailbox recovery after a proven App port stops receiving requests.
+// KWX_FOCUS_AUTH_CANCEL=1 checks recovery after closing repeated App authorization.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
@@ -42,6 +43,7 @@ const FOCUS_FOREGROUND_FAILURE = process.env.FOCUS_FOREGROUND_FAILURE === '1';
 const FOCUS_REVOKE = process.env.FASTFOCUS_REVOKE === '1';
 const FOCUS_MAILBOX_RECOVERY = process.env.KWX_FOCUS_MAILBOX_RECOVERY === '1';
 const FOCUS_RELEASED_PORT_RECOVERY = process.env.KWX_FOCUS_RELEASED_PORT_RECOVERY === '1';
+const FOCUS_AUTH_CANCEL = process.env.KWX_FOCUS_AUTH_CANCEL === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
@@ -1815,6 +1817,39 @@ acceptance: try {
         });
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'released-port-recovery'; break acceptance;
     }
+    if (!BLOCK_APP_GM) await step('closing repeated App authorization restores the saved grant without another consent prompt', async () => {
+        await app.bringToFront();
+        await app.evaluate(() => { __kwxNativeTest.holdAction = 'kwx-features'; });
+        try {
+            await action(app, 'authorize');
+            await expect.poll(() => app.evaluate(() => __kwxNativeTest.heldResponses.length)).toBeGreaterThan(0);
+            await action(app, 'close');
+            expect(await shadowValue(app, 'section', 'hidden')).toBe(true);
+            expect(await app.evaluate(() => __kwxNativeTest.releaseResponses())).toBeGreaterThan(0);
+            await expect.poll(async () => (await settings()).get(ROUTE_KEY)?.authorizationRevision,
+                { timeout: 10000, message: 'A canceled repeat attempt must restore the saved grant' })
+                .toBeGreaterThan(approvedRoute.authorizationRevision);
+            const recovered = structuredClone((await settings()).get(ROUTE_KEY));
+            expect(recovered.host).toBe(approvedRoute.host);
+            expect(recovered.publicKey).toBe(approvedRoute.publicKey);
+            approvedRoute = recovered;
+            await untilStatus(app, /Authorized/);
+            await sameApp();
+        } finally { await app.evaluate(() => __kwxNativeTest.releaseResponses()); }
+    });
+    if (FOCUS_AUTH_CANCEL) {
+        await step('the original App handles repeated tests, searches and fills after canceled setup', async () => {
+            first = await newWebsite(ACCOUNTS[0]);
+            await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            await config(first); await probe(first);
+            await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            second = await newWebsite(ACCOUNTS[1]);
+            await lookup(second, ACCOUNTS[1]); await fill(second, ACCOUNTS[1]);
+            await first.bringToFront(); await config(first); await probe(first);
+            await sameApp(); await noHelpers();
+        });
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'app-authorization-cancel'; break acceptance;
+    }
     await step('helper stays open until signed App ready, then opener self-closes it while hello is held and a cached retry survives reply loss', async () => {
         await installLegacyWorker(new URL(APP).origin);
         first = await newWebsite(ACCOUNTS[0]);
@@ -1960,7 +1995,7 @@ acceptance: try {
                 await shadowClick(page, copy);
                 await expect.poll(() => shadowValue(page, output, 'value')).toContain(event);
                 const log = await shadowValue(page, output, 'value');
-                expect(log.split('\n').length).toBeLessThanOrEqual(122);
+                expect(log.split('\n').length).toBeLessThanOrEqual(302);
                 expect(log).not.toMatch(/https?:\/\//);
                 for (const secret of [DB_PASSWORD, ...ACCOUNTS.flatMap(item => [item.title, item.user, item.password])]) {
                     expect(log).not.toContain(secret);

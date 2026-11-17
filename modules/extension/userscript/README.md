@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.18
+# Userscripts on iOS: KeeWebX Connect 0.6.19
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,11 +7,11 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.18)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.18/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.19)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.19/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.18 release notes](docs/release-0.6.18.md)
+· [0.6.19 release notes](docs/release-0.6.19.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -22,7 +22,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.18** at both ends. The App reload
+   App and the login website to load **Connect 0.6.19** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
@@ -140,11 +140,19 @@ storage. Changing the selected App or revoking access cannot publish a late
 credential response. Direct ports are the primary transport. Recovery uses a
 short-lived local mailbox for signed packets and encrypted wire payloads.
 
+## Local connection logs
+
+In Connection log, enable **Record local connection events** in each affected
+tab before reproducing a failure. **Copy connection log** includes up to 300
+in-memory events with request IDs, port lifecycle and rejection reasons.
+Turn logging off or reload to clear it. No logs are uploaded; credentials,
+field contents and website addresses are excluded.
+
 ## Verification
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
-bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
+bun test modules/extension/userscript/tests/app-authorization-cancel.test.ts modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
 modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
 bun run --filter @keewebx/ui build
 ```

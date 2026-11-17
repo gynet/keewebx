@@ -10,6 +10,7 @@ import { isId, object, SESSION_TTL, uuid } from './native-rpc';
 import { SiteLink, SETUP_MARK } from './site-link';
 import { ConnectMailbox, mailboxRequest, mailboxRelease } from './connect-mailbox';
 import { transportEvent } from './transport-events';
+import type { DiagnosticData } from '../../../diagnostics/src';
 
 const MARK = 'keewebx-native-connect-v1';
 const REUSED_PORT_HELLO_MS = 3000;
@@ -168,9 +169,10 @@ export class NativeHost {
         });
     }
     get hasDirectReceiver(): boolean { return !!this.direct; }
-    diagnostics(): Readonly<{ locked: boolean; live: boolean; selected: boolean; direct: boolean; hasSession: boolean; authorization: number; runtimeCount: number }> {
+    diagnostics(): Readonly<{ locked: boolean; live: boolean; selected: boolean; direct: boolean; hasSession: boolean; authorization: number; runtimeCount: number; ports: number }> {
         return Object.freeze({ locked: this.locked || !!this.session?.locked, live: this.live && this.canServe(), selected: this.canServe() && this.selectedDirect(),
-            direct: !!this.direct, hasSession: !!this.session, authorization: this.authorization, runtimeCount: this.direct?.runtimeCount ?? 0 });
+            direct: !!this.direct, hasSession: !!this.session, authorization: this.authorization, runtimeCount: this.direct?.runtimeCount ?? 0,
+            ports: this.direct?.portCount ?? 0 });
     }
     private appRole(): string | undefined {
         return typeof document === 'undefined' ? undefined : document.documentElement?.dataset?.appInstance;
@@ -270,9 +272,20 @@ export class NativeHost {
     private async receive(value: unknown, reply: (value: Signed) => void | Promise<void> = value => this.channel.postMessage({ marker: MARK, value }), direct?: { origin: string; id: string }): Promise<void> {
         const authorization = this.authorization;
         const keys = this.keys;
-        if (!this.canServe() || !this.live || !keys || !verified(value, keys.publicKey)) return;
+        const traceId = object(value) && object(value.packet) && isId(value.packet.id) ? value.packet.id : undefined;
+        const reject = (detail: DiagnosticData['detail']) => {
+            transportEvent({ event: 'rpc-rejected', portId: direct?.id, traceId, detail });
+        };
+        if (!this.canServe()) { reject('not-selected'); return; }
+        if (!this.live) { reject('inactive'); return; }
+        if (!keys) { reject('missing-key'); return; }
+        if (!verified(value, keys.publicKey)) { reject('bad-signature'); return; }
         const p = value.packet;
-        if (p.type !== 'request' || p.host !== this.host || p.endpoint !== this.endpoint.href || !valid(p) || direct && p.origin !== direct.origin) return;
+        if (p.type !== 'request') { reject('wrong-shape'); return; }
+        if (p.host !== this.host) { reject('wrong-host'); return; }
+        if (p.endpoint !== this.endpoint.href) { reject('wrong-address'); return; }
+        if (!valid(p)) { reject(p.deadline <= Date.now() ? 'expired' : 'wrong-shape'); return; }
+        if (direct && p.origin !== direct.origin) { reject('wrong-origin'); return; }
         if (direct) transportEvent({ event: 'rpc-received', traceId: p.id, portId: direct.id });
         for (const [id, until] of this.consumed) if (until <= Date.now()) this.consumed.delete(id);
         if (direct && p.operation === 'hello') this.diagnostic('Signed hello received; checking selected App grant');

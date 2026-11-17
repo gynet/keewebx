@@ -1020,6 +1020,25 @@ try {
         originalApp = await app.evaluate(() => ({ href: location.href, timeOrigin: performance.timeOrigin }));
         await sameApp(); await noHelpers();
     });
+    await step('closing repeated App authorization restores the saved grant without another consent prompt', async () => {
+        await app.bringToFront();
+        await app.evaluate(() => { __kwxFixture.holdAction = 'kwx-features'; });
+        try {
+            await action(app, 'authorize');
+            await expect.poll(() => app.evaluate(() => __kwxFixture.heldResponses.length)).toBeGreaterThan(0);
+            await action(app, 'close');
+            expect(await shadow(app, 'section', 'hidden')).toBe(true);
+            expect(await app.evaluate(() => __kwxFixture.releaseResponses())).toBeGreaterThan(0);
+            await expect.poll(() => values.get(routeKey)?.authorizationRevision,
+                { timeout: 10000 }).toBeGreaterThan(approved.authorizationRevision);
+            const recovered = structuredClone(values.get(routeKey));
+            expect(recovered.host).toBe(approved.host);
+            expect(recovered.publicKey).toBe(approved.publicKey);
+            approved = recovered;
+            await expect.poll(() => status(app)).toContain('Authorized');
+            await sameApp();
+        } finally { await app.evaluate(() => __kwxFixture.releaseResponses()); }
+    });
     await step(CASES[1], async () => {
         await installLegacyWorker(appOrigin);
         first = await context.newPage(); await first.goto(ACCOUNTS[0].url); await ready(first);
