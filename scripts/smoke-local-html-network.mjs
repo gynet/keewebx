@@ -59,7 +59,7 @@ try {
                             xhr.onloadend = resolve;
                             try { xhr.send(); } catch { resolve(); }
                         });
-                        try { navigator.sendBeacon(`${origin}/api/telemetry`, 'probe'); } catch { /* CSP rejection is expected. */ }
+                        try { navigator.sendBeacon(`${origin}/blocked-log`, 'probe'); } catch { /* CSP rejection is expected. */ }
                     }, origin);
                     assert.deepEqual(received, [], 'Blocked calls must not reach a server');
                     // Website icons are the only allowed HTTP(S) exception.

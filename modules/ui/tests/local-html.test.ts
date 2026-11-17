@@ -17,7 +17,7 @@ test('local HTML ignores remote configuration and retained icon proxy settings',
     try {
         await loadStartupConfig({} as Parameters<typeof loadStartupConfig>[0]);
         expect(fetch).not.toHaveBeenCalled();
-        expect(faviconUrl('https://example.com/private?secret=value', 'https://server.example/api/favicon/'))
+        expect(faviconUrl('https://example.com/private?secret=value', 'https://server.example/icon-proxy/'))
             .toBe('https://example.com/favicon.ico');
     } finally { fetch.mockRestore(); }
 });
