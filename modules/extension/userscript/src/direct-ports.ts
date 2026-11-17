@@ -277,11 +277,17 @@ export class AppPortReceiver {
         }
         if (data.kind === 'find-app') {
             // No extension or WebStorage reads may block a discovery acknowledgement.
-            port.postMessage({ marker: PORT_MARK,
+            const reply = { marker: PORT_MARK,
                 kind: matchesAddress && state.active && data.appBoot === state.host ? 'app-ready' : 'app-state',
                 appBoot: state.host, endpoint: data.endpoint,
                 state: !matchesAddress ? 'address-mismatch' : state.active ? 'enabled' : 'disabled', receiverVersion: CONNECT_VERSION,
-                ...(protocolId(data.traceId) ? { traceId: data.traceId } : {}) });
+                ...(protocolId(data.traceId) ? { traceId: data.traceId } : {}) };
+            try { port.postMessage(reply); } catch { /* The worker can still receive the other reply. */ }
+            // Discovery can be acknowledged even when this temporary port stalls.
+            // Only the worker that sent this probe receives the same public status.
+            if (data.replyViaWorker === true && reply.traceId) {
+                try { (event.source as ServiceWorker).postMessage(reply); } catch { /* The probe port remains available. */ }
+            }
             recordPortEvent('discovery-sent', data, !matchesAddress ? 'wrong-address' : data.appBoot !== state.host ? 'wrong-host' : 'matched', this.runtimeCount);
             this.diagnostic(`Discovery reply posted: ${state.active ? 'enabled' : 'disabled'}; selected=${data.appBoot === state.host ? 'match' : 'changed'}`);
             this.probes.set(port, setTimeout(() => this.closeProbe(port), 10000));

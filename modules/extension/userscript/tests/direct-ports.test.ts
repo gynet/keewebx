@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { AppPortReceiver } from '../src/direct-ports';
+import { CONNECT_VERSION } from '../src/version';
 import { watchTransport } from '../src/transport-events';
 
 const marker = 'keewebx-connect-port-v1';
@@ -33,7 +34,7 @@ function replace(name: string, value: unknown) {
     Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
 }
 
-function receive(data: Record<string, unknown>, source = { scriptURL: workerURL }, isTrusted = false) {
+function receive(data: Record<string, unknown>, source: { scriptURL: string; postMessage?(value: unknown): void } = { scriptURL: workerURL }, isTrusted = false) {
     const port = new FakeMessagePort(); ports.push(port);
     listener({ data: { marker, endpoint: endpoint.href, appBoot: state.host, ...data },
         source, isTrusted, ports: [port] } as unknown as MessageEvent);
@@ -139,6 +140,17 @@ test('discovery reports a same-origin address mismatch and echoes the requested 
         endpoint: requested, state: 'address-mismatch' });
     expect(requests).toHaveLength(0);
     expect(released).toEqual([]);
+});
+
+test('a worker requesting the alternate discovery reply receives only the same public status', () => {
+    const replies: unknown[] = [], traceId = crypto.randomUUID();
+    const source = { scriptURL: workerURL, postMessage: (data: unknown) => replies.push(data) };
+    const port = receive({ kind: 'find-app', traceId, replyViaWorker: true }, source, true);
+    receive({ kind: 'find-app', traceId }, source, true);
+    expect(replies).toEqual([port.messages[0]]);
+    expect(replies[0]).toEqual({ marker, kind: 'app-ready', appBoot: state.host,
+        endpoint: endpoint.href, state: 'enabled', receiverVersion: CONNECT_VERSION, traceId });
+    expect(requests).toEqual([]);
 });
 
 test('discovery echoes a valid trace and records only bounded ownership metadata', () => {

@@ -53,7 +53,7 @@ const CASES = [
     'launcher follows recognized login fields and settings before focus opens without network traffic',
     'native opt-in persists across reload and fills a single match; opt-out restores manual selection',
     'opt-in keeps multiple matches as a choice and narrow panels fit normal and keyboard viewports',
-    'after both websites close a fresh site finds the original App and signed transport is audited'
+    'after both websites close a fresh site finds the original App despite dropped discovery-port replies'
 ];
 const secrets = [PASSWORD, ...VAULT_ACCOUNTS.flatMap(item => [item.title, item.user, item.password])];
 const redact = value => secrets.reduce((text, secret) => text.replaceAll(secret, '[fixture value]'), String(value));
@@ -772,10 +772,11 @@ function adapter(marker, appOrigin, blockHelperClose) {
     helperCloseFault({ marker, appOrigin, blocked: blockHelperClose });
     const roots = new WeakMap(), ports = new WeakMap();
     const state = { boot: crypto.randomUUID(), packets: [], attachments: [], holdAppReady: false, heldReady: [],
-        holdHello: false, held: [], dropNext: null, statuses: [], actions: [] };
+        holdHello: false, held: [], dropNext: null, dropDiscoveryPorts: false, statuses: [], actions: [] };
     globalThis.__kwxWebKit = { roots, snapshot: () => ({ boot: state.boot, packets: state.packets, attachments: state.attachments,
         helperClose: __kwxHelperClose.snapshot(), heldReady: state.heldReady.length,
         held: state.held.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions }),
+        dropDiscoveryPorts: enabled => { state.dropDiscoveryPorts = enabled; },
         holdReady: () => { state.holdAppReady = true; }, releaseReady: () => {
             state.holdAppReady = false;
             const pending = state.heldReady.splice(0);
@@ -829,6 +830,9 @@ function adapter(marker, appOrigin, blockHelperClose) {
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker === marker) {
             observe(this);
+            if (state.dropDiscoveryPorts && ['app-ready', 'app-state'].includes(data.kind)) {
+                record(this, 'dropped', data); return;
+            }
             if (state.holdAppReady && location.origin === appOrigin && data.kind === 'ready') {
                 state.heldReady.push([this, data, rest]); record(this, 'held', data); return;
             }
@@ -1161,13 +1165,18 @@ try {
         const before = helpers.size;
         first = await context.newPage(); await first.goto(ACCOUNTS[0].url); await ready(first);
         expect(helpers.size).toBe(before); await emptyFields(first);
-        await lookup(first, ACCOUNTS[0]); await closedHelper(first, before); await fill(first, ACCOUNTS[0]);
+        await utility(app, '__kwxWebKit.dropDiscoveryPorts(true)');
+        try {
+            await lookup(first, ACCOUNTS[0]); await closedHelper(first, before); await fill(first, ACCOUNTS[0]);
+        } finally { await utility(app, '__kwxWebKit.dropDiscoveryPorts(false)'); }
         report.siteAFresh = await physicalPort(first);
         expect(report.siteAFresh.boot).not.toBe(report.siteAReload.boot);
         expect(report.siteAFresh.connection).not.toBe(report.siteAReload.connection);
         expect(report.siteAFresh.connection).not.toBe(report.siteB.connection);
         expect(context.pages()).toHaveLength(2); await sameApp(); await noHelpers();
         const observed = await snapshot(app), attachments = observed.attachments.filter(item => item.data.kind === 'attach-port');
+        const droppedDiscoveryPortReplies = observed.packets.filter(item => item.direction === 'dropped' && item.data.kind === 'app-ready').length;
+        expect(droppedDiscoveryPortReplies).toBeGreaterThan(0);
         expect(attachments).toHaveLength(5 + preferenceHelperCount);
         expect(attachments.every(item => item.trusted && item.worker === appOrigin + '/connect-port/worker.js'
             && item.data.appBoot === approved.host && item.data.endpoint === appURL)).toBe(true);
@@ -1184,7 +1193,7 @@ try {
         const windowMessages = await windowTraffic();
         for (const secret of secrets) expect(JSON.stringify({ packets: observed.packets, windowMessages })).not.toContain(secret);
         expect(requests.get('/connect-port/worker.js')).toBeGreaterThan(0);
-        report.transport = { nativeWorkerAttachments: attachments.length, signedEnvelopes: envelopes.length, encryptedSensitiveEnvelopes: sensitive.length,
+        report.transport = { droppedDiscoveryPortReplies, nativeWorkerAttachments: attachments.length, signedEnvelopes: envelopes.length, encryptedSensitiveEnvelopes: sensitive.length,
             signedReadyProofs: readyProofs.length, signedReadyVerified,
             workerRequestsViaHTTPS: requests.get('/connect-port/worker.js'), legacyMailboxUsed: false,
             logicalAppRequestsByAction: windowMessages.logicalRequests, physicalWindowPostsByAction: windowMessages.postAttempts };

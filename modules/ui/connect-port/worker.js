@@ -14,6 +14,7 @@ const ATTACH_KEYS = ['marker', 'kind', 'nonce', 'appBoot', 'connectionId', 'endp
 const APP_PATHS = new Set(['/app', '/next.html', '/index.html']);
 const RELAY_URL = new URL('./relay.html', self.location.href);
 const encoder = new TextEncoder();
+const pendingDiscovery = new Map();
 let active = 0;
 
 // This worker controls only the adjacent connection helper directory.
@@ -177,11 +178,13 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
         let retry;
         let attempts = 0;
         const traceId = crypto.randomUUID();
+        const deadline = Date.now() + timeout;
         const timer = setTimeout(() => finish('timeout'), timeout);
 
         function finish(state) {
             if (finished) return;
             finished = true;
+            pendingDiscovery.delete(traceId);
             clearTimeout(timer); clearTimeout(retry);
             for (const channel of channels) {
                 // Let the app release every temporary probe endpoint.
@@ -197,7 +200,7 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
         function receive(event) {
             const data = event.data;
             for (const port of event.ports) port.close();
-            if (finished) return;
+            if (finished || Date.now() >= deadline) return;
             if (event.ports.length !== 0 || !smallMessage(data) || data.marker !== MARK ||
                 data.endpoint !== endpoint || !UUID.test(data.appBoot) || data.traceId !== undefined && data.traceId !== traceId) {
                 return;
@@ -221,13 +224,14 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
             channel.port1.onmessageerror = () => {};
             channel.port1.start();
             ++attempts;
-            try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint, traceId }, [channel.port2]); }
+            try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint, traceId, replyViaWorker: true }, [channel.port2]); }
             catch { if (attempts >= MAX_PROBE_ATTEMPTS) { finish('unreachable'); return; } }
             // Discovery reads public receiver state only. A fresh channel can
             // recover a lost reply after suspension without retransferring the
             // website's port or extending its original eight-second deadline.
             if (!finished && attempts < MAX_PROBE_ATTEMPTS) retry = setTimeout(attempt, PROBE_RETRY_MS * 2 ** (attempts - 1));
         }
+        pendingDiscovery.set(traceId, { id: client.id, endpoint: new URL(endpoint), receive });
         attempt();
     });
     return { result, cancel: () => cancel() };
@@ -377,6 +381,12 @@ self.addEventListener('message', (event) => {
     const data = event.data;
     if (data?.marker === INSTANCE_MARK) { event.waitUntil(focusInstance(event)); return; }
     if (data?.marker !== MARK) return;
+    if (data.kind === 'app-ready' || data.kind === 'app-state') {
+        const pending = pendingDiscovery.get(data.traceId);
+        if (pending && event.source?.id === pending.id && isApp(event.source, pending.endpoint)) pending.receive(event);
+        else for (const port of event.ports) port.close();
+        return;
+    }
     if (data?.kind === 'probe-relay') {
         if (event.ports.length || !smallMessage(data) || Object.keys(data).length !== 5 || data.marker !== MARK ||
             !UUID.test(data.nonce) || !validOrigin(data.siteOrigin) || !validEndpoint(data.endpoint) ||

@@ -1239,6 +1239,13 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
             return channel;
         }
     });
+    const droppedDiscoveryTraces = new Set();
+    const nativeWorkerPost = ServiceWorker.prototype.postMessage;
+    ServiceWorker.prototype.postMessage = function (data, ...rest) {
+        if (isApp && data?.marker === portMarker && ['app-ready', 'app-state'].includes(data.kind)
+            && (state.holdDiscoveryUntil > Date.now() || droppedDiscoveryTraces.delete(data.traceId))) return;
+        return nativeWorkerPost.call(this, data, ...rest);
+    };
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker !== portMarker) return nativePost.call(this, data, ...rest);
         observe(this);
@@ -1248,6 +1255,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         }
         if (isApp && state.dropDiscoveryReplies > 0 && ['app-ready', 'app-state'].includes(data.kind)) {
             state.dropDiscoveryReplies--; state.droppedDiscoveryReplies = (state.droppedDiscoveryReplies || 0) + 1;
+            droppedDiscoveryTraces.add(data.traceId);
             record(this, 'dropped', data); return;
         }
         if (isApp && ['app-ready', 'app-state'].includes(data.kind) && state.holdDiscoveryUntil > Date.now()) {
@@ -2031,16 +2039,22 @@ acceptance: try {
         } finally { await archive(page); await page.close(); }
     });
     await step('after every website closes a fresh site finds the original app three times', async () => {
+        const foreground = await context.newPage();
         for (const account of [ACCOUNTS[1], ACCOUNTS[0], ACCOUNTS[1]]) {
             await noHelpers();
-            for (const page of context.pages()) if (page !== app) { await archive(page); await page.close(); }
+            await foreground.bringToFront();
+            for (const page of context.pages()) if (page !== app && page !== foreground) { await archive(page); await page.close(); }
             first = second = undefined;
-            expect(context.pages()).toEqual([app]); await sameApp();
+            expect(context.pages()).toHaveLength(2); await sameApp();
+            expect(await app.evaluate(() => document.hidden)).toBe(true);
             const count = helpers.size;
             first = await newWebsite(account); await config(first); await probe(first);
             await closedHelper(first, count); await lookup(first, account); await fill(first, account);
-            expect(context.pages()).toHaveLength(2); await sameApp(); await noHelpers();
+            expect(context.pages()).toHaveLength(3); await sameApp(); await noHelpers();
+            expect(await app.evaluate(() => document.hidden)).toBe(true);
         }
+        await foreground.close();
+        return { reopenedSites: 3, appStayedInBackground: true };
     });
     await step('a generic timeout and its late signed hello never open or navigate another app', async () => {
         await archive(first); await first.reload(); await ready(first); await config(first);

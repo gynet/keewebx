@@ -389,6 +389,23 @@ test('a mismatched discovery trace cannot hand off the website port', async () =
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
 });
 
+test('a missing probe-port reply can use the pending trace from the same window client', async () => {
+    const f = fixture(true); await flush();
+    const request = f.app.posts[0].data;
+    expect(request.replyViaWorker).toBe(true);
+    const reply = { marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, traceId: request.traceId, state: 'enabled' };
+    f.control(reply, f.silent);
+    f.control({ ...reply, traceId: crypto.randomUUID() });
+    await flush(); expect(f.settled()).toBe(false);
+    f.control(reply);
+    await flush(); await f.work();
+    f.control(reply);
+    const handoffs = f.app.posts.filter(post => post.data.kind === 'attach-port');
+    expect(handoffs).toHaveLength(1);
+    expect(handoffs[0].ports).toEqual([f.website]);
+    expect(f.website.messages).toEqual([]);
+});
+
 function primaryLocks(f: ReturnType<typeof fixture>, client = f.app) {
     const name = `keewebx-app-instance-v1:${new URL('../', f.relay.url).pathname}:`;
     const held = [
