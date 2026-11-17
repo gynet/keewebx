@@ -52,6 +52,11 @@ needed. Keep only one enabled Connect script.
   The fixed installer survives two reinjections in each document, then six
   successful fills on the original physical port with one widget and receiver,
   no new authorization, App navigation or helper.
+- The final 175,457-byte installer passes the complete 31-step Chromium suite,
+  including 24 alternating fill cycles. The hosted assets separately pass the
+  five-step authorization, signed handoff and reinjection acceptance. Hosted,
+  release and immutable tagged installers have the same SHA-256:
+  `a86eca169193768061582ee56cfb826c83e13e334bdd00047508fa7f9acb400c`.
 - Separate bundle copies share the same native dispatcher in Chromium. Both
   receiver orders preserve discovery and subsequent port replies.
 - Desktop WebKit acceptance covers repeated cross-origin fills, lock/unlock,

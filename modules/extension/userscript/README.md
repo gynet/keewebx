@@ -10,6 +10,7 @@ Forms are never submitted automatically.
 [Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.8)
 · [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.8/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
+· [State and recovery audit](docs/state-and-recovery.md)
 · [0.6.8 acceptance report](docs/release-0.6.8.md)
 
 ## Install or upgrade

@@ -117,14 +117,20 @@ async function diagnostics(page, enabled) {
 
 // This allowlist is intentionally independent of the production sanitizer.
 const booleanFields = new Set(['locked', 'authorized', 'authorizing', 'selected', 'live', 'direct', 'hasSession', 'hasPort', 'online', 'visible', 'persisted']);
-const numberFields = new Set(['elapsedMs', 'pending', 'ports', 'authorization']);
+const numberFields = new Set(['elapsedMs', 'pending', 'ports', 'authorization', 'runtimeCount']);
+const uuidFields = new Set(['traceId', 'portId']);
 const enums = {
     layer: ['userscript', 'app', 'website', 'worker'],
     state: ['Initializing', 'ReadyToConnect', 'Connecting', 'Connected', 'Error'],
     action: ['open', 'authorize', 'revoke', 'lookup', 'probe', 'save', 'close'],
     stage: ['connect', 'access', 'lookup', 'fields', 'fill', 'test', 'authorize', 'restore'],
-    event: ['receiver-ready', 'discovery', 'discovery-reply', 'discovery-timeout', 'handoff', 'port-ready', 'hello-received', 'hello-replied', 'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable'],
+    event: ['receiver-ready', 'discovery', 'discovery-reply', 'discovery-timeout', 'handoff', 'port-ready', 'hello-received', 'hello-replied', 'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable',
+        'discovery-received', 'discovery-sent', 'discovery-rejected', 'port-received', 'port-rejected',
+        'rpc-sent', 'rpc-received', 'rpc-accepted', 'rpc-rejected', 'runtime-duplicate'],
     reason: ['timeout', 'locked', 'canceled', 'unavailable', 'changed', 'other'],
+    detail: ['wrong-source', 'wrong-address', 'wrong-host', 'wrong-origin', 'wrong-generation',
+        'wrong-port', 'wrong-shape', 'bad-signature', 'no-pending', 'expired', 'closed',
+        'not-selected', 'duplicate-runtime', 'legacy', 'matched'],
 };
 const eventCodes = new Set(['session.started', 'session.stopped', 'page.visible', 'page.hidden', 'page.show', 'page.hide', 'connect.state', 'connect.action', 'connect.stage', 'connect.error', 'app.locked', 'app.unlocked', 'app.receiver', 'transport.event', 'command.result']);
 function safeData(data) {
@@ -134,8 +140,12 @@ function safeData(data) {
         if (booleanFields.has(key)) assert.equal(typeof value, 'boolean');
         else if (numberFields.has(key)) {
             assert.equal(typeof value, 'number');
-            assert(Number.isFinite(value) && value >= 0 && value <= (key === 'elapsedMs' ? 3600000 : 10000));
+            assert(Number.isFinite(value) && value >= 0 && value <= (key === 'elapsedMs' ? 3600000 : key === 'runtimeCount' ? 32 : 10000));
             if (key !== 'elapsedMs') assert(Number.isInteger(value));
+        } else if (uuidFields.has(key)) {
+            assert.equal(typeof value, 'string');
+            assert.equal(value.length, 36);
+            assert.match(value, UUID);
         } else assert(enums[key]?.includes(value), `Unknown diagnostic key/value: ${key}`);
     }
 }
@@ -286,6 +296,28 @@ async function run(engine, transportMode) {
     };
     let app, website, second;
     try {
+        await step('independent allowlist accepts bounded metadata and rejects private or malformed fields', async () => {
+            const uuid = randomUUID();
+            safeData({ traceId: uuid, portId: uuid.toUpperCase(), runtimeCount: 32, event: 'rpc-rejected', detail: 'wrong-origin' });
+            for (const [key, values] of Object.entries(enums)) {
+                assert.equal(new Set(values).size, values.length);
+                for (const value of values) safeData({ [key]: value });
+                for (const value of [SECRETS[0], WEBSITE, 'unknown', values[0] + '\n']) {
+                    assert.throws(() => safeData({ [key]: value }));
+                }
+            }
+            for (const key of uuidFields) {
+                for (const value of [SECRETS[0], WEBSITE, uuid + '\n', uuid.slice(1), uuid.slice(0, 14) + '0' + uuid.slice(15),
+                    '00000000-0000-0000-0000-000000000000', 1, null, {}]) assert.throws(() => safeData({ [key]: value }));
+            }
+            for (const value of [0, 32]) safeData({ runtimeCount: value });
+            for (const value of [-1, 33, 1.5, Infinity, NaN, '2', true, null, {}]) {
+                assert.throws(() => safeData({ runtimeCount: value }));
+            }
+            for (const key of ['url', 'password', 'key', 'keys', 'username', 'token', 'message', 'stack', 'nested']) {
+                assert.throws(() => safeData({ traceId: uuid, [key]: SECRETS[0] }));
+            }
+        });
         await step('default off: no network or App event collection across a real poll interval', async () => {
             app = await open(APP); website = await open(WEBSITE); second = await open(SECOND);
             for (const page of pages) {
@@ -328,16 +360,25 @@ async function run(engine, transportMode) {
             assert.equal(requests.filter(request => request.path.endsWith('/session')).length, 1, 'Joining tabs do not create more sessions');
         });
         await step('actual vault emitter forwards safe App events only while enabled; hostile event data stripped', async () => {
-            await app.evaluate(({ mark, secrets, website }) => {
+            const traceId = randomUUID(), portId = randomUUID();
+            await app.evaluate(({ mark, secrets, website, traceId, portId }) => {
                 window.__emitVaultDiagnostic('app.unlocked', { locked: false, pending: 7, password: secrets[1], url: website });
+                window.postMessage({ kwDiagnostics: mark, kind: 'event', code: 'app.receiver', data: {
+                    traceId, portId, runtimeCount: 32, event: 'rpc-rejected', detail: 'wrong-origin',
+                } }, location.origin);
                 window.postMessage({ kwDiagnostics: mark, kind: 'event', code: 'app.locked', data: {
                     locked: true, authorization: 8123, username: secrets[0], password: secrets[1], url: website,
                     error: secrets[2], nested: { secret: secrets[3] }, token: 'hostile-token', state: secrets[2], pending: secrets[1], reason: website,
+                    traceId: secrets[0], portId: website, runtimeCount: 33, detail: secrets[2], event: secrets[3],
                 } }, location.origin);
                 window.postMessage({ kwDiagnostics: mark, kind: 'event', code: 'arbitrary.event', data: { locked: true } }, location.origin);
-            }, { mark: MARK, secrets: SECRETS, website: WEBSITE });
+            }, { mark: MARK, secrets: SECRETS, website: WEBSITE, traceId, portId });
             await until(allEvents, events => events.some(event => event.code === 'app.unlocked' && event.data.pending === 7)
-                && events.some(event => event.code === 'app.locked' && event.data.authorization === 8123), 'Real and malicious events uploaded after sanitizing');
+                && events.some(event => event.code === 'app.locked' && event.data.authorization === 8123)
+                && events.some(event => event.data.traceId === traceId), 'Real and malicious events uploaded after sanitizing');
+            assert.deepEqual(allEvents().find(event => event.data.traceId === traceId).data, {
+                traceId, portId, runtimeCount: 32, event: 'rpc-rejected', detail: 'wrong-origin', layer: 'app',
+            });
             assert(allEvents().some(event => event.code === 'app.receiver' && event.data.layer === 'app'
                 && event.data.live === true && event.data.locked === false && event.data.hasPort === false && event.data.pending === 0 && event.data.authorization === 0), 'Actual startConnectDiagnostics emitted receiver state');
             const hostile = allEvents().find(event => event.data.authorization === 8123);
