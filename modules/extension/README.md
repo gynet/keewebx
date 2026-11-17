@@ -43,14 +43,18 @@ include setup and troubleshooting even while disconnected.
 ## iOS Safari with Userscripts
 
 Install the experimental [KeeWebX Connect userscript](userscript/README.md)
-[version 0.6.4](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.4)
+[version 0.6.5](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.5)
 with **Userscripts**, and allow it on KeeWebX and your login websites.
 
 Authorize the unlocked app once. On a website, focus a login field, tap the key
 and select an account. A temporary helper locates the selected original App,
 transfers a MessagePort and closes itself. The website verifies the App signature
 and completes the existing encrypted Connect protocol before listing or filling.
-Subsequent requests reuse that direct port. There is no remote relay server.
+Subsequent requests reuse that direct port. The key is shown only beside recognized
+login fields. An optional Connection preference fills a single matching account
+directly; multiple matches remain a choice and forms are never auto-submitted.
+The Preact components are shared with other hosts through `ui-kit/connect`.
+There is no remote relay server.
 
 The deployed helper also fixes closure for an existing 0.6.3 installation: close
 any stuck connection page and retry from the website. Updating to 0.6.4 adds a

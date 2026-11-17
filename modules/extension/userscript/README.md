@@ -1,14 +1,16 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.4
+# Userscripts on iOS: KeeWebX Connect 0.6.5
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
 to the same original App. A temporary connection page closes itself after transferring the port. The website
-then verifies the App signature and completes the encrypted protocol handshake. Forms are filled only after selecting an account and are not submitted.
+then verifies the App signature and completes the encrypted protocol handshake.
+Choose an account to fill, or enable the optional single-match shortcut below.
+Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.4)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.4/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.5)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.5/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
-· [0.6.4 acceptance report](docs/release-0.6.4.md)
+· [0.6.5 acceptance report](docs/release-0.6.5.md)
 
 ## Install or upgrade
 
@@ -17,12 +19,9 @@ then verifies the App signature and completes the encrypted protocol handshake. 
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. When upgrading from **0.6.3**, the deployed helper fix works with the existing
-   unlocked App: close any stuck connection page and retry from the website.
-   Update the script and reload the login website to use the additional 0.6.4
-   closure fallback. An App reload is optional for this update. When upgrading
-   from an older version, save edits and reload both the App and website.
-   Existing database entries and the script's stored identity are retained.
+2. Update the existing script and reload the login website to load **Connect 0.6.5**.
+   Save database edits before reloading the App if you want its new panel too.
+   Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App, open its Connect key panel, and choose
    **Authorize Connect**. Approve account listing once in the native permission
    dialog if requested. This selects one App for all websites.
@@ -31,6 +30,26 @@ then verifies the App signature and completes the encrypted protocol handshake. 
    connection page, finds the original App, and automatically closes the page
    after handing off the port. The website verifies the App signature before
    using its connection. Further lookups in that document reuse the direct port.
+
+## Everyday use
+
+The key appears beside a recognized visible login field. Search boxes, newsletter
+fields, verification codes and new-password forms do not display it. Dynamic login
+forms are detected when they open; hiding or removing the form hides the key.
+The KeeWebX App keeps its own Connect settings entry.
+
+In **Connection**, enable **Fill a single matching account automatically** to skip
+selection when exactly one account matches a trusted lookup. This optional switch
+is off by default and saved in the script's private preferences. Reloaded websites
+read the saved choice. Multiple matches always show the account list; no match
+never fills. Disabling it restores manual selection. The App still matches URLs
+and checks current vault permissions before any fields are returned. Filling never
+submits the form and never happens just because a page loads.
+
+The panel uses shared Preact components from
+[`ui-kit/connect`](../../ui-kit/src/connect/README.md). Presentation, account
+summaries and callbacks are independent of GM and browser-extension APIs; the
+Userscript provides storage, trusted-event handling and login-field positioning.
 
 A renamed script has a separate manager storage namespace and cannot reuse the
 original filename's identity. For self-hosting, publish the built `connect-port/`
@@ -71,8 +90,7 @@ Apps can recover a lost request or reply using the original execution ID and
 encrypted receipt; the same field query is never executed twice. Receipt reuse
 rechecks current App permissions and is limited to the original session, port,
 request and deadline. When upgrading from before 0.6.3, save pending edits and
-reload both the App and script to load that receiver capability. This 0.6.4
-helper update does not require reloading an existing 0.6.3 App.
+reload both the App and script to load that receiver capability. The UI uses the same direct protocol and receiver capabilities.
 
 ## Transport and security
 

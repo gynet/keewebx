@@ -293,6 +293,9 @@ jobs:
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           KWX_RELAY_BROWSERS=chromium KWX_RELAY_LIFECYCLE_OUTPUT=.cache/userscript-relay-lifecycle node modules/extension/userscript/tests/relay-lifecycle.mjs
+          mkdir -p .cache/userscript-connect
+          LOGIN_FIELD_RESULTS=.cache/userscript-connect/login-fields.json node modules/extension/userscript/tests/login-fields.mjs chromium
+          CONNECT_COMPONENT_RESULTS=.cache/userscript-connect/components.json node modules/ui-kit/tests/connect.mjs chromium
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
           KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port-blocked node modules/extension/userscript/tests/port-connect.mjs
@@ -434,6 +437,8 @@ jobs:
             return 1
           }
           failed=0
+          LOGIN_FIELD_RESULTS=.cache/messageport-webkit/login-fields.json run_check login-fields modules/extension/userscript/tests/login-fields.mjs webkit || failed=1
+          CONNECT_COMPONENT_RESULTS=.cache/messageport-webkit/components.json run_check components modules/ui-kit/tests/connect.mjs webkit || failed=1
           KWX_RELAY_BROWSERS=webkit KWX_RELAY_LIFECYCLE_OUTPUT=.cache/messageport-webkit/lifecycle run_check lifecycle modules/extension/userscript/tests/relay-lifecycle.mjs || failed=1
           run_check selection modules/extension/userscript/tests/messageport-selection.mjs || failed=1
           run_check lab modules/extension/userscript/tests/messageport-poc.mjs || failed=1

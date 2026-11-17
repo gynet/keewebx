@@ -59,7 +59,7 @@ Switching interfaces checks pending edits and saves before navigating. A failed 
 
 For Chrome, Edge and Firefox, follow the [extension setup guide](modules/extension/README.md#connect-to-the-web-app). Use `https://keewebx.app/app` for the hosted app; replace old `/preview/` addresses. Setup and troubleshooting are also available in the extension's options, including before a connection succeeds.
 
-For **iOS Safari with Userscripts**, install the experimental [KeeWebX Connect userscript](modules/extension/userscript/README.md) and authorize your unlocked app once. Focus a login field, tap the key and select a matching account. A temporary connection page finds the original app and closes itself after port handoff; the website verifies the App signature before using it, and subsequent requests use a direct MessagePort. Switching websites reuses the same authorization through the encrypted Connect protocol. Keep the app open and visit it if needed. Native iOS and standalone PWA acceptance remain unverified.
+For **iOS Safari with Userscripts**, install the experimental [KeeWebX Connect userscript](modules/extension/userscript/README.md) and authorize your unlocked app once. The key appears beside recognized login fields. Tap it and select a matching account, or enable the optional single-match fill setting. A temporary connection page finds the original app and closes itself after port handoff; the website verifies the App signature before using it, and subsequent requests use a direct MessagePort. Switching websites reuses the same authorization through the encrypted Connect protocol. Keep the app open and visit it if needed. Native iOS and standalone PWA acceptance remain unverified.
 
 ## Development
 

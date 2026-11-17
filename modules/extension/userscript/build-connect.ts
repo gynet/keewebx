@@ -14,6 +14,7 @@ const result = await Bun.build({
 });
 if (!result.success) throw new AggregateError(result.logs, 'Userscripts Connect build failed');
 const license = await readFile(path.join(import.meta.dir, '../../..', 'LICENSE'), 'utf8');
+const preactLicense = await readFile(path.join(import.meta.dir, '../node_modules/preact/LICENSE'), 'utf8');
 const metadata = `// ==UserScript==
 // @name         KeeWebX Connect (experimental)
 // @namespace    https://keewebx.app/
@@ -32,7 +33,7 @@ const metadata = `// ==UserScript==
 // ==/UserScript==
 
 // MessagePorts carry signed, encrypted Connect requests after a temporary same-origin page hands them to the original App.
-/*! KeeWebX license:\n${license}\n*/
+/*! KeeWebX license:\n${license}\nPreact license:\n${preactLicense}\n*/
 `;
 const output = `${metadata}\n${(await result.outputs[0].text()).trimEnd()}\n`;
 await writeFile(path.join(import.meta.dir, 'keewebx-connect.user.js'), output);

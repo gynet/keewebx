@@ -8,20 +8,8 @@ import { SiteLink } from './site-link';
 /** A top-level same-origin rendezvous page; no vault is opened here. */
 export function startRelayHelper(endpoint: URL): void {
     if (!window.name) window.name = WINDOW_NAME;
-    const ui = new ConnectUI(true, endpoint.href);
+    const ui = new ConnectUI('relay', endpoint.href);
     document.getElementById('connect-helper-loading')?.remove();
-    ui.host.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;padding:16px;z-index:2147483647;';
-    ui.panel.style.cssText = 'position:relative;inset:auto;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);';
-    ui.toggle.hidden = true;
-    (ui.panel.querySelector('[data-action=close]') as HTMLElement).hidden = true;
-    (ui.panel.querySelector('.tabs') as HTMLElement).hidden = true;
-    ui.address.readOnly = true; ui.save.hidden = true; ui.authorize.hidden = true;
-    ui.targetSite.parentElement!.hidden = true;
-    ui.open.textContent = 'Open new KeeWebX';
-    ui.revoke.textContent = 'Find app tabs again';
-    ui.returnToSite.className = 'primary';
-    ui.returnToSite.disabled = true;
-    ui.panel.querySelectorAll('.note')[ui.panel.querySelectorAll('.note').length - 1].textContent = 'Confirm in the existing KeeWebX tab you want to use. No database is opened on this connection page.';
     ui.show('config');
     let opener = window.opener as Window | null;
     let relay: RelayClientBridge | undefined;
@@ -44,25 +32,25 @@ export function startRelayHelper(endpoint: URL): void {
             if (state === 'connected') {
                 clearTimeout(fallback);
                 if (!broker && relay && opener) { broker = new AppBroker(relay); broker.associate(opener, siteOrigin); }
-                ui.returnToSite.disabled = false;
+                ui.action('return', { disabled: false });
                 ui.state(State.Connected, 'Connected to the selected KeeWebX tab. Return to the website to find accounts.');
             }
-            if (state === 'disconnected') { ui.returnToSite.disabled = true; ui.state(State.ReadyToConnect, 'The selected app disconnected. Find app tabs again to reconnect.'); }
+            if (state === 'disconnected') { ui.action('return', { disabled: true }); ui.state(State.ReadyToConnect, 'The selected app disconnected. Find app tabs again to reconnect.'); }
         });
         relay.onReturn = () => { if (opener && !opener.closed) opener.focus(); };
         relay.discover();
         fallback = setTimeout(() => { if (relay && !relay.candidateCount) openNewApp(); }, 8000);
     };
-    ui.open.onclick = event => { if (event.isTrusted) openNewApp(); };
-    ui.revoke.onclick = event => { if (event.isTrusted) restart(); };
-    ui.returnToSite.onclick = event => { if (event.isTrusted && opener && !opener.closed) opener.focus(); };
+    ui.on('open', event => { if (event.isTrusted) openNewApp(); });
+    ui.on('revoke', event => { if (event.isTrusted) restart(); });
+    ui.on('return', event => { if (event.isTrusted && opener && !opener.closed) opener.focus(); });
     const siteLink = new SiteLink(opener, (peer, origin) => {
         const changed = opener !== peer;
         window.name = `${WINDOW_NAME}:${origin}`;
         opener = peer; siteOrigin = origin;
         if (relay?.connected && broker) {
             if (changed) broker.associate(peer, origin);
-            ui.returnToSite.disabled = false;
+            ui.action('return', { disabled: false });
             ui.state(State.Connected, 'Connected to the selected KeeWebX tab. Return to the website to find accounts.');
         } else if (!relay) discover();
     }, expired => {
@@ -71,7 +59,7 @@ export function startRelayHelper(endpoint: URL): void {
             : 'Connecting to the login website...');
     });
     const restart = () => {
-        cleanup(); ui.returnToSite.disabled = true; siteLink.restart();
+        cleanup(); ui.action('return', { disabled: true }); siteLink.restart();
     };
     addEventListener('pagehide', () => { cleanup(); siteLink.pause(); });
     addEventListener('pageshow', event => {

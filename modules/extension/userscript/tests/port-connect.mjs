@@ -1,9 +1,10 @@
 // Production installer acceptance with native MessagePorts and a real encrypted KDBX.
 // Fixture helpers follow native-connect.mjs; importing it would execute its suite.
-// Build the 0.6.4 installer and app assets, serve dist on KWX_APP_SERVER, then run:
+// Build the 0.6.5 installer and app assets, serve dist on KWX_APP_SERVER, then run:
 // node modules/extension/userscript/tests/port-connect.mjs
 // KWX_APP_GM_BLOCK=1 leaves every app GM read unresolved after authorization.
 // KWX_BLOCK_HELPER_CLOSE=1 makes only userscript-held helper.close() calls no-ops.
+// KWX_APP_USERSCRIPT=/path/to/historical.user.js overrides only the original App's installer.
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
@@ -22,6 +23,7 @@ const ROOT = resolve(process.env.KWX_REPO_ROOT || fileURLToPath(new URL('../../.
 const BUN = process.env.KWX_BUN || (typeof Bun !== 'undefined' ? process.execPath : 'bun');
 const APP_SERVER = process.env.KWX_APP_SERVER || 'http://127.0.0.1:39232';
 const SOURCE = resolve(process.env.KWX_USERSCRIPT || join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'));
+const APP_SOURCE = process.env.KWX_APP_USERSCRIPT ? resolve(process.env.KWX_APP_USERSCRIPT) : SOURCE;
 const OUT = resolve(process.env.KWX_E2E_OUTPUT_DIR || mkdtempSync(join(tmpdir(), 'keewebx-port-connect-')));
 const BLOCK_APP_GM = process.env.KWX_APP_GM_BLOCK === '1';
 const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
@@ -34,6 +36,9 @@ const MARK = 'keewebx-native-connect-v1';
 const PORT_MARK = 'keewebx-connect-port-v1';
 const ROUTE_KEY = `${MARK}:selected:${APP}`;
 const IDENTITY_KEY = 'keewebx-userscript-connect-identity-v1';
+const PREFERENCES_KEY = 'keewebx-userscript-connect-preferences-v1';
+const AUTO_FILL_LABEL = 'Fill a single matching account automatically';
+const CHOICE_ORIGIN = 'https://choice.example.test';
 const PREFIX = 'Connect.user.js---';
 const DB_PASSWORD = 'Disposable-port-vault-2026!';
 const ACCOUNTS = [
@@ -41,13 +46,20 @@ const ACCOUNTS = [
     { title: 'Second fixture account', url: 'https://signin.example.net/', user: 'second-fixture-user', password: 'Disposable-second-password!' },
     { title: 'Unrelated fixture account', url: 'https://wrong.example.com/', user: 'unrelated-fixture-user', password: 'Disposable-unrelated-password!' }
 ];
-const PRIVATE_VALUES = [DB_PASSWORD, ...ACCOUNTS.flatMap(account => [account.title, account.user, account.password])];
+// Extra entries belong only to the late preference cases, never the stress origins.
+const CHOICE_ACCOUNTS = [
+    { title: 'Choice fixture one', url: CHOICE_ORIGIN + '/', user: 'choice-one-user', password: 'Disposable-choice-one-password!' },
+    { title: 'Choice fixture two', url: CHOICE_ORIGIN + '/', user: 'choice-two-user', password: 'Disposable-choice-two-password!' }
+];
+const VAULT_ACCOUNTS = [...ACCOUNTS, ...CHOICE_ACCOUNTS];
+const WEBSITE_ORIGINS = [...ACCOUNTS.slice(0, 2), CHOICE_ACCOUNTS[0]].map(account => new URL(account.url).origin);
+const PRIVATE_VALUES = [DB_PASSWORD, ...VAULT_ACCOUNTS.flatMap(account => [account.title, account.user, account.password])];
 const redact = value => PRIVATE_VALUES.reduce((result, secret) => result.replaceAll(secret, '[fixture value]'), String(value));
 const stable = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const report = {
     started: new Date().toISOString(),
-    scope: 'Production 0.6.4 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
+    scope: 'Production 0.6.5 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
     nativeIOSVerified: false, realManagerVerified: false, appGMBlockedAfterAuthorization: BLOCK_APP_GM, helperCrossCloseBlocked: BLOCK_HELPER_CLOSE,
     steps: [], errors: []
 };
@@ -55,6 +67,7 @@ const cdpByPage = new WeakMap(), helpers = new Map(), documents = new Map(), soc
 const assetRequests = new Map();
 let context, nativeWorker, app, first, second, originalApp, approvedRoute, tlsServer, proxyServer;
 let appNavigationRequests = 0;
+let expectedAppVersion = '0.6.5';
 mkdirSync(OUT, { recursive: true });
 
 async function step(name, fn) {
@@ -164,15 +177,16 @@ async function untilStatus(page, expression, timeout = 15000) {
     await expect.poll(() => status(page), { timeout, message: `Connect status must match ${expression}` }).toMatch(expression);
     return status(page);
 }
-async function ready(page) {
+async function ready(page, { loginFields = true } = {}) {
     await realVisibility(page);
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
-    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect 0.6.4');
+    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect ' + (page.url() === APP ? expectedAppVersion : '0.6.5'));
     expect(await page.evaluate(() => typeof globalThis.__kwxPortAdapter)).toBe('undefined');
     await snapshot(page);
     if (new URL(page.url()).origin !== new URL(APP).origin) {
         await expect.poll(() => shadowValue(page, '[data-action="lookup"]', 'disabled'), { timeout: 15000 }).toBe(false);
         await expect.poll(() => shadowValue(page, '[data-action="probe"]', 'disabled'), { timeout: 15000 }).toBe(false);
+        await expect.poll(() => shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(!loginFields);
     }
 }
 async function emptyFields(page) {
@@ -276,7 +290,249 @@ async function fill(page, account) {
         remaining();
     });
 }
+const readPreferences = async () => (await settings()).get(PREFERENCES_KEY);
+async function panelLayout(page) {
+    const { session, nodeId } = await shadowNode(page, 'section');
+    const { object } = await session.send('DOM.resolveNode', { nodeId });
+    try {
+        const { result, exceptionDetails } = await session.send('Runtime.callFunctionOn', {
+            objectId: object.objectId, functionDeclaration: 'function() { return (' + panelGeometry.toString() + ')(this); }',
+            returnByValue: true
+        });
+        if (exceptionDetails) throw new Error('CDP panel layout inspection failed');
+        return result.value;
+    } finally { await session.send('Runtime.releaseObject', { objectId: object.objectId }); }
+}
 
+// These cases use the real vault and receiver. Only their new website is routed.
+async function preferenceSettings(page) {
+    if (await shadowValue(page, 'section', 'hidden')) {
+        await action(page, 'toggle');
+        await expect.poll(() => shadowValue(page, '[data-action="lookup"]', 'disabled'), { timeout: 30000 }).toBe(false);
+    }
+    await action(page, 'config-tab');
+}
+async function preferenceCheckbox(page, expected) {
+    const selector = '[data-action="auto-fill-single"]';
+    await expect.poll(() => shadowValue(page, selector, 'disabled')).toBe(false);
+    expect(await shadowValue(page, selector, 'tagName')).toBe('INPUT');
+    expect(await shadowValue(page, selector, 'type')).toBe('checkbox');
+    const id = await shadowValue(page, selector, 'id');
+    expect(id).toBeTruthy();
+    expect((await shadowValue(page, 'label[for=' + JSON.stringify(id) + ']')).trim()).toBe(AUTO_FILL_LABEL);
+    expect(await shadowValue(page, selector, 'checked')).toBe(expected);
+}
+async function setAutoFillSingle(page, enabled) {
+    await preferenceSettings(page);
+    const selector = '[data-action="auto-fill-single"]';
+    await expect.poll(() => shadowValue(page, selector, 'disabled')).toBe(false);
+    if (await shadowValue(page, selector, 'checked') !== enabled) {
+        await action(page, 'auto-fill-single');
+        expect((await snapshot(page)).actions.at(-1)).toEqual({ action: 'auto-fill-single', trusted: true });
+    }
+    await preferenceCheckbox(page, enabled);
+    await expect.poll(readPreferences).toEqual({ autoFillSingle: enabled });
+    expect(await page.evaluate(key => [localStorage.getItem(key), sessionStorage.getItem(key)], PREFERENCES_KEY)).toEqual([null, null]);
+}
+async function testLauncherVisibility() {
+    await context.route(CHOICE_ORIGIN + '/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html>
+        <meta name="viewport" content="width=device-width,initial-scale=1"><title>Disposable choice login</title>
+        <style>*{box-sizing:border-box}body{font:16px system-ui;margin:16px}form{max-width:340px}
+        input{display:block;width:100%;min-width:0;height:40px;margin:8px 0}button{min-height:40px}</style>
+        <form role="search"><input id="search" type="search" aria-label="Search"></form>
+        <form id="fixture-login" ${new URL(route.request().url()).pathname === '/no-login' ? 'hidden' : ''}>
+        <label for="username">Username</label><input id="username" autocomplete="username">
+        <label for="login-password">Password</label><input id="login-password" type="password" autocomplete="current-password">
+        <button>Sign in</button></form>
+        <script>window.formSubmits=0;window.credentialInputEvents=0;
+        document.querySelector('#fixture-login').addEventListener('submit',event=>{event.preventDefault();window.formSubmits++});
+        for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>` }));
+    const page = await context.newPage(), count = helpers.size, requests = (await windowTraffic()).requests.length;
+    const lists = await entryReads(), fields = await fieldReads();
+    try {
+        expect((await readPreferences())?.autoFillSingle ?? false).toBe(false);
+        await page.goto(CHOICE_ORIGIN + '/no-login'); await ready(page, { loginFields: false });
+        await page.locator('#search').click(); await page.waitForTimeout(250);
+        expect(await shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(true);
+        await page.locator('#fixture-login').evaluate(form => { form.hidden = false; });
+        await expect.poll(() => shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(false);
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe('search');
+        const syntheticFocus = await page.locator('#username').evaluate(input => {
+            const event = new FocusEvent('focusin', { bubbles: true, composed: true });
+            input.dispatchEvent(event);
+            return { trusted: event.isTrusted, activeElement: document.activeElement?.id };
+        });
+        expect(syntheticFocus).toEqual({ trusted: false, activeElement: 'search' });
+        // Keep Accounts open so changing tabs cannot cancel an unintended lookup.
+        await action(page, 'toggle');
+        await page.waitForTimeout(350);
+        expect(await shadowValue(page, 'section', 'hidden')).toBe(false);
+        expect(helpers.size).toBe(count);
+        expect((await windowTraffic()).requests).toHaveLength(requests);
+        expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(fields);
+        expect((await snapshot(page)).packets).toEqual([]);
+        await preferenceSettings(page); await preferenceCheckbox(page, false);
+        await page.waitForTimeout(250);
+        expect(helpers.size).toBe(count);
+        expect((await windowTraffic()).requests).toHaveLength(requests);
+        expect((await snapshot(page)).packets).toEqual([]);
+        await action(page, 'close');
+        await page.locator('#fixture-login').evaluate(form => { form.hidden = true; });
+        await expect.poll(() => shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(true);
+        await page.locator('#fixture-login').evaluate(form => { form.hidden = false; });
+        await expect.poll(() => shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(false);
+        await action(page, 'toggle'); await action(page, 'accounts-tab');
+        await page.locator('#username').click();
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe('username');
+        // Flush field detection, then arm only the next trusted closed-shadow click.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())));
+        await page.evaluate(() => {
+            const host = document.getElementById('keewebx-userscript-connect');
+            window.__kwxLauncherGuard = { mutations: 0 };
+            const mutate = event => {
+                if (!event.isTrusted || event.target !== host) return;
+                window.removeEventListener('click', mutate, true);
+                const input = document.getElementById('username'), form = input.form;
+                input.type = 'email'; input.autocomplete = 'email'; input.id = 'newsletter';
+                input.name = 'newsletter'; form.id = 'newsletter-form';
+                form.setAttribute('aria-label', 'Newsletter subscription');
+                form.querySelector('button').textContent = 'Subscribe';
+                document.getElementById('login-password').remove();
+                Object.assign(window.__kwxLauncherGuard, { mutations: 1, trusted: event.isTrusted,
+                    retargetedToHost: event.composedPath()[0] === host, type: input.type,
+                    autocomplete: input.autocomplete, id: input.id, passwordRemoved: !form.querySelector('[type="password"]') });
+            };
+            window.addEventListener('click', mutate, true);
+        });
+        await action(page, 'lookup');
+        expect(await page.evaluate(() => window.__kwxLauncherGuard)).toEqual({ mutations: 1, trusted: true,
+            retargetedToHost: true, type: 'email', autocomplete: 'email', id: 'newsletter', passwordRemoved: true });
+        expect((await snapshot(page)).actions.at(-1)).toEqual({ action: 'lookup', trusted: true });
+        await expect.poll(() => shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(true);
+        await page.waitForTimeout(350);
+        expect(helpers.size).toBe(count);
+        expect((await windowTraffic()).requests).toHaveLength(requests);
+        expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(fields);
+        expect((await snapshot(page)).packets).toEqual([]);
+        await expect(page.locator('#newsletter')).toHaveValue('');
+        expect(await page.evaluate(() => [window.formSubmits, window.credentialInputEvents])).toEqual([0, 0]);
+        await sameApp(); await noHelpers();
+        return { hiddenWithoutLogin: true, followsFormVisibility: true, settingsBeforeLoginFocusRequests: 0,
+            syntheticFocusIgnored: true, syntheticFocusRequests: 0, trustedCaptureFormMutationRequests: 0,
+            changedFormHelpers: 0, changedFormAccountRequests: 0, changedFormFieldRequests: 0, defaultAutoFillSingle: false };
+    } finally {
+        try {
+            if ((await readPreferences())?.autoFillSingle === true) await nativeWorker.evaluate(key =>
+                chrome.storage.local.set({ [key]: { autoFillSingle: false } }), PREFIX + PREFERENCES_KEY);
+        } finally { try { await archive(page); } finally { await page.close(); } }
+    }
+}
+async function testSinglePreference() {
+    const page = await context.newPage(), account = ACCOUNTS[0], count = helpers.size;
+    try {
+        await page.goto(account.url); await ready(page); await emptyFields(page);
+        const requests = (await windowTraffic()).requests.length;
+        await preferenceSettings(page); await preferenceCheckbox(page, false);
+        await setAutoFillSingle(page, true);
+        await archive(page);
+        await page.reload(); await ready(page);
+        await preferenceSettings(page); await preferenceCheckbox(page, true);
+        await page.waitForTimeout(250);
+        expect(helpers.size).toBe(count);
+        expect((await windowTraffic()).requests).toHaveLength(requests);
+        await emptyFields(page); await action(page, 'close');
+        const reads = await fieldReads(), lists = await entryReads(), offset = (await snapshot(page)).actions.length;
+        await bounded('Opted-in single-account fill', async remaining => {
+            await startLookup(page);
+            await expect(page.locator('#username')).toHaveValue(account.user, { timeout: remaining() });
+            await expect(page.locator('#login-password')).toHaveValue(account.password, { timeout: remaining() });
+        });
+        expect(await fieldReads()).toBe(reads + 1);
+        expect(await entryReads()).toBe(lists + 1);
+        expect(await page.evaluate(() => window.formSubmits)).toBe(0);
+        const observed = await snapshot(page), clicks = observed.actions.slice(offset);
+        expect(clicks.some(item => item.trusted && ['toggle', 'lookup'].includes(item.action))).toBe(true);
+        expect(clicks.filter(item => item.action.startsWith('entry-'))).toEqual([]);
+        assertAccountAuthority(observed.packets);
+        expect(await shadowValue(page, 'section')).not.toContain(account.password);
+        await closedHelper(page, count);
+        await archive(page);
+        await page.reload(); await ready(page);
+        await setAutoFillSingle(page, false);
+        await clearFields(page); await lookup(page, account); await emptyFields(page);
+        await closedHelper(page, count + 1);
+        await fill(page, account);
+        expect(helpers.size).toBe(count + 2);
+        await sameApp(); await noHelpers();
+        return { persistedInPrivateGM: true, automaticAccountClicks: 0, automaticFieldRequests: 1,
+            automaticListRequests: 1, submissions: 0, optOutRestoresManualChoice: true };
+    } finally { await archive(page); await page.close(); }
+}
+function panelGeometry(panel) {
+    const box = panel.getBoundingClientRect(), viewport = window.visualViewport;
+    const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
+    const width = viewport?.width ?? innerWidth, height = viewport?.height ?? innerHeight;
+    return { fits: box.width > 0 && box.height > 0 && box.left >= left - 1 && box.top >= top - 1
+        && box.right <= left + width + 1 && box.bottom <= top + height + 1
+        && panel.scrollWidth <= panel.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1,
+        panel: { x: box.x, y: box.y, width: box.width, height: box.height },
+        viewport: { left, top, width, height }, scrollWidth: panel.scrollWidth, clientWidth: panel.clientWidth };
+}
+async function captureNarrowPanels(page) {
+    const original = page.viewportSize(), captures = [];
+    await preferenceSettings(page);
+    try {
+        // A reduced desktop viewport models keyboard space; no native keyboard is emulated.
+        for (const viewport of [{ width: 320, height: 640 }, { width: 390, height: 720 },
+            { width: 320, height: 360 }, { width: 390, height: 360 }]) {
+            await page.setViewportSize(viewport);
+            await page.locator('#username').focus();
+            await expect.poll(async () => (await panelLayout(page)).fits, { message: 'Panel must fit the visible viewport without horizontal overflow' }).toBe(true);
+            const path = join(OUT, 'connect-' + viewport.width + (viewport.height === 360 ? '-keyboard' : '-panel') + '.png');
+            await page.screenshot({ path });
+            captures.push({ path, ...await panelLayout(page) });
+        }
+    } finally { if (original) await page.setViewportSize(original); }
+    return captures;
+}
+async function testChoicePreference() {
+    const page = await context.newPage(), count = helpers.size;
+    try {
+        await page.goto(CHOICE_ORIGIN + '/'); await ready(page);
+        await setAutoFillSingle(page, true);
+        const captures = await captureNarrowPanels(page);
+        await emptyFields(page); await action(page, 'close');
+        const reads = await fieldReads(), lists = await entryReads(), offset = (await snapshot(page)).actions.length;
+        await startLookup(page);
+        await expect.poll(() => shadowValue(page, '[data-role="entries"]'), { timeout: OPERATION_BUDGET }).toContain(CHOICE_ACCOUNTS[1].title);
+        const listed = await shadowValue(page, '[data-role="entries"]');
+        for (const account of CHOICE_ACCOUNTS) expect(listed).toContain(account.title);
+        for (const account of ACCOUNTS) expect(listed).not.toContain(account.title);
+        expect(await shadowValue(page, '[data-action="entry-0"]')).toBeTruthy();
+        expect(await shadowValue(page, '[data-action="entry-1"]')).toBeTruthy();
+        expect(await shadowValue(page, '[data-action="entry-2"]')).toBeNull();
+        expect(await status(page)).toContain('Found 2 matching account');
+        await expect.poll(() => shadowValue(page, '[data-action="lookup"]', 'disabled')).toBe(false);
+        await page.waitForTimeout(250);
+        await emptyFields(page);
+        expect(await fieldReads()).toBe(reads);
+        expect(await entryReads()).toBe(lists + 1);
+        expect((await snapshot(page)).actions.slice(offset).filter(item => item.action.startsWith('entry-'))).toEqual([]);
+        assertAccountAuthority((await snapshot(page)).packets);
+        await closedHelper(page, count);
+        const firstEntry = await shadowValue(page, '[data-action="entry-0"]');
+        const selected = CHOICE_ACCOUNTS.find(account => firstEntry.includes(account.title));
+        expect(selected).toBeTruthy();
+        await fill(page, selected);
+        await archive(page);
+        await page.reload(); await ready(page);
+        await setAutoFillSingle(page, false);
+        expect(helpers.size).toBe(count + 1);
+        await sameApp(); await noHelpers();
+        return { matchingAccounts: 2, automaticFieldRequests: 0, manualSelectionStillFills: true,
+            preferenceRestored: false, captures, keyboardViewport: 'resized desktop viewport' };
+    } finally { await archive(page); await page.close(); }
+}
 async function armDrop(page, kind, wireAction) {
     const target = kind === 'reply' ? app : page, offset = (await snapshot(target)).packets.length;
     const beforeWindow = await windowTraffic();
@@ -720,13 +976,17 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
     const isApp = location.href === appURL;
     const state = {
         boot: crypto.randomUUID(), href: location.href, role: isApp ? 'app' : 'site', blockGM: false,
-        reads: 0, allowedReads: 0, blockedReads: 0, mailboxAttempts: [], packets: [], attachments: [], statuses: [],
+        reads: 0, allowedReads: 0, blockedReads: 0, mailboxAttempts: [], packets: [], attachments: [], statuses: [], actions: [],
         holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null
     };
     globalThis.__kwxPortAdapter = state;
     const attachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function (...args) {
         const root = attachShadow.apply(this, args);
+        root.addEventListener('click', event => {
+            const control = event.composedPath().find(node => node?.dataset?.action);
+            if (control) state.actions.push({ action: control.dataset.action, trusted: event.isTrusted });
+        }, true);
         new MutationObserver(() => {
             if (this.id !== 'keewebx-userscript-connect') return;
             const text = root.querySelector('[role="status"]')?.textContent;
@@ -801,7 +1061,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         boot: state.boot, href: state.href, role: state.role, blockGM: state.blockGM,
         reads: state.reads, allowedReads: state.allowedReads, blockedReads: state.blockedReads,
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
-        helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses
+        helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions
     });
     function mailbox(operation, key) {
         if (!String(key).startsWith('keewebx-connect-mailbox-v1:')) return;
@@ -893,7 +1153,7 @@ async function publishedOriginServer() {
     await once(proxyServer, 'listening');
     return 'http://127.0.0.1:' + proxyServer.address().port;
 }
-async function setup(bundle) {
+async function setup(bundle, appBundle = bundle) {
     const extension = join(OUT, 'extension');
     mkdirSync(extension, { recursive: true });
     writeFileSync(join(extension, 'manifest.json'), JSON.stringify({
@@ -911,10 +1171,16 @@ async function setup(bundle) {
             if (message.op === 'getTab') reply(tabs.get(sender.tab.id) ?? null);
             else if (message.op === 'saveTab') { tabs.set(sender.tab.id, message.value); reply(true); }
         });`);
+    // Both versions execute in the same isolated-world GM adapter; no source is patched.
+    const installer = appBundle === bundle ? bundle : `if (location.href === ${JSON.stringify(APP)}) {
+        ${appBundle}
+    } else {
+        ${bundle}
+    }`;
     writeFileSync(join(extension, 'content.js'), `(() => {
         ${helperCloseFault.toString()}
         const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE })});
-        ${bundle}
+        ${installer}
     })();`);
     const proxy = await publishedOriginServer();
     context = await chromium.launchPersistentContext(join(OUT, 'profile'), {
@@ -1020,10 +1286,16 @@ async function setup(bundle) {
 
 try {
     const bundle = readFileSync(SOURCE, 'utf8');
+    const appBundle = APP_SOURCE === SOURCE ? bundle : readFileSync(APP_SOURCE, 'utf8');
+    expectedAppVersion = appBundle.match(/^\/\/ @version\s+([^\s]+)\s*$/m)?.[1];
     report.bundle = { bytes: Buffer.byteLength(bundle), sha256: createHash('sha256').update(bundle).digest('hex') };
-    await step('require the production 0.6.4 installer and built MessagePort assets', async () => {
-        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.4\s*$/m);
+    report.appBundle = { path: APP_SOURCE, version: expectedAppVersion, overridden: APP_SOURCE !== SOURCE,
+        bytes: Buffer.byteLength(appBundle), sha256: createHash('sha256').update(appBundle).digest('hex') };
+    await step('require the production 0.6.5 installer and built MessagePort assets', async () => {
+        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.5\s*$/m);
         expect(bundle).toContain(PORT_MARK);
+        expect(expectedAppVersion, 'App installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
+        expect(appBundle).toContain(PORT_MARK);
         for (const path of ['/next.html', '/connect-port/relay.html', '/connect-port/relay.js', '/connect-port/worker.js']) {
             const response = await fetch(APP_SERVER + path, { signal: AbortSignal.timeout(10000) });
             expect(response.status, `Build and serve the production asset ${path}`).toBe(200);
@@ -1035,20 +1307,20 @@ try {
             expect(body.length).toBeGreaterThan(0);
         }
     });
-    await step('create a real encrypted KDBX with disposable accounts for two origins', async () => {
+    await step('create a real encrypted KDBX with original stress accounts and an isolated choice origin', async () => {
         const source = `import * as kdbx from ${JSON.stringify(pathToFileURL(join(ROOT, 'modules/db/lib/index.ts')).href)};
             import {argon2} from ${JSON.stringify(pathToFileURL(join(ROOT, 'modules/db/test/test-support/argon2.ts')).href)};
             import {writeFileSync} from 'node:fs'; kdbx.CryptoEngine.setArgon2Impl(argon2);
             const db=kdbx.Kdbx.create(new kdbx.Credentials(kdbx.ProtectedValue.fromString(${JSON.stringify(DB_PASSWORD)})),'Disposable Connect');
             db.header.kdfParameters.set('M',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(32768));
             db.header.kdfParameters.set('I',kdbx.VarDictionary.ValueType.UInt64,kdbx.Int64.from(2));
-            for(const account of ${JSON.stringify(ACCOUNTS)}){const entry=db.createEntry(db.getDefaultGroup());
+            for(const account of ${JSON.stringify(VAULT_ACCOUNTS)}){const entry=db.createEntry(db.getDefaultGroup());
                 entry.fields.set('Title',account.title);entry.fields.set('URL',account.url);entry.fields.set('UserName',account.user);
                 entry.fields.set('Password',kdbx.ProtectedValue.fromString(account.password));}
             writeFileSync(${JSON.stringify(join(OUT, 'fixture.kdbx'))},new Uint8Array(await db.save()));`;
         execFileSync(BUN, ['--eval', source], { cwd: ROOT, timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] });
     });
-    await setup(bundle);
+    await setup(bundle, appBundle);
     await step('authorize the original unlocked app once through the real consent dialog', async () => {
         app = await context.newPage(); await app.goto(APP); await ready(app);
         await app.locator('#open-file-input, #kdbx-file-input').first().setInputFiles(join(OUT, 'fixture.kdbx'));
@@ -1150,6 +1422,7 @@ try {
             recoveries.push(await recoverOperation(first, ACCOUNTS[0], 'request', wireAction));
         return { recoveries };
     });
+    await step('launcher follows recognized login fields and settings before focus opens without network traffic', testLauncherVisibility);
     await step('24 alternating lookup and fill cycles recover periodic losses and UI cancellation on both physical ports', async () => {
         const count = helpers.size, ports = [await physicalPort(first), await physicalPort(second)];
         const reads = await fieldReads();
@@ -1236,6 +1509,8 @@ try {
             await sameApp(); await noHelpers();
         } finally { await archive(page); await page.close(); }
     });
+    await step('native opt-in persists across reload and fills a single match; opt-out restores manual selection', testSinglePreference);
+    await step('opt-in keeps multiple matches as a choice and narrow panels fit normal and keyboard viewports', testChoicePreference);
     await step('lock denies lookup and one unlock restores fills without another consent', async () => {
         const count = helpers.size, port = await physicalPort(first);
         await app.bringToFront(); await expect(app.locator('#sync-state')).toContainText('Up to date');
@@ -1315,7 +1590,7 @@ try {
         const readyProofs = traffic.filter(item => item.direction === 'received' && item.data.kind === 'ready');
         expect(readyProofs.length).toBeGreaterThanOrEqual(signedReadyVerified);
         expect(readyProofs.every(item => validReadyProof(item.data) && item.data.appBoot === approvedRoute.host
-            && item.data.endpoint === APP && ACCOUNTS.slice(0, 2).some(account => new URL(account.url).origin === item.data.siteOrigin))).toBe(true);
+            && item.data.endpoint === APP && WEBSITE_ORIGINS.includes(item.data.siteOrigin))).toBe(true);
         expect(attachments.length).toBeGreaterThanOrEqual(signedReadyVerified);
         expect(attachments.every(item => item.trusted && item.worker === 'https://keewebx.app/connect-port/worker.js'
             && item.data.appBoot === approvedRoute.host && item.data.endpoint === APP)).toBe(true);
