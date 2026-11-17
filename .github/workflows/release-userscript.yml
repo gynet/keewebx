@@ -20,7 +20,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_tag || github.ref }}
       - uses: oven-sh/setup-bun@v2.2.0
