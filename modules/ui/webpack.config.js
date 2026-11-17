@@ -25,13 +25,11 @@ module.exports = (env, argv) => {
     return {
         mode,
         entry: { next: path.join(rootDir, 'src/index.tsx'),
-            'connect-port-poc/relay': path.join(rootDir, 'connect-port-poc/relay.js'),
-            'connect-port-poc/worker': path.join(rootDir, 'connect-port-poc/worker.js'),
             'connect-port/relay': path.join(rootDir, 'connect-port/relay.js'),
             'connect-port/worker': path.join(rootDir, 'connect-port/worker.js') },
         output: {
             path: path.resolve(rootDir, '../../dist'),
-            filename: data => /^connect-port(?:-poc)?\//.test(data.chunk.name) ? '[name].js' : 'js/[name].js',
+            filename: data => data.chunk.name.startsWith('connect-port/') ? '[name].js' : 'js/[name].js',
             clean: false
         },
         target: 'web',
@@ -127,20 +125,12 @@ module.exports = (env, argv) => {
                 inject: false,
                 chunks: []
             }),
-            new HtmlWebpackPlugin({
-                template: path.join(rootDir, 'connect-port-poc/relay.html'),
-                filename: 'connect-port-poc/relay.html',
-                inject: false,
-                chunks: []
-            }),
             new HtmlWebpackPlugin({ template: path.join(rootDir, 'connect-port/relay.html'), filename: 'connect-port/relay.html', inject: false, chunks: [] }),
             { apply(compiler) {
-                compiler.hooks.thisCompilation.tap('PortPocInstaller', compilation => {
-                    compilation.hooks.processAssets.tap({ name: 'PortPocInstaller', stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL }, () => {
+                compiler.hooks.thisCompilation.tap('ConnectInstaller', compilation => {
+                    compilation.hooks.processAssets.tap({ name: 'ConnectInstaller', stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL }, () => {
                         compilation.emitAsset('connect-port/keewebx-connect.user.js', new webpack.sources.RawSource(
                             fs.readFileSync(path.join(rootDir, '../extension/userscript/keewebx-connect.user.js'))), { minimized: true });
-                        compilation.emitAsset('connect-port-poc/keewebx-messageport-poc.user.js', new webpack.sources.RawSource(
-                            fs.readFileSync(path.join(rootDir, '../extension/userscript/keewebx-messageport-poc.user.js'))), { minimized: true });
                     });
                 });
             } },

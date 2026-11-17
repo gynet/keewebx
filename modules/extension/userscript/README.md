@@ -167,10 +167,9 @@ assets at the configured HTTPS origin. A separate run blocks App-side GM reads
 after authorization. The older native/mailbox suite explicitly masks the new
 capability in its fixture to retain coverage of that compatibility path.
 
-The separate [MessagePort Lab](docs/messageport-poc.md) transport was reported
-working on a physical iPhone in Safari with Userscripts: two websites reached
-the same original hidden App after their helpers automatically closed, with
-1–2 ms pongs. That validates transport, not this release's complete autofill
-flow. Full autofill on the physical phone, long suspension, and communication
-with standalone Home Screen PWAs still require acceptance. iOS may require a
-manual visit to an existing App tab; a port cannot force a suspended page to run.
+The MessagePort Lab has been retired. Its [historical release](https://github.com/gynet/keewebx/releases/tag/messageport-poc-v0.1.2)
+records the original iPhone Safari transport test, in which two websites
+reached the hidden App after their helpers closed. Full autofill on a physical
+iPhone, long suspension, and communication with standalone Home Screen PWAs
+still require acceptance. iOS may require a manual visit to an existing App tab;
+a port cannot force a suspended page to run.
