@@ -1,6 +1,6 @@
 import { h, render, Fragment, type JSX } from 'preact';
 import { ConnectPanel, connectStyles } from 'ui-kit/connect';
-import type { ActionState, ConnectAction, ConnectMode, ConnectTab, ConnectViewState } from 'ui-kit/connect';
+import type { ActionState, ConnectAction, ConnectMode, ConnectTab, ConnectViewState, ConnectDiagnosticState } from 'ui-kit/connect';
 import type { BackendConnectionState } from '../../src/common/backend-connection-state';
 import { CONNECT_VERSION } from './version';
 
@@ -34,6 +34,8 @@ export class ConnectUI {
     onConfig = () => {};
     onOpen = (_event: MouseEvent) => {};
     onAutoFillSingleChange = (_enabled: boolean) => {};
+    onDiagnosticsChange = (_enabled: boolean) => {};
+    onDiagnostic = (_code: string, _data: Record<string, string | number | boolean>) => {};
 
     constructor(readonly mode: ConnectMode, endpoint: string) {
         this.host.id = 'keewebx-userscript-connect';
@@ -44,7 +46,7 @@ export class ConnectUI {
             mode, open: mode === 'relay', launcherVisible: mode === 'app', tab: mode === 'website' ? 'accounts' : 'config',
             busy: false, status: 'Initializing', message: 'Not connected', address: endpoint, addressReadOnly: mode !== 'website',
             actions: actionStates(mode), accounts: [], version: `Connect ${CONNECT_VERSION}`, diagnostics: [],
-            autoFillSingle: false, preferencePending: mode === 'website',
+            autoFillSingle: false, preferencePending: mode === 'website', remoteDiagnostics: { enabled: false, status: 'off' },
             note: mode === 'app'
                 ? 'Authorize this app once for all websites. Each website connects directly after a temporary handoff page closes.'
                 : mode === 'relay'
@@ -73,7 +75,21 @@ export class ConnectUI {
     preference(enabled: boolean, pending = false, error?: string): void {
         this.update({ autoFillSingle: enabled, preferencePending: pending, preferenceError: error });
     }
+    remoteDiagnostics(state: ConnectDiagnosticState): void { this.update({ remoteDiagnostics: state }); }
     diagnostic(message: string): void {
+        // The adapter receives only a fixed transport code, never the raw log.
+        const event = /Direct receiver registered/.test(message) ? 'receiver-ready'
+            : /^Discovery/.test(message) ? 'discovery'
+            : /^Handoff/.test(message) ? 'handoff'
+            : /^Authenticated port ready/.test(message) ? 'port-ready'
+            : /^Signed hello received/.test(message) ? 'hello-received'
+            : /^(?:Cached )?[Ss]igned hello reply posted/.test(message) ? 'hello-replied'
+            : /^Encrypted protocol request received/.test(message) ? 'wire-received'
+            : /^Encrypted protocol reply posted/.test(message) ? 'wire-replied'
+            : /^Encrypted protocol error reply posted/.test(message) ? 'wire-error'
+            : /^Revalidated encrypted protocol receipt/.test(message) ? 'receipt'
+            : /(?:suppressed|rejected)/i.test(message) ? 'suppressed' : 'unavailable';
+        this.onDiagnostic('transport.event', { event });
         this.update({ diagnostics: [new Date().toLocaleTimeString() + ' · ' + message, ...this.view.diagnostics].slice(0, 12) });
     }
     show(tab: ConnectTab = this.mode === 'website' ? 'accounts' : 'config', open = true): void {
@@ -81,7 +97,18 @@ export class ConnectUI {
     }
     hide(): void { this.update({ open: false }); this.onClose(); }
     pairing(origin?: string): void { this.update({ pairingOrigin: origin }); if (origin !== undefined) this.show('config'); }
-    state(status: BackendConnectionState, message: string): void { this.update({ status, message }); }
+    state(status: BackendConnectionState, message: string): void {
+        if (status !== this.view.status) this.onDiagnostic('connect.state', { state: status });
+        if (status === 'Error') this.onDiagnostic('connect.error', { reason: /timed? ?out|timeout/i.test(message) ? 'timeout'
+            : /locked/i.test(message) ? 'locked' : /cancel|stopped/i.test(message) ? 'canceled'
+            : /changed|revoked|expired/i.test(message) ? 'changed' : 'other' });
+        const stage = /Finding (?:matching )?accounts/.test(message) ? 'lookup'
+            : /Reading account/.test(message) ? 'fields' : /before filling/.test(message) ? 'fill'
+            : /Checking account|Checking access/.test(message) ? 'access'
+            : /Connecting to/.test(message) ? 'connect' : /connection test|Checking the KeeWebX reply/.test(message) ? 'test' : undefined;
+        if (stage && message !== this.view.message) this.onDiagnostic('connect.stage', { stage });
+        this.update({ status, message });
+    }
     busy(busy: boolean): void {
         this.update({ busy, actions: { ...this.view.actions,
             lookup: { ...this.view.actions.lookup, disabled: busy }, probe: { ...this.view.actions.probe, disabled: busy } } });
@@ -103,7 +130,9 @@ export class ConnectUI {
     private paint(): void {
         render(h(Fragment, null, h('style', null, connectStyles), h(ConnectPanel, {
             state: this.view, panelStyle: this.panelStyle, panelRef: this.panelRef,
-            onAction: (action, event) => { if (event.isTrusted && !this.isDisabled(action)) this.actions.get(action)?.(event); },
+            onAction: (action, event) => { if (event.isTrusted && !this.isDisabled(action)) {
+                this.onDiagnostic('connect.action', { action }); this.actions.get(action)?.(event);
+            } },
             onSelectAccount: (id, event) => { if (event.isTrusted && !this.view.busy) this.selections.get(id)?.(event); },
             onToggle: event => {
                 if (!event.isTrusted) return;
@@ -115,6 +144,7 @@ export class ConnectUI {
             onAutoFillSingleChange: (enabled, event) => {
                 if (event.isTrusted && !this.view.preferencePending) this.onAutoFillSingleChange(enabled);
             },
+            onDiagnosticsChange: (enabled, event) => { if (event.isTrusted) this.onDiagnosticsChange(enabled); },
             onPanelKeyDown: event => { if (event.isTrusted && event.key === 'Escape') { event.stopPropagation(); this.hide(); } }
         })), this.shadow);
     }

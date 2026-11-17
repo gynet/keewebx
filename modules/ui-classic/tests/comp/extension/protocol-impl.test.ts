@@ -73,6 +73,9 @@ mock.module('models/runtime-data-model', () => ({
 mock.module('models/app-settings-model', () => ({
     AppSettingsModel: {}
 }));
+mock.module('../../../../vault/src/comp/extension/diagnostic-events', () => ({
+    startConnectDiagnostics() {}, recordConnectDiagnostic() {}
+}));
 
 // --- Import the real module under test AFTER mocks are installed ---
 // Shared ranking detects browser collation at module load; no DOM is needed.
@@ -1433,6 +1436,7 @@ describe('extension transport lifecycle', () => {
         prepare = spyOn(ProtocolImpl, 'prepareResponse').mockImplementation((response) => response);
         posted.mockClear();
         connector.init({} as AppModel, testUi(), access);
+        posted.mockClear();
     });
     afterEach(() => {
         connector.stop(); init.mockRestore(); cleanup.mockRestore(); handle.mockRestore(); prepare.mockRestore();
@@ -1447,6 +1451,31 @@ describe('extension transport lifecycle', () => {
         connector.stop(); expect(listeners.size).toBe(0); expect(invalidation.size).toBe(0);
         connector.start(); expect(init).toHaveBeenCalledTimes(2);
         expect(listeners.size).toBe(1); expect(invalidation.size).toBe(1);
+    });
+    test('lock state can be requested without an active bridge or protocol handshake', () => {
+        const snapshot = spyOn(access, 'snapshot').mockReturnValue({ open: false, epoch: 1 });
+        try {
+            connector.browserWindowMessage({ source: window, origin: location.origin,
+                data: { kwConnect: 'get-state' } } as MessageEvent);
+            expect(posted.mock.calls.map(([response]) => response)).toEqual([
+                { kwConnect: 'state', action: 'database-locked' }
+            ]);
+            expect(handle).not.toHaveBeenCalled();
+        } finally { snapshot.mockRestore(); }
+    });
+    test('unlock publishes current access after lock disconnected the previous bridge', async () => {
+        send('ping', 'before-lock'); await settle(); posted.mockClear();
+        const snapshot = spyOn(access, 'snapshot').mockReturnValue({ open: false, epoch: 1 });
+        try {
+            invalidation.forEach(listener => listener());
+            disconnect('before-lock');
+            snapshot.mockReturnValue({ open: true, epoch: 2 });
+            invalidation.forEach(listener => listener());
+            expect(posted.mock.calls.map(([response]) => response)).toEqual([
+                { kwConnect: 'state', action: 'database-locked' },
+                { kwConnect: 'state', action: 'database-unlocked' }
+            ]);
+        } finally { snapshot.mockRestore(); }
     });
     test('posting uses the final policy guard result, never previously encrypted content', async () => {
         prepare.mockImplementation(() => ({ action: 'get-logins', error: 'Access suspended', errorCode: '1' }));
@@ -1503,6 +1532,8 @@ describe('extension transport lifecycle', () => {
         let finish!: (value: ProtocolResponse) => void;
         handle.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
         send(); connector.stop(); connector.start();
+        expect(posted.mock.calls.at(-1)?.[0]).toEqual({ kwConnect: 'state', action: 'database-unlocked' });
+        posted.mockClear();
         finish({ action: 'get-logins', message: 'old ciphertext' }); await settle();
         expect(posted).not.toHaveBeenCalled();
     });

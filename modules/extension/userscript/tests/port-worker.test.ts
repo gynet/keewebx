@@ -47,10 +47,10 @@ function fixture(withSilentApp = false) {
     const silent = new FakeWindowClient('https://keewebx.app/app');
     if (withSilentApp) clients.set(silent.id, silent);
     const website = new FakePort();
-    const timers = new Map<number, () => void>();
+    const timers = new Map<number, { callback: () => void; due: number }>();
     const channels: { port1: FakePort; port2: FakePort }[] = [];
     const listeners = new Map<string, (event: any) => void>();
-    let nextTimer = 0, settled = false, work: Promise<void> | undefined;
+    let nextTimer = 0, now = Date.now(), settled = false, work: Promise<void> | undefined;
 
     runInNewContext(source, {
         URL, TextEncoder, WindowClient: FakeWindowClient,
@@ -62,7 +62,8 @@ function fixture(withSilentApp = false) {
                 channels.push(this);
             }
         },
-        setTimeout(callback: () => void) { const id = ++nextTimer; timers.set(id, callback); return id; },
+        Date: { now: () => now },
+        setTimeout(callback: () => void, ms: number) { const id = ++nextTimer; timers.set(id, { callback, due: now + ms }); return id; },
         clearTimeout(id: number) { timers.delete(id); },
         self: {
             location: new URL('https://keewebx.app/connect-port/worker.js'),
@@ -74,7 +75,18 @@ function fixture(withSilentApp = false) {
     listeners.get('message')!({ data, source: relay, ports: [website], waitUntil(promise: Promise<void>) {
         work = promise; void promise.then(() => { settled = true; }, () => { settled = true; });
     } });
-    return { data, relay, app, silent, website, timers, channels, settled: () => settled, work: () => work! };
+    return { data, relay, app, silent, website, timers, channels, time: () => now, settled: () => settled, work: () => work!,
+        control(value: unknown, from = app) { listeners.get('message')!({ data: value, source: from, ports: [] }); },
+        async tick(ms: number) {
+            const until = now + ms;
+            for (;;) {
+                const next = [...timers].sort((a, b) => a[1].due - b[1].due)[0];
+                if (!next || next[1].due > until) break;
+                timers.delete(next[0]); now = next[1].due; next[1].callback(); await flush();
+            }
+            now = until;
+        }
+    };
 }
 
 // Drain promise/message delivery only. Probe timeout callbacks are never fired.
@@ -111,7 +123,7 @@ test('the worker requires address-mismatch replies to echo the requested endpoin
     expect(f.app.posts).toHaveLength(1);
     expect(f.settled()).toBe(false);
     expect(f.website.messages).toEqual([]);
-    expect(f.timers.size).toBe(1);
+    expect(f.timers.size).toBe(2);
 
     const probe = f.app.posts[0];
     probe.ports[0].postMessage(mismatch(probe.data));
@@ -152,4 +164,104 @@ test('an already closed helper cannot turn a successful port transfer into a fai
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
     expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
     expect(f.timers.size).toBe(0);
+});
+
+test('a lost discovery reply retries on a fresh channel and hands off the website port only once', async () => {
+    const f = fixture();
+    let probes = 0;
+    f.app.onPost = (request, ports) => {
+        if (request.kind !== 'find-app' || ++probes === 1) return;
+        ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, state: 'enabled' });
+    };
+    await flush();
+    expect(f.settled()).toBe(false);
+    await f.tick(750);
+    expect(f.settled()).toBe(true);
+    await f.work();
+    expect(probes).toBe(2);
+    expect(f.channels).toHaveLength(2);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+    expect(f.website.messages).toEqual([]);
+    expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+    expect(f.timers.size).toBe(0);
+});
+
+test('discovery retries remain bounded by the original deadline and close every temporary port', async () => {
+    const f = fixture(); await flush(); await f.tick(8000);
+    expect(f.settled()).toBe(true); await f.work();
+    expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
+    expect(f.website.messages.at(-1)).toMatchObject({ kind: 'error', code: 'timeout' });
+    expect(f.website.closed).toBe(true);
+    expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+    expect(f.timers.size).toBe(0);
+});
+
+test('a delayed first reply wins once and cancels newer probes and every retry timer', async () => {
+    const f = fixture(); await flush(); await f.tick(750);
+    expect(f.channels).toHaveLength(2);
+    const request = f.app.posts[0].data;
+    f.channels[0].port2.postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, state: 'enabled' });
+    f.channels[1].port2.postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, state: 'enabled' });
+    await flush(); await f.work(); await f.tick(8000);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+    expect(f.channels).toHaveLength(2);
+    expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+    expect(f.timers.size).toBe(0);
+});
+
+const diagnosticMarker = 'keewebx-connect-diagnostics-v1';
+const diagnosticEvents = (f: ReturnType<typeof fixture>) => f.app.posts
+    .filter(post => post.data.kwDiagnostics === diagnosticMarker).map(post => post.data);
+test('worker diagnostics require App opt-in and contain only fixed transport stage metadata', async () => {
+    const f = fixture();
+    f.control({ kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: Date.now() + 60000 });
+    f.app.onPost = (request, ports) => {
+        if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, state: 'enabled' });
+    };
+    await flush(); await f.work();
+    expect(diagnosticEvents(f)).toEqual(['discovery', 'discovery-reply', 'handoff'].map(event => ({
+        kwDiagnostics: diagnosticMarker, kind: 'event', code: 'transport.event', data: { layer: 'worker', event }
+    })));
+});
+
+test.each(['helper', 'subframe', 'foreign', 'expired', 'overlong', 'disabled'])
+('worker diagnostics reject %s controls without affecting the discovery deadline', async scenario => {
+    const f = fixture();
+    const enable = { kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: Date.now() + 60000 };
+    const from = scenario === 'helper' ? f.relay : scenario === 'subframe' ? new FakeWindowClient(endpoint, 'nested')
+        : scenario === 'foreign' ? new FakeWindowClient('https://attacker.example/app') : f.app;
+    f.control({ ...enable, ...(scenario === 'expired' ? { expiresAt: f.time() - 1 }
+        : scenario === 'overlong' ? { expiresAt: f.time() + 3600001 } : {}) }, from);
+    if (scenario === 'disabled') f.control({ ...enable, action: 'disable' });
+    await flush(); await f.tick(8000); await f.work();
+    expect(diagnosticEvents(f)).toEqual([]);
+    expect(f.website.messages.at(-1).code).toBe('timeout');
+});
+
+test('worker diagnostic opt-in expires during discovery and cannot emit later stages', async () => {
+    const f = fixture();
+    f.control({ kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: Date.now() + 500 });
+    await flush(); await f.tick(8000); await f.work();
+    expect(diagnosticEvents(f).map(event => event.data.event)).toEqual(['discovery']);
+    expect(f.website.messages.at(-1).code).toBe('timeout');
+});
+
+test('an opted-in App receives discovery-timeout when every reply is lost', async () => {
+    const f = fixture();
+    f.control({ kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: Date.now() + 60000 });
+    await flush(); await f.tick(8000); await f.work();
+    expect(diagnosticEvents(f).map(event => event.data.event)).toEqual([
+        'discovery', 'discovery', 'discovery', 'discovery', 'discovery-timeout'
+    ]);
+});
+
+test('worker diagnostic grants are bounded to 32 clients', async () => {
+    const f = fixture();
+    const enable = { kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: f.time() + 60000 };
+    f.control(enable);
+    for (let index = 0; index < 32; index++) f.control(enable, new FakeWindowClient(endpoint));
+    await flush(); await f.tick(8000); await f.work();
+    expect(diagnosticEvents(f)).toEqual([]);
+    expect(f.website.messages.at(-1).code).toBe('timeout');
 });

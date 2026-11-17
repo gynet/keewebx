@@ -22,7 +22,7 @@ const engines = process.argv.slice(2).length ? process.argv.slice(2) : ['chromiu
 const resultsPath = path.resolve(process.env.CONNECT_COMPONENT_RESULTS ||
     path.join(os.tmpdir(), 'keewebx-connect-component-results.json'));
 const inputs = ['index.ts', 'panel.tsx', 'account-list.tsx', 'connection-settings.tsx',
-    'connection-status.tsx', 'styles.ts', 'types.ts'].map(file => `modules/ui-kit/src/connect/${file}`);
+    'connection-status.tsx', 'diagnostics-settings.tsx', 'styles.ts', 'types.ts'].map(file => `modules/ui-kit/src/connect/${file}`);
 const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [
     file, createHash('sha256').update(await readFile(path.join(repo, file))).digest('hex')
 ])));
@@ -144,6 +144,7 @@ async function run() {
                                 onClose: event => window.events.push(['close', event instanceof Event]),
                                 onAddressInput: (value, event) => window.events.push(['address', value, event instanceof Event]),
                                 onAutoFillSingleChange: (value, event) => window.events.push(['preference', value, event instanceof Event]),
+                                onDiagnosticsChange: (value, event) => window.events.push(['diagnostics', value, event instanceof Event, event.isTrusted]),
                                 onSelectAccount: (id, event) => {
                                     window.accountFocusAtCallback = target.getRootNode().activeElement;
                                     window.events.push(['account', id, event instanceof MouseEvent, event.isTrusted]);
@@ -234,6 +235,20 @@ async function run() {
                         window.target.querySelector('#preview-accounts').hidden &&
                         !window.target.querySelector('#preview-config').hidden &&
                         window.target.querySelector('#preview-address').readOnly);
+                    await page.evaluate(() => window.redraw({ remoteDiagnostics: {
+                        enabled: true, id: '11111111-2222-4333-8444-555555555555',
+                        expiresAt: Date.now() + 3600000, status: 'connected'
+                    } }));
+                    await page.locator('[data-action=diagnostics-enabled]').uncheck();
+                    await verify('controlled remote diagnostics, trusted stop, no secret token', () => {
+                        const root = window.target;
+                        const panel = root.querySelector('[role=dialog]').getBoundingClientRect();
+                        return root.querySelector('[data-role=diagnostics-id]').textContent === '11111111-2222-4333-8444-555555555555' &&
+                            root.querySelector('[data-role=remote-diagnostics]').textContent.includes('read-only') &&
+                            !root.querySelector('[data-role=remote-diagnostics]').textContent.includes('token') &&
+                            window.events.some(event => event[0] === 'diagnostics' && event[1] === false && event[2] && event[3]) &&
+                            panel.right <= innerWidth && panel.bottom <= innerHeight;
+                    });
                     await page.evaluate(() => window.redraw({ mode: 'relay' }));
                     await verify('relay hides launcher, close and tabs; panel centered', () => {
                         const root = window.target;
@@ -249,7 +264,7 @@ async function run() {
                     await context.close();
                 }
             }
-            assert.equal(cases.length, 96, `Expected 96 component cases for ${engine}`);
+            assert.equal(cases.length, 108, `Expected 108 component cases for ${engine}`);
         } finally {
             await browser.close();
         }

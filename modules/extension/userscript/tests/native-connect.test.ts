@@ -728,6 +728,36 @@ test('unlocking avoids GM reads and unavailable revocation metadata fails closed
     await directSend(envelope({ ...p, id: crypto.randomUUID() })); expect(reads).toBe(1);
 });
 
+test('unlock discards a session locked by an App notification before a new handshake', async () => {
+    await directHost(); const previous = await directSession();
+    await directSend(envelope(previous));
+    lastBridge.onLocked();
+    expect(host.diagnostics().locked).toBe(true);
+    expect(host.unlock()).toBe(true);
+    expect(host.diagnostics().hasSession).toBe(false);
+    await directSend(envelope({ ...previous, id: crypto.randomUUID(), body: { action: 'kwx-get-entry-fields' } }));
+    expect(reads).toBe(1);
+    expect(replies.at(-1).value.packet.error).toContain('session changed');
+    const fresh = await directSession(); await directSend(envelope(fresh));
+    expect(reads).toBe(2);
+    expect(replies.at(-1).value.packet.error).toBeUndefined();
+});
+
+test('host diagnostics are a frozen primitive snapshot without manager reads or private metadata', async () => {
+    const local = await directHost();
+    (globalThis as any).GM.getValue = () => { throw new Error('Diagnostics must not read manager storage'); };
+    const before = host.diagnostics();
+    expect(Object.isFrozen(before)).toBe(true);
+    expect(before).toEqual({ locked: false, live: true, selected: true, direct: true, hasSession: false, authorization: 1 });
+    await directSession(); host.lock();
+    expect(host.diagnostics()).toEqual({ ...before, locked: true });
+    expect(before.locked).toBe(false);
+    local.clear();
+    expect(host.diagnostics().selected).toBe(false);
+    host.pause();
+    expect(host.diagnostics()).toEqual({ ...before, locked: true, live: false, selected: false, authorization: 2 });
+});
+
 test('a legacy-only host selection invalidates the previous direct marker', async () => {
     const local = await directHost(), p = await directSession();
     replace('navigator', { locks });

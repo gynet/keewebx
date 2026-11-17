@@ -5,6 +5,22 @@ export interface AppBridgeCapabilities { receipts: boolean }
 const documentCapabilities: AppBridgeCapabilities = { receipts: false };
 export const appReceiptsSupported = (): boolean => documentCapabilities.receipts;
 
+/** App access state survives the per-request bridge being reset on lock. */
+export function watchAppLockState(changed: (unlocked: boolean) => void): () => void {
+    const origin = location.origin;
+    const receive = (event: MessageEvent) => {
+        if (!event.isTrusted || event.source !== window || event.origin !== origin || !object(event.data) ||
+            event.data.kwConnect !== 'state') return;
+        if (event.data.action === 'database-locked') changed(false);
+        else if (event.data.action === 'database-unlocked') changed(true);
+    };
+    addEventListener('message', receive);
+    // Either side can finish loading first. The connector also announces its
+    // initial state when it starts listening.
+    window.postMessage({ kwConnect: 'get-state' }, origin);
+    return () => removeEventListener('message', receive);
+}
+
 interface PendingRequest {
     id: string;
     attempt: string;

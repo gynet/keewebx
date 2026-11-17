@@ -6,6 +6,10 @@ const MAX_BYTES = 2048;
 const MAX_ACTIVE = 8;
 const MAX_CANDIDATES = 32;
 const PROBE_MS = 8000;
+const PROBE_RETRY_MS = 750;
+const MAX_PROBE_ATTEMPTS = 4;
+const DIAGNOSTICS_MARK = 'keewebx-connect-diagnostics-v1';
+const diagnostics = new Map();
 const ATTACH_KEYS = ['marker', 'kind', 'nonce', 'appBoot', 'connectionId', 'endpoint', 'siteOrigin'];
 const APP_PATHS = new Set(['/app', '/next.html', '/index.html']);
 const RELAY_URL = new URL('./relay.html', self.location.href);
@@ -110,47 +114,85 @@ function isApp(client, endpoint) {
     }
 }
 
+function diagnosticControl(event) {
+    const data = event.data;
+    if (event.ports.length || data.kind !== 'control' ||
+        !isApp(event.source, new URL('/app', self.location.origin))) return;
+    const now = Date.now();
+    for (const [id, expiresAt] of diagnostics) if (expiresAt <= now) diagnostics.delete(id);
+    if (data.action === 'disable') { diagnostics.delete(event.source.id); return; }
+    if (data.action !== 'enable' || !Number.isFinite(data.expiresAt) ||
+        data.expiresAt <= now || data.expiresAt > now + 3600000) return;
+    if (!diagnostics.has(event.source.id) && diagnostics.size >= 32) diagnostics.delete(diagnostics.keys().next().value);
+    diagnostics.set(event.source.id, data.expiresAt);
+}
+
+function diagnostic(client, event) {
+    const expiresAt = diagnostics.get(client.id);
+    if (!expiresAt) return;
+    if (expiresAt <= Date.now()) { diagnostics.delete(client.id); return; }
+    try { client.postMessage({ kwDiagnostics: DIAGNOSTICS_MARK, kind: 'event', code: 'transport.event',
+        data: { layer: 'worker', event } }); } catch { /* Diagnostics cannot affect handoff. */ }
+}
+
 function probe(client, appBoot, endpoint) {
     let cancel = () => {};
     const result = new Promise((resolve) => {
-        const channel = new MessageChannel();
+        const channels = [];
         let finished = false;
+        let retry;
+        let attempts = 0;
         const timer = setTimeout(() => finish('timeout'), PROBE_MS);
 
         function finish(state) {
             if (finished) return;
             finished = true;
-            clearTimeout(timer);
-            // Let the app release its probe endpoint before closing our endpoints.
-            try { channel.port1.postMessage({ marker: MARK, kind: 'probe-done', state }); } catch { /* Already closed. */ }
-            channel.port1.onmessage = null;
-            channel.port1.onmessageerror = null;
-            channel.port1.close();
-            channel.port2.close();
+            clearTimeout(timer); clearTimeout(retry);
+            if (state === 'timeout') diagnostic(client, 'discovery-timeout');
+            for (const channel of channels) {
+                // Let the app release every temporary probe endpoint.
+                try { channel.port1.postMessage({ marker: MARK, kind: 'probe-done', state }); } catch { /* Already closed. */ }
+                channel.port1.onmessage = null;
+                channel.port1.onmessageerror = null;
+                channel.port1.close(); channel.port2.close();
+            }
             resolve({ client, state });
         }
         cancel = () => finish('canceled');
 
-        channel.port1.onmessage = (event) => {
+        function receive(event) {
             const data = event.data;
             for (const port of event.ports) port.close();
-            if (event.ports.length !== 0 || !smallMessage(data) || data.marker !== MARK ||
+            if (finished || event.ports.length !== 0 || !smallMessage(data) || data.marker !== MARK ||
                 data.endpoint !== endpoint || !UUID.test(data.appBoot)) return;
+            let state;
             if (data.kind === 'app-ready' && (data.state === undefined || data.state === 'enabled')) {
-                finish(data.appBoot === appBoot ? 'ready' : 'refreshed');
+                state = data.appBoot === appBoot ? 'ready' : 'refreshed';
             } else if (data.kind === 'app-state' && data.state === 'address-mismatch') {
-                finish(data.appBoot === appBoot ? 'address-mismatch' : 'refreshed');
+                state = data.appBoot === appBoot ? 'address-mismatch' : 'refreshed';
             } else if (data.kind === 'app-state' && (data.state === 'enabled' || data.state === 'disabled')) {
-                finish(data.appBoot !== appBoot ? 'refreshed' : data.state === 'enabled' ? 'ready' : 'disabled');
+                state = data.appBoot !== appBoot ? 'refreshed' : data.state === 'enabled' ? 'ready' : 'disabled';
             }
-        };
-        channel.port1.onmessageerror = () => finish('unreachable');
-        channel.port1.start();
-        try {
-            client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint }, [channel.port2]);
-        } catch {
-            finish('unreachable');
+            if (state) { diagnostic(client, 'discovery-reply'); finish(state); }
         }
+
+        function attempt() {
+            if (finished) return;
+            const channel = new MessageChannel(); channels.push(channel);
+            channel.port1.onmessage = receive;
+            // A broken old channel must not cancel a newer pending probe.
+            channel.port1.onmessageerror = () => {};
+            channel.port1.start();
+            ++attempts;
+            diagnostic(client, 'discovery');
+            try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint }, [channel.port2]); }
+            catch { if (attempts >= MAX_PROBE_ATTEMPTS) { finish('unreachable'); return; } }
+            // Discovery reads public receiver state only. A fresh channel can
+            // recover a lost reply after suspension without retransferring the
+            // website's port or extending its original eight-second deadline.
+            if (!finished && attempts < MAX_PROBE_ATTEMPTS) retry = setTimeout(attempt, PROBE_RETRY_MS * 2 ** (attempts - 1));
+        }
+        attempt();
     });
     return { result, cancel: () => cancel() };
 }
@@ -217,6 +259,7 @@ async function attach(event) {
             return;
         }
         // Ownership moves once to the selected app. The website verifies the signed handshake.
+        diagnostic(app, 'handoff');
         app.postMessage({
             marker: MARK,
             kind: 'attach-port',
@@ -241,6 +284,7 @@ async function attach(event) {
 
 self.addEventListener('message', (event) => {
     const data = event.data;
+    if (data?.kwDiagnostics === DIAGNOSTICS_MARK) { diagnosticControl(event); return; }
     if (data?.kind === 'probe-relay') {
         if (event.ports.length || !smallMessage(data) || Object.keys(data).length !== 5 || data.marker !== MARK ||
             !UUID.test(data.nonce) || !validOrigin(data.siteOrigin) || !validEndpoint(data.endpoint) ||

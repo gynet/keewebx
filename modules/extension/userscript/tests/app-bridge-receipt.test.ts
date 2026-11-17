@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { AppBridge, type AppBridgeCapabilities } from '../src/app-bridge';
+import { AppBridge, watchAppLockState, type AppBridgeCapabilities } from '../src/app-bridge';
 
 const original = new Map<string, PropertyDescriptor | undefined>();
 function replace(name: string, value: unknown) {
@@ -51,6 +51,24 @@ function respond(request = sent.at(-1), data: Record<string, unknown> = {}, even
             kwRequest: request.kwRequest, kwAttempt: request.kwAttempt, kwReceipt: 1,
             message: 'encrypted response', nonce: 'fixture nonce', ...data }, ...event } as unknown as MessageEvent);
 }
+test('lock state is queried and follows App unlock independently of reset bridge ports', () => {
+    const states: boolean[] = [];
+    const stop = watchAppLockState(unlocked => states.push(unlocked));
+    try {
+        expect(sent.at(-1)).toEqual({ kwConnect: 'get-state' });
+        const notify = (action: string, event: Record<string, unknown> = {}) => listener({ isTrusted: true,
+            source: windowObject, origin, data: { kwConnect: 'state', action }, ...event } as unknown as MessageEvent);
+        notify('database-unlocked');
+        bridge.reset();
+        notify('database-locked');
+        notify('database-unlocked');
+        expect(states).toEqual([true, false, true]);
+        for (const event of [{ isTrusted: false }, { source: {} }, { origin: 'https://attacker.example' }]) notify('database-locked', event);
+        notify('attention-required');
+        expect(states).toEqual([true, false, true]);
+    } finally { stop(); }
+});
+
 test('an older App remains single-send and cannot accidentally enable request retries', async () => {
     const pending = bridge.request({ action: 'kwx-features' }, now + 3000);
     tick(750); expect(sent).toHaveLength(1);

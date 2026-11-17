@@ -6,14 +6,15 @@ import path from 'node:path';
 const require = createRequire(new URL('../modules/ui/package.json', import.meta.url));
 const ts: typeof import('../modules/ui/node_modules/typescript') = require('typescript');
 const root = path.resolve(import.meta.dir, '..');
-const packages = ['ui-classic', 'ui', 'vault', 'ui-kit', 'db'] as const;
+const packages = ['ui-classic', 'ui', 'vault', 'ui-kit', 'db', 'diagnostics'] as const;
 type Package = typeof packages[number];
 const allowed: Record<Package, readonly Package[]> = {
     'ui-classic': ['ui-classic', 'vault', 'ui-kit', 'db'],
     ui: ['ui', 'vault', 'ui-kit', 'db'],
     vault: ['vault', 'db'],
     'ui-kit': ['ui-kit'],
-    db: ['db']
+    db: ['db'],
+    diagnostics: ['diagnostics']
 };
 
 function owner(file: string): Package | undefined {
@@ -55,7 +56,7 @@ for (const name of packages) {
     const directory = path.join(root, 'modules', name);
     const source = path.join(directory, name === 'ui-classic' ? 'app/scripts' : name === 'db' ? 'lib' : 'src');
     let options: import('../modules/ui/node_modules/typescript').CompilerOptions = {};
-    if (name !== 'ui-kit') {
+    if (name !== 'ui-kit' && name !== 'diagnostics') {
         const configPath = path.join(directory, 'tsconfig.json');
         const config = ts.readConfigFile(configPath, ts.sys.readFile);
         if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));

@@ -67,7 +67,7 @@ const cdpByPage = new WeakMap(), helpers = new Map(), documents = new Map(), soc
 const assetRequests = new Map();
 let context, nativeWorker, app, first, second, originalApp, approvedRoute, tlsServer, proxyServer;
 let appNavigationRequests = 0;
-let expectedAppVersion = '0.6.5';
+let expectedAppVersion, expectedSiteVersion;
 mkdirSync(OUT, { recursive: true });
 
 async function step(name, fn) {
@@ -180,7 +180,7 @@ async function untilStatus(page, expression, timeout = 15000) {
 async function ready(page, { loginFields = true } = {}) {
     await realVisibility(page);
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
-    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect ' + (page.url() === APP ? expectedAppVersion : '0.6.5'));
+    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect ' + (page.url() === APP ? expectedAppVersion : expectedSiteVersion));
     expect(await page.evaluate(() => typeof globalThis.__kwxPortAdapter)).toBe('undefined');
     await snapshot(page);
     if (new URL(page.url()).origin !== new URL(APP).origin) {
@@ -981,6 +981,19 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null
     };
     globalThis.__kwxPortAdapter = state;
+    const NativeObserver = MutationObserver;
+    globalThis.MutationObserver = class extends NativeObserver {
+        constructor(callback) {
+            super((records, observer) => {
+                if (state.suppressRestoration && observer.restoration) return;
+                callback(records, observer);
+            });
+        }
+        observe(target, options) {
+            this.restoration = isApp && target === document.body;
+            return super.observe(target, options);
+        }
+    };
     const attachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function (...args) {
         const root = attachShadow.apply(this, args);
@@ -1018,6 +1031,10 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker !== portMarker) return nativePost.call(this, data, ...rest);
         observe(this);
+        if (isApp && state.dropDiscoveryReplies > 0 && ['app-ready', 'app-state'].includes(data.kind)) {
+            state.dropDiscoveryReplies--; state.droppedDiscoveryReplies = (state.droppedDiscoveryReplies || 0) + 1;
+            record(this, 'dropped', data); return;
+        }
         if (!isApp && data.kind === 'request') lastRequest = { port: this, data };
         if (isApp && state.holdHello && data.kind === 'reply' && data.value?.packet?.operation === 'hello') {
             state.heldHello.push({ port: this, data, rest });
@@ -1062,7 +1079,8 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         boot: state.boot, href: state.href, role: state.role, blockGM: state.blockGM,
         reads: state.reads, allowedReads: state.allowedReads, blockedReads: state.blockedReads,
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
-        helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions
+        helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
+        droppedDiscoveryReplies: state.droppedDiscoveryReplies || 0
     });
     function mailbox(operation, key) {
         if (!String(key).startsWith('keewebx-connect-mailbox-v1:')) return;
@@ -1288,12 +1306,13 @@ async function setup(bundle, appBundle = bundle) {
 try {
     const bundle = readFileSync(SOURCE, 'utf8');
     const appBundle = APP_SOURCE === SOURCE ? bundle : readFileSync(APP_SOURCE, 'utf8');
+    expectedSiteVersion = bundle.match(/^\/\/ @version\s+([^\s]+)\s*$/m)?.[1];
     expectedAppVersion = appBundle.match(/^\/\/ @version\s+([^\s]+)\s*$/m)?.[1];
     report.bundle = { bytes: Buffer.byteLength(bundle), sha256: createHash('sha256').update(bundle).digest('hex') };
     report.appBundle = { path: APP_SOURCE, version: expectedAppVersion, overridden: APP_SOURCE !== SOURCE,
         bytes: Buffer.byteLength(appBundle), sha256: createHash('sha256').update(appBundle).digest('hex') };
     await step('require the production 0.6.5 installer and built MessagePort assets', async () => {
-        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.5\s*$/m);
+        expect(expectedSiteVersion, 'Website installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
         expect(bundle).toContain(PORT_MARK);
         expect(expectedAppVersion, 'App installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
         expect(appBundle).toContain(PORT_MARK);
@@ -1524,6 +1543,57 @@ try {
         await expect(app.locator('.entry-row').first()).toBeVisible(); await untilStatus(app, /Authorized/);
         await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
         expect(await physicalPort(first)).toEqual(port); expect(helpers.size).toBe(count); await sameApp(); await noHelpers();
+    });
+    await step('passkey unlock restores Connect when the DOM restoration observer misses unlock', async () => {
+        await app.bringToFront();
+        const session = await context.newCDPSession(app);
+        await session.send('WebAuthn.enable');
+        await session.send('WebAuthn.addVirtualAuthenticator', { options: {
+            protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
+            hasPrf: true, isUserVerified: true, automaticPresenceSimulation: true
+        } });
+        await app.evaluate(() => {
+            window.__keewebx_passkey_capability_override = { prf: 'supported', reason: 'Virtual authenticator test',
+                platform: { os: 'macos', browser: 'chrome', osVersion: '15.0.0' } };
+        });
+        await app.getByRole('button', { name: 'Settings', exact: true }).filter({ visible: true }).click();
+        await app.getByRole('tab', { name: 'Database', exact: true }).click();
+        const section = app.getByRole('region', { name: 'Local passkey unlock', exact: true });
+        await section.getByLabel('Current master password', { exact: true }).fill(DB_PASSWORD);
+        await section.getByRole('button', { name: 'Enable local passkey', exact: true }).click();
+        await section.getByRole('button', { name: 'Verify passkey', exact: true }).click();
+        await expect(section.getByRole('status')).toContainText('Passkey unlock saved in this browser');
+        await app.getByRole('button', { name: 'Back to vault', exact: true }).filter({ visible: true }).click();
+        const port = await physicalPort(first), count = helpers.size;
+        await app.getByRole('button', { name: 'Lock', exact: true }).filter({ visible: true }).click();
+        await expect(app.getByRole('button', { name: 'Unlock with passkey', exact: true })).toBeVisible();
+        await untilStatus(app, /locked.*unlock/i);
+        // Deliberately lose only the DOM-based unlock signal. The App's access
+        // notification must resume the existing grant and clear the locked scope.
+        await adapter(app, '__kwxPortAdapter.suppressRestoration = true');
+        try {
+            await app.getByRole('button', { name: 'Unlock with passkey', exact: true }).click();
+            await expect(app.locator('.entry-row').first()).toBeVisible();
+            await untilStatus(app, /Authorized/);
+            await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            expect(await physicalPort(first)).toEqual(port);
+            expect(helpers.size).toBe(count);
+            await sameApp(); await noHelpers();
+        } finally { await adapter(app, '__kwxPortAdapter.suppressRestoration = false'); }
+    });
+    await step('a lost App discovery reply recovers on a fresh channel before handing off once', async () => {
+        const before = await snapshot(app), count = helpers.size;
+        await adapter(app, '__kwxPortAdapter.dropDiscoveryReplies = 1');
+        const page = await newWebsite(ACCOUNTS[0]);
+        try {
+            await lookup(page, ACCOUNTS[0]); await closedHelper(page, count); await fill(page, ACCOUNTS[0]);
+            const after = await snapshot(app);
+            expect(after.droppedDiscoveryReplies - before.droppedDiscoveryReplies).toBe(1);
+            const attempts = after.attachments.slice(before.attachments.length);
+            expect(attempts.filter(item => item.data.kind === 'find-app').length).toBeGreaterThanOrEqual(2);
+            expect(attempts.filter(item => item.data.kind === 'attach-port')).toHaveLength(1);
+            await sameApp(); await noHelpers();
+        } finally { await archive(page); await page.close(); }
     });
     await step('after every website closes a fresh site finds the original app three times', async () => {
         for (const account of [ACCOUNTS[1], ACCOUNTS[0], ACCOUNTS[1]]) {

@@ -13,6 +13,7 @@ import {
 } from './protocol-impl';
 import { Features } from 'util/features';
 import { validWebsiteOrigin } from './website-matching';
+import { startConnectDiagnostics, recordConnectDiagnostic } from './diagnostic-events';
 
 const WebConnectionInfo: ConnectionInfo = {
     connectionId: 1,
@@ -71,6 +72,7 @@ let webWebsiteOrigin: string | undefined;
 let initVars: ProtocolInitVars | undefined;
 let unsubscribeInvalidation: (() => void) | undefined;
 let boundMessage: ((event: MessageEvent<BrowserWindowMessageEventData>) => void) | undefined;
+let accessOpen = false;
 
 interface BrowserWindowMessageEventData {
     kwConnect?: string;
@@ -85,6 +87,8 @@ const BrowserExtensionConnector = {
         if (this.started) this.stop();
         const sendEvent = this.sendEvent.bind(this);
         initVars = { appModel, ui, access, logger, sendEvent };
+        startConnectDiagnostics(() => ({ live: this.started, locked: !initVars?.access.snapshot().open,
+            hasPort: !!webPort, pending: pendingBrowserMessages.length, authorization: transportGeneration }));
 
         if (this.isEnabled()) {
             this.start();
@@ -98,8 +102,13 @@ const BrowserExtensionConnector = {
         this.startWebMessageListener();
 
         this.started = true;
+        recordConnectDiagnostic('app.receiver', { live: true });
+        accessOpen = initVars.access.snapshot().open;
+        this.sendLockState();
         unsubscribeInvalidation = initVars.access.subscribeInvalidation(() => {
             clearReceipts(true);
+            const open = initVars!.access.snapshot().open;
+            if (open !== accessOpen) { accessOpen = open; this.sendLockState(); }
             for (const { request, receipt } of pendingBrowserMessages.splice(0)) {
                 this.sendWebResponse({ action: request.action, error: 'Access suspended', errorCode: '1' }, request.kwConnection ?? null, receipt?.id, receipt?.attempt);
             }
@@ -120,6 +129,7 @@ const BrowserExtensionConnector = {
         connections.clear();
 
         this.started = false;
+        recordConnectDiagnostic('app.receiver', { live: false });
     },
 
     appSettingsChanged(): void {
@@ -158,6 +168,7 @@ const BrowserExtensionConnector = {
         if (location.origin !== 'null' && e.origin !== location.origin) {
             return;
         }
+        if (e.data?.kwConnect === 'get-state') { this.sendLockState(); return; }
         const port = typeof e.data?.kwConnection === 'string' && e.data.kwConnection ? e.data.kwConnection : undefined;
         if (e.data?.kwConnect === 'disconnected') {
             if (port && port === webPort) {
@@ -313,10 +324,21 @@ const BrowserExtensionConnector = {
     },
 
     sendEvent(data: ProtocolResponse): void {
+        if (data.action === 'database-locked') recordConnectDiagnostic('app.locked', { locked: true });
+        else if (data.action === 'database-unlocked') recordConnectDiagnostic('app.unlocked', { locked: false });
         if (!this.started || !this.isEnabled() || !connections.size) {
             return;
         }
         this.sendWebResponse(data);
+    },
+
+    sendLockState(): void {
+        if (!this.started || !initVars) return;
+        // Lifecycle state is independent of webPort: locking resets that bridge
+        // before file-opened (or recovery) can announce the next unlock.
+        const action = initVars.access.snapshot().open ? 'database-unlocked' : 'database-locked';
+        try { postMessage({ kwConnect: 'state', action }, location.origin === 'null' ? '*' : location.origin); }
+        catch (error) { logger.error('Error posting browser extension state', error); }
     },
 
     get sessions() {

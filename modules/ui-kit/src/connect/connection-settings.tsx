@@ -1,9 +1,10 @@
 /** @jsxImportSource preact */
 import type { ConnectAction, ConnectPanelProps } from './types';
+import { DiagnosticsSettings } from './diagnostics-settings';
 
 export type ConnectionSettingsProps = Pick<
     ConnectPanelProps,
-    'state' | 'onAction' | 'onAddressInput' | 'onAutoFillSingleChange'
+    'state' | 'onAction' | 'onAddressInput' | 'onAutoFillSingleChange' | 'onDiagnosticsChange'
 > & { idPrefix?: string };
 
 export function ConnectionSettings({
@@ -12,6 +13,7 @@ export function ConnectionSettings({
     onAction,
     onAddressInput,
     onAutoFillSingleChange,
+    onDiagnosticsChange,
 }: ConnectionSettingsProps) {
     const actionButton = (name: ConnectAction) => {
         const action = state.actions[name];
@@ -86,6 +88,8 @@ export function ConnectionSettings({
                     </p>
                 )}
             </div>
+            {state.remoteDiagnostics && state.mode !== 'relay' && <DiagnosticsSettings
+                state={state.remoteDiagnostics} idPrefix={idPrefix} onChange={onDiagnosticsChange} />}
             {state.note && <p class="kwx-connect__note">{state.note}</p>}
         </div>
     );

@@ -1,0 +1,97 @@
+export type DiagnosticCommandKind = 'snapshot' | 'ping' | 'receiver-check';
+
+export type DiagnosticCode =
+    | 'session.started' | 'session.stopped'
+    | 'page.visible' | 'page.hidden' | 'page.show' | 'page.hide'
+    | 'connect.state' | 'connect.action' | 'connect.stage' | 'connect.error'
+    | 'app.locked' | 'app.unlocked' | 'app.receiver'
+    | 'transport.event' | 'command.result';
+
+/** A flat allowlist: no arbitrary strings, nested objects, or protected values. */
+export interface DiagnosticData {
+    layer?: 'userscript' | 'app' | 'website' | 'worker';
+    locked?: boolean;
+    authorized?: boolean;
+    authorizing?: boolean;
+    selected?: boolean;
+    live?: boolean;
+    direct?: boolean;
+    hasSession?: boolean;
+    hasPort?: boolean;
+    online?: boolean;
+    visible?: boolean;
+    persisted?: boolean;
+    elapsedMs?: number;
+    pending?: number;
+    ports?: number;
+    authorization?: number;
+    state?: 'Initializing' | 'ReadyToConnect' | 'Connecting' | 'Connected' | 'Error';
+    action?: 'open' | 'authorize' | 'revoke' | 'lookup' | 'probe' | 'save' | 'close';
+    stage?: 'connect' | 'access' | 'lookup' | 'fields' | 'fill' | 'test' | 'authorize' | 'restore';
+    event?: 'receiver-ready' | 'discovery' | 'discovery-reply' | 'discovery-timeout' | 'handoff' | 'port-ready' | 'hello-received'
+        | 'hello-replied' | 'wire-received' | 'wire-replied' | 'wire-error' | 'receipt'
+        | 'suppressed' | 'unavailable';
+    reason?: 'timeout' | 'locked' | 'canceled' | 'unavailable' | 'changed' | 'other';
+}
+
+export interface DiagnosticSession {
+    id: string;
+    token: string;
+    /** Absolute epoch milliseconds. */
+    expiresAt: number;
+}
+
+export type DiagnosticError = 'storage' | 'network' | 'timeout' | 'invalid-response' | 'expired';
+
+export interface DiagnosticState {
+    enabled: boolean;
+    id?: string;
+    expiresAt?: number;
+    status: 'off' | 'starting' | 'sending' | 'connected' | 'offline';
+    error?: DiagnosticError;
+}
+
+export interface DiagnosticStore {
+    load(): Promise<DiagnosticSession | undefined>;
+    /** Persistent revocation marker. Required for stores shared between clients. */
+    revision?(): Promise<string>;
+    /** Grant writes must be bound to expectedRevision; clearing must advance it. */
+    save(session: DiagnosticSession | undefined, expectedRevision?: string): Promise<void>;
+}
+
+/** The adapter POSTs JSON to the supplied relative path and honors signal. */
+export type DiagnosticTransport = (
+    path: string, body: unknown, token: string | undefined, signal: AbortSignal
+) => Promise<unknown>;
+
+export interface DiagnosticClientOptions {
+    source: 'app' | 'website';
+    version: string;
+    store: DiagnosticStore;
+    transport: DiagnosticTransport;
+    snapshot(kind: DiagnosticCommandKind): Promise<DiagnosticData> | DiagnosticData;
+    onChange(state: DiagnosticState): void;
+    now?: () => number;
+}
+
+export interface DiagnosticEvent {
+    seq: number;
+    at: number;
+    code: DiagnosticCode;
+    data: DiagnosticData;
+}
+
+export interface DiagnosticResult {
+    id: string;
+    kind: DiagnosticCommandKind;
+    status: 'ok' | 'failed';
+    data: DiagnosticData;
+}
+
+export interface DiagnosticCommand {
+    id: string;
+    kind: DiagnosticCommandKind;
+    target?: string;
+    issuedAt: number;
+    expiresAt: number;
+}

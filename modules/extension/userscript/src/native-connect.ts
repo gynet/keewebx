@@ -136,6 +136,10 @@ export class NativeHost {
         });
     }
     get hasDirectReceiver(): boolean { return !!this.direct; }
+    diagnostics(): Readonly<{ locked: boolean; live: boolean; selected: boolean; direct: boolean; hasSession: boolean; authorization: number }> {
+        return Object.freeze({ locked: this.locked || !!this.session?.locked, live: this.live, selected: this.selectedDirect(),
+            direct: !!this.direct, hasSession: !!this.session, authorization: this.authorization });
+    }
     private selectedDirect(): boolean { try { return localStorage.getItem(this.leaseKey) === this.host; } catch { return false; } }
     private restorationBlocked(): boolean { try { return localStorage.getItem(this.leaseKey + ':restore-blocked') === '1'; } catch { return false; } }
     async selected(): Promise<boolean> { await this.ownerReady; if (this.restorationBlocked()) return false; const route = await approvedRoute(this.endpoint); return !route || route.owner === this.owner; }
@@ -194,6 +198,10 @@ export class NativeHost {
     resume(): void { if (this.keys) { this.live = true; this.mailbox.start(!this.direct); } }
     unlock(): boolean {
         if (!this.direct || !this.live || !this.keys || !this.selectedDirect()) return false;
+        // Unlock resumes the grant, never a locked protocol scope or its receipts.
+        if (this.locked || this.session?.locked) {
+            this.session?.bridge.dispose(); this.session = undefined;
+        }
         this.locked = false; return true;
     }
     lock(): void { this.locked = true; this.session?.bridge.dispose(); this.session = undefined; }

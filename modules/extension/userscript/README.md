@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.5
+# Userscripts on iOS: KeeWebX Connect 0.6.6
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,10 +7,10 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.5)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.5/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.6)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.6/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
-· [0.6.5 acceptance report](docs/release-0.6.5.md)
+· [0.6.6 acceptance report](docs/release-0.6.6.md)
 
 ## Install or upgrade
 
@@ -19,7 +19,7 @@ Forms are never submitted automatically.
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. Update the existing script and reload the login website to load **Connect 0.6.5**.
+2. Update the existing script and reload the login website to load **Connect 0.6.6**.
    Save database edits before reloading the App if you want its new panel too.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App, open its Connect key panel, and choose
@@ -55,6 +55,15 @@ A renamed script has a separate manager storage namespace and cannot reuse the
 original filename's identity. For self-hosting, publish the built `connect-port/`
 directory beside the App assets and save the App's full HTTPS address in the
 script's Connection tab before authorizing it.
+
+## Optional remote diagnostics
+
+For a connection failure, open **Connection** and enable **Enable remote diagnostics
+for 1 hour**. The App and website instances share a temporary support ID. Support
+can correlate discovery, lock/unlock and handshake events and request reviewed
+read-only checks through the Worker. It is off by default, excludes vault contents,
+account values and website addresses, and stops when disabled or expired.
+See [scope, command limits and retention](docs/remote-diagnostics.md).
 
 ## Recovery and lifecycle
 

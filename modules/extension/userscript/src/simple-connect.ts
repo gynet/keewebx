@@ -2,7 +2,7 @@ import { CONNECT_VERSION } from './version';
 import { Operation } from './operation';
 import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/protocol-impl';
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
-import { AppBridge, appReceiptsSupported } from './app-bridge';
+import { AppBridge, appReceiptsSupported, watchAppLockState } from './app-bridge';
 import { ConnectUI } from './connect-ui';
 import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials } from './native-connect';
 import { identity } from './identity';
@@ -10,6 +10,7 @@ import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { targets, assertTargets, fill, type Targets } from './form-targets';
 import { isLoginField, watchLoginFields } from './login-fields';
 import { userscriptPreferences } from './preferences';
+import { attachDiagnostics } from './diagnostics';
 
 const VERSION = CONNECT_VERSION;
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
@@ -30,11 +31,14 @@ async function start(): Promise<void> {
     }
     const app = location.origin === endpoint.origin && (location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '') || endpoint.pathname === '/app' && ['/next.html', '/index.html'].includes(location.pathname));
     const ui = new ConnectUI(app ? 'app' : 'website', endpoint.href);
+    const diagnostics = attachDiagnostics(ui);
     if (app) {
         const record = (value: string) => ui.diagnostic(value);
         const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)), record);
         const bridge = new AppBridge();
         let generation = 0, authorizing = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
+        diagnostics.snapshot(() => ({ ...host.diagnostics(), authorized, authorizing }));
+        let appUnlocked: boolean | undefined;
         const authorize = async (explicit: boolean) => {
             if (authorizing) return;
             authorizing = true; ui.action('authorize', { disabled: true });
@@ -90,9 +94,11 @@ async function start(): Promise<void> {
             if (authorizing) { generation++; authorizing = false; host.pause(); bridge.reset(); ui.action('authorize', { disabled: false }); }
         };
         const restored = () => {
-            const unlocked = !!document.querySelector('.vault');
+            const unlocked = appUnlocked ?? !!document.querySelector('.vault');
             if (!unlocked) {
-                if (authorized) { host.lock(); ui.state(State.ReadyToConnect, 'KeeWebX is locked. Unlock this tab to resume Connect.'); }
+                host.lock();
+                if (authorizing) { generation++; authorizing = false; bridge.reset(); ui.action('authorize', { disabled: false }); }
+                if (authorized) ui.state(State.ReadyToConnect, 'KeeWebX is locked. Unlock this tab to resume Connect.');
                 attempted = false; authorized = false; return;
             }
             if (!authorized && !revoked && !authorizing && host.unlock()) {
@@ -103,6 +109,7 @@ async function start(): Promise<void> {
             if (attempted || revoked || authorizing) return;
             attempted = true; void authorize(false);
         };
+        watchAppLockState(unlocked => { appUnlocked = unlocked; restored(); });
         new MutationObserver(restored).observe(document.body, { childList: true, subtree: true });
         restored();
         // A transient startup failure must not permanently consume restoration.
@@ -151,6 +158,7 @@ async function start(): Promise<void> {
     let operation: Operation | undefined;
     let pending: NativeRpc | undefined;
     let current: { rpc: NativeRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
+    diagnostics.snapshot(() => ({ hasSession: !!current, pending: pending ? 1 : 0 }));
     const clean = () => {
         operation?.cancel(); operation = undefined;
         generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined;

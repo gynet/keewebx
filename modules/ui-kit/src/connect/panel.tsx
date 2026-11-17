@@ -112,6 +112,7 @@ export function ConnectPanel({
                         onAction={callbacks.onAction}
                         onAddressInput={callbacks.onAddressInput}
                         onAutoFillSingleChange={callbacks.onAutoFillSingleChange}
+                        onDiagnosticsChange={callbacks.onDiagnosticsChange}
                     />
                 </section>
                 <details class="kwx-connect__diagnostics" data-role="connection-diagnostics" hidden={state.diagnostics.length === 0}>

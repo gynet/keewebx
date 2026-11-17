@@ -1,5 +1,5 @@
 // Focused production smoke: real App/KDBX/consent, with only GM adapted in a WebKit user world.
-// Build the 0.6.5 installer and dist assets, then run: node modules/extension/userscript/tests/port-connect-webkit.mjs
+// Build the 0.6.6 installer and dist assets, then run: node modules/extension/userscript/tests/port-connect-webkit.mjs
 // KWX_BUN selects Bun; KWX_WEBKIT_OUTPUT selects the disposable artifact directory.
 // KWX_BLOCK_HELPER_CLOSE=1 blocks only userscript-held helper.close() calls.
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
@@ -98,7 +98,7 @@ async function action(page, name) {
 }
 async function ready(page, { loginFields = true } = {}) {
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
-    expect(await shadow(page, '[data-role="version"]')).toBe('Connect 0.6.5');
+    expect(await shadow(page, '[data-role="version"]')).toBe('Connect 0.6.6');
     expect(await utility(page, "__kwxWebKit.roots.get(document.getElementById('keewebx-userscript-connect')).mode")).toBe('closed');
     expect(await page.evaluate(() => [typeof globalThis.__kwxWebKit, document.getElementById('keewebx-userscript-connect').shadowRoot])).toEqual(['undefined', null]);
     if (page !== app) {
@@ -853,7 +853,7 @@ function adapter(marker, appOrigin, blockHelperClose) {
 
 try {
     const installer = readFileSync(join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'), 'utf8');
-    expect(installer).toMatch(/^\/\/ @version\s+0\.6\.5\s*$/m);
+    expect(installer).toMatch(/^\/\/ @version\s+0\.6\.6\s*$/m);
     for (const asset of ['index.html', 'connect-port/relay.html', 'connect-port/relay.js', 'connect-port/worker.js'])
         expect(readFileSync(join(ROOT, 'dist', asset)).length).toBeGreaterThan(0);
     const fixture = join(OUT, 'fixture.kdbx');
