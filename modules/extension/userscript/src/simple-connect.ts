@@ -247,7 +247,7 @@ async function start(): Promise<void> {
             rpc = new NativeRpc(endpoint, () => connector); pending = rpc;
             if (!direct && !await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
             const keys = directCredentials(endpoint) || await managerCall(() => identity()); guard(epoch);
-            await task.run('Connecting to KeeWebX', () => rpc!.connect()); guard(epoch);
+            await task.run('Connecting to KeeWebX', () => rpc!.connect(task.deadline)); guard(epoch);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request, wireTimeout()) }, runtime);
             await task.run('Connecting to KeeWebX', () => protocol.ping());
             await task.run('Connecting to KeeWebX', () => protocol.changePublicKeys());
@@ -294,7 +294,7 @@ async function start(): Promise<void> {
         try {
             openDirect(endpoint);
             rpc = new NativeRpc(endpoint, () => connector, value => { guard(epoch); stage = value; progress(); }, recovery ? 5000 : 2000); pending = rpc;
-            const started = performance.now(); await rpc.connect(); guard(epoch);
+            const started = performance.now(); await rpc.connect(deadline); guard(epoch);
             stage = 'Checking the KeeWebX reply'; progress(); guard(epoch);
             const result = await rpc.call('probe', undefined, 5000); guard(epoch);
             ui.state(State.Connected, `Connected to the authorized KeeWebX tab (${Math.round(performance.now() - started)} ms; ${result.visibility}).`);

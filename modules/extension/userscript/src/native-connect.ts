@@ -11,6 +11,7 @@ import { SiteLink, SETUP_MARK } from './site-link';
 import { ConnectMailbox, mailboxRequest, mailboxRelease } from './connect-mailbox';
 
 const MARK = 'keewebx-native-connect-v1';
+class RequestDeadlineError extends Error {}
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
 const routeKey = (endpoint: URL) => `${MARK}:selected:${endpoint.href}`;
 type Keys = { publicKey: Uint8Array; secretKey: Uint8Array };
@@ -451,7 +452,8 @@ export class NativeRpc {
         const current = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || current?.host !== this.route.host || current.publicKey !== this.route.publicKey) throw new Error('The selected app changed. Find accounts again.');
     }
-    async connect(): Promise<void> {
+    async connect(deadline = Date.now() + 35000): Promise<void> {
+        if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new RequestDeadlineError('The connection attempt expired. Try again.');
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
         const prepared = directClient(this.endpoint);
@@ -493,7 +495,16 @@ export class NativeRpc {
         }
         if (!this.direct && !this.window && !this.route.mailbox) throw new Error('Update Connect in your existing KeeWebX app tab, or open its connection page once.');
         this.progress('Contacting the selected app');
-        const result = await this.call('hello', undefined, 8000);
+        let result: any;
+        try { result = await this.call('hello', undefined, 8000, deadline); }
+        catch (error) {
+            this.assertCurrent();
+            if (!(error instanceof RequestDeadlineError) || !this.direct?.authenticatedReady || Date.now() >= deadline) throw error;
+            // A resumed website gets one fresh handshake on the proven port.
+            // Expired replies stay invalid; no credential request is repeated.
+            this.progress('Resuming the existing KeeWebX connection');
+            result = await this.call('hello', undefined, 8000, deadline);
+        }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
     }
@@ -508,25 +519,39 @@ export class NativeRpc {
         const q = pending.packet;
         if (p.type !== 'reply' || p.host !== q.host || p.endpoint !== q.endpoint || p.document !== q.document || p.origin !== q.origin || p.operation !== q.operation || p.scope !== q.scope || p.deadline !== q.deadline) return;
         this.pending.delete(p.id); clearTimeout(pending.timer); pending.stop?.();
-        if (this.direct && Date.now() < p.deadline) { this.authenticated = true; this.direct.confirm(); }
-        try { this.assertCurrent(); if (Date.now() >= p.deadline) throw new Error('The reply expired. Retry.'); if (p.error) throw new Error(p.error); pending.resolve(p.body); }
+        try {
+            this.assertCurrent();
+            if (Date.now() >= p.deadline) {
+                // A suspended tab may deliver its expired reply before its timer.
+                if (this.direct && this.directGeneration !== undefined) this.direct.requestTimedOut(this.directGeneration);
+                throw new RequestDeadlineError('The reply expired. Retry.');
+            }
+            if (this.direct && this.directGeneration !== undefined) {
+                this.direct.acknowledge(this.directGeneration); this.authenticated = true; this.direct.confirm();
+            }
+            if (p.error) throw new Error(p.error);
+            pending.resolve(p.body);
+        }
         catch (error) { pending.reject(error instanceof Error ? error : new Error('Invalid reply.')); }
     };
-    async call(operation: Packet['operation'], body?: any, timeout = 15000): Promise<any> {
+    async call(operation: Packet['operation'], body?: any, timeout = 15000, deadline = Infinity): Promise<any> {
         // Foreground field selection calls assertSelected explicitly before and
         // after fetching fields, including detection of an older App selection.
         if (!this.direct) await this.assertSelected();
         this.assertCurrent();
+        if (Date.now() >= deadline) throw new RequestDeadlineError('The connection attempt expired. Try again.');
         const route = this.route, keys = this.keys, peer = this.window;
         if (!route || !keys) throw new Error('Connect to KeeWebX first.');
         const p: Packet = { type: 'request', host: route.host, endpoint: this.endpoint.href, id: uuid(), document: this.document, origin: location.origin,
-            operation, scope: this.scope, deadline: Math.min(Date.now() + timeout, this.scope ? this.expiresAt : Infinity), body };
+            operation, scope: this.scope, deadline: Math.min(Date.now() + timeout, this.scope ? this.expiresAt : Infinity, deadline), body };
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
-                this.pending.get(p.id)?.stop?.();
+                const pending = this.pending.get(p.id);
+                if (!pending) return;
+                pending.stop?.();
                 this.pending.delete(p.id);
-                this.direct?.reset('The KeeWebX port timed out. Reconnect to the original App.');
-                reject(new Error('The KeeWebX request timed out. Try Find accounts again.'));
+                if (this.direct && this.directGeneration !== undefined) this.direct.requestTimedOut(this.directGeneration);
+                reject(new RequestDeadlineError('The KeeWebX request timed out. Try Find accounts again.'));
             }, Math.max(1, p.deadline - Date.now()));
             this.pending.set(p.id, { packet: p, resolve, reject, timer });
             try {
@@ -562,7 +587,7 @@ export class NativeRpc {
         if (!this.live) return;
         this.live = false; removeEventListener('message', this.receive); this.unsubscribeDirect?.();
         this.cancelSetup?.();
-        if (this.direct && !this.authenticated && this.directGeneration === this.direct.generation) this.direct.reset('The connection attempt was canceled.');
+        if (this.direct && !this.authenticated && !this.direct.authenticatedReady && this.directGeneration === this.direct.generation) this.direct.reset('The connection attempt was canceled.');
         for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error('The operation was canceled.')); }
         this.pending.clear();
         if (this.scope && this.route && this.keys) {

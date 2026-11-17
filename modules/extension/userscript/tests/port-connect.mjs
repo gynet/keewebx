@@ -1,11 +1,12 @@
 // Production installer acceptance with native MessagePorts and a real encrypted KDBX.
 // Fixture helpers follow native-connect.mjs; importing it would execute its suite.
-// Build the 0.6.5 installer and app assets, serve dist on KWX_APP_SERVER, then run:
+// Build the current installer and app assets, serve dist on KWX_APP_SERVER, then run:
 // node modules/extension/userscript/tests/port-connect.mjs
 // KWX_APP_GM_BLOCK=1 leaves every app GM read unresolved after authorization.
 // KWX_BLOCK_HELPER_CLOSE=1 makes only userscript-held helper.close() calls no-ops.
 // KWX_APP_USERSCRIPT=/path/to/historical.user.js overrides only the original App's installer.
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
+// KWX_FOCUS_HELLO=1 runs startup and delayed-hello recovery without the later stress cases.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
@@ -27,6 +28,7 @@ const APP_SOURCE = process.env.KWX_APP_USERSCRIPT ? resolve(process.env.KWX_APP_
 const OUT = resolve(process.env.KWX_E2E_OUTPUT_DIR || mkdtempSync(join(tmpdir(), 'keewebx-port-connect-')));
 const BLOCK_APP_GM = process.env.KWX_APP_GM_BLOCK === '1';
 const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
+const FOCUS_HELLO = process.env.KWX_FOCUS_HELLO === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
 const OPERATION_BUDGET = 30000;
@@ -59,7 +61,7 @@ const stable = value => JSON.stringify(value, (_key, item) => item && typeof ite
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const report = {
     started: new Date().toISOString(),
-    scope: 'Production 0.6.5 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
+    scope: 'Production installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
     nativeIOSVerified: false, realManagerVerified: false, appGMBlockedAfterAuthorization: BLOCK_APP_GM, helperCrossCloseBlocked: BLOCK_HELPER_CLOSE,
     steps: [], errors: []
 };
@@ -1046,6 +1048,15 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
             return;
         }
         if (!isApp && data.kind === 'request') lastRequest = { port: this, data };
+        if (isApp && data.kind === 'reply' && data.value?.packet?.operation === 'hello' && state.holdHelloUntil > Date.now()) {
+            const port = this;
+            record(port, 'delayed', data);
+            setTimeout(() => {
+                record(port, 'sent', data);
+                nativePost.call(port, data, ...rest);
+            }, state.holdHelloUntil - Date.now());
+            return;
+        }
         if (isApp && state.holdHello && data.kind === 'reply' && data.value?.packet?.operation === 'hello') {
             state.heldHello.push({ port: this, data, rest });
             return;
@@ -1314,7 +1325,7 @@ async function setup(bundle, appBundle = bundle) {
     }));
 }
 
-try {
+acceptance: try {
     const bundle = readFileSync(SOURCE, 'utf8');
     const appBundle = APP_SOURCE === SOURCE ? bundle : readFileSync(APP_SOURCE, 'utf8');
     expectedSiteVersion = bundle.match(/^\/\/ @version\s+([^\s]+)\s*$/m)?.[1];
@@ -1322,7 +1333,7 @@ try {
     report.bundle = { bytes: Buffer.byteLength(bundle), sha256: createHash('sha256').update(bundle).digest('hex') };
     report.appBundle = { path: APP_SOURCE, version: expectedAppVersion, overridden: APP_SOURCE !== SOURCE,
         bytes: Buffer.byteLength(appBundle), sha256: createHash('sha256').update(appBundle).digest('hex') };
-    await step('require the production 0.6.5 installer and built MessagePort assets', async () => {
+    await step('require the current production installer and built MessagePort assets', async () => {
         expect(expectedSiteVersion, 'Website installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
         expect(bundle).toContain(PORT_MARK);
         expect(expectedAppVersion, 'App installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
@@ -1415,6 +1426,34 @@ try {
             return { helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
         } finally { await adapter(app, '__kwxPortAdapter.releaseHello()'); }
     });
+    await step('a delayed hello resumes automatically on the same signed port and ignores expired replies', async () => {
+        const page = await newWebsite(ACCOUNTS[0]), count = helpers.size;
+        const reads = await fieldReads(), lists = await entryReads(), started = Date.now();
+        await adapter(app, '__kwxPortAdapter.holdHelloUntil = Date.now() + 10500');
+        try {
+            await startLookup(page);
+            await expect.poll(() => helpers.size).toBe(count + 1);
+            await closedHelper(page, count);
+            await page.waitForTimeout(8500);
+            expect(await status(page)).not.toMatch(/timed out|expired/i);
+            expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(reads);
+            await matchingList(page, ACCOUNTS[0], reads);
+            const helloRequests = (await snapshot(page)).packets.filter(item => item.direction === 'sent'
+                && item.data.kind === 'request' && item.data.value?.packet?.operation === 'hello');
+            expect(new Set(helloRequests.map(item => item.data.value.packet.id)).size).toBe(2);
+            expect(new Set(helloRequests.map(item => item.data.connectionId)).size).toBe(1);
+            await fill(page, ACCOUNTS[0]);
+            expect(await fieldReads()).toBe(reads + 1); expect(await entryReads()).toBe(lists + 1);
+            expect(helpers.size).toBe(count + 1);
+            await physicalPort(page); await sameApp(); await noHelpers();
+            return { elapsedMs: Date.now() - started, delayedReplyMs: 10500, freshHelloRequests: 2,
+                physicalPorts: 1, temporaryPages: 1, logicalFieldReads: 1, expiredReplyIgnored: true };
+        } finally {
+            await adapter(app, '__kwxPortAdapter.holdHelloUntil = 0');
+            await archive(page); await page.close();
+        }
+    });
+    if (FOCUS_HELLO) { report.passed = true; report.focus = 'delayed-hello'; break acceptance; }
     await step('trusted opener self-closes the helper when worker handoff notice is lost and remote close is blocked', openerFallback);
     await step('Find accounts on another origin opens one temporary helper and matches only that origin', async () => {
         second = await newWebsite(ACCOUNTS[1]);

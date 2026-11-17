@@ -127,9 +127,11 @@ async function clearFields(page) {
 }
 async function lookup(page, account) {
     await page.bringToFront();
-    await page.locator('#username').click();
     const readsBefore = await fieldReads();
-    if (await shadowValue(page, 'section', 'hidden')) await action(page, 'toggle');
+    if (await shadowValue(page, 'section', 'hidden')) {
+        await page.locator('#username').click();
+        await action(page, 'toggle');
+    }
     else { await action(page, 'accounts-tab'); await action(page, 'lookup'); }
     await expect.poll(() => entries(page), { timeout: 15000 }).toContain(account.title);
     const listed = await entries(page);

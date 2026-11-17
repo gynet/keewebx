@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { sign } from 'tweetnacl';
+import { signPortReady } from '../src/port-auth';
 
 const originals = new Map<string, PropertyDescriptor | undefined>();
 function replace(name: string, value: unknown) {
@@ -23,10 +24,11 @@ afterEach(() => {
     }
 });
 
-async function fixture(failInitial = false, wireReceipt = false) {
+async function fixture(failInitial = false, wireReceipt = false, authenticatedReady = false) {
     const endpoint = new URL('https://keewebx.app/app?retry=' + crypto.randomUUID()), keys = sign.keyPair();
     const route = { host: crypto.randomUUID(), owner: crypto.randomUUID(), endpoint: endpoint.href,
-        publicKey: Buffer.from(keys.publicKey).toString('base64'), messagePort: 1, ...(wireReceipt ? { wireReceipt: 1 } : {}) };
+        publicKey: Buffer.from(keys.publicKey).toString('base64'), messagePort: 1,
+        ...(wireReceipt ? { wireReceipt: 1 } : {}), ...(authenticatedReady ? { readyProof: 1 } : {}) };
     replace('addEventListener', () => {}); replace('removeEventListener', () => {});
     replace('location', { href: 'https://login.example.org/login', origin: 'https://login.example.org' });
     replace('window', { open: () => ({ close() {} }) });
@@ -47,7 +49,8 @@ async function fixture(failInitial = false, wireReceipt = false) {
     const sent: any[] = [];
     class Port {
         onmessage?: (event: { data: any }) => void;
-        start() {} close() {}
+        closed = false;
+        start() {} close() { this.closed = true; }
         postMessage(data: any) {
             if (data.kind === 'request') {
                 if (failSend) throw new Error('Injected send failure');
@@ -63,10 +66,10 @@ async function fixture(failInitial = false, wireReceipt = false) {
     link = rpc.direct;
     const outer = { marker: 'keewebx-connect-port-v1', connectionId: link.id, appBoot: route.host,
         endpoint: endpoint.href, siteOrigin: location.origin };
-    port!.onmessage!({ data: { ...outer, kind: 'ready' } });
+    port!.onmessage!({ data: { ...outer, kind: 'ready', ...(authenticatedReady ? { proof: signPortReady(outer, keys.secretKey) } : {}) } });
     for (let turn = 0; turn < 10; turn++) await Promise.resolve();
     return {
-        sent, timers, outcome, fail() { failSend = true; },
+        sent, timers, outcome, port: port!, fail() { failSend = true; },
         tick(ms: number) {
             const until = now + ms;
             for (;;) {
@@ -88,9 +91,10 @@ async function fixture(failInitial = false, wireReceipt = false) {
     };
 }
 
-test.each(['reply', 'error reply', 'cancel', 'reset', 'timeout', 'send error', 'initial error', 'navigation', 'generation'])
-('direct hello retries stop on %s without changing the signed request or deadline', async scenario => {
-    const f = await fixture(scenario === 'initial error');
+test.each(['reply', 'error reply', 'cancel', 'reset', 'timeout', 'send error', 'initial error', 'navigation', 'generation']
+    .flatMap(scenario => [false, true].map(proof => [scenario, proof] as const)))
+('direct hello retries stop on %s (ready proof=%s) without changing the signed request or deadline', async (scenario, proof) => {
+    const f = await fixture(scenario === 'initial error', false, proof);
     if (scenario !== 'initial error') {
         expect(f.sent).toHaveLength(1);
         f.tick(750);
@@ -100,7 +104,14 @@ test.each(['reply', 'error reply', 'cancel', 'reset', 'timeout', 'send error', '
         else if (scenario === 'error reply') f.reply('KeeWebX is locked.');
         else if (scenario === 'cancel') rpc.dispose();
         else if (scenario === 'reset') link.reset();
-        else if (scenario === 'timeout') f.tick(7250);
+        else if (scenario === 'timeout') {
+            f.tick(7250);
+            if (proof) {
+                for (let turn = 0; turn < 12; turn++) await Promise.resolve();
+                expect(new Set(f.sent.map(value => value.packet.id)).size).toBe(2);
+                f.tick(8000);
+            }
+        }
         else {
             if (scenario === 'send error') f.fail();
             if (scenario === 'navigation') (globalThis as any).location.href += '#changed';
@@ -110,9 +121,17 @@ test.each(['reply', 'error reply', 'cancel', 'reset', 'timeout', 'send error', '
     }
     const error = await f.outcome;
     if (scenario === 'reply') expect(error).toBeUndefined(); else expect(error).toBeInstanceOf(Error);
+    if (scenario === 'cancel') expect(f.port.closed).toBe(!proof);
+    if (scenario === 'timeout') expect(f.port.closed).toBe(true);
+    if (scenario === 'send error' || scenario === 'initial error') expect(f.port.closed).toBe(true);
     expect(rpc.pending.size).toBe(0);
     expect(f.timers.size).toBe(0);
-    for (const request of f.sent) expect(request).toEqual(f.sent[0]);
+    const requests = new Map<string, any>();
+    for (const request of f.sent) {
+        if (!requests.has(request.packet.id)) requests.set(request.packet.id, request);
+        expect(request).toEqual(requests.get(request.packet.id));
+    }
+    expect(requests.size).toBe(scenario === 'initial error' ? 0 : scenario === 'timeout' && proof ? 2 : 1);
     const count = f.sent.length;
     f.tick(10000);
     expect(f.sent).toHaveLength(count);

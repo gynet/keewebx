@@ -22,6 +22,8 @@ export class SitePortLink {
     private nonce?: string;
     private sent = false;
     private ready = false;
+    private verifiedReady = false;
+    private consecutiveTimeouts = 0;
     private lastSeen = 0;
     private promise?: Promise<void>;
     private resolve?: () => void;
@@ -35,6 +37,7 @@ export class SitePortLink {
     generation = 0;
     href = location.href;
     constructor(readonly endpoint: URL) { addEventListener('message', this.receive); }
+    get authenticatedReady(): boolean { return this.ready && this.verifiedReady && this.href === location.href; }
     configure(route: PortRoute): void {
         if (this.route && (route.host !== this.route.host || route.publicKey !== this.route.publicKey)) this.reset('The selected KeeWebX App changed. Reconnect.');
         this.route = route;
@@ -60,7 +63,7 @@ export class SitePortLink {
                 if (!authenticated && (this.route?.readyProof === 1 || data.proof !== undefined)) {
                     this.reset('The App port signature could not be verified. Reconnect to your original App.'); return;
                 }
-                this.ready = true; this.lastSeen = Date.now(); clearTimeout(this.timer);
+                this.ready = true; this.verifiedReady = authenticated; this.lastSeen = Date.now(); clearTimeout(this.timer);
                 // Release the foreground helper in this event, as in the Lab.
                 // RPC session creation still uses the existing signed hello.
                 if (authenticated) this.confirm();
@@ -110,9 +113,21 @@ export class SitePortLink {
     assert(generation: number): void {
         if (!this.ready || !this.port || generation !== this.generation || this.href !== location.href) throw new Error('The website port is no longer connected. Reconnect to the existing App.');
     }
+    requestTimedOut(generation: number): void {
+        if (generation !== this.generation) return;
+        // Safari can suspend delivery while the App is foreground. Retain a
+        // proven physical channel for one fresh user request, never its session.
+        if (!this.authenticatedReady || ++this.consecutiveTimeouts >= 2) this.reset('The KeeWebX port timed out. Reconnect to the original App.');
+    }
+    acknowledge(generation: number): void {
+        this.assert(generation);
+        // Only NativeRpc's verified, matching, unexpired replies acknowledge RPC.
+        this.consecutiveTimeouts = 0;
+    }
     send(value: unknown): void {
         this.assert(this.generation); this.lastSeen = Date.now();
-        this.port!.postMessage({ marker: PORT_MARK, kind: 'request', connectionId: this.id, value });
+        try { this.port!.postMessage({ marker: PORT_MARK, kind: 'request', connectionId: this.id, value }); }
+        catch (error) { this.reset('The website port could not send a request. Reconnect.'); throw error; }
     }
     subscribe(listener: (value: unknown) => void, closed?: (reason: string) => void): () => void {
         this.listeners.add(listener); if (closed) this.closed.add(closed);
@@ -131,7 +146,7 @@ export class SitePortLink {
         this.helper = undefined;
         try { this.port?.postMessage({ marker: PORT_MARK, kind: 'close', connectionId: this.id }); } catch {}
         this.port?.close(); this.transfer?.close(); this.port = this.transfer = undefined;
-        this.ready = false; this.sent = false; this.promise = undefined;
+        this.ready = false; this.verifiedReady = false; this.consecutiveTimeouts = 0; this.sent = false; this.promise = undefined;
         for (const closed of [...this.closed]) closed(reason);
         this.reject?.(new Error(reason)); this.resolve = this.reject = undefined;
     }
