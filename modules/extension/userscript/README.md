@@ -117,6 +117,7 @@ KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/por
 KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/native-connect.mjs
+node modules/extension/userscript/tests/relay-lifecycle.mjs
 ```
 
 The production-port fixture uses the exact installer in Chromium extension

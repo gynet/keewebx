@@ -292,6 +292,7 @@ jobs:
             sleep 1
           done
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
+          KWX_RELAY_BROWSERS=chromium KWX_RELAY_LIFECYCLE_OUTPUT=.cache/userscript-relay-lifecycle node modules/extension/userscript/tests/relay-lifecycle.mjs
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
           KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port-blocked node modules/extension/userscript/tests/port-connect.mjs
@@ -314,6 +315,7 @@ jobs:
             .cache/new-interface-connect-server.log
             .cache/extension-command-results/
             .cache/userscript-connect/
+            .cache/userscript-relay-lifecycle/
             .cache/userscript-port/
             .cache/userscript-port-blocked/
           retention-days: 7
@@ -432,6 +434,7 @@ jobs:
             return 1
           }
           failed=0
+          KWX_RELAY_BROWSERS=webkit KWX_RELAY_LIFECYCLE_OUTPUT=.cache/messageport-webkit/lifecycle run_check lifecycle modules/extension/userscript/tests/relay-lifecycle.mjs || failed=1
           run_check selection modules/extension/userscript/tests/messageport-selection.mjs || failed=1
           run_check lab modules/extension/userscript/tests/messageport-poc.mjs || failed=1
           KWX_BLOCK_HELPER_CLOSE=1 KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/production run_check production modules/extension/userscript/tests/port-connect-webkit.mjs || failed=1

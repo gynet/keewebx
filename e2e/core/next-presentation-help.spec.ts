@@ -24,11 +24,14 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     await expect(setup).toContainText('Use a supported Chrome, Chromium, Edge, or Firefox desktop browser. For iOS Safari, see the Userscripts setup below.');
     await setup.getByText('iOS Safari with Userscripts (experimental)', { exact: true }).click();
     await expect(setup.getByRole('link', { name: 'Download Connect userscript', exact: true }))
-        .toHaveAttribute('href', `https://raw.githubusercontent.com/gynet/keewebx/userscript-v${installerVersion}/modules/extension/userscript/keewebx-connect.user.js`);
+        .toHaveAttribute('href', `https://keewebx.app/connect-port/keewebx-connect.user.js?v=${installerVersion}`);
     await expect(setup.getByRole('link', { name: 'Userscripts setup guide', exact: true }))
         .toHaveAttribute('href', 'https://github.com/gynet/keewebx/tree/master/modules/extension/userscript#readme');
     await expect(setup).toContainText('select Allow for account listing once. All login websites then use this tab.');
-    await expect(setup).toContainText('Finding accounts and testing the connection never open a page.');
+    await expect(setup).toContainText('Tap to Install');
+    await expect(setup).toContainText('The first connection on each page opens a temporary page');
+    await expect(setup).toContainText('The website then verifies the app before showing accounts.');
+    await expect(setup).toContainText('Further requests on the same page reuse the connection; other websites reuse the authorization.');
     const locked = setup.getByLabel('Ask to unlock when an extension requests a login', { exact: true });
     const empty = setup.getByLabel('Show the entry chooser when no website matches', { exact: true });
     await expect(locked).toBeChecked(); await expect(empty).toBeChecked();

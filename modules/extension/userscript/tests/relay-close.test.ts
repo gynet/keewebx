@@ -12,7 +12,7 @@ function fixture(closeAllowed = true, oldControllerInitially = false) {
     url.searchParams.set('site', site); url.searchParams.set('nonce', nonce); url.searchParams.set('endpoint', endpoint);
     const windowListeners = new Map<string, ((event: any) => unknown)[]>(), workerListeners = new Map<string, ((event: any) => unknown)[]>();
     const timers = new Map<number, { callback: () => void; ms: number }>();
-    let sequence = 0, closes = 0;
+    let sequence = 0, closes = 0, heartbeat = () => {};
     const status = { textContent: '', dataset: {} as Record<string, string> };
     const buttonListeners = new Map<string, () => void>();
     const back = { disabled: false, textContent: '', addEventListener(name: string, callback: () => void) { buttonListeners.set(name, callback); } };
@@ -37,7 +37,7 @@ function fixture(closeAllowed = true, oldControllerInitially = false) {
     runInNewContext(source, { window, navigator: { serviceWorker }, URL, TextEncoder,
         location: url, document: { getElementById: (id: string) => id === 'status' ? status : id === 'back' ? back : { textContent: '' } },
         setTimeout(callback: () => void, ms: number) { const id = ++sequence; timers.set(id, { callback, ms }); return id; },
-        clearTimeout(id: number) { timers.delete(id); }, setInterval() { return 0; }, clearInterval() {} });
+        clearTimeout(id: number) { timers.delete(id); }, setInterval(callback: () => void) { heartbeat = callback; return 0; }, clearInterval() {} });
     const completion = { marker, kind: 'handoff-complete', nonce, connectionId: id, endpoint };
     return {
         opener, worker, oldWorker, window, status, back, timers, closes: () => closes,
@@ -57,6 +57,7 @@ function fixture(closeAllowed = true, oldControllerInitially = false) {
             await Promise.all((windowListeners.get('message') ?? []).map(fn => fn(message)));
         },
         clickClose() { buttonListeners.get('click')!(); },
+        heartbeat() { heartbeat(); },
         upgrade() {
             serviceWorker.controller = worker;
             for (const callback of workerListeners.get('controllerchange') ?? []) callback({});
@@ -101,10 +102,28 @@ test('a silent self-close denial gives an explicit manual close action rather th
     expect(f.back.textContent).toBe('Close connection page');
     f.clickClose(); expect(f.closes()).toBe(2);
 });
-test('a missing handoff has a bounded failure state with a real close action', async () => {
+test('a missing handoff reports failure and closes within its existing budget', async () => {
     const f = fixture(); await f.attach(); f.fire(25000);
     expect(f.status.textContent).toContain('did not complete'); expect(f.back.textContent).toBe('Close connection page');
-    f.clickClose(); expect(f.window.closed).toBe(true);
+    expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
+});
+
+test('a closed opener cannot strand a helper before attachment', () => {
+    const f = fixture(); f.opener.closed = true; f.heartbeat();
+    expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
+    expect(f.worker.posts.filter(post => post.data.kind === 'attach')).toHaveLength(0);
+});
+test('abandoned startup reports timeout and closes without accepting a late attachment', async () => {
+    const f = fixture(); f.fire(12000);
+    expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
+    expect(f.opener.posts.at(-1)).toMatchObject({ kind: 'error', code: 'timeout', connectionId: '' });
+    await f.attach(false);
+});
+test('a failed handoff still offers manual close if the browser refuses self-close', async () => {
+    const f = fixture(false); await f.attach(); f.fire(25000); f.fire(300);
+    expect(f.window.closed).toBe(false); expect(f.back.disabled).toBe(false);
+    expect(f.status.textContent).toContain('Close this connection page');
+    f.clickClose(); expect(f.closes()).toBe(2);
 });
 
 test('an old activated controller with the same URL cannot accept the first handoff during upgrade', async () => {

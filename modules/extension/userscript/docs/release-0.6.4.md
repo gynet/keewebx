@@ -41,7 +41,7 @@ older receiver.
 
 ## Verification
 
-- 335 unit cases pass, including actual relay and worker execution, signed-ready
+- 338 unit cases pass, including actual relay and worker execution, signed-ready
   rejection, spoofed completion controls, denied close, bounded failure, worker
   upgrade and safe retained-reference cleanup.
 - Userscript and App TypeScript checks, installer syntax and App build pass.
@@ -68,3 +68,25 @@ wrong-source, stale and port-bearing errors cannot trigger closure. The 0.6.4
 installer is unchanged; this helper update also applies to existing 0.6.3 clients.
 Physical iOS acceptance of this fix still requires a device test; desktop
 WebKit is separate evidence.
+
+## Further startup and instruction audit
+
+A real-browser negative control reproduced another abandoned-helper path: closing
+its website before attachment left the helper open despite an active, verified
+worker. The server follow-up closes a helper whose opener disappears, and closes
+an unclaimed helper when its existing startup deadline expires. Worker startup
+and incomplete-handoff failures also close after reporting their error. Invalid
+standalone links still display their explanation, and browser-refused self-close
+still provides the manual close action. These controls grant no credential access.
+
+The native-window lifecycle suite exercises closed openers and abandoned startup
+with real service workers and unchanged timers in Chromium and WebKit. It checks
+that abandoned startup posts its timeout and actually closes, rather than only
+changing a label. The same new assertion failed against the previous build.
+Both browser jobs now run this suite in CI.
+
+App setup instructions now describe Safari's Tap to Install and the actual first
+connection-page lifecycle, with matching French and German translations. The
+presentation E2E checks the hosted installer and the current authorization flow;
+it no longer requires the obsolete promise that connection tests never open a
+page. This follow-up does not change the 0.6.4 installer or require reinstalling it.

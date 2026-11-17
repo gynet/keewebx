@@ -35,11 +35,11 @@ export function ExtensionPreferences({ enabled }: { enabled: boolean }) {
         </details>
         <details class="preference-help">
             <summary>{t('iOS Safari with Userscripts (experimental)')}</summary>
-            <p>{t('Install the Userscripts app, then save the KeeWebX Connect script in its script folder. Disable the old connection probes and allow Userscripts on KeeWebX and your login website.')}</p>
+            <p>{t('Install the Userscripts app, open the Connect userscript link below in Safari, then choose Tap to Install in the Userscripts extension menu. Keep the filename keewebx-connect.user.js and only one enabled Connect script. Disable old connection probes and allow Userscripts on KeeWebX and your login websites.')}</p>
             <p><a href="https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.4" target="_blank" rel="noopener noreferrer">{t('Download Connect userscript')}</a> · <a href={`${Links.Repo}/tree/master/modules/extension/userscript#readme`} target="_blank" rel="noopener noreferrer">{t('Userscripts setup guide')}</a></p>
             <ol>
                 <li>{t('In the KeeWebX tab you want to use, unlock a database, open KeeWebX Connect, choose Authorize Connect and select Allow for account listing once. All login websites then use this tab.')}</li>
-                <li>{t('On a login website, focus a login field, tap the key and select an account. A temporary connection page finds your existing app and closes after verification. Other websites reuse the same authorization; forms are not submitted automatically.')}</li>
+                <li>{t('On a login website, focus a login field and tap the key. The first connection on each page opens a temporary page that closes after connecting the website to your existing app. The website then verifies the app before showing accounts. Further requests on the same page reuse the connection; other websites reuse the authorization. Select an account to fill; forms are not submitted automatically.')}</li>
                 <li>{t('For a self-hosted app, save its HTTPS address in the script’s Connection tab first. Keep the authorized app open and visit it if needed, then return to the website and retry.')}</li>
             </ol>
             <p>{t('Keep the authorized KeeWebX tab open. If it stops replying, visit that tab, unlock if needed and retry from the website. Native iOS long suspension and standalone Home Screen PWAs remain unverified. The script cannot force iOS to resume a suspended tab.')}</p>

@@ -109,6 +109,7 @@
         }
         try { opener.postMessage(error, site); } catch { /* The website may have closed. */ }
         showError(message);
+        closeSelf();
     }
 
     function getController() {
@@ -193,6 +194,8 @@
             expired = true;
             stopAnnouncements();
             showError(error.message);
+            // An accepted attachment forwards this failure through its port first.
+            if (!accepted) closeSelf();
             return { error };
         }
     );
@@ -216,7 +219,7 @@
         stopAnnouncements();
         completionTimer = setTimeout(() => {
             if (completed || expired) return;
-            showError('The connection did not complete. Close this page and retry from your website.');
+            fail([], 'timeout', 'The connection did not complete. Retry from your website.');
         }, 25000);
         const port = event.ports[0];
         const abandon = () => fail([port], 'relay-closed', 'The helper closed before handing off the connection. Return to the website and retry.');
@@ -270,6 +273,7 @@
             expired = true;
             stopAnnouncements();
             showError('The website tab closed. Reopen it and start a new connection.');
+            closeSelf();
             return;
         }
         try {
@@ -278,6 +282,7 @@
             expired = true;
             stopAnnouncements();
             showError('The website could not be reached. Return to its tab and retry.');
+            closeSelf();
         }
     }
 
