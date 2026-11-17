@@ -22,7 +22,7 @@
     "dompurify": "^2.2.8",
     "handlebars": "^4.7.7",
     "hash-wasm": "4.12.0",
-    "jquery": "3.6.0",
+    "jquery": "4.0.0",
     "jsqrcode": "antelle/jsqrcode",
     "kdbxweb": "workspace:@keewebx/db@*",
     "marked": "^2.1.3",
