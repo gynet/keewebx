@@ -43,18 +43,21 @@ include setup and troubleshooting even while disconnected.
 ## iOS Safari with Userscripts
 
 Install the experimental [KeeWebX Connect userscript](userscript/README.md)
-[version 0.5.5](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.5.5/modules/extension/userscript/keewebx-connect.user.js)
+[version 0.6.4](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.4)
 with **Userscripts**, and allow it on KeeWebX and your login websites.
 
 Authorize the unlocked app once. On a website, focus a login field, tap the key
-and select an account. Normal lookup, retry and connection tests never open a
-page. Native window messages are reused when available; a signed private
-mailbox recovers missing window associations through the same encrypted Connect
-protocol and authorization. There is no remote relay server.
+and select an account. A temporary helper locates the selected original App,
+transfers a MessagePort and closes itself. The website verifies the App signature
+and completes the existing encrypted Connect protocol before listing or filling.
+Subsequent requests reuse that direct port. There is no remote relay server.
 
-When upgrading, save changes and reload the app and website once to update both
-ends. Keep the authorized app open; visit it and unlock if needed, then retry.
-Native iOS and standalone PWA acceptance remain unverified.
+The deployed helper also fixes closure for an existing 0.6.3 installation: close
+any stuck connection page and retry from the website. Updating to 0.6.4 adds a
+scoped fallback and retains the helper reference if a close request is refused.
+An App reload is optional when upgrading from 0.6.3; for older versions, save
+changes and reload both ends. Keep the authorized App open and unlock if needed.
+Physical iOS and standalone PWA acceptance remain unverified.
 
 ## Building
 

@@ -225,6 +225,13 @@ async function attach(event) {
             endpoint: data.endpoint,
             siteOrigin: data.siteOrigin
         }, [event.ports[0]]);
+        // The endpoint now belongs to the App, independently of the helper.
+        // Closing this routing page grants no access; the website still verifies
+        // the signed port receipt and encrypted protocol on its own endpoint.
+        try {
+            relay.postMessage({ marker: MARK, kind: 'handoff-complete', nonce: data.nonce,
+                connectionId: data.connectionId, endpoint: data.endpoint });
+        } catch { /* The website may already have closed its helper. */ }
     } catch {
         fail(event, 'unreachable', 'The app could not receive the connection. Return to the website and retry.');
     } finally {
@@ -232,4 +239,15 @@ async function attach(event) {
     }
 }
 
-self.addEventListener('message', (event) => event.waitUntil(attach(event)));
+self.addEventListener('message', (event) => {
+    const data = event.data;
+    if (data?.kind === 'probe-relay') {
+        if (event.ports.length || !smallMessage(data) || Object.keys(data).length !== 5 || data.marker !== MARK ||
+            !UUID.test(data.nonce) || !validOrigin(data.siteOrigin) || !validEndpoint(data.endpoint) ||
+            !outerWindow(event.source) || !validRelay(event.source, data)) return;
+        event.source.postMessage({ marker: MARK, kind: 'relay-capabilities', nonce: data.nonce,
+            endpoint: data.endpoint, protocol: 'self-close-v1' });
+        return;
+    }
+    event.waitUntil(attach(event));
+});

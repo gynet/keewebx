@@ -1,8 +1,10 @@
 // Production installer acceptance with native MessagePorts and a real encrypted KDBX.
 // Fixture helpers follow native-connect.mjs; importing it would execute its suite.
-// Build the 0.6.3 installer and app assets, serve dist on KWX_APP_SERVER, then run:
+// Build the 0.6.4 installer and app assets, serve dist on KWX_APP_SERVER, then run:
 // node modules/extension/userscript/tests/port-connect.mjs
 // KWX_APP_GM_BLOCK=1 leaves every app GM read unresolved after authorization.
+// KWX_BLOCK_HELPER_CLOSE=1 makes only userscript-held helper.close() calls no-ops.
+// KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
@@ -22,6 +24,9 @@ const APP_SERVER = process.env.KWX_APP_SERVER || 'http://127.0.0.1:39232';
 const SOURCE = resolve(process.env.KWX_USERSCRIPT || join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'));
 const OUT = resolve(process.env.KWX_E2E_OUTPUT_DIR || mkdtempSync(join(tmpdir(), 'keewebx-port-connect-')));
 const BLOCK_APP_GM = process.env.KWX_APP_GM_BLOCK === '1';
+const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
+// Optional upgrade run uses an unmodified historical worker supplied outside the repo.
+const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
 const OPERATION_BUDGET = 30000;
 const SELECTION_STATUSES = ['Checking account access', 'Reading account details', 'Checking access before filling'];
 const APP = 'https://keewebx.app/app';
@@ -42,8 +47,8 @@ const stable = value => JSON.stringify(value, (_key, item) => item && typeof ite
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const report = {
     started: new Date().toISOString(),
-    scope: 'Production 0.6.3 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
-    nativeIOSVerified: false, realManagerVerified: false, appGMBlockedAfterAuthorization: BLOCK_APP_GM,
+    scope: 'Production 0.6.4 installer in Chromium isolated content scripts, native MessagePort and service-worker handoff, GM adapter, real KDBX and native consent',
+    nativeIOSVerified: false, realManagerVerified: false, appGMBlockedAfterAuthorization: BLOCK_APP_GM, helperCrossCloseBlocked: BLOCK_HELPER_CLOSE,
     steps: [], errors: []
 };
 const cdpByPage = new WeakMap(), helpers = new Map(), documents = new Map(), sockets = new Set();
@@ -162,7 +167,7 @@ async function untilStatus(page, expression, timeout = 15000) {
 async function ready(page) {
     await realVisibility(page);
     await expect(page.locator('#keewebx-userscript-connect')).toBeAttached({ timeout: 15000 });
-    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect 0.6.3');
+    expect(await shadowValue(page, '[data-role="version"]')).toBe('Connect 0.6.4');
     expect(await page.evaluate(() => typeof globalThis.__kwxPortAdapter)).toBe('undefined');
     await snapshot(page);
     if (new URL(page.url()).origin !== new URL(APP).origin) {
@@ -190,7 +195,7 @@ function helperURL(value) {
 }
 function trackHelper(page) {
     if (!helperURL(page.url()) || helpers.has(page)) return;
-    helpers.set(page, { url: page.url(), openedAt: Date.now(), closedAt: null, automaticClosure: false, signedReadyBeforeClosure: false });
+    helpers.set(page, { url: page.url(), openedAt: Date.now(), closedAt: null, automaticClosure: false, signedReadyVerified: false });
 }
 async function noHelpers() {
     await expect.poll(() => context.pages().filter(page => helperURL(page.url())).length, { timeout: 10000 }).toBe(0);
@@ -199,7 +204,7 @@ async function noHelpers() {
 async function sameApp({ unlocked = true, authorized = true } = {}) {
     expect(await documentState(app)).toEqual(originalApp);
     expect(appNavigationRequests).toBe(1);
-    expect(context.pages().filter(page => page.url().startsWith(new URL(APP).origin) && !helperURL(page.url()))).toEqual([app]);
+    expect(context.pages().filter(page => page !== upgradePage && page.url().startsWith(new URL(APP).origin) && !helperURL(page.url()))).toEqual([app]);
     if (unlocked) await expect(app.locator('.vault')).toBeVisible();
     await expect(consent()).toHaveCount(0);
     expect(await app.evaluate(() => globalThis.__kwxNativeTest.consentCount)).toBe(1);
@@ -238,6 +243,7 @@ async function bounded(label, run) {
 }
 async function matchingList(page, account, readsBefore, remaining = () => OPERATION_BUDGET) {
     await expect.poll(() => entries(page), { timeout: remaining() }).toContain(account.title);
+    assertAccountAuthority((await snapshot(page)).packets);
     const listed = await entries(page);
     for (const other of ACCOUNTS.filter(item => item !== account)) expect(listed).not.toContain(other.title);
     expect(await status(page)).toMatch(/Found 1 matching account/);
@@ -472,6 +478,184 @@ function validReadyProof(data) {
     return typeof data.proof === 'string' && Buffer.from(data.proof, 'base64').length === 64
         && verify(null, Buffer.from(payload), signingPublicKey(), Buffer.from(data.proof, 'base64'));
 }
+// Only references returned to the userscript are wrapped. Native events and ports
+// still cross the browser boundary; the helper's own page-world close stays native.
+function helperCloseFault({ marker, appOrigin, blocked }) {
+    const state = { blocked, attempts: [], sources: [], messages: [] }, refs = [], proxies = new WeakMap();
+    globalThis.__kwxHelperClose = state;
+    state.snapshot = () => ({ blocked: state.blocked, attempts: state.attempts, sources: state.sources,
+        messages: state.messages, references: refs.map(({ raw, url }) => ({ url, closed: raw.closed })) });
+    if (location.origin === appOrigin) return;
+    const nativeOpen = window.open;
+    window.open = function (...args) {
+        const raw = nativeOpen.apply(this, args);
+        const url = new URL(String(args[0]), location.href);
+        if (!raw || url.origin !== appOrigin || url.pathname !== '/connect-port/relay.html') return raw;
+        if (proxies.has(raw)) return proxies.get(raw);
+        const index = refs.length, methods = new Map();
+        const close = () => {
+            const attempt = { at: Date.now(), reference: index, blocked: state.blocked, closedBefore: raw.closed };
+            state.attempts.push(attempt);
+            if (!state.blocked) raw.close();
+            attempt.closedAfter = raw.closed;
+        };
+        const proxy = new Proxy(raw, { get(target, key) {
+            if (key === 'close') return close;
+            const value = Reflect.get(target, key, target);
+            if (typeof value !== 'function') return value;
+            if (!methods.has(key)) methods.set(key, key === 'postMessage' ? (data, ...rest) => {
+                if (data?.marker === marker) state.messages.push({ at: Date.now(), reference: index, data: structuredClone(data) });
+                return value.call(target, data, ...rest);
+            } : value.bind(target));
+            return methods.get(key);
+        } });
+        refs.push({ raw, url: url.href }); proxies.set(raw, proxy);
+        return proxy;
+    };
+    const nativeAdd = window.addEventListener, nativeRemove = window.removeEventListener, listeners = new WeakMap();
+    window.addEventListener = function (type, listener, ...rest) {
+        if (type !== 'message' || !listener) return nativeAdd.call(this, type, listener, ...rest);
+        if (!listeners.has(listener)) listeners.set(listener, function (event) {
+            const source = proxies.get(event.source);
+            const adapted = source ? new Proxy(event, { get(target, key) {
+                if (key === 'source') return source;
+                const value = Reflect.get(target, key, target);
+                return typeof value === 'function' ? value.bind(target) : value;
+            } }) : event;
+            if (source && event.data?.marker === marker) state.sources.push({ at: Date.now(), trusted: adapted.isTrusted,
+                origin: adapted.origin, kind: adapted.data.kind, sourceMatches: adapted.source === source,
+                nativePorts: adapted.ports === event.ports });
+            return typeof listener === 'function' ? listener.call(this, adapted) : listener.handleEvent(adapted);
+        });
+        return nativeAdd.call(this, type, listeners.get(listener), ...rest);
+    };
+    window.removeEventListener = function (type, listener, ...rest) {
+        return nativeRemove.call(this, type, type === 'message' ? listeners.get(listener) || listener : listener, ...rest);
+    };
+}
+
+// Capture public close controls before the production relay listener. A one-shot
+// flag drops only the worker handoff notice to exercise the trusted opener path.
+function observeHelper({ marker }) {
+    if (location.pathname !== '/connect-port/relay.html') return;
+    const dropHandoff = localStorage.getItem('__kwxDropWorkerHandoff') === '1';
+    if (dropHandoff) localStorage.removeItem('__kwxDropWorkerHandoff');
+    const record = (channel, event, sourceMatches, dropped = false) => {
+        if (event.data?.marker !== marker) return;
+        void globalThis.kwxHelperTrace({ url: location.href, at: Date.now(), channel, trusted: event.isTrusted,
+            sourceMatches, origin: event.origin, ports: event.ports.length, dropped, data: structuredClone(event.data) });
+    };
+    addEventListener('message', event => record('opener', event, event.source === window.opener), true);
+    navigator.serviceWorker.addEventListener('message', event => {
+        const dropped = dropHandoff && event.data?.marker === marker && event.data.kind === 'handoff-complete';
+        record('worker', event, event.source === navigator.serviceWorker.controller, dropped);
+        if (dropped) event.stopImmediatePropagation();
+    }, true);
+}
+
+function assertAccountAuthority(packets) {
+    for (const wire of packets.filter(item => item.direction === 'sent' && item.data.kind === 'request'
+        && item.data.value?.packet?.operation === 'wire')) {
+        const samePort = item => item.port === wire.port && item.data.connectionId === wire.data.connectionId;
+        const ready = packets.find(item => samePort(item) && item.direction === 'received' && item.data.kind === 'ready');
+        const hello = packets.find(item => samePort(item) && item.direction === 'received'
+            && item.data.value?.packet?.operation === 'hello' && item.data.value.packet.error === undefined);
+        expect(ready, 'Account traffic requires signed ready').toBeTruthy();
+        expect(validReadyProof(ready.data)).toBe(true);
+        expect(hello, 'Account traffic requires a verified native hello reply').toBeTruthy();
+        expect(validSignature(hello.data.value)).toBe(true);
+        expect(ready.at).toBeLessThanOrEqual(hello.at);
+        expect(hello.at).toBeLessThanOrEqual(wire.at);
+    }
+}
+
+let workerOverride = LEGACY_WORKER, workerUpgradeGate, releaseWorkerUpgrade, upgradePage;
+function legacyWorkerBody() {
+    return `self.addEventListener('message', event => {
+        event.source?.postMessage({marker: 'keewebx-connect-port-v1', kind: 'fixture-legacy-observed', operation: event.data?.kind});
+    });\n${LEGACY_WORKER}`;
+}
+async function installLegacyWorker(origin) {
+    if (!LEGACY_WORKER) return;
+    expect(LEGACY_WORKER).not.toContain('relay-capabilities');
+    expect(LEGACY_WORKER).not.toContain('handoff-complete');
+    upgradePage = await context.newPage();
+    await upgradePage.goto(origin + '/connect-port/upgrade-fixture.html');
+    await upgradePage.evaluate(async () => {
+        await navigator.serviceWorker.register('./worker.js', { scope: './', updateViaCache: 'none' });
+        await navigator.serviceWorker.ready;
+        if (!navigator.serviceWorker.controller) await new Promise(resolve =>
+            navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
+    });
+    await expect.poll(() => upgradePage.evaluate(() => navigator.serviceWorker.controller?.state), { timeout: 8000 }).toBe('activated');
+    workerOverride = null;
+    workerUpgradeGate = new Promise(resolve => { releaseWorkerUpgrade = resolve; });
+}
+async function finishLegacyWorker() {
+    if (!LEGACY_WORKER) return;
+    const legacyMessages = (report.helperMessages || []).filter(item => item.data.kind === 'fixture-legacy-observed');
+    expect(legacyMessages.some(item => item.trusted && item.sourceMatches && item.data.operation === 'probe-relay')).toBe(true);
+    expect(legacyMessages.some(item => item.data.operation === 'attach')).toBe(false);
+    expect((report.helperMessages || []).some(item => item.trusted && item.sourceMatches
+        && item.data.kind === 'relay-capabilities' && item.data.protocol === 'self-close-v1')).toBe(true);
+    report.workerUpgrade = { historicalWorkerSha256: createHash('sha256').update(LEGACY_WORKER).digest('hex'),
+        legacyControllerProbed: true, attachedToLegacyWorker: false, firstConnectionSucceeded: true };
+    await upgradePage.close(); upgradePage = undefined;
+}
+async function closureNotice(page, before, kind, dropped = false) {
+    const helper = [...helpers.values()][before], url = new URL(helper.url);
+    const ready = (await snapshot(page)).packets.find(item => item.direction === 'received'
+        && item.data.kind === 'ready' && item.at >= helper.openedAt);
+    const expected = { marker: PORT_MARK, kind, nonce: url.searchParams.get('nonce'),
+        connectionId: ready.data.connectionId, endpoint: url.searchParams.get('endpoint') };
+    const matches = () => (report.helperMessages || []).filter(item => item.url === helper.url
+        && item.data.kind === kind && item.dropped === dropped);
+    await expect.poll(() => matches().length, { timeout: 2000 }).toBeGreaterThan(0);
+    const notice = matches()[0];
+    expect(notice.data).toEqual(expected);
+    expect(notice.trusted && notice.sourceMatches).toBe(true);
+    expect(notice.ports).toBe(0);
+    expect(notice.channel).toBe(kind === 'handoff-complete' ? 'worker' : 'opener');
+    if (notice.channel === 'opener') expect(notice.origin).toBe(url.searchParams.get('site'));
+    helper.closureControl = kind; helper.closureControlDropped = dropped;
+    return notice;
+}
+
+async function openerFallback() {
+    return bounded('Opener self-close fallback', async remaining => {
+        const website = await context.newPage(), before = helpers.size;
+        await website.goto(ACCOUNTS[0].url); await ready(website); await emptyFields(website);
+        await adapter(website, '__kwxHelperClose.blocked = true');
+        await app.evaluate(() => localStorage.setItem('__kwxDropWorkerHandoff', '1'));
+        const reads = await fieldReads(), lists = await entryReads();
+        await adapter(app, '__kwxPortAdapter.holdHello = true');
+        try {
+            await startLookup(website);
+            await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: remaining() }).toBeGreaterThan(0);
+            await closedHelper(website, before);
+            await closureNotice(website, before, 'handoff-complete', true);
+            await closureNotice(website, before, 'relay-complete');
+            const { helperClose, packets } = await snapshot(website);
+            expect(helperClose.attempts.length).toBeGreaterThan(0);
+            expect(helperClose.attempts.every(item => item.blocked && !item.closedBefore && !item.closedAfter)).toBe(true);
+            expect(packets.some(item => item.direction === 'received' && item.data.value?.packet?.operation === 'hello')).toBe(false);
+            expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(reads);
+            await emptyFields(website);
+            await adapter(app, '__kwxPortAdapter.releaseHello()');
+            await matchingList(website, ACCOUNTS[0], reads, remaining);
+            await fill(website, ACCOUNTS[0]);
+            remaining();
+            return { workerNoticeDropped: true, trustedOpenerSelfClosed: true, remoteCloseAttemptsBlocked: helperClose.attempts.length,
+                signedReadyAndHelloRequiredBeforeAccountData: true };
+        } finally {
+            await adapter(app, '__kwxPortAdapter.releaseHello()');
+            await app.evaluate(() => localStorage.removeItem('__kwxDropWorkerHandoff'));
+            await archive(website);
+            await website.close();
+        }
+    });
+}
+
 async function closedHelper(page, countBefore) {
     await noHelpers();
     expect(helpers.size).toBe(countBefore + 1);
@@ -480,7 +664,14 @@ async function closedHelper(page, countBefore) {
     expect(url.searchParams.getAll('endpoint')).toEqual([APP]);
     expect(url.searchParams.getAll('nonce')).toHaveLength(1);
     expect(url.searchParams.get('nonce')).toMatch(/^[0-9a-f-]{36}$/i);
-    const { packets } = await snapshot(page);
+    const { packets, helperClose } = await snapshot(page);
+    assertAccountAuthority(packets);
+    expect(helperClose.references).toContainEqual({ url: helper.url, closed: true });
+    expect(helperClose.sources.some(item => item.kind === 'relay-ready')).toBe(true);
+    expect(helperClose.sources.every(item => item.trusted && item.sourceMatches && item.nativePorts
+        && item.origin === url.origin)).toBe(true);
+    if (helperClose.blocked) expect(helperClose.attempts.every(item => item.blocked
+        && item.closedAfter === item.closedBefore)).toBe(true);
     const received = packets.filter(item => item.direction === 'received'
         && item.at >= helper.openedAt && item.data.kind === 'ready');
     expect(received).toHaveLength(1);
@@ -491,12 +682,11 @@ async function closedHelper(page, countBefore) {
     expect(ready.data.siteOrigin).toBe(new URL(page.url()).origin);
     expect(ready.data.connectionId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(validReadyProof(ready.data)).toBe(true);
-    expect(ready.at).toBeLessThanOrEqual(helper.closedAt);
     expect(packets.some(item => item.direction === 'sent' && item.port === ready.port
         && item.data.kind === 'request' && item.data.connectionId === ready.data.connectionId
         && item.data.value?.packet?.operation === 'hello' && item.at >= ready.at)).toBe(true);
     expect(helper.automaticClosure).toBe(true);
-    helper.signedReadyBeforeClosure = true;
+    helper.signedReadyVerified = true;
     await sameApp();
 }
 async function cancelPending(page, kind) {
@@ -525,7 +715,8 @@ async function cancelPending(page, kind) {
 
 // These observers live beside the installer, in the extension's isolated world.
 // They retain native port identity and traffic; they never implement a receiver.
-function installAdapter({ appURL, prefix, portMarker }) {
+function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
+    helperCloseFault({ marker: portMarker, appOrigin: new URL(appURL).origin, blocked: blockHelperClose });
     const isApp = location.href === appURL;
     const state = {
         boot: crypto.randomUUID(), href: location.href, role: isApp ? 'app' : 'site', blockGM: false,
@@ -555,7 +746,7 @@ function installAdapter({ appURL, prefix, portMarker }) {
         ports.set(port, ++sequence);
         port.addEventListener('message', event => record(port, 'received', event.data));
     };
-    // Observe the initial ready proof before the receiver can close its helper.
+    // Observe signed ready independently of routing-page closure.
     globalThis.MessageChannel = new Proxy(MessageChannel, {
         construct(target, args, newTarget) {
             const channel = Reflect.construct(target, args, newTarget);
@@ -610,7 +801,7 @@ function installAdapter({ appURL, prefix, portMarker }) {
         boot: state.boot, href: state.href, role: state.role, blockGM: state.blockGM,
         reads: state.reads, allowedReads: state.allowedReads, blockedReads: state.blockedReads,
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
-        heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses
+        helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses
     });
     function mailbox(operation, key) {
         if (!String(key).startsWith('keewebx-connect-mailbox-v1:')) return;
@@ -659,6 +850,13 @@ async function publishedOriginServer() {
                 response.writeHead(421).end(); return;
             }
             assetRequests.set(url.pathname, (assetRequests.get(url.pathname) || 0) + 1);
+            if (url.pathname === '/connect-port/upgrade-fixture.html') {
+                response.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }).end('<!doctype html><title>Worker upgrade fixture</title>'); return;
+            }
+            if (url.pathname === '/connect-port/worker.js') {
+                if (workerOverride) { response.writeHead(200, { 'content-type': 'application/javascript', 'cache-control': 'no-store' }).end(legacyWorkerBody()); return; }
+                if (workerUpgradeGate) await workerUpgradeGate;
+            }
             let path = url.pathname.replace(/^\/app(?=\/|$)/, '') || '/next.html';
             if (path === '/') path = '/next.html';
             const upstream = await fetch(APP_SERVER + path + url.search, { signal: AbortSignal.timeout(10000) });
@@ -714,7 +912,8 @@ async function setup(bundle) {
             else if (message.op === 'saveTab') { tabs.set(sender.tab.id, message.value); reply(true); }
         });`);
     writeFileSync(join(extension, 'content.js'), `(() => {
-        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK })});
+        ${helperCloseFault.toString()}
+        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE })});
         ${bundle}
     })();`);
     const proxy = await publishedOriginServer();
@@ -726,6 +925,11 @@ async function setup(bundle) {
     nativeWorker = context.serviceWorkers().find(worker => worker.url().startsWith('chrome-extension://'))
         || await context.waitForEvent('serviceworker', worker => worker.url().startsWith('chrome-extension://'));
     for (const page of context.pages()) await page.close();
+    await context.exposeBinding('kwxHelperTrace', (_source, detail) => {
+        (report.helperMessages ||= []).push(detail);
+        if (detail.data.kind === 'fixture-legacy-observed' && detail.data.operation === 'probe-relay') releaseWorkerUpgrade?.();
+    });
+    await context.addInitScript(observeHelper, { marker: PORT_MARK });
     await context.addInitScript(() => {
         if (location.protocol !== 'https:') return;
         const observed = { documentBoot: crypto.randomUUID(), wireRequests: {}, logicalRequests: {}, windowRequests: [], windowResponses: [],
@@ -817,8 +1021,8 @@ async function setup(bundle) {
 try {
     const bundle = readFileSync(SOURCE, 'utf8');
     report.bundle = { bytes: Buffer.byteLength(bundle), sha256: createHash('sha256').update(bundle).digest('hex') };
-    await step('require the production 0.6.3 installer and built MessagePort assets', async () => {
-        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.3\s*$/m);
+    await step('require the production 0.6.4 installer and built MessagePort assets', async () => {
+        expect(bundle).toMatch(/^\/\/ @version\s+0\.6\.4\s*$/m);
         expect(bundle).toContain(PORT_MARK);
         for (const path of ['/next.html', '/connect-port/relay.html', '/connect-port/relay.js', '/connect-port/worker.js']) {
             const response = await fetch(APP_SERVER + path, { signal: AbortSignal.timeout(10000) });
@@ -870,17 +1074,22 @@ try {
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
-    await step('signed ready closes the first helper while hello is held; a cached retry survives a lost first reply', async () => {
+    await step('worker handoff self-closes the first helper while hello is held; a cached retry survives a lost first reply', async () => {
+        await installLegacyWorker(new URL(APP).origin);
         first = await newWebsite(ACCOUNTS[0]);
-        const count = helpers.size, reads = await fieldReads();
+        const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+        await adapter(first, '__kwxHelperClose.blocked = true');
         await adapter(app, '__kwxPortAdapter.holdHello = true');
         try {
             await startLookup(first);
             await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 25000 }).toBeGreaterThanOrEqual(1);
             await expect.poll(() => helpers.size).toBe(count + 1);
             const helper = [...helpers.keys()][count];
-            await expect.poll(() => helper.isClosed(), { timeout: 2000, message: 'Signed ready must close the helper while RPC hello is held' }).toBe(true);
+            await expect.poll(() => helper.isClosed(), { timeout: 2000, message: 'Worker handoff must self-close the helper while RPC hello is held' }).toBe(true);
             await closedHelper(first, count);
+            await closureNotice(first, count, 'handoff-complete');
+            await finishLegacyWorker();
+            expect(await entryReads()).toBe(lists);
             await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
             expect(helper.isClosed()).toBe(true);
             const helloRepliesHeld = (await snapshot(app)).heldHello, port = await physicalPort(first);
@@ -903,6 +1112,7 @@ try {
             return { helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
         } finally { await adapter(app, '__kwxPortAdapter.releaseHello()'); }
     });
+    await step('trusted opener self-closes the helper when worker handoff notice is lost and remote close is blocked', openerFallback);
     await step('Find accounts on another origin opens one temporary helper and matches only that origin', async () => {
         second = await newWebsite(ACCOUNTS[1]);
         const count = helpers.size, reads = await fieldReads();
@@ -1089,6 +1299,7 @@ try {
     await step('audit real worker provenance, signed encrypted port traffic and automatic helper closure', async () => {
         for (const page of context.pages()) await archive(page);
         const allDocuments = [...documents.values()];
+        for (const document of allDocuments.filter(document => document.role === 'site')) assertAccountAuthority(document.packets);
         const traffic = allDocuments.flatMap(document => document.packets);
         const packets = traffic.filter(item => item.data.value?.packet);
         expect(packets.length).toBeGreaterThan(30);
@@ -1100,12 +1311,12 @@ try {
             && !('values' in body) && !('suggested' in body))).toBe(true);
         const appDocument = allDocuments.find(document => document.role === 'app');
         const attachments = appDocument.attachments.filter(item => item.data.kind === 'attach-port');
-        const signedReadyBeforeClosure = [...helpers.values()].filter(helper => helper.signedReadyBeforeClosure).length;
+        const signedReadyVerified = [...helpers.values()].filter(helper => helper.signedReadyVerified).length;
         const readyProofs = traffic.filter(item => item.direction === 'received' && item.data.kind === 'ready');
-        expect(readyProofs.length).toBeGreaterThanOrEqual(signedReadyBeforeClosure);
+        expect(readyProofs.length).toBeGreaterThanOrEqual(signedReadyVerified);
         expect(readyProofs.every(item => validReadyProof(item.data) && item.data.appBoot === approvedRoute.host
             && item.data.endpoint === APP && ACCOUNTS.slice(0, 2).some(account => new URL(account.url).origin === item.data.siteOrigin))).toBe(true);
-        expect(attachments.length).toBeGreaterThanOrEqual(signedReadyBeforeClosure);
+        expect(attachments.length).toBeGreaterThanOrEqual(signedReadyVerified);
         expect(attachments.every(item => item.trusted && item.worker === 'https://keewebx.app/connect-port/worker.js'
             && item.data.appBoot === approvedRoute.host && item.data.endpoint === APP)).toBe(true);
         expect(assetRequests.get('/connect-port/worker.js')).toBeGreaterThan(0);
@@ -1118,9 +1329,9 @@ try {
         const serialized = JSON.stringify({ audit, traffic, windowMessages });
         for (const secret of PRIVATE_VALUES) expect(serialized).not.toContain(secret);
         await noHelpers();
-        expect(signedReadyBeforeClosure).toBeGreaterThanOrEqual(10);
+        expect(signedReadyVerified).toBeGreaterThanOrEqual(10);
         report.transportAudit = { signedEnvelopes: packets.length, encryptedSensitiveEnvelopes: sensitive.length,
-            signedReadyProofs: readyProofs.length, signedReadyBeforeClosure,
+            signedReadyProofs: readyProofs.length, signedReadyVerified,
             nativeWorkerAttachments: attachments.length, mailboxFallbacks: 0, noPlaintext: true,
             logicalAppRequestsByAction: windowMessages.logicalRequests, physicalWindowPostsByAction: windowMessages.postAttempts };
         return report.transportAudit;
@@ -1144,9 +1355,10 @@ try {
     process.exitCode = 1;
 } finally {
     report.finished = new Date().toISOString();
+    report.helperCloseFaults = [...documents.values()].map(document => ({ boot: document.boot, ...document.helperClose }));
     report.appNavigationRequests = appNavigationRequests;
     report.helpers = { opened: helpers.size, automaticallyClosed: [...helpers.values()].filter(helper => helper.automaticClosure).length,
-        signedReadyBeforeClosure: [...helpers.values()].filter(helper => helper.signedReadyBeforeClosure).length,
+        signedReadyVerified: [...helpers.values()].filter(helper => helper.signedReadyVerified).length,
         remaining: context ? context.pages().filter(page => helperURL(page.url())).length : 0, lifecycle: [...helpers.values()] };
     writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2));
     console.log(JSON.stringify({ report: join(OUT, 'report.json'), passed: report.passed }));

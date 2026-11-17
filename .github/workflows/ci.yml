@@ -268,7 +268,7 @@ jobs:
       - name: Build and typecheck Userscripts Connect
         run: |
           bun modules/extension/userscript/build-connect.ts
-          bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
+          bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
           node --check modules/extension/userscript/keewebx-connect.user.js
           git diff --exit-code -- modules/extension/userscript/keewebx-connect.user.js
@@ -294,7 +294,7 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
-          KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port-blocked node modules/extension/userscript/tests/port-connect.mjs
+          KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port-blocked node modules/extension/userscript/tests/port-connect.mjs
           node modules/extension/userscript/tests/messageport-selection.mjs
           KWX_PORT_POC_GM_DELAY_MS=12000 KWX_PORT_POC_OUTPUT=.cache/messageport-poc node modules/extension/userscript/tests/messageport-poc.mjs
           FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
@@ -434,7 +434,7 @@ jobs:
           failed=0
           run_check selection modules/extension/userscript/tests/messageport-selection.mjs || failed=1
           run_check lab modules/extension/userscript/tests/messageport-poc.mjs || failed=1
-          KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/production run_check production modules/extension/userscript/tests/port-connect-webkit.mjs || failed=1
+          KWX_BLOCK_HELPER_CLOSE=1 KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/production run_check production modules/extension/userscript/tests/port-connect-webkit.mjs || failed=1
           exit "$failed"
       - name: Explain a failed WebKit acceptance report
         if: failure()

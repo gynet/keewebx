@@ -32,13 +32,17 @@ function replace(key: string, value: unknown) {
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
 }
-let link: SitePortLink, port: Port, helperClosed: boolean, keys: ReturnType<typeof sign.keyPair>, route: any;
+let link: SitePortLink, port: Port, helperClosed: boolean, closeAllowed: boolean, keys: ReturnType<typeof sign.keyPair>, route: any;
+let closeAttempts: number;
+let helper: { readonly closed: boolean; close(): void; postMessage(data: unknown, origin: string): void }, helperPosts: { data: any; origin: string }[];
 beforeEach(() => {
-    helperClosed = false; keys = sign.keyPair();
+    helperClosed = false; closeAllowed = true; closeAttempts = 0; helperPosts = []; keys = sign.keyPair();
     route = { host: crypto.randomUUID(), endpoint: endpoint.href, publicKey: toBase64(keys.publicKey), messagePort: 1, readyProof: 1 };
     replace('location', { origin: 'https://login.example.org', href: 'https://login.example.org/login' });
     replace('addEventListener', () => {}); replace('removeEventListener', () => {});
-    replace('window', { open: () => ({ close() { helperClosed = true; } }) });
+    helper = { get closed() { return helperClosed; }, close() { closeAttempts++; if (closeAllowed) helperClosed = true; },
+        postMessage(data, origin) { helperPosts.push({ data: structuredClone(data), origin }); } };
+    replace('window', { open: () => helper });
     replace('MessageChannel', class { port1 = port = new Port(); port2 = new Port(); });
     link = new SitePortLink(endpoint); link.configure(route); link.open();
 });
@@ -62,6 +66,37 @@ test('a verified receipt closes the helper synchronously before any RPC round tr
     expect(requests).toBe(0);
     expect(port.closed).toBe(false);
     expect(await connected).toBe(link.generation);
+});
+test('a silent cross-window close failure retains the helper and asks its own page to close', async () => {
+    closeAllowed = false;
+    const connected = link.connect(), value = ready();
+    port.onmessage!({ data: { ...value, proof: signPortReady(value, keys.secretKey) } });
+    await connected;
+    expect(helperClosed).toBe(false); expect((link as any).helper).toBe(helper);
+    expect(helperPosts).toEqual([{ origin: endpoint.origin, data: { marker: PORT_MARK, kind: 'relay-complete',
+        nonce: (link as any).nonce, connectionId: value.connectionId, endpoint: endpoint.href } }]);
+    link.confirm(); expect(helperPosts).toHaveLength(1);
+    // The helper's page-world close later succeeds independently.
+    helperClosed = true; link.confirm(); expect((link as any).helper).toBeUndefined();
+    expect(port.closed).toBe(false);
+});
+test.each(['reset', 'reconnect', 'dispose'])('retained helper cleanup never closes a replacement document (%s)', async action => {
+    closeAllowed = false;
+    const connected = link.connect(), value = ready();
+    port.onmessage!({ data: { ...value, proof: signPortReady(value, keys.secretKey) } }); await connected;
+    expect(closeAttempts).toBe(1);
+    // The retained window can navigate. Its old nonce is harmless to a new page.
+    if (action === 'reset') link.reset();
+    else if (action === 'reconnect') link.open(true);
+    else link.dispose();
+    expect(closeAttempts).toBe(1);
+});
+test('helper closure is never accepted as a substitute for the App signature', async () => {
+    helperClosed = true;
+    const result = link.connect().catch(error => error);
+    port.onmessage!({ data: ready() });
+    expect((await result).message).toContain('signature could not be verified');
+    expect(port.closed).toBe(true);
 });
 test.each(['missing', 'forged', 'wrong connection', 'wrong site'])('a required receipt cannot be bypassed (%s)', async scenario => {
     const rejected = link.connect().catch(error => error);

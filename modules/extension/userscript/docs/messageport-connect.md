@@ -29,10 +29,17 @@ port1. A helper opened synchronously from the trusted tap verifies its opener,
 origin, nonce and endpoint, then transfers port2 to a worker registered only
 under `connect-port/`. The worker finds same-origin top-level clients, probes
 the selected App boot ID, and transfers port2 to exactly that App. The worker
-retains no channel endpoint. The App signs a transport-ready receipt binding its boot ID, the fresh
-connection ID, endpoint and website origin. The website verifies that receipt
-and closes the helper synchronously in the ready event. The existing signed
-RPC hello then creates its account-selection session without a foreground helper. All subsequent Connect requests bypass both helper
+retains no channel endpoint. After transfer, it tells the helper to close itself
+in the helper's own page context. The helper requires a matching capability reply
+from the current worker before attaching, so an old activated worker with the
+same URL cannot handle the first connection during an update. The App signs a
+transport-ready receipt binding its boot ID, fresh connection ID, endpoint and
+website origin. The website verifies that receipt and completes the existing
+signed RPC hello before creating its encrypted account-selection session.
+Helper closure is UI cleanup, never evidence of authentication. A verified
+website also sends a scoped closure control to its own helper; if a cross-window
+close silently fails, it retains the reference until closure is observed. If
+self-close is refused too, the helper provides an explicit manual close action. All subsequent Connect requests bypass both helper
 and worker.
 
 ## Boundaries

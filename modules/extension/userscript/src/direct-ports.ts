@@ -28,6 +28,7 @@ export class SitePortLink {
     private reject?: (error: Error) => void;
     private timer?: ReturnType<typeof setTimeout>;
     private transfer?: MessagePort;
+    private closingRequested = false;
     private listeners = new Set<(value: unknown) => void>();
     private closed = new Set<(reason: string) => void>();
     onGrantEnded = () => {};
@@ -44,7 +45,7 @@ export class SitePortLink {
         if (force || this.ready && Date.now() - this.lastSeen > PORT_IDLE_MS) this.reset('The idle connection expired.');
         if (this.ready || this.promise) return;
         const channel = new MessageChannel(); this.port = channel.port1; this.transfer = channel.port2;
-        this.id = uuid(); this.nonce = uuid(); this.sent = false;
+        this.id = uuid(); this.nonce = uuid(); this.sent = false; this.closingRequested = false;
         this.promise = new Promise<void>((resolve, reject) => { this.resolve = resolve; this.reject = reject; });
         // Handle startup failure even when the UI is canceled before awaiting connect.
         void this.promise.catch(() => {});
@@ -93,7 +94,19 @@ export class SitePortLink {
         if (!this.ready || !this.port || this.href !== location.href) throw new Error('The website connection changed. Reconnect.');
         return this.generation;
     }
-    confirm(): void { if (this.ready) try { this.helper?.close(); this.helper = undefined; } catch {} }
+    confirm(): void {
+        if (!this.ready || !this.helper) return;
+        const helper = this.helper;
+        try { if (helper.closed) { this.helper = undefined; return; } } catch {}
+        if (!this.closingRequested) {
+            this.closingRequested = true;
+            try { helper.postMessage({ marker: PORT_MARK, kind: 'relay-complete', nonce: this.nonce,
+                connectionId: this.id, endpoint: this.endpoint.href }, this.endpoint.origin); } catch {}
+            try { helper.close(); } catch {}
+        }
+        // Do not lose the reference merely because close() returned normally.
+        try { if (helper.closed && this.helper === helper) this.helper = undefined; } catch {}
+    }
     assert(generation: number): void {
         if (!this.ready || !this.port || generation !== this.generation || this.href !== location.href) throw new Error('The website port is no longer connected. Reconnect to the existing App.');
     }
@@ -107,7 +120,15 @@ export class SitePortLink {
     }
     reset(reason = 'The website connection closed.'): void {
         this.generation++; clearTimeout(this.timer);
-        try { this.helper?.close(); } catch {} this.helper = undefined;
+        if (this.helper) {
+            if (this.closingRequested) {
+                // The retained WindowProxy may now contain another document.
+                // Only the original helper can recognize this scoped command.
+                try { this.helper.postMessage({ marker: PORT_MARK, kind: 'relay-complete', nonce: this.nonce,
+                    connectionId: this.id, endpoint: this.endpoint.href }, this.endpoint.origin); } catch {}
+            } else try { this.helper.close(); } catch {}
+        }
+        this.helper = undefined;
         try { this.port?.postMessage({ marker: PORT_MARK, kind: 'close', connectionId: this.id }); } catch {}
         this.port?.close(); this.transfer?.close(); this.port = this.transfer = undefined;
         this.ready = false; this.sent = false; this.promise = undefined;

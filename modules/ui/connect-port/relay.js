@@ -8,6 +8,7 @@
     const WORKER_MS = 8000;
     const ATTACH_KEYS = ['marker', 'kind', 'nonce', 'appBoot', 'connectionId', 'endpoint', 'siteOrigin'];
     const ERROR_KEYS = ['marker', 'kind', 'code', 'message', 'nonce', 'connectionId'];
+    const COMPLETE_KEYS = ['marker', 'kind', 'nonce', 'connectionId', 'endpoint'];
     const encoder = new TextEncoder();
     const status = document.getElementById('status');
     const back = document.getElementById('back');
@@ -25,6 +26,8 @@
     let controller;
     let heartbeat;
     let deadline;
+    let completionTimer;
+    let completed = false;
 
     function smallString(value) {
         return typeof value === 'string' && encoder.encode(value).length <= MAX_BYTES;
@@ -57,8 +60,34 @@
     }
 
     function showError(message) {
+        expired = true;
+        clearTimeout(completionTimer);
         status.textContent = message;
         status.dataset.error = '';
+        back.textContent = 'Close connection page'; back.disabled = false;
+    }
+
+    function closeSelf() {
+        // Cross-window close can silently fail in a script manager's world.
+        // The helper closes itself in its own page world instead.
+        try { window.close(); } catch {}
+        clearTimeout(completionTimer);
+        completionTimer = setTimeout(() => {
+            if (!window.closed) {
+                status.textContent = completed
+                    ? 'Connection prepared. Close this page to continue on your original website.'
+                    : 'Close this connection page, then retry from your original website.';
+                back.textContent = 'Close connection page'; back.disabled = false;
+            }
+        }, 300);
+    }
+
+    function complete(data) {
+        if (!accepted || completed || expired || !messageWithKeys(data, COMPLETE_KEYS) || data.marker !== MARK ||
+            data.nonce !== nonce || data.connectionId !== connectionId || data.endpoint !== endpoint) return;
+        completed = true; stopAnnouncements();
+        status.textContent = 'Returning to your website…';
+        closeSelf();
     }
 
     function stopAnnouncements() {
@@ -87,12 +116,14 @@
             let finished = false;
             let observedController;
             const timer = setTimeout(() => finish(new Error('The connection worker did not become ready within 8 seconds. Return to the website and retry.')), WORKER_MS);
+            const retry = setInterval(check, 300);
 
             function finish(error, result) {
                 if (finished) return;
                 finished = true;
-                clearTimeout(timer);
+                clearTimeout(timer); clearInterval(retry);
                 navigator.serviceWorker.removeEventListener('controllerchange', check);
+                navigator.serviceWorker.removeEventListener('message', capabilities);
                 if (observedController) observedController.removeEventListener('statechange', check);
                 if (error) reject(error);
                 else resolve(result);
@@ -106,10 +137,24 @@
                     observedController = current;
                     if (current) current.addEventListener('statechange', check);
                 }
-                if (current && current.scriptURL === workerURL && current.state === 'activated') finish(null, current);
+                if (current && current.scriptURL === workerURL && current.state === 'activated') {
+                    // An old activated controller can have this same script URL.
+                    // Require the self-close capability before transferring a port.
+                    try { current.postMessage({ marker: MARK, kind: 'probe-relay', nonce, endpoint, siteOrigin: site }); } catch {}
+                }
+            }
+
+            function capabilities(event) {
+                const data = event.data, current = navigator.serviceWorker.controller;
+                if (event.isTrusted && event.ports.length === 0 && current && event.source === current &&
+                    current.scriptURL === workerURL && current.state === 'activated' &&
+                    messageWithKeys(data, ['marker', 'kind', 'nonce', 'endpoint', 'protocol']) &&
+                    data.marker === MARK && data.kind === 'relay-capabilities' && data.nonce === nonce &&
+                    data.endpoint === endpoint && data.protocol === 'self-close-v1') finish(null, current);
             }
 
             navigator.serviceWorker.addEventListener('controllerchange', check);
+            navigator.serviceWorker.addEventListener('message', capabilities);
             Promise.resolve()
                 .then(() => navigator.serviceWorker.register('./worker.js', { scope: './', updateViaCache: 'none' }))
                 .then((registration) => {
@@ -121,15 +166,8 @@
         });
     }
 
-    back.disabled = !opener || opener.closed;
-    back.addEventListener('click', () => {
-        try {
-            if (opener && !opener.closed) opener.focus();
-            else showError('The original website tab is closed. Open it again and retry the connection.');
-        } catch {
-            showError('Switch to your original website tab manually using the browser tab overview.');
-        }
-    });
+    back.disabled = false;
+    back.addEventListener('click', closeSelf);
 
     if (!['site', 'nonce', 'endpoint'].every((key) => params.getAll(key).length === 1) ||
         !validOrigin(site) || !smallString(nonce) || !UUID.test(nonce) || !validEndpoint(endpoint) ||
@@ -176,6 +214,10 @@
         accepted = true;
         connectionId = data.connectionId;
         stopAnnouncements();
+        completionTimer = setTimeout(() => {
+            if (completed || expired) return;
+            showError('The connection did not complete. Close this page and retry from your website.');
+        }, 25000);
         const port = event.ports[0];
         const abandon = () => fail([port], 'relay-closed', 'The helper closed before handing off the connection. Return to the website and retry.');
         window.addEventListener('pagehide', abandon, { once: true });
@@ -193,8 +235,7 @@
                 return;
             }
             controller.postMessage({ marker: MARK, kind: 'attach', nonce, appBoot: data.appBoot, connectionId, endpoint, siteOrigin: site }, [port]);
-            // Only the website may close this helper, after its signed Connect handshake.
-            status.textContent = 'Waiting for KeeWebX to confirm. Return to your website to continue.';
+            status.textContent = 'Connecting to your existing KeeWebX tab…';
         } catch {
             fail([port], 'unreachable', 'The connection could not reach KeeWebX. Return to the website and retry.');
         } finally {
@@ -205,11 +246,20 @@
     navigator.serviceWorker.addEventListener('message', (event) => {
         const data = event.data;
         closePorts(event.ports);
+        if (event.ports.length === 0 && event.isTrusted && controller && event.source === controller && data?.kind === 'handoff-complete') {
+            complete(data); return;
+        }
         if (event.isTrusted && controller && event.source === controller &&
             messageWithKeys(data, ERROR_KEYS) && data.marker === MARK && data.kind === 'error' &&
             data.nonce === nonce && data.connectionId === connectionId) {
             showError(data.message);
         }
+    });
+
+    window.addEventListener('message', event => {
+        if (event.data?.kind !== 'relay-complete') return;
+        if (event.ports.length) { closePorts(event.ports); return; }
+        if (event.isTrusted && event.source === opener && event.origin === site) complete(event.data);
     });
 
     function announce() {
@@ -233,6 +283,7 @@
     deadline = setTimeout(() => fail([], 'timeout', 'The website did not connect within 12 seconds. Return to it and retry.'), READY_MS);
     window.addEventListener('pagehide', () => {
         expired = true;
+        clearTimeout(completionTimer);
         stopAnnouncements();
     }, { once: true });
     announce();

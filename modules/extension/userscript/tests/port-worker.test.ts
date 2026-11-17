@@ -132,9 +132,24 @@ test('a selected App hands off immediately without waiting for a silent unrelate
     expect(f.settled()).toBe(true);
     await f.work();
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+    expect(f.relay.posts).toHaveLength(1);
+    expect(f.relay.posts[0].data).toEqual({ marker, kind: 'handoff-complete', nonce: f.data.nonce,
+        connectionId: f.data.connectionId, endpoint });
     expect(f.silent.posts.map(post => post.data.kind)).toEqual(['find-app']);
     expect(f.website.messages).toEqual([]);
     expect(f.website.closed).toBe(false);
     expect(f.timers.size).toBe(0);
     expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+});
+
+test('an already closed helper cannot turn a successful port transfer into a failure', async () => {
+    const f = fixture();
+    f.app.onPost = (request, ports) => {
+        if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint: request.endpoint, state: 'enabled' });
+    };
+    f.relay.onPost = () => { throw new Error('Helper already closed'); };
+    await flush(); await f.work();
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+    expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
+    expect(f.timers.size).toBe(0);
 });

@@ -1,14 +1,14 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.3
+# Userscripts on iOS: KeeWebX Connect 0.6.4
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
-to the same original App. A temporary connection page closes after a signed
-port receipt, before the normal encrypted protocol handshake. Forms are filled only after selecting an account and are not submitted.
+to the same original App. A temporary connection page closes itself after transferring the port. The website
+then verifies the App signature and completes the encrypted protocol handshake. Forms are filled only after selecting an account and are not submitted.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.3)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.3/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.4)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.4/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
-· [0.6.3 acceptance report](docs/release-0.6.3.md)
+· [0.6.4 acceptance report](docs/release-0.6.4.md)
 
 ## Install or upgrade
 
@@ -17,8 +17,11 @@ port receipt, before the normal encrypted protocol handshake. Forms are filled o
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. Save pending database changes, then reload your original
-   `https://keewebx.app/app` tab and the login website so both show **Connect 0.6.3**.
+2. When upgrading from **0.6.3**, the deployed helper fix works with the existing
+   unlocked App: close any stuck connection page and retry from the website.
+   Update the script and reload the login website to use the additional 0.6.4
+   closure fallback. An App reload is optional for this update. When upgrading
+   from an older version, save edits and reload both the App and website.
    Existing database entries and the script's stored identity are retained.
 3. Unlock the original App, open its Connect key panel, and choose
    **Authorize Connect**. Approve account listing once in the native permission
@@ -26,8 +29,8 @@ port receipt, before the normal encrypted protocol handshake. Forms are filled o
 4. On a login website, focus a username/password field, tap the key, and select
    a matching account. The first connection in that document opens a small
    connection page, finds the original App, and automatically closes the page
-   after verifying the App
-   signature on that port. Further lookups in that document reuse the direct port.
+   after handing off the port. The website verifies the App signature before
+   using its connection. Further lookups in that document reuse the direct port.
 
 A renamed script has a separate manager storage namespace and cannot reuse the
 original filename's identity. For self-hosting, publish the built `connect-port/`
@@ -67,8 +70,9 @@ budget. Closing the panel cancels pending work, including the key toggle. Curren
 Apps can recover a lost request or reply using the original execution ID and
 encrypted receipt; the same field query is never executed twice. Receipt reuse
 rechecks current App permissions and is limited to the original session, port,
-request and deadline. Save pending edits and reload the App as well as the script
-when upgrading so the local receiver supports this capability.
+request and deadline. When upgrading from before 0.6.3, save pending edits and
+reload both the App and script to load that receiver capability. This 0.6.4
+helper update does not require reloading an existing 0.6.3 App.
 
 ## Transport and security
 
@@ -97,7 +101,7 @@ receivers and separate regression coverage; new receivers use direct ports.
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
-bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
+bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
 modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
 bun run --filter @keewebx/ui build
 ```
@@ -110,6 +114,7 @@ KEEWEBX_E2E_PORT=8085 bun e2e/serve-app.ts
 
 ```sh
 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
+KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/native-connect.mjs
 ```
