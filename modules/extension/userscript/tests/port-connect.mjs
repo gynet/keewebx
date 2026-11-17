@@ -9,6 +9,7 @@
 // KWX_FOCUS_HELLO=1 runs startup and delayed-hello recovery without the later stress cases.
 // KWX_FOCUS_REINJECT=1 runs startup and same-document installer reinjection acceptance.
 // KWX_FOCUS_APP_REFRESH=1 covers App reload/reopen, route readiness and cross-site fills.
+// FOCUS_FOREGROUND_FAILURE=1 checks a foreground GM timeout during signed hello.
 // FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
@@ -35,6 +36,7 @@ const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
 const FOCUS_HELLO = process.env.KWX_FOCUS_HELLO === '1';
 const FOCUS_REINJECT = process.env.KWX_FOCUS_REINJECT === '1';
 const FOCUS_APP_REFRESH = process.env.KWX_FOCUS_APP_REFRESH === '1';
+const FOCUS_FOREGROUND_FAILURE = process.env.FOCUS_FOREGROUND_FAILURE === '1';
 const FOCUS_REVOKE = process.env.FASTFOCUS_REVOKE === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
@@ -621,8 +623,8 @@ async function sameDocumentReinjection() {
     const pages = [app, first], hosts = await Promise.all(pages.map(page => page.locator('#keewebx-userscript-connect').elementHandle()));
     const before = await Promise.all(pages.map(snapshot)), siteDocument = await documentState(first);
     const port = await physicalPort(first), count = helpers.size, reads = await fieldReads(), lists = await entryReads();
-    // App registrations exclude the fixture observer: one diagnostics listener and one receiver.
-    expect(before[0].workerMessageListeners).toHaveLength(2);
+    // App registrations exclude the fixture observer: one direct receiver.
+    expect(before[0].workerMessageListeners).toHaveLength(1);
     expect(before[1].workerMessageListeners).toEqual([]);
     expect(before.map(document => document.installerRuns)).toEqual([1, 1]);
     try {
@@ -747,13 +749,23 @@ async function appRefreshAcceptance() {
         const { held } = await navigator.locks.query();
         return held.filter(lock => lock.name.startsWith('keewebx-app-instance-v1:') && lock.name.includes(':client:')).length;
     })).toBe(1);
-    const beforeFreshSite = (await snapshot(app)).attachments.length;
+    const beforeFreshSite = await snapshot(app);
     second = await newWebsite(ACCOUNTS[1]);
     await refreshedSiteFill(second, ACCOUNTS[1], { reconnect: true });
-    const freshHandoff = (await snapshot(app)).attachments.slice(beforeFreshSite);
-    expect(freshHandoff.filter(item => item.data.kind === 'find-app')).toHaveLength(0);
-    expect(freshHandoff.filter(item => item.data.kind === 'attach-port')).toHaveLength(1);
-    report.appRefresh.fastPathWithoutDiscoveryAck = true;
+    const afterFreshSite = await snapshot(app);
+    const freshHandoff = afterFreshSite.attachments.slice(beforeFreshSite.attachments.length);
+    const discovery = freshHandoff.filter(item => item.data.kind === 'find-app');
+    const handoffs = freshHandoff.filter(item => item.data.kind === 'attach-port');
+    expect(discovery.length).toBeGreaterThan(0);
+    expect(discovery.every(item => item.data.appBoot === approvedRoute.host)).toBe(true);
+    expect(handoffs).toHaveLength(1);
+    expect(handoffs[0].data.appBoot).toBe(approvedRoute.host);
+    const acknowledgements = afterFreshSite.packets.slice(beforeFreshSite.packets.length)
+        .filter(item => item.direction === 'sent' && item.data.kind === 'app-ready');
+    expect(acknowledgements.length).toBeGreaterThan(0);
+    expect(acknowledgements.every(item => item.data.appBoot === approvedRoute.host && item.data.endpoint === APP
+        && discovery.some(probe => probe.data.traceId === item.data.traceId))).toBe(true);
+    report.appRefresh.selectedBootConfirmed = report.selectedBootConfirmed = true;
     for (let cycle = 0; cycle < 2; cycle++) {
         await refreshedSiteFill(first, ACCOUNTS[0]);
         await refreshedSiteFill(second, ACCOUNTS[1]);
@@ -785,24 +797,9 @@ async function appRefreshAcceptance() {
         focusBarrier, eventBarrier, initialConsentDialogs: consentBefore, additionalConsentDialogs: 0,
         realProtocolRestore: true, differentOwnerOnReopen: true, persistedKdbxReopened: true,
         successfulFillsAfterRefresh: report.appRefresh.fills.length, websiteOriginChanges: 2,
-        fastPathWithoutDiscoveryAck: report.appRefresh.fastPathWithoutDiscoveryAck, appNavigations: appNavigationRequests };
+        selectedBootConfirmed: report.appRefresh.selectedBootConfirmed, appNavigations: appNavigationRequests };
 }
 
-async function withDiscoveryFallback(run) {
-    const worker = context.serviceWorkers().find(worker => worker.url().endsWith('/connect-port/worker.js'));
-    expect(worker, 'Discovery fallback needs the real Connect worker').toBeTruthy();
-    await worker.evaluate(() => {
-        const locks = navigator.locks, query = locks.query.bind(locks);
-        globalThis.__kwxRestoreLockQuery = () => { locks.query = query; };
-        locks.query = async () => {
-            const snapshot = await query();
-            return { ...snapshot, held: snapshot.held.filter(lock =>
-                !(lock.name.startsWith('keewebx-app-instance-v1:') && lock.name.includes(':client:'))) };
-        };
-    });
-    try { return { ...await run(), fallbackWithoutPrimaryLocator: true }; }
-    finally { await worker.evaluate(() => { globalThis.__kwxRestoreLockQuery(); delete globalThis.__kwxRestoreLockQuery; }); }
-}
 async function recoverInnerReply(page, account) {
     await clearFields(page); await lookup(page, account);
     const reads = await fieldReads(), port = await physicalPort(page), count = helpers.size, before = await windowTraffic();
@@ -1716,6 +1713,66 @@ acceptance: try {
     });
     // Historical App overrides remain compatibility runs for that older installer.
     if (appBundle === bundle) await step('reinjecting the exact installer twice retains one UI and App receiver while the same website repeatedly fills', sameDocumentReinjection);
+    if (FOCUS_FOREGROUND_FAILURE) {
+        await step('a real foreground GM timeout preserves the signed hello port and the next connection test reuses it', async () => {
+            // A fresh document on the first website prepares its saved grant;
+            // Test connection then needs one helper and one physical port.
+            await first.reload(); await ready(first); await config(first);
+            await expect.poll(() => shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+            const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+            await adapter(first, '__kwxPortAdapter.holdRouteReads = true');
+            await adapter(app, '__kwxPortAdapter.holdHello = true');
+            try {
+                await action(first, 'probe');
+                await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 5000 }).toBeGreaterThan(0);
+                await closedHelper(first, count);
+                await expect.poll(async () => (await snapshot(first)).heldRouteReads, { timeout: 2000 }).toBeGreaterThan(0);
+                const port = await physicalPort(first), before = await snapshot(first);
+                const hello = before.packets.find(item => item.direction === 'sent' && item.data.kind === 'request'
+                    && item.data.value?.packet?.operation === 'hello').data.value.packet;
+                await first.waitForTimeout(5500);
+                const failedRead = await snapshot(first);
+                expect(failedRead.statuses.some(value => /Userscripts settings did not respond/.test(value))).toBe(true);
+                expect(failedRead.heldRouteReads).toBeGreaterThan(0);
+                expect(await physicalPort(first)).toEqual(port);
+                expect(failedRead.packets.some(item => ['close', 'closed'].includes(item.data.kind))).toBe(false);
+                expect(Date.now()).toBeLessThan(hello.deadline);
+                expect(helpers.size).toBe(count + 1);
+                expect(await adapter(app, '__kwxPortAdapter.releaseHello()')).toBeGreaterThan(0);
+                await untilStatus(first, /Connected to the authorized KeeWebX tab/, 5000);
+                const connected = await snapshot(first);
+                for (const operation of ['hello', 'probe']) {
+                    const reply = connected.packets.find(item => item.direction === 'received'
+                        && item.data.kind === 'reply' && item.data.value?.packet?.operation === operation);
+                    expect(reply, `Signed ${operation} reply must reach the original website port`).toBeTruthy();
+                    expect(validSignature(reply.data.value)).toBe(true);
+                    expect(reply.at).toBeLessThan(reply.data.value.packet.deadline);
+                }
+                expect(await physicalPort(first)).toEqual(port);
+                expect(await adapter(first, '__kwxPortAdapter.releaseRouteReads()')).toBeGreaterThan(0);
+                // Late completion of the timed-out read cannot restore the
+                // cache. A real foreground return performs a fresh preparation.
+                const allowedReads = (await snapshot(first)).allowedReads;
+                await app.bringToFront(); await first.bringToFront();
+                await expect.poll(async () => (await snapshot(first)).allowedReads).toBeGreaterThan(allowedReads);
+                await expect.poll(() => shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+                await probe(first);
+                expect(await physicalPort(first)).toEqual(port);
+                expect(helpers.size).toBe(count + 1);
+                expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
+                await sameApp(); await noHelpers();
+                return { managerReadTimeoutMs: 5000, heldAfterFocusMs: 5500, originalHelloDeadline: hello.deadline,
+                    signedHelloAndProbeAccepted: true, physicalPortReusedAfterTimeout: true,
+                    physicalPortReusedAfterFreshPreparation: true, additionalHelpersAfterFirstProbe: 0,
+                    additionalAppNavigations: 0, additionalFieldReads: 0, additionalAccountLists: 0 };
+            } finally {
+                await adapter(first, '__kwxPortAdapter.releaseRouteReads()');
+                await adapter(app, '__kwxPortAdapter.releaseHello()');
+            }
+        });
+        expect(report.errors).toEqual([]);
+        report.passed = true; report.focus = 'foreground-route-failure'; break acceptance;
+    }
     if (FOCUS_REVOKE) {
         await step('revocation denies an attached site and a fresh document without another app or consent', () => revocationAcceptance(ACCOUNTS[0]));
         expect(report.errors).toEqual([]);
@@ -1935,7 +1992,7 @@ acceptance: try {
             await sameApp(); await noHelpers();
         } finally { await adapter(app, '__kwxPortAdapter.suppressRestoration = false'); }
     });
-    await step('an App replying after the first discovery deadline resumes the same helper and fills once', () => withDiscoveryFallback(async () => {
+    await step('an App replying after the first discovery deadline resumes the same helper and fills once', async () => {
         const before = await snapshot(app), count = helpers.size;
         const page = await newWebsite(ACCOUNTS[0]);
         const started = Date.now();
@@ -1958,8 +2015,8 @@ acceptance: try {
             await adapter(app, '__kwxPortAdapter.holdDiscoveryUntil = 0');
             await archive(page); await page.close();
         }
-    }));
-    await step('a lost App discovery reply recovers on a fresh channel before handing off once', () => withDiscoveryFallback(async () => {
+    });
+    await step('a lost App discovery reply recovers on a fresh channel before handing off once', async () => {
         const before = await snapshot(app), count = helpers.size;
         await adapter(app, '__kwxPortAdapter.dropDiscoveryReplies = 1');
         const page = await newWebsite(ACCOUNTS[0]);
@@ -1972,7 +2029,7 @@ acceptance: try {
             expect(attempts.filter(item => item.data.kind === 'attach-port')).toHaveLength(1);
             await sameApp(); await noHelpers();
         } finally { await archive(page); await page.close(); }
-    }));
+    });
     await step('after every website closes a fresh site finds the original app three times', async () => {
         for (const account of [ACCOUNTS[1], ACCOUNTS[0], ACCOUNTS[1]]) {
             await noHelpers();

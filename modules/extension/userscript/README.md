@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.10
+# Userscripts on iOS: KeeWebX Connect 0.6.11
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,11 +7,11 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.10)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.10/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.11)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.11/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.10 acceptance report](docs/release-0.6.10.md)
+· [0.6.11 acceptance report](docs/release-0.6.11.md)
 
 ## Install or upgrade
 
@@ -21,7 +21,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.10** at both ends. The App reload
+   App and the login website to load **Connect 0.6.11** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
@@ -60,24 +60,15 @@ original filename's identity. For self-hosting, publish the built `connect-port/
 directory beside the App assets and save the App's full HTTPS address in the
 script's Connection tab before authorizing it.
 
-## Optional remote diagnostics
-
-For a connection failure, open **Connection** and enable **Enable remote diagnostics
-for 1 hour**. The App and website instances share a temporary support ID. Support
-can correlate discovery, lock/unlock and handshake events and request reviewed
-read-only checks through the Worker. It is off by default, excludes vault contents,
-account values and website addresses, and stops when disabled or expired.
-See [scope, command limits and retention](docs/remote-diagnostics.md).
-
 ## Recovery and lifecycle
 
-The New App uses a browser-held lifetime lock to select its main tab. The handoff
-worker can route directly to that browser-verified tab without waiting for a
-separate discovery reply. Older deployments retain discovery as a fallback.
-Neither route grants access: the selected App, port signature and encrypted
-protocol still enforce identity, website origin and current vault permissions.
+The handoff worker finds the explicitly authorized App boot. A browser-held
+main-window lock does not select a Connect destination. Port signatures and the
+encrypted protocol still enforce identity, website origin and vault permissions.
 Websites refresh saved authorization on return and on manager change events;
-connection actions wait until that read completes.
+connection actions wait until that read completes. A failed settings refresh
+blocks new setup while an existing signed connection can finish its request.
+Remote diagnostics and support-command polling were removed in 0.6.11.
 
 A delayed discovery can resume on the same temporary page. After a signed port
 is ready, a timed-out first hello gets one fresh handshake on that same port.
@@ -89,10 +80,7 @@ Keep the original App tab open. **Test connection** checks its signed response
 without reading credential fields. **Reconnect to existing tab** rebuilds a port
 to that App. It never navigates or silently replaces an unlocked vault. If the
 App stops replying, visit its existing tab, unlock if needed, return to the
-website, and reconnect. The App panel also includes **Connection diagnostics**: it
-records receiver startup, discovery source/address checks, handoff admission and
-signed hello receipt. These bounded messages contain no credentials, keys,
-website URLs or account names. A receiver startup failure cannot be authorized.
+website, and reconnect.
 
 | Event | Result |
 |---|---|

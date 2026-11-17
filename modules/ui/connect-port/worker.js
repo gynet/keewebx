@@ -7,12 +7,9 @@ const MAX_ACTIVE = 8;
 const MAX_CANDIDATES = 32;
 const PROBE_MS = 8000;
 const DISCOVERY_MS = 2 * PROBE_MS;
-const INSTANCE_LOOKUP_MS = 500;
 const PROBE_RETRY_MS = 750;
 const MAX_PROBE_ATTEMPTS = 4;
-const DIAGNOSTICS_MARK = 'keewebx-connect-diagnostics-v1';
 const INSTANCE_MARK = 'keewebx-app-instance-v1';
-const diagnostics = new Map();
 const ATTACH_KEYS = ['marker', 'kind', 'nonce', 'appBoot', 'connectionId', 'endpoint', 'siteOrigin'];
 const APP_PATHS = new Set(['/app', '/next.html', '/index.html']);
 const RELAY_URL = new URL('./relay.html', self.location.href);
@@ -172,27 +169,6 @@ async function focusInstance(event) {
     }
 }
 
-function diagnosticControl(event) {
-    const data = event.data;
-    if (event.ports.length || data.kind !== 'control' ||
-        !isApp(event.source, new URL('/app', self.location.origin))) return;
-    const now = Date.now();
-    for (const [id, expiresAt] of diagnostics) if (expiresAt <= now) diagnostics.delete(id);
-    if (data.action === 'disable') { diagnostics.delete(event.source.id); return; }
-    if (data.action !== 'enable' || !Number.isFinite(data.expiresAt) ||
-        data.expiresAt <= now || data.expiresAt > now + 3600000) return;
-    if (!diagnostics.has(event.source.id) && diagnostics.size >= 32) diagnostics.delete(diagnostics.keys().next().value);
-    diagnostics.set(event.source.id, data.expiresAt);
-}
-
-function diagnostic(client, event, extra = {}) {
-    const expiresAt = diagnostics.get(client.id);
-    if (!expiresAt) return;
-    if (expiresAt <= Date.now()) { diagnostics.delete(client.id); return; }
-    try { client.postMessage({ kwDiagnostics: DIAGNOSTICS_MARK, kind: 'event', code: 'transport.event',
-        data: { layer: 'worker', event, ...extra } }); } catch { /* Diagnostics cannot affect handoff. */ }
-}
-
 function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
     let cancel = () => {};
     const result = new Promise((resolve) => {
@@ -201,14 +177,12 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
         let retry;
         let attempts = 0;
         const traceId = crypto.randomUUID();
-        const trace = { traceId, portId };
         const timer = setTimeout(() => finish('timeout'), timeout);
 
         function finish(state) {
             if (finished) return;
             finished = true;
             clearTimeout(timer); clearTimeout(retry);
-            if (state === 'timeout') diagnostic(client, 'discovery-timeout', { ...trace, detail: 'expired' });
             for (const channel of channels) {
                 // Let the app release every temporary probe endpoint.
                 try { channel.port1.postMessage({ marker: MARK, kind: 'probe-done', state }); } catch { /* Already closed. */ }
@@ -224,11 +198,8 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
             const data = event.data;
             for (const port of event.ports) port.close();
             if (finished) return;
-            diagnostic(client, 'discovery-received', trace);
             if (event.ports.length !== 0 || !smallMessage(data) || data.marker !== MARK ||
                 data.endpoint !== endpoint || !UUID.test(data.appBoot) || data.traceId !== undefined && data.traceId !== traceId) {
-                diagnostic(client, 'discovery-rejected', { ...trace,
-                    detail: data?.endpoint !== endpoint ? 'wrong-address' : 'wrong-shape' });
                 return;
             }
             let state;
@@ -239,8 +210,7 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
             } else if (data.kind === 'app-state' && (data.state === 'enabled' || data.state === 'disabled')) {
                 state = data.appBoot !== appBoot ? 'refreshed' : data.state === 'enabled' ? 'ready' : 'disabled';
             }
-            if (state) { diagnostic(client, 'discovery-reply', { ...trace, detail: data.traceId === undefined ? 'legacy' : 'matched' }); finish(state); }
-            else diagnostic(client, 'discovery-rejected', { ...trace, detail: 'wrong-shape' });
+            if (state) finish(state);
         }
 
         function attempt() {
@@ -251,7 +221,6 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
             channel.port1.onmessageerror = () => {};
             channel.port1.start();
             ++attempts;
-            diagnostic(client, 'discovery', trace);
             try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint, traceId }, [channel.port2]); }
             catch { if (attempts >= MAX_PROBE_ATTEMPTS) { finish('unreachable'); return; } }
             // Discovery reads public receiver state only. A fresh channel can
@@ -298,46 +267,6 @@ async function recoveryClients(sourceId, data, endpoint, deadline) {
     }
 }
 
-/** Browser-owned routing hint only; the App still admits and authenticates the port. */
-async function primaryApp(candidates, endpoint, deadline) {
-    let timer, live = true;
-    try {
-        const base = new URL('../', self.location.href);
-        // The deployed main App uses the empty default storage namespace.
-        // Other deployments and namespaced builds keep the discovery protocol.
-        if (!['', 'app', 'index.html', 'next.html'].some(path =>
-            normalizePath(endpoint.pathname) === normalizePath(new URL(path || './', base).pathname)) ||
-            typeof self.navigator?.locks?.query !== 'function') return null;
-        const lockName = `${INSTANCE_MARK}:${base.pathname}:`;
-        const prefix = lockName + ':client:';
-        return await Promise.race([
-            (async () => {
-                const locks = await self.navigator.locks.query();
-                if (!live || !Array.isArray(locks?.held)) return null;
-                const owners = locks.held.filter(lock => lock.name === lockName);
-                if (owners.length !== 1 || owners[0].mode !== 'exclusive' ||
-                    typeof owners[0].clientId !== 'string' || !owners[0].clientId) return null;
-                const locators = locks.held.filter(lock => typeof lock.name === 'string' && lock.name.startsWith(prefix));
-                if (locators.length !== 1 || locators[0].mode !== 'exclusive' ||
-                    locators[0].clientId !== owners[0].clientId) return null;
-                const encoded = locators[0].name.slice(prefix.length);
-                const id = decodeURIComponent(encoded);
-                if (!/^[a-zA-Z0-9{}-]{1,128}$/.test(id) || encodeURIComponent(id) !== encoded ||
-                    !candidates.some(client => client.id === id)) return null;
-                const client = await self.clients.get(id);
-                return live && client?.id === id && isApp(client, endpoint) && instancePage(client) ? client : null;
-            })(),
-            new Promise(resolve => { timer = setTimeout(() => { live = false; resolve(null); },
-                Math.min(INSTANCE_LOOKUP_MS, Math.max(0, deadline - Date.now()))); })
-        ]);
-    } catch {
-        return null;
-    } finally {
-        live = false;
-        clearTimeout(timer);
-    }
-}
-
 async function attach(event) {
     if (!validAttachment(event)) {
         fail(event, 'invalid', 'The connection request is invalid. Return to the website and retry.');
@@ -365,10 +294,10 @@ async function attach(event) {
             return;
         }
         const discoveryDeadline = Date.now() + DISCOVERY_MS;
-        const mainApp = await primaryApp(candidates, endpoint, discoveryDeadline);
-        let probes = mainApp ? [{ client: mainApp, state: 'ready' }] :
-            await discover(candidates, data.appBoot, data.endpoint,
-                Math.min(PROBE_MS, Math.max(0, discoveryDeadline - Date.now())), data.connectionId);
+        // The browser's primary App may differ from the website's selected boot.
+        // Only an acknowledgement from that boot can select the port recipient.
+        let probes = await discover(candidates, data.appBoot, data.endpoint,
+            Math.min(PROBE_MS, Math.max(0, discoveryDeadline - Date.now())), data.connectionId);
         if (!probes.some((result) => ['ready', 'disabled', 'address-mismatch'].includes(result.state)) &&
             probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
             // iOS can queue every probe until the App resumes after round one.
@@ -398,7 +327,7 @@ async function attach(event) {
                 !probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
                 fail(event, 'refreshed', 'The KeeWebX app was refreshed or the selected tab changed. Select it again for Connect, then retry from the website.');
             } else if (probes.some((result) => result.state === 'timeout')) {
-                fail(event, 'timeout', 'The App receiver did not acknowledge discovery. Open Connection diagnostics in the App Connect panel and check the last discovery result.');
+                fail(event, 'timeout', 'The App receiver did not answer. Visit your existing KeeWebX tab, unlock if needed, then retry.');
             } else {
                 fail(event, 'unreachable', 'The KeeWebX app tab could not be reached. Return to the website and retry.');
             }
@@ -412,12 +341,11 @@ async function attach(event) {
             return;
         }
         relay = currentRelay;
-        if (!app || app.id !== matches[0].client.id || !isApp(app, endpoint) || mainApp && !instancePage(app)) {
+        if (!app || app.id !== matches[0].client.id || !isApp(app, endpoint)) {
             fail(event, 'refreshed', 'The KeeWebX app tab changed or closed. Select it again for Connect, then retry from the website.');
             return;
         }
         // Ownership moves once to the selected app. The website verifies the signed handshake.
-        diagnostic(app, 'handoff', { portId: data.connectionId });
         app.postMessage({
             marker: MARK,
             kind: 'attach-port',
@@ -439,7 +367,7 @@ async function attach(event) {
 self.addEventListener('message', (event) => {
     const data = event.data;
     if (data?.marker === INSTANCE_MARK) { event.waitUntil(focusInstance(event)); return; }
-    if (data?.kwDiagnostics === DIAGNOSTICS_MARK) { diagnosticControl(event); return; }
+    if (data?.marker !== MARK) return;
     if (data?.kind === 'probe-relay') {
         if (event.ports.length || !smallMessage(data) || Object.keys(data).length !== 5 || data.marker !== MARK ||
             !UUID.test(data.nonce) || !validOrigin(data.siteOrigin) || !validEndpoint(data.endpoint) ||

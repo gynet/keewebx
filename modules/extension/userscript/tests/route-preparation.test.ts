@@ -97,7 +97,7 @@ test('a newer grant read supersedes an older delayed read', async () => {
 });
 
 test.each(['route', 'identity'])
-('a failed latest %s read clears cached credentials and resets the physical link', async failure => {
+('a failed latest %s read blocks new setup without resetting the physical link', async failure => {
     await prepareDirect(endpoint);
     const generation = link!.generation, gm = (globalThis as any).GM, get = gm.getValue;
     const key = failure === 'route' ? routeKey() : 'keewebx-userscript-connect-identity-v1';
@@ -105,7 +105,37 @@ test.each(['route', 'identity'])
     await expect(prepareDirect(endpoint)).rejects.toThrow('Manager read failed');
     expect(directCredentials(endpoint)).toBeUndefined();
     expect(openDirect(endpoint)).toBe(false);
+    expect(link!.generation).toBe(generation);
+    gm.getValue = get;
+    await prepareDirect(endpoint);
+    expect(directCredentials(endpoint)).toBeDefined();
+    expect(openDirect(endpoint)).toBe(true);
+    expect(link!.generation).toBe(generation);
+});
+
+test.each(['revoked', 'invalid', 'identity mismatch', 'host', 'key'])
+('a successful %s grant read after a failed refresh still resets the previous link', async change => {
+    await prepareDirect(endpoint);
+    const generation = link!.generation, gm = (globalThis as any).GM, get = gm.getValue;
+    gm.getValue = () => Promise.reject(new Error('Manager read failed'));
+    await expect(prepareDirect(endpoint)).rejects.toThrow('Manager read failed');
+    gm.getValue = get;
+    if (change === 'revoked') saved = undefined;
+    else if (change === 'invalid') saved = { ...route, owner: 'invalid' };
+    else if (change === 'identity mismatch') saved = { ...route, publicKey: toBase64(sign.keyPair().publicKey) };
+    else if (change === 'host') saved = { ...route, host: crypto.randomUUID() };
+    else {
+        const keys = sign.keyPair();
+        saved = { ...route, publicKey: toBase64(keys.publicKey) };
+        gm.getValue = (name: string) => name === 'keewebx-userscript-connect-identity-v1'
+            ? Promise.resolve({ publicKey: saved.publicKey, secretKey: toBase64(keys.secretKey) }) : get(name);
+    }
+    await prepareDirect(endpoint);
     expect(link!.generation).toBe(generation + 1);
+    if (['revoked', 'invalid', 'identity mismatch'].includes(change)) {
+        expect(directCredentials(endpoint)).toBeUndefined();
+        expect(openDirect(endpoint)).toBe(false);
+    } else expect(configured).toEqual(saved);
 });
 
 test.each(['route', 'identity'])

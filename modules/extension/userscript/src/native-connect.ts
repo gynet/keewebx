@@ -73,8 +73,9 @@ export async function prepareDirect(endpoint: URL): Promise<void> {
         if (route.messagePort === 1) client.link.configure(route);
     } catch (error) {
         if (client.revision === revision) {
+            // Block new setup after a failed read. Existing RPCs retain their
+            // grant snapshots and can still accept replies on the proven port.
             client.route = undefined; client.keys = undefined;
-            client.link.reset('The saved Connect authorization could not be checked.');
         }
         throw error;
     }

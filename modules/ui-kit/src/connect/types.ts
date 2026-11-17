@@ -19,15 +19,6 @@ export interface ConnectAccount {
     username: string;
 }
 
-export interface ConnectDiagnosticState {
-    enabled: boolean;
-    pending?: boolean;
-    id?: string;
-    expiresAt?: number;
-    status: 'off' | 'starting' | 'sending' | 'connected' | 'offline';
-    error?: string;
-}
-
 export interface ConnectViewState {
     mode: ConnectMode;
     open: boolean;
@@ -44,11 +35,9 @@ export interface ConnectViewState {
     note: string;
     version: string;
     pairingOrigin?: string;
-    diagnostics: readonly string[];
     autoFillSingle: boolean;
     preferencePending: boolean;
     preferenceError?: string;
-    remoteDiagnostics?: ConnectDiagnosticState;
 }
 
 /** Hosts supply native events and commands; components never access GM or extension APIs. */
@@ -62,7 +51,6 @@ export interface ConnectPanelProps {
     onClose(event: Event): void;
     onAddressInput(value: string, event: Event): void;
     onAutoFillSingleChange(value: boolean, event: Event): void;
-    onDiagnosticsChange?(value: boolean, event: Event): void;
     onSelectAccount(id: string, event: MouseEvent): void;
     onPanelKeyDown(event: KeyboardEvent): void;
     panelRef?(element: HTMLElement | null): void;

@@ -10,7 +10,6 @@ import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { targets, assertTargets, fill, type Targets } from './form-targets';
 import { isLoginField, watchLoginFields } from './login-fields';
 import { userscriptPreferences } from './preferences';
-import { attachDiagnostics } from './diagnostics';
 import { claimRuntime } from './runtime-owner';
 
 const VERSION = CONNECT_VERSION;
@@ -34,15 +33,10 @@ async function start(): Promise<void> {
     }
     const app = location.origin === endpoint.origin && (location.pathname.replace(/\/$/, '') === endpoint.pathname.replace(/\/$/, '') || endpoint.pathname === '/app' && ['/next.html', '/index.html'].includes(location.pathname));
     const ui = new ConnectUI(app ? 'app' : 'website', endpoint.href);
-    const diagnostics = attachDiagnostics(ui);
-    owner.onDuplicate(() => diagnostics.client.record('transport.event', { event: 'runtime-duplicate',
-        detail: 'duplicate-runtime', runtimeCount: Math.min(32, document.querySelectorAll('#keewebx-userscript-connect').length) }));
     if (app) {
-        const record = (value: string) => ui.diagnostic(value);
-        const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)), record);
+        const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)));
         const bridge = new AppBridge();
         let generation = 0, authorizing = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
-        diagnostics.snapshot(() => ({ ...host.diagnostics(), authorized, authorizing }));
         let appUnlocked: boolean | undefined;
         const authorize = async (explicit: boolean) => {
             if (authorizing) return;
@@ -50,7 +44,7 @@ async function start(): Promise<void> {
             const epoch = ++generation;
             const guard = () => { if (epoch !== generation) throw new Error('Authorization was canceled.'); };
             try {
-                if (!host.hasDirectReceiver) throw new Error('The direct receiver could not start. Expand Connection diagnostics in this panel.');
+                if (!host.hasDirectReceiver) throw new Error('The direct receiver could not start. Reload your existing App tab, then retry.');
                 const keys = await managerCall(() => identity(explicit)); guard();
                 if (!explicit && !await host.selected()) return;
                 const protocol = new ProtocolImpl({ request: request => { guard(); return bridge.request(request, Date.now() + (explicit ? 65000 : 8000)); } }, runtime);
@@ -188,7 +182,6 @@ async function start(): Promise<void> {
     let operation: Operation | undefined;
     let pending: NativeRpc | undefined;
     let current: { rpc: NativeRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
-    diagnostics.snapshot(() => ({ hasSession: !!current, pending: pending ? 1 : 0 }));
     const clean = () => {
         operation?.cancel(); operation = undefined;
         generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined;

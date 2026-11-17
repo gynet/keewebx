@@ -22,7 +22,7 @@ const engines = process.argv.slice(2).length ? process.argv.slice(2) : ['chromiu
 const resultsPath = path.resolve(process.env.CONNECT_COMPONENT_RESULTS ||
     path.join(os.tmpdir(), 'keewebx-connect-component-results.json'));
 const inputs = ['index.ts', 'panel.tsx', 'account-list.tsx', 'connection-settings.tsx',
-    'connection-status.tsx', 'diagnostics-settings.tsx', 'styles.ts', 'types.ts'].map(file => `modules/ui-kit/src/connect/${file}`);
+    'connection-status.tsx', 'styles.ts', 'types.ts'].map(file => `modules/ui-kit/src/connect/${file}`);
 const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [
     file, createHash('sha256').update(await readFile(path.join(repo, file))).digest('hex')
 ])));
@@ -85,8 +85,11 @@ async function run() {
         try {
             for (const shadow of [false, true]) for (const colorScheme of report.themes) for (const width of report.widths) {
                 const scenario = { host: shadow ? 'shadow' : 'normal', colorScheme, width };
-                const context = await browser.newContext({ viewport: { width, height: 844 }, colorScheme });
+                const context = await browser.newContext({ viewport: { width, height: 844 }, colorScheme, serviceWorkers: 'block' });
                 try {
+                    const requests = [];
+                    await context.route('**/*', route => route.abort());
+                    context.on('request', request => requests.push(request.url()));
                     const page = await context.newPage();
                     const pageErrors = [];
                     page.on('pageerror', error => pageErrors.push(error.message));
@@ -99,6 +102,13 @@ async function run() {
                         </style>
                         <button id="outside" type="button">Outside</button>
                         <div id="host" style="position:fixed;right:12px;bottom:12px"></div>`);
+                    await page.evaluate(() => {
+                        window.fetchCalls = 0;
+                        window.fetch = () => {
+                            window.fetchCalls++;
+                            return Promise.reject(new Error('Connect components must not fetch'));
+                        };
+                    });
                     await page.addScriptTag({ content: bundle });
                     await page.evaluate(({ shadow }) => {
                         const host = document.querySelector('#host');
@@ -127,7 +137,7 @@ async function run() {
                                 { id: '1', title: 'Work account', username: 'work@example.org' }
                             ],
                             emptyMessage: 'No matching accounts.', note: 'The host supplies connection guidance.',
-                            version: '0.4.10', diagnostics: ['Ready <script>globalThis.escapeFailure=true</script>', 'Example connection detail'],
+                            version: '0.4.10',
                             autoFillSingle: false, preferencePending: false
                         };
                         window.redraw = (patch = {}) => {
@@ -144,7 +154,6 @@ async function run() {
                                 onClose: event => window.events.push(['close', event instanceof Event]),
                                 onAddressInput: (value, event) => window.events.push(['address', value, event instanceof Event]),
                                 onAutoFillSingleChange: (value, event) => window.events.push(['preference', value, event instanceof Event]),
-                                onDiagnosticsChange: (value, event) => window.events.push(['diagnostics', value, event instanceof Event, event.isTrusted]),
                                 onSelectAccount: (id, event) => {
                                     window.accountFocusAtCallback = target.getRootNode().activeElement;
                                     window.events.push(['account', id, event instanceof MouseEvent, event.isTrusted]);
@@ -161,6 +170,11 @@ async function run() {
                         const test = { name, ...scenario, passed: false };
                         try {
                             assert.equal(await page.evaluate(predicate), true, name);
+                            assert.equal(await page.evaluate(() => window.fetchCalls), 0, 'Components must not call fetch');
+                            assert.deepEqual(requests, [], 'Components must not make network requests');
+                            assert.equal(await page.evaluate(() => !window.target.querySelector(
+                                '[data-action*="diagnostic"], [data-role*="diagnostic"], details'
+                            ) && !/diagnostics|support ID/i.test(window.target.textContent)), true, 'No diagnostics controls or log panel');
                             assert.deepEqual(pageErrors, [], 'Unexpected browser error');
                             test.passed = true;
                         } catch (error) {
@@ -172,7 +186,7 @@ async function run() {
                         }
                     };
 
-                    await verify('selectors, status, escaped strings, default diagnostics', () => {
+                    await verify('selectors, status, escaped strings, no diagnostics', () => {
                         const root = window.target;
                         const names = ['toggle', 'close', 'accounts-tab', 'config-tab', 'save', 'open', 'authorize',
                             'return', 'revoke', 'lookup', 'probe', 'pair', 'decline', 'auto-fill-single', 'entry-0', 'entry-1'];
@@ -182,16 +196,14 @@ async function run() {
                             root.querySelectorAll('[role=status]').length === 1 &&
                             dialog.getAttribute('aria-describedby') === root.querySelector('[role=status]').id &&
                             dialog.getAttribute('aria-labelledby') === root.querySelector('h2').id &&
-                            !root.querySelector('details').open && root.querySelector('[data-role=connection-diagnostics]') &&
                             root.querySelector('[data-role=entries]') && root.querySelector('[data-role=version]').textContent === '0.4.10' &&
                             root.querySelector('[data-action=entry-0]').textContent.includes('<img src=x') &&
-                            root.querySelector('details').textContent.includes('<script>') &&
                             !root.querySelector('img,script') && !root.querySelector('[aria-modal]');
                     });
                     await verify('CSS scope, 44px controls, viewport, initial focus', () => {
                         const root = window.target;
                         const box = root.querySelector('[role=dialog]').getBoundingClientRect();
-                        const controls = [...root.querySelectorAll('button,summary,.kwx-connect__check-label')]
+                        const controls = [...root.querySelectorAll('button,.kwx-connect__check-label')]
                             .filter(element => element.getClientRects().length);
                         return window.initialFocusPreserved &&
                             getComputedStyle(document.querySelector('#outside')).letterSpacing === '4px' &&
@@ -235,18 +247,11 @@ async function run() {
                         window.target.querySelector('#preview-accounts').hidden &&
                         !window.target.querySelector('#preview-config').hidden &&
                         window.target.querySelector('#preview-address').readOnly);
-                    await page.evaluate(() => window.redraw({ remoteDiagnostics: {
-                        enabled: true, id: '11111111-2222-4333-8444-555555555555',
-                        expiresAt: Date.now() + 3600000, status: 'connected'
-                    } }));
-                    await page.locator('[data-action=diagnostics-enabled]').uncheck();
-                    await verify('controlled remote diagnostics, trusted stop, no secret token', () => {
+                    await page.evaluate(() => window.redraw({ status: 'Error', message: 'Connection unavailable. Try again.' }));
+                    await verify('normal connection error remains visible without diagnostics', () => {
                         const root = window.target;
                         const panel = root.querySelector('[role=dialog]').getBoundingClientRect();
-                        return root.querySelector('[data-role=diagnostics-id]').textContent === '11111111-2222-4333-8444-555555555555' &&
-                            root.querySelector('[data-role=remote-diagnostics]').textContent.includes('read-only') &&
-                            !root.querySelector('[data-role=remote-diagnostics]').textContent.includes('token') &&
-                            window.events.some(event => event[0] === 'diagnostics' && event[1] === false && event[2] && event[3]) &&
+                        return root.querySelector('[role=status]').textContent.includes('Connection unavailable. Try again.') &&
                             panel.right <= innerWidth && panel.bottom <= innerHeight;
                     });
                     await page.evaluate(() => window.redraw({ mode: 'relay' }));

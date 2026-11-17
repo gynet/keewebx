@@ -268,8 +268,8 @@ jobs:
       - name: Build and typecheck Userscripts Connect
         run: |
           bun modules/extension/userscript/build-connect.ts
-          bun test modules/diagnostics/tests/ modules/extension/userscript/tests/diagnostics-http.test.ts modules/extension/userscript/tests/site-return-path.test.ts
-          bun test modules/extension/userscript/tests/runtime-owner.test.ts modules/extension/userscript/tests/receiver-ownership.test.ts modules/extension/userscript/tests/route-preparation.test.ts
+          bun test modules/extension/userscript/tests/site-return-path.test.ts modules/extension/userscript/tests/retired-support.test.ts
+          bun test modules/extension/userscript/tests/runtime-owner.test.ts modules/extension/userscript/tests/receiver-ownership.test.ts modules/extension/userscript/tests/route-preparation.test.ts modules/extension/userscript/tests/foreground-route-failure.test.ts
           bun test modules/extension/userscript/tests/app-instance-worker.test.ts
           bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
@@ -300,10 +300,10 @@ jobs:
           mkdir -p .cache/userscript-connect
           LOGIN_FIELD_RESULTS=.cache/userscript-connect/login-fields.json node modules/extension/userscript/tests/login-fields.mjs chromium
           CONNECT_COMPONENT_RESULTS=.cache/userscript-connect/components.json node modules/ui-kit/tests/connect.mjs chromium
-          KWX_DIAGNOSTICS_OUTPUT="$RUNNER_TEMP/connect-diagnostics-chromium" node modules/extension/userscript/tests/diagnostics.mjs chromium
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_APP_REFRESH=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-app-refresh node modules/extension/userscript/tests/port-connect.mjs
+          FOCUS_FOREGROUND_FAILURE=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-foreground-route node modules/extension/userscript/tests/port-connect.mjs
           KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port-blocked node modules/extension/userscript/tests/port-connect.mjs
           node modules/extension/userscript/tests/messageport-selection.mjs
           KWX_PORT_POC_GM_DELAY_MS=12000 KWX_PORT_POC_OUTPUT=.cache/messageport-poc node modules/extension/userscript/tests/messageport-poc.mjs
@@ -328,9 +328,9 @@ jobs:
             .cache/userscript-relay-lifecycle/
             .cache/userscript-port/
             .cache/userscript-app-refresh/
+            .cache/userscript-foreground-route/
             .cache/userscript-port-blocked/
             .cache/single-app/
-            ${{ runner.temp }}/connect-diagnostics-chromium/
           retention-days: 7
 
   e2e-new-interface-core:
@@ -480,7 +480,6 @@ jobs:
           KW_E2E_APP_ORIGIN=http://127.0.0.1:8159 KW_STARTUP_UPDATE_OUTPUT=.cache/messageport-webkit/startup-update run_check startup-update modules/ui/tests/startup-update-browser.mjs --browser=webkit || failed=1
           LOGIN_FIELD_RESULTS=.cache/messageport-webkit/login-fields.json run_check login-fields modules/extension/userscript/tests/login-fields.mjs webkit || failed=1
           CONNECT_COMPONENT_RESULTS=.cache/messageport-webkit/components.json run_check components modules/ui-kit/tests/connect.mjs webkit || failed=1
-          KWX_DIAGNOSTICS_OUTPUT="$RUNNER_TEMP/connect-diagnostics-webkit" run_check diagnostics modules/extension/userscript/tests/diagnostics.mjs webkit || failed=1
           KWX_RELAY_BROWSERS=webkit KWX_RELAY_LIFECYCLE_OUTPUT=.cache/messageport-webkit/lifecycle run_check lifecycle modules/extension/userscript/tests/relay-lifecycle.mjs || failed=1
           run_check selection modules/extension/userscript/tests/messageport-selection.mjs || failed=1
           run_check lab modules/extension/userscript/tests/messageport-poc.mjs || failed=1

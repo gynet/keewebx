@@ -30,8 +30,6 @@ const metadata = `// ==UserScript==
 // @grant        GM.listValues
 // @grant        GM.getTab
 // @grant        GM.saveTab
-// @grant        GM.xmlHttpRequest
-// @connect      keewebx.app
 // ==/UserScript==
 
 // MessagePorts carry signed, encrypted Connect requests after a temporary same-origin page hands them to the original App.

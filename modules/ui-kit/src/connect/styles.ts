@@ -70,8 +70,7 @@ export const connectStyles = `
 .kwx-connect .kwx-connect__button--danger { color: var(--kwx-connect-danger); }
 .kwx-connect .kwx-connect__button:focus-visible,
 .kwx-connect .kwx-connect__input:focus-visible,
-.kwx-connect .kwx-connect__checkbox:focus-visible,
-.kwx-connect .kwx-connect__diagnostics-summary:focus-visible { outline: 2px solid var(--kwx-connect-accent); outline-offset: 2px; }
+.kwx-connect .kwx-connect__checkbox:focus-visible { outline: 2px solid var(--kwx-connect-accent); outline-offset: 2px; }
 .kwx-connect .kwx-connect__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .kwx-connect .kwx-connect__title { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 17px; font-weight: 650; line-height: 1.4; }
 .kwx-connect .kwx-connect__key { display: block; width: 23px; height: 23px; flex: 0 0 auto; }
@@ -107,9 +106,6 @@ export const connectStyles = `
 .kwx-connect .kwx-connect__checkbox:disabled { cursor: default; }
 .kwx-connect .kwx-connect__preference-hint { margin: 4px 0 0 28px; }
 .kwx-connect .kwx-connect__error { margin: 8px 0; color: var(--kwx-connect-danger); font-size: 12px; overflow-wrap: anywhere; }
-.kwx-connect .kwx-connect__diagnostics { border-top: 1px solid var(--kwx-connect-line); margin-top: 14px; color: var(--kwx-connect-muted); font-size: 12px; }
-.kwx-connect .kwx-connect__diagnostics-summary { min-height: 44px; padding: 12px 0; cursor: pointer; }
-.kwx-connect .kwx-connect__diagnostics-list { margin: 0 0 12px; padding: 0 0 0 18px; overflow-wrap: anywhere; }
 .kwx-connect .kwx-connect__version { margin-top: 12px; color: var(--kwx-connect-muted); font-size: 11px; text-align: end; overflow-wrap: anywhere; }
 .kwx-connect .kwx-connect__toggle { width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 14px; background: var(--kwx-connect-accent); color: var(--kwx-connect-on-accent); box-shadow: 0 4px 14px #1769e033; }
 .kwx-connect[data-mode="relay"] .kwx-connect__panel { position: fixed; left: 50%; top: 50%; right: auto; bottom: auto; transform: translate(-50%, -50%); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); }

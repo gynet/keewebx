@@ -14,7 +14,6 @@ keep transport and account-selection state confined to the owning documents.
 | Website memory | Physical port, foreground route/key snapshot, pending requests, current short-lived scope | Rebuilt after navigation or connection loss. Foreground preparation avoids a background manager-storage read on the connection path. |
 | App memory | Owned ports, active encrypted scope, authorization generations, consumed request IDs, bounded receipts | Ends with the document; expires or clears on idle, lock, cancellation, revocation or replacement as appropriate. |
 | Temporary helper and handoff worker | Discovery probes, transient port transfer | The helper closes after handoff. Established traffic does not depend on either remaining alive. |
-| Optional diagnostics | One-hour consent and upload capability; expiring sanitized records | Separate from vault authorization and transport availability. Off by default. |
 
 The selected route's `host` identifies one document boot. Its `owner` identifies
 the selected browser tab. In the New UI, the sole browser-elected primary can
@@ -24,16 +23,18 @@ documents cannot serve or restore it. Legacy Apps retain strict tab ownership.
 A saved host is a routing pointer, not proof that a port remains usable. Each
 actual connection still verifies signed readiness and the encrypted handshake.
 
-## Reload and replacement in 0.6.9
+## Selected App routing and recovery
 
-The worker can hand off directly to the browser-verified main New App using its
-live lifetime lock and client locator. This removes the separate discovery
-round trip from that route. Deployments without that locator keep discovery.
-Neither path selects an authorization or changes the requested host identity.
+The worker discovers the explicitly selected App boot. A main-window lock cannot
+replace that choice: an older authorized App may not participate in the newer
+singleton. The main-window locator remains limited to the duplicate-tab return
+button. Neither routing nor window ownership grants database access.
 
 Websites reload the saved route on foreground return and manager storage changes.
 Connection actions wait for that read. Canceling a physical connection does not
-discard a newer route read; failed reads cannot leave a stale cached target active.
+discard a newer route read. Failed reads block new setup, while existing RPCs
+retain their original signed bindings and can receive a valid reply. A confirmed
+revocation or changed host/key still closes the old port.
 
 | Event | Recovery |
 |---|---|

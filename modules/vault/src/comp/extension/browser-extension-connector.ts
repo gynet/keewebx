@@ -13,7 +13,6 @@ import {
 } from './protocol-impl';
 import { Features } from 'util/features';
 import { validWebsiteOrigin } from './website-matching';
-import { startConnectDiagnostics, recordConnectDiagnostic } from './diagnostic-events';
 
 const WebConnectionInfo: ConnectionInfo = {
     connectionId: 1,
@@ -87,8 +86,6 @@ const BrowserExtensionConnector = {
         if (this.started) this.stop();
         const sendEvent = this.sendEvent.bind(this);
         initVars = { appModel, ui, access, logger, sendEvent };
-        startConnectDiagnostics(() => ({ live: this.started, locked: !initVars?.access.snapshot().open,
-            hasPort: !!webPort, pending: pendingBrowserMessages.length, authorization: transportGeneration }));
 
         if (this.isEnabled()) {
             this.start();
@@ -102,7 +99,6 @@ const BrowserExtensionConnector = {
         this.startWebMessageListener();
 
         this.started = true;
-        recordConnectDiagnostic('app.receiver', { live: true });
         accessOpen = initVars.access.snapshot().open;
         this.sendLockState();
         unsubscribeInvalidation = initVars.access.subscribeInvalidation(() => {
@@ -129,7 +125,6 @@ const BrowserExtensionConnector = {
         connections.clear();
 
         this.started = false;
-        recordConnectDiagnostic('app.receiver', { live: false });
     },
 
     appSettingsChanged(): void {
@@ -324,8 +319,6 @@ const BrowserExtensionConnector = {
     },
 
     sendEvent(data: ProtocolResponse): void {
-        if (data.action === 'database-locked') recordConnectDiagnostic('app.locked', { locked: true });
-        else if (data.action === 'database-unlocked') recordConnectDiagnostic('app.unlocked', { locked: false });
         if (!this.started || !this.isEnabled() || !connections.size) {
             return;
         }

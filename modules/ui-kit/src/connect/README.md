@@ -49,4 +49,6 @@ node modules/ui-kit/tests/connect.mjs chromium webkit
 
 It compiles the actual components with Bun and verifies normal and Shadow DOM
 embedding, hostile page styles, text escaping, busy states, accessibility and
-mobile sizes. It uses no GM or extension transport fixture.
+mobile sizes. It also verifies that diagnostics controls and log panels are absent,
+that no fetch calls occur, and that no network requests are attempted. Browser
+requests are blocked locally. It uses no GM or extension transport fixture.
