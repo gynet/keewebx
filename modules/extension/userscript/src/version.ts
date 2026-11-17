@@ -1,1 +1,1 @@
-export const CONNECT_VERSION = '0.6.16';
+export const CONNECT_VERSION = '0.6.17';

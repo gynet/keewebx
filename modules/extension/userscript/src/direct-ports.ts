@@ -7,7 +7,7 @@ import type { DiagnosticData } from '../../../diagnostics/src';
 export const PORT_MARK = 'keewebx-connect-port-v1';
 export const PORT_IDLE_MS = 10 * 60 * 1000;
 const PORT_SETUP_MS = 25000;
-export class AppDiscoveryTimeoutError extends Error {}
+export class AppSetupTimeoutError extends Error {}
 export interface PortRoute { host: string; endpoint: string; publicKey: string; messagePort?: number; readyProof?: number }
 const originValid = (value: unknown): value is string => {
     if (typeof value !== 'string') return false;
@@ -34,6 +34,7 @@ export class SitePortLink {
     private sent = false;
     private ready = false;
     private verifiedReady = false;
+    private verifiedReply = false;
     private consecutiveTimeouts = 0;
     private lastSeen = 0;
     private promise?: Promise<void>;
@@ -51,6 +52,7 @@ export class SitePortLink {
     constructor(readonly endpoint: URL) { addEventListener('message', this.receive); }
     get connectionId(): string | undefined { return this.port ? this.id : undefined; }
     get authenticatedReady(): boolean { return this.ready && this.verifiedReady && this.href === location.href; }
+    get hasVerifiedReply(): boolean { return this.verifiedReply && this.href === location.href; }
     configure(route: PortRoute): void {
         if (this.route && (route.host !== this.route.host || route.publicKey !== this.route.publicKey)) this.reset('The selected KeeWebX App changed. Reconnect.');
         this.route = route;
@@ -67,19 +69,23 @@ export class SitePortLink {
         void this.promise.catch(() => {});
         const current = this.port, generation = this.generation;
         this.setupDeadline = Date.now() + PORT_SETUP_MS;
+        const expire = (message: string) => {
+            recordPortEvent('discovery-timeout', { connectionId: this.id }, 'expired');
+            this.reset(new AppSetupTimeoutError(message));
+        };
         current.onmessage = event => {
             if (this.port !== current || generation !== this.generation) { recordPortEvent('port-rejected', event.data, 'wrong-generation'); return; }
             if (!small(event.data) || event.data.marker !== PORT_MARK) { recordPortEvent('port-rejected', event.data, 'wrong-shape'); return; }
             const data = event.data;
             recordPortEvent('port-received', data);
             if (!this.ready && Date.now() >= this.setupDeadline) {
-                this.reset('The connection attempt expired. Return to the existing KeeWebX App, then reconnect.'); return;
+                expire('The connection attempt expired. Return to the existing KeeWebX App, then reconnect.'); return;
             }
             if (data.kind === 'error') {
                 const message = typeof data.message === 'string' ? data.message : 'The original App could not receive the connection.';
                 const discoveryTimeout = data.code === 'app-timeout' && data.nonce === this.nonce && data.connectionId === this.id;
                 if (discoveryTimeout) recordPortEvent('discovery-timeout', data);
-                this.reset(discoveryTimeout ? new AppDiscoveryTimeoutError(message) : message);
+                this.reset(discoveryTimeout ? new AppSetupTimeoutError(message) : message);
                 return;
             }
             const mismatch = data.connectionId !== this.id ? 'wrong-port' : data.appBoot !== this.route?.host ? 'wrong-host'
@@ -110,7 +116,9 @@ export class SitePortLink {
         url.searchParams.set('site', location.origin); url.searchParams.set('nonce', this.nonce); url.searchParams.set('endpoint', this.endpoint.href);
         this.helper = window.open(url.href, PORT_MARK + ':' + this.id) || undefined;
         if (!this.helper) { this.reset('Safari blocked the temporary connection page. Allow pop-ups and retry.'); return; }
-        this.timer = setTimeout(() => { if (this.port === current && !this.ready) this.reset('The original KeeWebX App did not reply. Visit that tab, then reconnect.'); }, Math.max(0, this.setupDeadline - Date.now()));
+        this.timer = setTimeout(() => {
+            if (this.port === current && !this.ready) expire('The original KeeWebX App did not reply. Visit that tab, then reconnect.');
+        }, Math.max(0, this.setupDeadline - Date.now()));
     }
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || !this.helper || event.source !== this.helper || event.origin !== this.endpoint.origin || !object(event.data) ||
@@ -151,6 +159,7 @@ export class SitePortLink {
     acknowledge(generation: number): void {
         this.assert(generation);
         // Only NativeRpc's verified, matching, unexpired replies acknowledge RPC.
+        this.verifiedReply = true;
         this.consecutiveTimeouts = 0;
     }
     send(value: unknown): void {
@@ -181,7 +190,8 @@ export class SitePortLink {
         this.helper = undefined;
         try { this.port?.postMessage({ marker: PORT_MARK, kind: 'close', connectionId: this.id }); } catch {}
         this.port?.close(); this.transfer?.close(); this.port = this.transfer = undefined;
-        this.ready = false; this.verifiedReady = false; this.consecutiveTimeouts = 0; this.sent = false; this.promise = undefined;
+        this.ready = false; this.verifiedReady = false; this.verifiedReply = false;
+        this.consecutiveTimeouts = 0; this.sent = false; this.promise = undefined;
         for (const closed of [...this.closed]) closed(error.message);
         this.reject?.(error); this.resolve = this.reject = undefined;
     }

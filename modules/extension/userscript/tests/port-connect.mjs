@@ -12,6 +12,7 @@
 // FOCUS_FOREGROUND_FAILURE=1 checks a foreground GM timeout during signed hello.
 // FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
 // KWX_FOCUS_MAILBOX_RECOVERY=1 suppresses both discovery replies and verifies the local fallback.
+// KWX_FOCUS_RELEASED_PORT_RECOVERY=1 checks mailbox recovery after a proven App port stops receiving requests.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
@@ -40,6 +41,7 @@ const FOCUS_APP_REFRESH = process.env.KWX_FOCUS_APP_REFRESH === '1';
 const FOCUS_FOREGROUND_FAILURE = process.env.FOCUS_FOREGROUND_FAILURE === '1';
 const FOCUS_REVOKE = process.env.FASTFOCUS_REVOKE === '1';
 const FOCUS_MAILBOX_RECOVERY = process.env.KWX_FOCUS_MAILBOX_RECOVERY === '1';
+const FOCUS_RELEASED_PORT_RECOVERY = process.env.KWX_FOCUS_RELEASED_PORT_RECOVERY === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
@@ -934,6 +936,93 @@ function validReadyProof(data) {
     return typeof data.proof === 'string' && Buffer.from(data.proof, 'base64').length === 64
         && verify(null, Buffer.from(payload), signingPublicKey(), Buffer.from(data.proof, 'base64'));
 }
+async function releasedPortRecovery(page, account) {
+    expect(approvedRoute.mailbox).toBe(true);
+    const website = await documentState(page), count = helpers.size;
+    const reads = await fieldReads(), lists = await entryReads();
+    await config(page); await probe(page); await closedHelper(page, count);
+    const link = await physicalPort(page), probed = await snapshot(page);
+    expect(probed.actions.at(-1)).toEqual({ action: 'probe', trusted: true });
+    for (const operation of ['hello', 'probe']) {
+        const reply = probed.packets.find(item => item.port === link.port && item.data.connectionId === link.connection
+            && item.direction === 'received' && item.data.kind === 'reply' && item.data.value?.packet?.operation === operation);
+        expect(reply?.data.value.packet).toMatchObject({ host: approvedRoute.host, operation });
+        expect(reply.data.value.packet.error).toBeUndefined();
+        expect(validSignature(reply.data.value)).toBe(true);
+    }
+    expect(await entryReads()).toBe(lists);
+    expect(await fieldReads()).toBe(reads);
+    await lookup(page, account);
+    expect(await entryReads()).toBe(lists + 1);
+    expect(await physicalPort(page)).toEqual(link);
+    const beforeClose = await snapshot(page);
+    const appBeforeClose = await snapshot(app);
+    expect(beforeClose.mailboxAttempts).toEqual([]);
+    expect(appBeforeClose.mailboxAttempts).toEqual([]);
+
+    await action(page, 'close');
+    const released = await snapshot(page);
+    const release = released.packets.slice(beforeClose.packets.length).find(item => item.direction === 'sent'
+        && item.data.kind === 'request' && item.data.value?.packet?.operation === 'release');
+    expect(released.actions.at(-1)).toEqual({ action: 'close', trusted: true });
+    expect(release).toMatchObject({ port: link.port, data: { connectionId: link.connection } });
+    expect(validSignature(release.data.value)).toBe(true);
+    const releaseId = release.data.value.packet.id;
+    const receivedRelease = async () => (await snapshot(app)).packets.slice(appBeforeClose.packets.length).find(item =>
+        item.direction === 'received' && item.data.kind === 'request' && item.data.value?.packet?.id === releaseId);
+    await expect.poll(receivedRelease, { message: 'App must receive the release before the port stops delivering requests' }).toBeTruthy();
+    const appRelease = await receivedRelease();
+    expect(appRelease.data).toEqual(release.data);
+    expect(appBeforeClose.packets.some(item => item.port === appRelease.port && item.direction === 'sent'
+        && item.data.kind === 'ready' && item.data.connectionId === link.connection && validReadyProof(item.data))).toBe(true);
+    await adapter(app, `__kwxPortAdapter.dropRequestsAfterRelease(${JSON.stringify(releaseId)})`);
+
+    await lookup(page, account);
+    expect(await entryReads()).toBe(lists + 2);
+    expect(await fieldReads()).toBe(reads);
+    expect(await page.evaluate(() => window.credentialInputEvents)).toBe(0);
+    const mailbox = () => nativeWorker.evaluate(() => globalThis.audit.filter(item =>
+        item.key.includes('keewebx-connect-mailbox-v1:') && item.value).map(item => item.value));
+    expect((await mailbox()).some(value => value.packet.body?.action === 'kwx-get-entry-fields')).toBe(false);
+    await fill(page, account);
+    expect(await entryReads()).toBe(lists + 2);
+    expect(await page.evaluate(() => window.credentialInputEvents)).toBe(2);
+
+    const recovered = await snapshot(page), appAfter = await snapshot(app);
+    const direct = recovered.packets.slice(released.packets.length).filter(item => item.data.kind === 'request' && item.direction === 'sent');
+    expect(direct.length, 'The user lookup must retry hello on the previously proven physical port').toBeGreaterThanOrEqual(2);
+    expect(direct.every(item => item.port === link.port && item.data.connectionId === link.connection
+        && item.data.value.packet.operation === 'hello' && validSignature(item.data.value))).toBe(true);
+    expect(direct[1].data.value).toEqual(direct[0].data.value);
+    const inbound = appAfter.packets.slice(appBeforeClose.packets.length).filter(item => item.port === appRelease.port
+        && item.data.connectionId === link.connection && item.data.kind === 'request');
+    expect(inbound.filter(item => item.direction === 'received').map(item => item.data)).toEqual([release.data]);
+    expect(inbound.filter(item => item.direction === 'dropped').map(item => item.data)).toEqual(direct.map(item => item.data));
+
+    const stored = await mailbox();
+    const requests = stored.filter(value => value.packet.type === 'request');
+    const replies = stored.filter(value => value.packet.type === 'reply');
+    expect(stored.every(value => validSignature(value) && value.packet.host === approvedRoute.host
+        && value.packet.endpoint === APP && value.packet.origin === new URL(page.url()).origin)).toBe(true);
+    for (const operation of ['hello', 'kwx-get-entries', 'kwx-get-entry-fields']) {
+        const matching = requests.filter(value => (value.packet.body?.action ?? value.packet.operation) === operation);
+        expect(matching, 'Exactly one signed mailbox request for ' + operation).toHaveLength(1);
+        const { id, deadline, document, scope } = matching[0].packet;
+        const reply = replies.find(value => value.packet.id === id);
+        expect(reply?.packet).toMatchObject({ deadline, document, operation: matching[0].packet.operation });
+        expect(reply.packet.scope).toBe(scope);
+        expect(reply.packet.error).toBeUndefined();
+        if (operation !== 'hello') expect(typeof matching[0].packet.body.message).toBe('string');
+    }
+    const serialized = JSON.stringify(stored);
+    for (const secret of PRIVATE_VALUES) expect(serialized).not.toContain(secret);
+    expect(await documentState(page)).toEqual(website);
+    expect(recovered.helperClose.references).toEqual(released.helperClose.references);
+    expect(helpers.size).toBe(count + 1);
+    await noHelpers(); await sameApp();
+    return { droppedDirectHelloAttempts: direct.length, signedMailboxLookupAndFill: true, additionalHelpers: 0,
+        automaticFieldReads: 0, explicitFieldReads: 1, reusedOriginalApp: true };
+}
 // Only references returned to the userscript are wrapped. Native events and ports
 // still cross the browser boundary; the helper's own page-world close stays native.
 function helperCloseFault({ marker, appOrigin, blocked }) {
@@ -1241,7 +1330,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
     };
     const ports = new WeakMap();
     const nativePost = MessagePort.prototype.postMessage;
-    let sequence = 0, lastRequest;
+    let sequence = 0, lastRequest, blockedAppPort;
     const record = (port, direction, data) => {
         if (data?.marker !== portMarker) return;
         state.packets.push({ at: Date.now(), port: ports.get(port), direction, data: structuredClone(data) });
@@ -1249,7 +1338,23 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
     const observe = port => {
         if (ports.has(port)) return;
         ports.set(port, ++sequence);
-        port.addEventListener('message', event => record(port, 'received', event.data));
+        port.addEventListener('message', event => {
+            const data = event.data;
+            if (blockedAppPort?.port === ports.get(port) && data?.marker === portMarker
+                && data.kind === 'request' && data.connectionId === blockedAppPort.connection) {
+                // This observer is installed before the App receiver handles the transferred port.
+                event.stopImmediatePropagation();
+                record(port, 'dropped', data);
+                return;
+            }
+            record(port, 'received', data);
+        }, true);
+    };
+    state.dropRequestsAfterRelease = releaseId => {
+        const release = state.packets.find(item => item.direction === 'received' && item.data.kind === 'request'
+            && item.data.value?.packet?.operation === 'release' && item.data.value.packet.id === releaseId);
+        if (!isApp || blockedAppPort || !release) throw new Error('Expected a received App-side release before dropping port requests');
+        blockedAppPort = { port: release.port, connection: release.data.connectionId };
     };
     // Observe signed ready independently of routing-page closure.
     globalThis.MessageChannel = new Proxy(MessageChannel, {
@@ -1515,7 +1620,7 @@ async function setup(bundle, appBundle = bundle) {
     }`;
     writeFileSync(join(extension, 'content.js'), `(() => {
         ${helperCloseFault.toString()}
-        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE, allowMailbox: FOCUS_MAILBOX_RECOVERY })});
+        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE, allowMailbox: FOCUS_MAILBOX_RECOVERY || FOCUS_RELEASED_PORT_RECOVERY })});
         // Retain this exact source and its lexical GM adapter in the original isolated world.
         // Only CDP can reach the hook; it accepts no source or privileged arguments.
         const runInstaller = () => {
@@ -1701,6 +1806,13 @@ acceptance: try {
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
+    if (FOCUS_RELEASED_PORT_RECOVERY) {
+        await step('a released website port that stops delivering requests recovers through the signed mailbox', async () => {
+            first = await newWebsite(ACCOUNTS[0]);
+            return releasedPortRecovery(first, ACCOUNTS[0]);
+        });
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'released-port-recovery'; break acceptance;
+    }
     await step('helper stays open until signed App ready, then opener self-closes it while hello is held and a cached retry survives reply loss', async () => {
         await installLegacyWorker(new URL(APP).origin);
         first = await newWebsite(ACCOUNTS[0]);

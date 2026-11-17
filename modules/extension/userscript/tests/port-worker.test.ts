@@ -34,7 +34,7 @@ class FakeWindowClient {
     }
 }
 
-function fixture(withSilentApp = false, options: { base?: string; endpoint?: string; appURL?: string; missingRelayLookup?: number } = {}) {
+function fixture(withSilentApp = false, options: { base?: string; endpoint?: string; appURL?: string; missingRelayLookup?: number; missingAppLookup?: boolean } = {}) {
     const base = options.base ?? 'https://keewebx.app/';
     const data = { marker, kind: 'attach', nonce: crypto.randomUUID(), appBoot: crypto.randomUUID(),
         connectionId: crypto.randomUUID(), endpoint: options.endpoint ?? endpoint, siteOrigin: 'https://login.example.org' };
@@ -60,6 +60,7 @@ function fixture(withSilentApp = false, options: { base?: string; endpoint?: str
                 queries.missingRelay++;
                 return undefined;
             }
+            if (id === app.id && options.missingAppLookup) return undefined;
             return clients.get(id);
         },
         async matchAll() { queries.matchAll++; return [...clients.values()]; }
@@ -525,10 +526,20 @@ test('discovery does not wait for an unavailable lock service', async () => {
     expect(f.queries.locks).toBe(0); expect(f.timers.size).toBe(0);
 });
 
+test('the same selected App survives a missing client lookup after discovery', async () => {
+    const f = fixture(true, { missingAppLookup: true });
+    acknowledge(f); await flush(); await f.work();
+    expect(f.queries.matchAll).toBe(2);
+    expect(f.app.posts.map(post => post.data.kind)).toEqual(['find-app', 'attach-port']);
+    expect(f.app.posts.at(-1)!.ports).toEqual([f.website]);
+    expect(f.silent.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
+    expect(f.website.messages).toEqual([]);
+});
+
 test.each(['app-closed', 'app-navigated', 'app-iframe', 'app-replaced',
     'relay-closed', 'relay-navigated', 'relay-iframe'])
 ('handoff revalidates browser clients after selected-boot discovery (%s)', async scenario => {
-    const f = fixture();
+    const f = fixture(false, { missingAppLookup: scenario.startsWith('app') });
     f.app.onPost = (request, ports) => {
         if (request.kind !== 'find-app') return;
         ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot,

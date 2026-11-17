@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.16
+# Userscripts on iOS: KeeWebX Connect 0.6.17
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,11 +7,11 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.16)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.16/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.17)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.17/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.16 release notes](docs/release-0.6.16.md)
+· [0.6.17 release notes](docs/release-0.6.17.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -22,7 +22,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.16** at both ends. The App reload
+   App and the login website to load **Connect 0.6.17** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
@@ -77,10 +77,12 @@ connection actions wait until that read completes. A failed settings refresh
 blocks new setup while an existing signed connection can finish its request.
 Remote diagnostics and support-command polling were removed in 0.6.11.
 
-A delayed discovery can resume on the same temporary page. After a signed port
-is ready, a timed-out first hello gets one fresh handshake on that same port.
-Expired responses are ignored. Credential requests retain their original deadlines
-and permission checks. No new App or helper is opened for that handshake retry.
+A delayed discovery can resume on the same temporary page. A newly authenticated
+port can retry a timed-out first handshake on the same port. If a previously working
+port stalls during a later handshake, the script closes it, checks the saved App
+grant and tries the encrypted local connection to that App. This recovery opens
+no new page. Expired responses are ignored. Credential requests retain their
+original deadlines and permission checks.
 
 
 Keep the original App tab open. **Test connection** checks its signed response
@@ -134,8 +136,8 @@ The App uses a synchronous same-origin selection marker containing only the
 public host ID, committed under the existing Web Lock. It checks that selection
 before and after asynchronous work, without awaiting background extension
 storage. Changing the selected App or revoking access cannot publish a late
-credential response. The older signed transport remains available for old
-receivers and separate regression coverage; new receivers use direct ports.
+credential response. Direct ports are the primary transport. Recovery uses a
+short-lived local mailbox for signed packets and encrypted wire payloads.
 
 ## Verification
 

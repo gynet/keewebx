@@ -253,15 +253,18 @@ async function discover(candidates, appBoot, endpoint, timeout = PROBE_MS, portI
     return results;
 }
 
-async function findRelay(id, data) {
-    let relay = await self.clients.get(id);
-    if (!relay) {
-        // A missing lookup alone does not establish that the helper closed.
-        // Require the same browser client and exact relay URL in a fresh list.
-        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
-        relay = windows.find((client) => client.id === id);
+async function findWindowClient(id, includeUncontrolled, valid) {
+    let client = await self.clients.get(id);
+    if (!client) {
+        // A missing lookup alone does not establish that the window closed.
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled });
+        client = windows.find((window) => window.id === id);
     }
-    return relay && relay.id === id && validRelay(relay, data) ? relay : undefined;
+    return client && client.id === id && valid(client) ? client : undefined;
+}
+
+function findRelay(id, data) {
+    return findWindowClient(id, false, (client) => validRelay(client, data));
 }
 
 async function recoveryClients(sourceId, data, endpoint, deadline) {
@@ -348,13 +351,13 @@ async function attach(event) {
             return;
         }
         const [currentRelay, app] = await Promise.all([
-            findRelay(event.source.id, data), self.clients.get(matches[0].client.id)
+            findRelay(event.source.id, data), findWindowClient(matches[0].client.id, true, (client) => isApp(client, endpoint))
         ]);
         if (!currentRelay) {
             fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
             return;
         }
-        if (!app || app.id !== matches[0].client.id || !isApp(app, endpoint)) {
+        if (!app) {
             fail(event, 'refreshed', 'The KeeWebX app tab changed or closed. Select it again for Connect, then retry from the website.');
             return;
         }

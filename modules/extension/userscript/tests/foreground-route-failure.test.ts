@@ -27,21 +27,27 @@ afterEach(() => {
 
 // Real NativeRpc and SitePortLink validation with signed ready/hello/wire
 // envelopes. Only the manager, clock and message delivery are controlled.
-async function fixture() {
+async function fixture({ mailbox = false, ready = true } = {}) {
     const endpoint = new URL('https://keewebx.app/app?foreground=' + crypto.randomUUID()), keys = sign.keyPair();
     const route = { host: crypto.randomUUID(), owner: crypto.randomUUID(), endpoint: endpoint.href,
-        publicKey: Buffer.from(keys.publicKey).toString('base64'), messagePort: 1, readyProof: 1 };
+        publicKey: Buffer.from(keys.publicKey).toString('base64'), messagePort: 1, readyProof: 1, mailbox };
     let saved: any = route, blocked = false, reads = 0;
     replace('addEventListener', () => {}); replace('removeEventListener', () => {});
     replace('location', { href: 'https://login.example.org/login', origin: 'https://login.example.org' });
     let helpers = 0;
     replace('window', { open: () => { helpers++; return { closed: false, close() {}, postMessage() {} }; } });
-    replace('GM', { async getValue(key: string) {
-        reads++;
-        if (blocked) return new Promise(() => {});
-        return key.includes(':selected:') ? saved : {
-            publicKey: route.publicKey, secretKey: Buffer.from(keys.secretKey).toString('base64') };
-    } });
+    const stored = new Map<string, any>();
+    replace('GM', {
+        async getValue(key: string) {
+            reads++;
+            if (blocked) return new Promise(() => {});
+            if (key.startsWith('keewebx-connect-mailbox')) return stored.get(key);
+            return key.includes(':selected:') ? saved : {
+                publicKey: route.publicKey, secretKey: Buffer.from(keys.secretKey).toString('base64') };
+        },
+        async setValue(key: string, value: any) { stored.set(key, structuredClone(value)); },
+        async deleteValue(key: string) { stored.delete(key); }
+    });
     await prepareDirect(endpoint);
     let now = Date.now(), next = 0;
     const timers = new Map<number, { callback: () => void; due: number; repeat: number }>();
@@ -69,13 +75,21 @@ async function fixture() {
     link = rpc.direct;
     const outer = { marker: 'keewebx-connect-port-v1', connectionId: link.id, appBoot: route.host,
         endpoint: endpoint.href, siteOrigin: location.origin };
-    port!.onmessage!({ data: { ...outer, kind: 'ready', proof: signPortReady(outer, keys.secretKey) } });
+    if (ready) port!.onmessage!({ data: { ...outer, kind: 'ready', proof: signPortReady(outer, keys.secretKey) } });
     await flush();
+    const hello = () => ({ scope: crypto.randomUUID(), appBoot: route.host, expiresAt: now + 120000 });
     return {
-        endpoint, connecting, port: port!, sent, timers,
+        endpoint, connecting, port: port!, sent, timers, route, stored, hello,
         get helpers() { return helpers; }, get reads() { return reads; }, get now() { return now; },
         block() { blocked = true; }, unblock(value: any = route) { blocked = false; saved = value; },
-        hello: () => ({ scope: crypto.randomUUID(), appBoot: route.host, expiresAt: now + 120000 }),
+        replyMailbox() {
+            const request = [...stored.entries()].find(([key, value]) =>
+                key.startsWith('keewebx-connect-mailbox-v1:request:') && value.packet.operation === 'hello');
+            expect(request).toBeDefined();
+            const packet = { ...request![1].packet, type: 'reply', body: hello() };
+            const signature = Buffer.from(sign.detached(new TextEncoder().encode(stable(packet)), keys.secretKey)).toString('base64');
+            stored.set(request![0].replace(':request:', ':reply:'), { packet, signature });
+        },
         reply(body: any, mismatch?: 'signature' | 'scope') {
             const packet = { ...sent.at(-1).packet, type: 'reply', body };
             if (mismatch === 'scope') packet.scope = crypto.randomUUID();
@@ -98,6 +112,38 @@ async function fixture() {
         }
     };
 }
+
+test.each(['same grant', 'changed grant', 'expired setup'])('a direct timeout recovers only with the current grant (%s)', async scenario => {
+    const setup = scenario === 'expired setup';
+    const f = await fixture({ mailbox: true, ready: !setup });
+    let connecting = f.connecting;
+    if (!setup) {
+        f.reply(f.hello())(); await connecting;
+        rpc.dispose();
+        expect(openDirect(f.endpoint)).toBe(true);
+        rpc = new NativeRpc(f.endpoint, () => undefined);
+        connecting = rpc.connect().then(() => undefined, (error: Error) => error);
+        await flush();
+    }
+    const previous = f.sent.at(-1)?.packet;
+    if (scenario === 'changed grant') f.unblock({ ...f.route, authorizationRevision: 2 });
+    await f.tick(setup ? 25000 : 3000);
+    expect(f.helpers).toBe(1);
+    expect(f.port.closed).toBe(true);
+    if (scenario === 'changed grant') {
+        expect((await connecting)?.message).toBe('The selected KeeWebX App changed. Find accounts again.');
+        expect(f.stored.size).toBe(0);
+        return;
+    }
+    if (previous) {
+        // Direct retransmissions use the original hello, never an account request.
+        expect(previous.operation).toBe('hello');
+        expect(f.sent.filter(item => item.packet.document === previous.document).every(item => item.packet.id === previous.id)).toBe(true);
+    }
+    f.replyMailbox(); await f.tick(100);
+    expect(await connecting).toBeUndefined();
+    expect(f.timers.size).toBe(0);
+});
 
 async function failRefresh(f: Awaited<ReturnType<typeof fixture>>) {
     f.block();

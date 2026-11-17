@@ -1,5 +1,5 @@
 import { watchManagerGrant, watchManagerStorage } from './manager-events';
-import { AppDiscoveryTimeoutError, AppPortReceiver, SitePortLink } from './direct-ports';
+import { AppSetupTimeoutError, AppPortReceiver, SitePortLink } from './direct-ports';
 import { signPortReady } from './port-auth';
 import { ReplyReceipt, type ReceiptBinding } from './reply-receipt';
 import { sign } from 'tweetnacl';
@@ -12,6 +12,7 @@ import { ConnectMailbox, mailboxRequest, mailboxRelease } from './connect-mailbo
 import { transportEvent } from './transport-events';
 
 const MARK = 'keewebx-native-connect-v1';
+const REUSED_PORT_HELLO_MS = 3000;
 class RequestDeadlineError extends Error {}
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
 const routeKey = (endpoint: URL) => `${MARK}:selected:${endpoint.href}`;
@@ -526,9 +527,8 @@ export class NativeRpc {
                 this.directGeneration = this.direct.generation;
                 try { await this.direct.connect(); }
                 catch (error) {
-                    if (!(error instanceof AppDiscoveryTimeoutError) || !this.route.mailbox || Date.now() >= deadline) throw error;
-                    this.unsubscribeDirect(); this.unsubscribeDirect = undefined;
-                    this.direct = undefined; this.directGeneration = undefined;
+                    if (!(error instanceof AppSetupTimeoutError) || !this.route.mailbox || Date.now() >= deadline) throw error;
+                    this.leaveDirect();
                     useMailbox = true;
                 }
                 this.assertCurrent();
@@ -536,15 +536,7 @@ export class NativeRpc {
         } else { this.keys = await managerCall(() => identity()); this.route = await approvedRoute(this.endpoint); this.assertCurrent(); }
         if (!this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
-        if (useMailbox) {
-            transportEvent({ event: 'mailbox-start' });
-            this.progress('Trying the encrypted local connection to the original KeeWebX App');
-            const selected = await approvedRoute(this.endpoint); this.assertCurrent();
-            if (!selected?.mailbox || selected.host !== this.route.host || selected.publicKey !== this.route.publicKey ||
-                selected.authorizationRevision !== this.route.authorizationRevision) {
-                throw new Error('The selected KeeWebX App changed. Find accounts again.');
-            }
-        }
+        if (useMailbox) await this.checkMailbox(this.route);
         if (!this.direct && this.window) try {
             this.progress('Connecting the website window');
             await new Promise<void>((resolve, reject) => {
@@ -571,20 +563,44 @@ export class NativeRpc {
         }
         if (!this.direct && !this.window && !this.route.mailbox) throw new Error('Update Connect in your existing KeeWebX app tab, or open its connection page once.');
         if (!useMailbox) this.progress('Contacting the selected app');
+        const recoverReusedPort = this.route.mailbox && this.direct?.hasVerifiedReply;
         let result: any;
-        try { result = await this.call('hello', undefined, 8000, deadline); }
+        try { result = await this.call('hello', undefined, recoverReusedPort ? REUSED_PORT_HELLO_MS : 8000, deadline); }
         catch (error) {
-            if (!(error instanceof RequestDeadlineError) || !this.direct?.authenticatedReady || Date.now() >= deadline) throw error;
-            this.assertCurrent();
-            // A resumed website gets one fresh handshake on the proven port.
-            // Expired replies stay invalid; no credential request is repeated.
-            this.progress('Resuming the existing KeeWebX connection');
+            if (!(error instanceof RequestDeadlineError) || Date.now() >= deadline) throw error;
+            if (recoverReusedPort) {
+                this.leaveDirect(true);
+                await this.checkMailbox(this.route);
+                useMailbox = true;
+            } else {
+                if (!this.direct?.authenticatedReady) throw error;
+                this.assertCurrent();
+                this.progress('Resuming the existing KeeWebX connection');
+            }
+            // Start a new handshake, never replay an account or credential request.
             result = await this.call('hello', undefined, 8000, deadline);
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
         if (useMailbox) prepared.mailboxUntil = { host: this.route.host, revision: this.route.authorizationRevision,
             expires: Date.now() + 120000 };
+    }
+    private leaveDirect(reset = false): void {
+        this.unsubscribeDirect?.(); this.unsubscribeDirect = undefined;
+        if (reset && this.direct && this.direct.generation === this.directGeneration) {
+            this.direct.reset('The reused KeeWebX port stopped responding.');
+        }
+        this.direct = undefined; this.directGeneration = undefined;
+    }
+    private async checkMailbox(route: Route): Promise<void> {
+        this.assertCurrent();
+        transportEvent({ event: 'mailbox-start' });
+        this.progress('Trying the encrypted local connection to the original KeeWebX App');
+        const selected = await approvedRoute(this.endpoint); this.assertCurrent();
+        if (!selected?.mailbox || selected.host !== route.host || selected.publicKey !== route.publicKey ||
+            selected.authorizationRevision !== route.authorizationRevision) {
+            throw new Error('The selected KeeWebX App changed. Find accounts again.');
+        }
     }
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || event.source !== this.window || event.origin !== this.endpoint.origin || event.data?.marker !== MARK) return;
