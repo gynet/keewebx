@@ -8,6 +8,8 @@
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
 // KWX_FOCUS_HELLO=1 runs startup and delayed-hello recovery without the later stress cases.
 // KWX_FOCUS_REINJECT=1 runs startup and same-document installer reinjection acceptance.
+// KWX_FOCUS_APP_REFRESH=1 covers App reload/reopen, route readiness and cross-site fills.
+// KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
@@ -31,6 +33,8 @@ const BLOCK_APP_GM = process.env.KWX_APP_GM_BLOCK === '1';
 const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
 const FOCUS_HELLO = process.env.KWX_FOCUS_HELLO === '1';
 const FOCUS_REINJECT = process.env.KWX_FOCUS_REINJECT === '1';
+const FOCUS_APP_REFRESH = process.env.KWX_FOCUS_APP_REFRESH === '1';
+const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
 const OPERATION_BUDGET = 30000;
@@ -71,6 +75,7 @@ const cdpByPage = new WeakMap(), helpers = new Map(), documents = new Map(), soc
 const assetRequests = new Map();
 let context, nativeWorker, app, first, second, originalApp, approvedRoute, tlsServer, proxyServer;
 let appNavigationRequests = 0;
+let expectedAppNavigationRequests = 1, expectedConsentCount = 1;
 let expectedAppVersion, expectedSiteVersion;
 mkdirSync(OUT, { recursive: true });
 
@@ -221,11 +226,11 @@ async function noHelpers() {
 }
 async function sameApp({ unlocked = true, authorized = true } = {}) {
     expect(await documentState(app)).toEqual(originalApp);
-    expect(appNavigationRequests).toBe(1);
+    expect(appNavigationRequests).toBe(expectedAppNavigationRequests);
     expect(context.pages().filter(page => page !== upgradePage && page.url().startsWith(new URL(APP).origin) && !helperURL(page.url()))).toEqual([app]);
     if (unlocked) await expect(app.locator('.vault')).toBeVisible();
     await expect(consent()).toHaveCount(0);
-    expect(await app.evaluate(() => globalThis.__kwxNativeTest.consentCount)).toBe(1);
+    expect(await app.evaluate(() => globalThis.__kwxNativeTest.consentCount)).toBe(expectedConsentCount);
     if (authorized) expect((await settings()).get(ROUTE_KEY)).toEqual(approvedRoute);
     if (BLOCK_APP_GM) expect((await snapshot(app)).blockGM).toBe(true);
 }
@@ -648,6 +653,151 @@ async function sameDocumentReinjection() {
             additionalHelpers: 0, additionalAppNavigations: 0, additionalConsentDialogs: 0 };
     } finally { await Promise.all(hosts.map(host => host.dispose())); }
 }
+
+async function routeReadiness(page, trigger) {
+    const before = await snapshot(page), count = helpers.size;
+    const requests = before.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request').length;
+    await trigger();
+    await expect.poll(async () => (await snapshot(page)).heldRouteReads).toBeGreaterThan(0);
+    for (const name of ['lookup', 'probe', 'open']) {
+        await expect.poll(() => shadowValue(page, '[data-action="' + name + '"]', 'disabled')).toBe(true);
+        if (await shadowValue(page, '[data-action="' + name + '"]', 'offsetWidth') > 0) await action(page, name);
+    }
+    expect((await snapshot(page)).packets.filter(item => item.direction === 'sent' && item.data.kind === 'request')).toHaveLength(requests);
+    expect(helpers.size).toBe(count);
+    expect(await adapter(page, '__kwxPortAdapter.releaseRouteReads()')).toBeGreaterThan(0);
+    for (const name of ['lookup', 'probe', 'open']) {
+        await expect.poll(() => shadowValue(page, '[data-action="' + name + '"]', 'disabled')).toBe(false);
+    }
+    return { deferredRead: true, disabledActions: ['lookup', 'probe', 'open'], requestsWhilePending: 0 };
+}
+
+async function restoreSavedApp(previousRoute) {
+    await ready(app);
+    await expect(app.locator('html')).toHaveAttribute('data-app-instance', 'primary');
+    await expect(app.locator('.vault-row')).toHaveCount(1);
+    await app.locator('.vault-row').click();
+    const fallback = app.getByRole('button', { name: 'Use password', exact: true });
+    if (await fallback.isVisible()) await fallback.click();
+    await app.locator('#password').fill(DB_PASSWORD); await app.locator('#unlock').click();
+    await expect(app.locator('.entry-row').first()).toBeVisible();
+    await untilStatus(app, /Authorized/);
+    await expect.poll(async () => (await settings()).get(ROUTE_KEY)?.host).not.toBe(previousRoute.host);
+    approvedRoute = structuredClone((await settings()).get(ROUTE_KEY));
+    expect(approvedRoute.publicKey).toBe(previousRoute.publicKey);
+    expect(approvedRoute).toMatchObject({ endpoint: APP, messagePort: 1, readyProof: 1, wireReceipt: 1 });
+    const traffic = await windowTraffic();
+    for (const action of ['ping', 'change-public-keys', 'kwx-pair', 'kwx-features']) {
+        expect(traffic.requests.some(request => request.data.action === action), 'Restore must execute real ' + action).toBe(true);
+    }
+    expect((await snapshot(app)).actions.some(action => action.action === 'authorize')).toBe(false);
+    originalApp = await documentState(app);
+    expectedConsentCount = 0;
+    await sameApp();
+}
+
+async function refreshedSiteFill(page, account, { reconnect = false } = {}) {
+    await clearFields(page);
+    await expect.poll(() => shadowValue(page, '[data-action="lookup"]', 'disabled')).toBe(false);
+    const before = await snapshot(page), count = helpers.size;
+    await lookup(page, account);
+    if (reconnect) await closedHelper(page, count);
+    const requests = (await snapshot(page)).packets.slice(before.packets.length).filter(item =>
+        item.direction === 'sent' && item.data.kind === 'request');
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.every(item => item.data.value.packet.host === approvedRoute.host)).toBe(true);
+    await fill(page, account);
+    await sameApp(); await noHelpers();
+    const result = { host: approvedRoute.host, origin: new URL(page.url()).origin };
+    report.appRefresh.fills.push(result);
+    return result;
+}
+
+async function appRefreshAcceptance() {
+    report.appRefresh = { fills: [] };
+    await expect(app.locator('html')).toHaveAttribute('data-app-instance', 'primary');
+    await expect(app.locator('#sync-state')).toHaveText('Up to date');
+    await clearFields(first); await config(first);
+    const websiteBefore = await documentState(first), previousRoute = structuredClone(approvedRoute);
+    const consentBefore = await app.evaluate(() => __kwxNativeTest.consentCount);
+    expect(consentBefore).toBe(1);
+    await adapter(first, '__kwxPortAdapter.holdRouteReads = true');
+    await app.bringToFront(); await archive(app);
+    await app.reload(); expectedAppNavigationRequests++;
+    await restoreSavedApp(previousRoute);
+    expect(approvedRoute.owner).toBe(previousRoute.owner);
+    const focusBarrier = await routeReadiness(first, () => first.bringToFront());
+    expect(await documentState(first)).toEqual(websiteBefore);
+    await refreshedSiteFill(first, ACCOUNTS[0], { reconnect: true });
+    await config(first);
+    await adapter(first, '__kwxPortAdapter.holdRouteReads = true');
+    const eventBarrier = await routeReadiness(first, async () => {
+        // A real manager notification wakes a read; its payload grants nothing.
+        approvedRoute = { ...approvedRoute, fixtureRouteWake: randomUUID() };
+        await nativeWorker.evaluate(({ key, value }) => chrome.storage.local.set({ [key]: value }),
+            { key: PREFIX + ROUTE_KEY, value: approvedRoute });
+    });
+    await refreshedSiteFill(first, ACCOUNTS[0]);
+    await expect.poll(() => app.evaluate(async () => {
+        const { held } = await navigator.locks.query();
+        return held.filter(lock => lock.name.startsWith('keewebx-app-instance-v1:') && lock.name.includes(':client:')).length;
+    })).toBe(1);
+    const beforeFreshSite = (await snapshot(app)).attachments.length;
+    second = await newWebsite(ACCOUNTS[1]);
+    await refreshedSiteFill(second, ACCOUNTS[1], { reconnect: true });
+    const freshHandoff = (await snapshot(app)).attachments.slice(beforeFreshSite);
+    expect(freshHandoff.filter(item => item.data.kind === 'find-app')).toHaveLength(0);
+    expect(freshHandoff.filter(item => item.data.kind === 'attach-port')).toHaveLength(1);
+    report.appRefresh.fastPathWithoutDiscoveryAck = true;
+    for (let cycle = 0; cycle < 2; cycle++) {
+        await refreshedSiteFill(first, ACCOUNTS[0]);
+        await refreshedSiteFill(second, ACCOUNTS[1]);
+    }
+    const reloadHost = approvedRoute.host, beforeReopen = structuredClone(approvedRoute);
+    await archive(app); await app.close();
+    app = await context.newPage(); await app.goto(APP); expectedAppNavigationRequests++;
+    await restoreSavedApp(beforeReopen);
+    expect(approvedRoute.owner).not.toBe(beforeReopen.owner);
+    await refreshedSiteFill(first, ACCOUNTS[0], { reconnect: true });
+    await refreshedSiteFill(second, ACCOUNTS[1], { reconnect: true });
+    for (let cycle = 0; cycle < 2; cycle++) {
+        await refreshedSiteFill(first, ACCOUNTS[0]);
+        await refreshedSiteFill(second, ACCOUNTS[1]);
+    }
+    // The same browser tab changes origin twice, creating fresh website documents.
+    for (const account of [ACCOUNTS[1], ACCOUNTS[0]]) {
+        await archive(first); await first.goto(account.url); await ready(first);
+        await refreshedSiteFill(first, account, { reconnect: true });
+        await refreshedSiteFill(first, account);
+    }
+    for (const page of [app, first, second]) await archive(page);
+    for (const document of documents.values()) {
+        expect(document.mailboxAttempts).toEqual([]);
+        if (document.role === 'site') assertAccountAuthority(document.packets);
+    }
+    await sameApp(); await noHelpers();
+    return { reloadHost, reopenedHost: approvedRoute.host, sameWebsiteDocumentSurvivedReload: true,
+        focusBarrier, eventBarrier, initialConsentDialogs: consentBefore, additionalConsentDialogs: 0,
+        realProtocolRestore: true, differentOwnerOnReopen: true, persistedKdbxReopened: true,
+        successfulFillsAfterRefresh: report.appRefresh.fills.length, websiteOriginChanges: 2,
+        fastPathWithoutDiscoveryAck: report.appRefresh.fastPathWithoutDiscoveryAck, appNavigations: appNavigationRequests };
+}
+
+async function withDiscoveryFallback(run) {
+    const worker = context.serviceWorkers().find(worker => worker.url().endsWith('/connect-port/worker.js'));
+    expect(worker, 'Discovery fallback needs the real Connect worker').toBeTruthy();
+    await worker.evaluate(() => {
+        const locks = navigator.locks, query = locks.query.bind(locks);
+        globalThis.__kwxRestoreLockQuery = () => { locks.query = query; };
+        locks.query = async () => {
+            const snapshot = await query();
+            return { ...snapshot, held: snapshot.held.filter(lock =>
+                !(lock.name.startsWith('keewebx-app-instance-v1:') && lock.name.includes(':client:'))) };
+        };
+    });
+    try { return { ...await run(), fallbackWithoutPrimaryLocator: true }; }
+    finally { await worker.evaluate(() => { globalThis.__kwxRestoreLockQuery(); delete globalThis.__kwxRestoreLockQuery; }); }
+}
 async function recoverInnerReply(page, account) {
     await clearFields(page); await lookup(page, account);
     const reads = await fieldReads(), port = await physicalPort(page), count = helpers.size, before = await windowTraffic();
@@ -1024,7 +1174,8 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         boot: crypto.randomUUID(), href: location.href, role: isApp ? 'app' : 'site', blockGM: false,
         installerRuns: 0,
         reads: 0, allowedReads: 0, blockedReads: 0, mailboxAttempts: [], packets: [], attachments: [], statuses: [], actions: [],
-        holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null
+        holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null,
+        holdRouteReads: false, heldRouteReads: []
     };
     globalThis.__kwxPortAdapter = state;
     const NativeObserver = MutationObserver;
@@ -1162,6 +1313,12 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
             || (kind === 'reply') !== isApp) throw new Error('Invalid or already armed one-shot wire drop');
         state.dropNext = { kind, action };
     };
+    state.releaseRouteReads = () => {
+        state.holdRouteReads = false;
+        const pending = state.heldRouteReads.splice(0);
+        for (const resolve of pending) resolve();
+        return pending.length;
+    };
     state.snapshot = () => ({
         boot: state.boot, href: state.href, role: state.role, blockGM: state.blockGM,
         installerRuns: state.installerRuns, workerMessageListeners: workerListeners.map(item => item.id),
@@ -1170,7 +1327,8 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
         helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
         droppedDiscoveryReplies: state.droppedDiscoveryReplies || 0,
-        delayedDiscoveryReplies: state.delayedDiscoveryReplies || 0
+        delayedDiscoveryReplies: state.delayedDiscoveryReplies || 0,
+        heldRouteReads: state.heldRouteReads.length
     });
     function mailbox(operation, key) {
         if (!String(key).startsWith('keewebx-connect-mailbox-v1:')) return;
@@ -1194,6 +1352,9 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         async getValue(key, fallback) {
             mailbox('getValue', key);
             if (blocked()) return new Promise(() => {});
+            if (!isApp && state.holdRouteReads && String(key).startsWith('keewebx-native-connect-v1:selected:')) {
+                await new Promise(resolve => state.heldRouteReads.push(resolve));
+            }
             state.allowedReads++;
             const values = await chrome.storage.local.get(prefix + key);
             return (prefix + key) in values ? values[prefix + key] : fallback;
@@ -1260,7 +1421,8 @@ async function publishedOriginServer() {
     });
     proxyServer.listen(0, '127.0.0.1');
     await once(proxyServer, 'listening');
-    return 'http://127.0.0.1:' + proxyServer.address().port;
+    const spki = createHash('sha256').update(createPublicKey(pem).export({ format: 'der', type: 'spki' })).digest('base64');
+    return { server: 'http://127.0.0.1:' + proxyServer.address().port, spki };
 }
 async function setup(bundle, appBundle = bundle) {
     const extension = join(OUT, 'extension');
@@ -1304,9 +1466,10 @@ async function setup(bundle, appBundle = bundle) {
     })();`);
     const proxy = await publishedOriginServer();
     context = await chromium.launchPersistentContext(join(OUT, 'profile'), {
-        channel: 'chromium', headless: true, ignoreHTTPSErrors: true, proxy: { server: proxy },
+        channel: 'chromium', headless: true, ignoreHTTPSErrors: IGNORE_HTTPS_ERRORS, proxy: { server: proxy.server },
         viewport: { width: 1280, height: 900 },
-        args: ['--no-sandbox', '--ignore-certificate-errors', '--disable-extensions-except=' + extension, '--load-extension=' + extension]
+        args: ['--no-sandbox', '--ignore-certificate-errors-spki-list=' + proxy.spki,
+            '--disable-extensions-except=' + extension, '--load-extension=' + extension]
     });
     nativeWorker = context.serviceWorkers().find(worker => worker.url().startsWith('chrome-extension://'))
         || await context.waitForEvent('serviceworker', worker => worker.url().startsWith('chrome-extension://'));
@@ -1414,6 +1577,11 @@ acceptance: try {
         bytes: Buffer.byteLength(appBundle), sha256: createHash('sha256').update(appBundle).digest('hex') };
     await step('require the current production installer and built MessagePort assets', async () => {
         if (FOCUS_REINJECT) expect(appBundle === bundle, 'Reinjection acceptance requires the same installer in both documents').toBe(true);
+        if (FOCUS_APP_REFRESH) {
+            expect(appBundle === bundle, 'Refresh acceptance requires the same updated installer in both documents').toBe(true);
+            expect(BLOCK_APP_GM, 'Refresh restores the approved grant through the actual manager').toBe(false);
+        }
+        report.ignoreHTTPSErrors = IGNORE_HTTPS_ERRORS;
         expect(expectedSiteVersion, 'Website installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
         expect(bundle).toContain(PORT_MARK);
         expect(expectedAppVersion, 'App installer must declare its version').toMatch(/^\d+\.\d+\.\d+$/);
@@ -1511,6 +1679,11 @@ acceptance: try {
     if (FOCUS_REINJECT) {
         expect(report.errors).toEqual([]);
         report.passed = true; report.focus = 'same-document-reinjection'; break acceptance;
+    }
+    if (FOCUS_APP_REFRESH) {
+        await step('authorized App reload and close/reopen restore the sole primary grant, gate delayed route reads and repeatedly fill both sites', appRefreshAcceptance);
+        expect(report.errors).toEqual([]);
+        report.passed = true; report.focus = 'app-refresh'; break acceptance;
     }
     await step('a delayed hello resumes automatically on the same signed port and ignores expired replies', async () => {
         const page = await newWebsite(ACCOUNTS[0]), count = helpers.size;
@@ -1717,7 +1890,7 @@ acceptance: try {
             await sameApp(); await noHelpers();
         } finally { await adapter(app, '__kwxPortAdapter.suppressRestoration = false'); }
     });
-    await step('an App replying after the first discovery deadline resumes the same helper and fills once', async () => {
+    await step('an App replying after the first discovery deadline resumes the same helper and fills once', () => withDiscoveryFallback(async () => {
         const before = await snapshot(app), count = helpers.size;
         const page = await newWebsite(ACCOUNTS[0]);
         const started = Date.now();
@@ -1740,8 +1913,8 @@ acceptance: try {
             await adapter(app, '__kwxPortAdapter.holdDiscoveryUntil = 0');
             await archive(page); await page.close();
         }
-    });
-    await step('a lost App discovery reply recovers on a fresh channel before handing off once', async () => {
+    }));
+    await step('a lost App discovery reply recovers on a fresh channel before handing off once', () => withDiscoveryFallback(async () => {
         const before = await snapshot(app), count = helpers.size;
         await adapter(app, '__kwxPortAdapter.dropDiscoveryReplies = 1');
         const page = await newWebsite(ACCOUNTS[0]);
@@ -1754,7 +1927,7 @@ acceptance: try {
             expect(attempts.filter(item => item.data.kind === 'attach-port')).toHaveLength(1);
             await sameApp(); await noHelpers();
         } finally { await archive(page); await page.close(); }
-    });
+    }));
     await step('after every website closes a fresh site finds the original app three times', async () => {
         for (const account of [ACCOUNTS[1], ACCOUNTS[0], ACCOUNTS[1]]) {
             await noHelpers();

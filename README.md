@@ -60,6 +60,11 @@ database session. A visible waiting page can continue after the main App closes.
 If Safari refuses to switch tabs, select the existing tab manually. See
 [single-instance behavior and limits](modules/ui/docs/single-app.md).
 
+On startup, the web App checks for updates before showing the unlock screen.
+A ready update is applied first. The check waits at most 2.5 seconds so offline
+or slow connections can still open the App. Updates discovered during an active
+session can wait until the next startup.
+
 ## Browser extension
 
 [KeeWebX Connect releases](https://github.com/gynet/keewebx/releases) provide browser autofill. Choose the app location in the extension, open and unlock a vault, then approve the connection in KeeWebX. Access can be limited to selected vaults and revoked from the app's extension settings.

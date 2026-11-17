@@ -14,10 +14,12 @@ body {
 }
 /* A waiting page has no vault or Connect actions until it owns the App lock. */
 html[data-app-instance='checking'] #keewebx-userscript-connect,
+html[data-app-startup='checking'] #keewebx-userscript-connect,
 html[data-app-instance='secondary'] #keewebx-userscript-connect,
 html[data-app-instance='error'] #keewebx-userscript-connect {
     display: none !important;
 }
+html[data-app-instance='departed'] #keewebx-userscript-connect { display: none !important; }
 button,
 input,
 select,

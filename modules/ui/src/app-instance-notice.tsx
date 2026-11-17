@@ -16,7 +16,7 @@ export function AppInstanceNotice({ state, returning = false, message, onReturn,
     return <main class="start__main app-instance-notice"
         aria-labelledby={checking ? undefined : 'app-instance-notice-title'}>
         <section class="card app-instance-notice__card">
-            {checking ? <p class="app-instance-notice__status" role="status">{t('Opening KeeWebX…')}</p> : <>
+            {checking ? <p class="app-instance-notice__status" role="status">{message || t('Opening KeeWebX…')}</p> : <>
                 <h1 id="app-instance-notice-title" class="app-instance-notice__title">
                     {t(secondary ? 'KeeWebX is already open' : 'Unable to check open tabs')}
                 </h1>

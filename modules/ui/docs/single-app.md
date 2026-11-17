@@ -39,6 +39,16 @@ lock. It adds no localStorage, sessionStorage or GM ownership cache.
 
 ## Platform and upgrade boundaries
 
+The main page checks the root service worker for updates before constructing a
+vault model or showing the unlock form. An installed waiting version is activated
+and the page reloads first. Controlled pages explicitly check the network on
+startup; the first uncontrolled visit can continue after registering its fresh
+shell without waiting for the initial offline precache. A 2.5-second total budget
+keeps offline and stalled checks from blocking access. Expired or aborted checks
+cannot reload a model that has since started. Updates discovered during an
+active session show a passive next-startup notice instead of a disabled action
+asking the user to lock the vault.
+
 This feature coordinates top-level HTTP(S) pages in a browser that supports Web
 Locks. Downloaded file pages, extension documents and embedded frames retain
 their existing startup behavior. Classic remains a separate compatibility

@@ -402,6 +402,21 @@ async function reopenRecent(name: string, additional = false) {
     await app.locator('#password').fill(password); await app.locator('#unlock').click();
     await expect(app.locator('#password')).toHaveCount(0);
 }
+async function changeTarget() {
+    // Serve the real app at another deployment base so both targets can run
+    // under the single-App policy. Keep the old target alive to test cancellation.
+    const base = origin + '/changed-target/';
+    await context.route(base + '**', async route => {
+        const response = await route.fetch({ url: origin + '/' + route.request().url().slice(base.length) });
+        await route.fulfill({ response });
+    });
+    const previous = app;
+    app = await context.newPage(); await app.goto(base + 'index.html');
+    await expect(app.locator('#open-file-input')).toBeAttached();
+    await expect(previous.getByRole('dialog', { name: 'Select a field', exact: true })).toBeVisible();
+    await client.getByLabel('App URL').fill(app.url());
+    return previous;
+}
 async function stopCommandWorker() {
     const worker = context.serviceWorkers().find(worker => new URL(worker.url()).host === new URL(client.url()).host);
     if (!worker) throw new Error('Missing installed command worker');
@@ -436,9 +451,7 @@ for (const interruption of ['app reload', 'tab close', 'background restart', 'ta
             await app.goto(origin + '/index.html');
             await client.getByLabel('App URL').fill(origin + '/index.html');
         } else {
-            const previous = app;
-            app = await context.newPage(); await app.goto(origin + '/index.html');
-            await client.getByLabel('App URL').fill(origin + '/index.html');
+            const previous = await changeTarget();
             fresh = (await command('Connect')).value;
             await expect(previous.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
         }
@@ -491,9 +504,7 @@ for (const interruption of ['app reload', 'background restart', 'target change']
         if (interruption === 'app reload') await app.reload();
         else if (interruption === 'background restart') await stopCommandWorker();
         else {
-            const previous = app;
-            app = await context.newPage(); await app.goto(origin + '/index.html');
-            await client.getByLabel('App URL').fill(origin + '/index.html');
+            const previous = await changeTarget();
             await command('Set backend target');
             await expect(previous.getByRole('dialog', { name: 'Select a field', exact: true })).toHaveCount(0);
         }

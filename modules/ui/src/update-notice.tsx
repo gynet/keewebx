@@ -17,10 +17,10 @@ export function UpdateNotice({ canReload }: { canReload: boolean }) {
         maxWidth: 'min(28rem, calc(100vw - 2rem))', padding: '1rem'
     }}>
         <p role="status">{canReload ? t('An update is ready.')
-            : t('An update is ready. Lock your vaults, then reload to update.')}</p>
-        <button type="button" class="btn" id="apply-app-update" disabled={!canReload}
+            : t('An update is ready for the next time you open KeeWebX.')}</p>
+        {canReload && <button type="button" class="pill pill--primary" id="apply-app-update"
             onClick={() => { if (canReload) ServiceWorkerClient.applyUpdate(); }}>
             {t('Reload to update')}
-        </button>
+        </button>}
     </aside>;
 }

@@ -1,4 +1,7 @@
 {
+  "Checking for updates…": "Nach Updates suchen…",
+  "An update is ready for the next time you open KeeWebX.": "Ein Update ist für das nächste Öffnen von KeeWebX bereit.",
+  "KeeWebX checks for updates before unlocking. Updates found during a session are applied the next time you open the app.": "KeeWebX sucht vor dem Entsperren nach Updates. Während einer Sitzung gefundene Updates werden beim nächsten Öffnen der App angewendet.",
   "Opening KeeWebX…": "KeeWebX wird geöffnet…",
   "KeeWebX is already open": "KeeWebX ist bereits geöffnet",
   "Return to your original tab to keep using your unlocked vault.": "Kehren Sie zum ursprünglichen Tab zurück, um Ihren entsperrten Tresor weiter zu verwenden.",

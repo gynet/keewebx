@@ -28,6 +28,7 @@ export class ConnectUI {
     private panel?: HTMLElement;
     private panelStyle?: JSX.CSSProperties;
     private field?: HTMLInputElement;
+    private connectionPending = false;
     private actions = new Map<ConnectAction, ActionHandler>();
     private selections = new Map<string, ActionHandler>();
     onClose = () => {};
@@ -70,7 +71,13 @@ export class ConnectUI {
         this.update({ actions: { ...this.view.actions, [action]: { ...this.view.actions[action], ...patch } } });
     }
     isDisabled(action: ConnectAction): boolean {
-        return !!this.view.actions[action].disabled || (this.view.preferencePending && (action === 'lookup' || action === 'probe'));
+        return !!this.view.actions[action].disabled ||
+            (this.connectionPending && ['lookup', 'probe', 'open'].includes(action)) ||
+            (this.view.preferencePending && (action === 'lookup' || action === 'probe'));
+    }
+    preparingConnection(pending: boolean): void {
+        if (pending === this.connectionPending) return;
+        this.connectionPending = pending; this.paint();
     }
     preference(enabled: boolean, pending = false, error?: string): void {
         this.update({ autoFillSingle: enabled, preferencePending: pending, preferenceError: error });
@@ -128,12 +135,17 @@ export class ConnectUI {
 
     private update(patch: Partial<ConnectViewState>): void { this.view = { ...this.view, ...patch }; this.paint(); }
     private paint(): void {
+        const state = this.connectionPending ? { ...this.view, busy: true, actions: { ...this.view.actions,
+            lookup: { ...this.view.actions.lookup, disabled: true },
+            probe: { ...this.view.actions.probe, disabled: true },
+            open: { ...this.view.actions.open, disabled: true }
+        } } : this.view;
         render(h(Fragment, null, h('style', null, connectStyles), h(ConnectPanel, {
-            state: this.view, panelStyle: this.panelStyle, panelRef: this.panelRef,
+            state, panelStyle: this.panelStyle, panelRef: this.panelRef,
             onAction: (action, event) => { if (event.isTrusted && !this.isDisabled(action)) {
                 this.onDiagnostic('connect.action', { action }); this.actions.get(action)?.(event);
             } },
-            onSelectAccount: (id, event) => { if (event.isTrusted && !this.view.busy) this.selections.get(id)?.(event); },
+            onSelectAccount: (id, event) => { if (event.isTrusted && !this.view.busy && !this.connectionPending) this.selections.get(id)?.(event); },
             onToggle: event => {
                 if (!event.isTrusted) return;
                 if (this.view.open) this.hide(); else { this.show(); this.onOpen(event); }

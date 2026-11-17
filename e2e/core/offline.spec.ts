@@ -230,7 +230,8 @@ for (const classic of [false, true]) {
             await page.click('#footer__btn-settings');
             await page.click('.settings__general-restart-btn');
         } else {
-            await expect(page.locator('#apply-app-update')).toBeDisabled();
+            await expect(page.locator('#apply-app-update')).toHaveCount(0);
+            await expect(page.getByRole('status').filter({ hasText: 'An update is ready for the next time you open KeeWebX.' })).toBeVisible();
             await expect(page.locator('.entry-editor').getByLabel('Notes', { exact: true })).toHaveValue('Unsaved update draft');
             await page.locator('.entry-editor').getByRole('button', { name: 'Save', exact: true }).click();
             await page.getByRole('button', { name: 'Lock', exact: true }).click();

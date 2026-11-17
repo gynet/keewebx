@@ -7,6 +7,7 @@ const MAX_ACTIVE = 8;
 const MAX_CANDIDATES = 32;
 const PROBE_MS = 8000;
 const DISCOVERY_MS = 2 * PROBE_MS;
+const INSTANCE_LOOKUP_MS = 500;
 const PROBE_RETRY_MS = 750;
 const MAX_PROBE_ATTEMPTS = 4;
 const DIAGNOSTICS_MARK = 'keewebx-connect-diagnostics-v1';
@@ -297,6 +298,46 @@ async function recoveryClients(sourceId, data, endpoint, deadline) {
     }
 }
 
+/** Browser-owned routing hint only; the App still admits and authenticates the port. */
+async function primaryApp(candidates, endpoint, deadline) {
+    let timer, live = true;
+    try {
+        const base = new URL('../', self.location.href);
+        // The deployed main App uses the empty default storage namespace.
+        // Other deployments and namespaced builds keep the discovery protocol.
+        if (!['', 'app', 'index.html', 'next.html'].some(path =>
+            normalizePath(endpoint.pathname) === normalizePath(new URL(path || './', base).pathname)) ||
+            typeof self.navigator?.locks?.query !== 'function') return null;
+        const lockName = `${INSTANCE_MARK}:${base.pathname}:`;
+        const prefix = lockName + ':client:';
+        return await Promise.race([
+            (async () => {
+                const locks = await self.navigator.locks.query();
+                if (!live || !Array.isArray(locks?.held)) return null;
+                const owners = locks.held.filter(lock => lock.name === lockName);
+                if (owners.length !== 1 || owners[0].mode !== 'exclusive' ||
+                    typeof owners[0].clientId !== 'string' || !owners[0].clientId) return null;
+                const locators = locks.held.filter(lock => typeof lock.name === 'string' && lock.name.startsWith(prefix));
+                if (locators.length !== 1 || locators[0].mode !== 'exclusive' ||
+                    locators[0].clientId !== owners[0].clientId) return null;
+                const encoded = locators[0].name.slice(prefix.length);
+                const id = decodeURIComponent(encoded);
+                if (!/^[a-zA-Z0-9{}-]{1,128}$/.test(id) || encodeURIComponent(id) !== encoded ||
+                    !candidates.some(client => client.id === id)) return null;
+                const client = await self.clients.get(id);
+                return live && client?.id === id && isApp(client, endpoint) && instancePage(client) ? client : null;
+            })(),
+            new Promise(resolve => { timer = setTimeout(() => { live = false; resolve(null); },
+                Math.min(INSTANCE_LOOKUP_MS, Math.max(0, deadline - Date.now()))); })
+        ]);
+    } catch {
+        return null;
+    } finally {
+        live = false;
+        clearTimeout(timer);
+    }
+}
+
 async function attach(event) {
     if (!validAttachment(event)) {
         fail(event, 'invalid', 'The connection request is invalid. Return to the website and retry.');
@@ -323,7 +364,10 @@ async function attach(event) {
             return;
         }
         const discoveryDeadline = Date.now() + DISCOVERY_MS;
-        let probes = await discover(candidates, data.appBoot, data.endpoint, PROBE_MS, data.connectionId);
+        const mainApp = await primaryApp(candidates, endpoint, discoveryDeadline);
+        let probes = mainApp ? [{ client: mainApp, state: 'ready' }] :
+            await discover(candidates, data.appBoot, data.endpoint,
+                Math.min(PROBE_MS, Math.max(0, discoveryDeadline - Date.now())), data.connectionId);
         if (!probes.some((result) => ['ready', 'disabled', 'address-mismatch'].includes(result.state)) &&
             probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
             // iOS can queue every probe until the App resumes after round one.
@@ -359,8 +403,15 @@ async function attach(event) {
             }
             return;
         }
-        const app = await self.clients.get(matches[0].client.id);
-        if (!app || !isApp(app, endpoint)) {
+        const [currentRelay, app] = await Promise.all([
+            self.clients.get(event.source.id), self.clients.get(matches[0].client.id)
+        ]);
+        if (!currentRelay || currentRelay.id !== event.source.id || !validRelay(currentRelay, data)) {
+            fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
+            return;
+        }
+        relay = currentRelay;
+        if (!app || app.id !== matches[0].client.id || !isApp(app, endpoint) || mainApp && !instancePage(app)) {
             fail(event, 'refreshed', 'The KeeWebX app tab changed or closed. Select it again for Connect, then retry from the website.');
             return;
         }

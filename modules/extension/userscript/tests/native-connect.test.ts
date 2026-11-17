@@ -403,6 +403,99 @@ test('browser tab ownership restores across reload but not duplicated sessionSto
     selected.pause(); reload.pause(); duplicate.pause();
 });
 
+test('the sole New UI primary can restore an existing grant from another tab owner', async () => {
+    host.pause();
+    const previous = structuredClone(storage.get(routeKey));
+    replace('document', { documentElement: { dataset: { appInstance: 'primary' } } });
+    const primary = new NativeHost(endpoint);
+    try {
+        expect(await primary.selected()).toBe(true);
+        expect((primary as any).owner).not.toBe(previous.owner);
+        // The caller has completed its protocol pairing/features checks.
+        await primary.authorize(keys, () => true, 'restore');
+        expect(storage.get(routeKey)).toMatchObject({
+            host: (primary as any).host, owner: (primary as any).owner, publicKey: previous.publicKey
+        });
+        expect(primary.diagnostics().live).toBe(true);
+    } finally { primary.pause(); }
+});
+
+test('a legacy App still cannot restore another tab owner grant', async () => {
+    host.pause();
+    const previous = structuredClone(storage.get(routeKey));
+    const legacy = new NativeHost(endpoint);
+    try {
+        expect(await legacy.selected()).toBe(false);
+        await expect(legacy.authorize(keys, () => true, 'restore')).rejects.toThrow('Another KeeWebX tab');
+        expect(storage.get(routeKey)).toEqual(previous);
+    } finally { legacy.pause(); }
+});
+
+test('a New UI primary cannot inherit a grant for a different userscript identity', async () => {
+    host.pause();
+    replace('document', { documentElement: { dataset: { appInstance: 'primary' } } });
+    const previous = structuredClone(storage.get(routeKey));
+    const primary = new NativeHost(endpoint);
+    try {
+        await expect(primary.authorize(sign.keyPair(), () => true, 'restore')).rejects.toThrow('identity changed');
+        expect(storage.get(routeKey)).toEqual(previous);
+        expect(primary.diagnostics().live).toBe(false);
+    } finally { primary.pause(); }
+});
+
+test('a New UI primary cannot restore after explicit disconnect', async () => {
+    await host.revoke();
+    replace('document', { documentElement: { dataset: { appInstance: 'primary' } } });
+    replace('localStorage', { getItem: () => '1' });
+    const primary = new NativeHost(endpoint);
+    try {
+        expect(await primary.selected()).toBe(false);
+        await expect(primary.authorize(keys, () => true, 'restore')).rejects.toThrow('disconnected');
+        expect(storage.has(routeKey)).toBe(false);
+    } finally { primary.pause(); }
+});
+
+test.each(['secondary', 'checking', 'departed', 'error'])
+('a formerly selected %s App cannot serve, restore or explicitly steal a grant', async role => {
+    const previous = structuredClone(storage.get(routeKey));
+    const p = packet();
+    replace('document', { documentElement: { dataset: { appInstance: role } } });
+    expect(await host.selected()).toBe(false);
+    expect(host.diagnostics().live).toBe(false);
+    await send(envelope(p));
+    await expect(host.authorize(keys, () => true, 'restore')).rejects.toThrow('canceled');
+    await expect(host.authorize(keys)).rejects.toThrow('canceled');
+    expect(storage.get(routeKey)).toEqual(previous);
+    expect(replies).toHaveLength(0);
+    expect(reads).toBe(0);
+});
+
+test.each(['owner read', 'grant write'])
+('a primary that departs during its %s cannot publish a restored grant', async phase => {
+    host.pause();
+    const dataset = { appInstance: 'primary' };
+    replace('document', { documentElement: { dataset } });
+    const primary = new NativeHost(endpoint), entered = deferred(), finish = deferred();
+    const gm = (globalThis as any).GM, get = gm.getValue, set = gm.setValue;
+    if (phase === 'owner read') gm.getValue = async (key: string) => {
+        const value = await get(key);
+        if (key === routeKey) { entered.resolve(); await finish.promise; }
+        return value;
+    };
+    else gm.setValue = async (key: string, value: any) => {
+        if (key === routeKey) { entered.resolve(); await finish.promise; }
+        await set(key, value);
+    };
+    const restore = primary.authorize(keys, () => true, 'restore').catch(error => error);
+    try {
+        await entered.promise;
+        dataset.appInstance = 'departed'; finish.resolve();
+        expect((await restore).message).toContain('canceled');
+        expect(storage.get(routeKey)?.host).not.toBe((primary as any).host);
+        expect(primary.diagnostics().live).toBe(false);
+    } finally { finish.resolve(); await restore; primary.pause(); }
+});
+
 test('dispose between the selection await and call continuation prevents publication', async () => {
     replace('location', { href: 'https://second.example/login', origin: 'https://second.example' });
     const client = new NativeRpc(endpoint, () => undefined);
@@ -482,6 +575,37 @@ async function directHost() {
     host.pause(); host = new NativeHost(endpoint); await host.authorize(keys);
     return local;
 }
+
+test.each(['secondary', 'checking', 'departed'])
+('a selected %s App advertises disabled discovery and refuses direct attachment', async role => {
+    await directHost();
+    replace('document', { documentElement: { dataset: { appInstance: role } } });
+    replace('setTimeout', () => 0);
+    const messages: any[] = [];
+    const port = { postMessage: (value: any) => messages.push(value), start() {}, close() {} };
+    const data = { marker: 'keewebx-connect-port-v1', endpoint: endpoint.href, appBoot: (host as any).host };
+    const receive = (extra: any) => receiverMessage({ data: { ...data, ...extra },
+        source: { scriptURL: new URL('connect-port/worker.js', endpoint).href }, ports: [port] } as unknown as MessageEvent);
+    receive({ kind: 'find-app' });
+    expect(messages[0]).toMatchObject({ kind: 'app-state', state: 'disabled' });
+    receive({ kind: 'attach-port', connectionId: crypto.randomUUID(), siteOrigin: 'https://login.example.org' });
+    expect(messages.some(message => message.kind === 'ready')).toBe(false);
+    expect(host.unlock()).toBe(false);
+    await directSend(envelope(packet()));
+    expect(replies).toHaveLength(0);
+});
+
+test('departure suppresses a delayed encrypted response on an already admitted direct port', async () => {
+    await directHost();
+    const dataset = { appInstance: 'primary' };
+    replace('document', { documentElement: { dataset } });
+    const p = await directSession(), gate = deferred<any>();
+    AppBridge.prototype.request = () => gate.promise;
+    const running = directSend(envelope(p)); await Promise.resolve();
+    dataset.appInstance = 'departed';
+    gate.resolve({ action: 'test-wire' }); await running;
+    expect(replies).toHaveLength(1);
+});
 const directSend = (value: any, context = { origin: 'https://login.example.org', id: 'test-port' }) =>
     (host as any).receive(value, (value: any) => replies.push({ value }), context);
 async function directSession() {

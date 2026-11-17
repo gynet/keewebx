@@ -4,7 +4,7 @@ import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/p
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge, appReceiptsSupported, watchAppLockState } from './app-bridge';
 import { ConnectUI } from './connect-ui';
-import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials } from './native-connect';
+import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials, watchApprovedRoute } from './native-connect';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { targets, assertTargets, fill, type Targets } from './form-targets';
@@ -137,15 +137,40 @@ async function start(): Promise<void> {
     }
 
     let autoFillSingle = false;
+    let connectionRevision = 0, pageAlive = true;
+    let refreshing: Promise<void> | undefined;
+    let stopRouteWatching = () => {};
+    const refreshConnection = (force = false): Promise<void> => {
+        if (refreshing && !force) return refreshing;
+        const revision = ++connectionRevision;
+        ui.preparingConnection(true);
+        const work = prepareDirect(endpoint).finally(() => {
+            if (revision === connectionRevision && pageAlive) { refreshing = undefined; ui.preparingConnection(false); }
+        });
+        refreshing = work;
+        return work;
+    };
+    const refreshForeground = () => {
+        if (!pageAlive || document.hidden) return;
+        void refreshConnection().catch(error => ui.state(State.Error, message(error)));
+    };
+    const watchRoute = () => {
+        stopRouteWatching();
+        stopRouteWatching = watchApprovedRoute(endpoint, () => {
+            ++connectionRevision; refreshing = undefined; ui.preparingConnection(true);
+            if (pageAlive && !document.hidden) void refreshConnection(true).catch(error => ui.state(State.Error, message(error)));
+        });
+    };
+    watchRoute();
     const preferencesReady = userscriptPreferences.load().then(preferences => {
         autoFillSingle = preferences.autoFillSingle; ui.preference(autoFillSingle);
     }, () => ui.preference(false, false, 'Preferences could not be loaded. Single-account fill is off.'));
     ui.busy(true); ui.action('open', { disabled: true });
     ui.state(State.Connecting, 'Loading saved Connect settings…');
-    void Promise.all([prepareDirect(endpoint), preferencesReady]).then(() => {
+    void Promise.all([refreshConnection(), preferencesReady]).then(() => {
         ui.state(State.ReadyToConnect, 'Ready. Find matching accounts or test the connection.');
     }, error => ui.state(State.Error, message(error))).finally(() => { ui.busy(false); ui.action('open', { disabled: false }); });
-    addEventListener('focus', () => { void prepareDirect(endpoint).catch(() => {}); });
+    addEventListener('focus', refreshForeground);
     let selected: HTMLInputElement | undefined;
     let detected: HTMLInputElement | undefined;
     let connector: Window | undefined;
@@ -187,7 +212,7 @@ async function start(): Promise<void> {
     ui.on('save', async event => {
         if (!event.isTrusted) return;
         clean(); const epoch = generation;
-        try { endpoint = await saveEndpoint(ui.address); guard(epoch); connector = undefined; await prepareDirect(endpoint); guard(epoch); register(); ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
+        try { endpoint = await saveEndpoint(ui.address); guard(epoch); connector = undefined; refreshing = undefined; watchRoute(); await refreshConnection(true); guard(epoch); register(); ui.state(State.ReadyToConnect, 'Address saved. Authorize that KeeWebX tab once.'); }
         catch (error) { if (epoch === generation) ui.state(State.Error, message(error)); }
     });
     ui.onAutoFillSingleChange = enabled => {
@@ -326,9 +351,18 @@ async function start(): Promise<void> {
     let stopWatching = watchLoginFields(observeFields);
     const invalidated = () => { if (current?.rpc.href !== undefined && current.rpc.href !== location.href || pending && pending.href !== location.href) clean(); };
     addEventListener('popstate', invalidated); addEventListener('hashchange', invalidated);
-    addEventListener('pagehide', () => { clean(); stopWatching(); });
-    addEventListener('visibilitychange', () => { if (document.hidden && (!pending || selecting)) { clean(); ui.state(State.ReadyToConnect, 'Find accounts again when you return.'); } });
-    addEventListener('pageshow', event => { if (event.persisted) { clean(); stopWatching = watchLoginFields(observeFields); } });
+    addEventListener('pagehide', event => {
+        pageAlive = false; ++connectionRevision; refreshing = undefined;
+        clean(); stopWatching();
+        if (!event.persisted) stopRouteWatching();
+    });
+    addEventListener('visibilitychange', () => {
+        if (document.hidden && (!pending || selecting)) { clean(); ui.state(State.ReadyToConnect, 'Find accounts again when you return.'); }
+        if (!document.hidden) refreshForeground();
+    });
+    addEventListener('pageshow', event => {
+        if (event.persisted) { pageAlive = true; clean(); stopWatching = watchLoginFields(observeFields); refreshForeground(); }
+    });
 }
 
 void start().catch(error => console.warn('KeeWebX Connect initialization failed.', error instanceof Error ? error.name : 'InitializationError'));

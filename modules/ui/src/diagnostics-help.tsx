@@ -27,7 +27,7 @@ export function DiagnosticsHelp() {
             {status && <p role="status">{status}</p>}
         </details>
         <details class="preference-help"><summary>{t('Web app updates')}</summary>
-            <p>{t('The web app checks for updates automatically. When an update is ready, lock your vaults and use Reload to update.')}</p>
+            <p>{t('KeeWebX checks for updates before unlocking. Updates found during a session are applied the next time you open the app.')}</p>
             <p>{t('If no update appears, close other KeeWebX tabs and reopen the app. Keep a verified encrypted backup before clearing browser data.')}</p>
         </details>
         <details class="preference-help"><summary>{t('Application logs')}</summary>

@@ -19,13 +19,18 @@ function supported(): boolean {
 
 const ServiceWorkerClient = {
     registration: null as ServiceWorkerRegistration | null,
+    initialized: false,
 
     init(): void {
-        if (!supported()) {
+        if (!supported() || this.initialized) {
             return;
         }
-        navigator.serviceWorker
-            .register(new URL('service-worker.js', document.baseURI).href, { updateViaCache: 'none' })
+        this.initialized = true;
+        const scriptURL = new URL('service-worker.js', document.baseURI).href;
+        const prepared = this.registration;
+        const registration = prepared && [prepared.active, prepared.waiting, prepared.installing].some(worker => worker?.scriptURL === scriptURL)
+            ? Promise.resolve(prepared) : navigator.serviceWorker.register(scriptURL, { updateViaCache: 'none' });
+        registration
             .then((registration) => {
                 this.registration = registration;
                 void navigator.serviceWorker.ready.then((ready) =>
@@ -34,20 +39,25 @@ const ServiceWorkerClient = {
                 if (registration.waiting && navigator.serviceWorker.controller) {
                     this.updateReady();
                 }
-                registration.addEventListener('updatefound', () => {
+                const watched = new Set<ServiceWorker>();
+                const watchInstalling = () => {
                     const worker = registration.installing;
+                    if (!worker || watched.has(worker)) return;
+                    watched.add(worker);
                     worker?.addEventListener('statechange', () => {
                         // Only an update when a previous version controls the page.
                         if (worker.state === 'installed' && navigator.serviceWorker.controller) {
                             this.updateReady();
                         }
                     });
-                });
+                };
+                registration.addEventListener('updatefound', watchInstalling);
+                watchInstalling();
                 setInterval(() => {
                     registration.update().catch(() => {});
                 }, UPDATE_CHECK_INTERVAL);
             })
-            .catch((err: unknown) => logger.warn('Registration failed', err));
+            .catch((err: unknown) => { this.initialized = false; logger.warn('Registration failed', err); });
     },
 
     updateReady(): void {

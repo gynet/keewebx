@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.8
+# Userscripts on iOS: KeeWebX Connect 0.6.9
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,11 +7,11 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.8)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.8/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.9)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.9/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.8 acceptance report](docs/release-0.6.8.md)
+· [0.6.9 acceptance report](docs/release-0.6.9.md)
 
 ## Install or upgrade
 
@@ -21,12 +21,14 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.8** at both ends. The App reload
+   App and the login website to load **Connect 0.6.9** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
-3. Unlock the original App, open its Connect key panel, and choose
-   **Authorize Connect**. Approve account listing once in the native permission
-   dialog if requested. This selects one App for all websites.
+3. Unlock the original App. An existing grant resumes in the sole main New App
+   after a reload; its saved database permissions still apply. For first setup,
+   open the Connect key panel and choose **Authorize Connect**, then approve
+   account listing in the native permission dialog. Explicit disconnect still
+   requires authorization again.
 4. On a login website, focus a username/password field, tap the key, and select
    a matching account. The first connection in that document opens a small
    connection page, finds the original App, and automatically closes the page
@@ -68,6 +70,14 @@ account values and website addresses, and stops when disabled or expired.
 See [scope, command limits and retention](docs/remote-diagnostics.md).
 
 ## Recovery and lifecycle
+
+The New App uses a browser-held lifetime lock to select its main tab. The handoff
+worker can route directly to that browser-verified tab without waiting for a
+separate discovery reply. Older deployments retain discovery as a fallback.
+Neither route grants access: the selected App, port signature and encrypted
+protocol still enforce identity, website origin and current vault permissions.
+Websites refresh saved authorization on return and on manager change events;
+connection actions wait until that read completes.
 
 A delayed discovery can resume on the same temporary page. After a signed port
 is ready, a timed-out first hello gets one fresh handshake on that same port.

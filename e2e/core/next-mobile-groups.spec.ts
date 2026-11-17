@@ -111,7 +111,10 @@ for (const width of [320, 390]) {
         expect(preserved.fields.get('Password')).toBeInstanceOf(kdbx.ProtectedValue);
         expect((preserved.fields.get('Password') as kdbx.ProtectedValue).getText()).toBe('Synthetic!Secret789');
         expect(preserved.history).toHaveLength(1);
-        const fresh = await page.context().newPage(); await fresh.setViewportSize({ width, height: 740 }); await fresh.goto('/next.html');
+        const context = page.context();
+        // Release the single-App owner before reopening the downloaded vault.
+        await page.close();
+        const fresh = await context.newPage(); await fresh.setViewportSize({ width, height: 740 }); await fresh.goto('/next.html');
         // Import downloaded bytes after clearing browser state: persistence cannot come from live model objects.
         await fresh.evaluate(() => localStorage.clear()); await fresh.reload();
         await fresh.locator('#open-file-input').setInputFiles({ name: 'reopened.kdbx', mimeType: 'application/octet-stream', buffer: bytes });

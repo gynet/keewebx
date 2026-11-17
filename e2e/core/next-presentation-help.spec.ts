@@ -44,7 +44,7 @@ for (const width of [1280, 320]) test(`extension guidance and diagnostics are us
     expect(text).toMatch(/^KeeWebX \d+\.\d+\.\d+/); expect(text).toMatch(/Build: \d{4}-\d{2}-\d{2}/);
     expect(text).toMatch(/Commit: (?:unavailable|[a-f0-9]{7,40})/); expect(text).not.toContain('@@');
     await diagnostics.getByText('Web app updates', { exact: true }).click();
-    await expect(diagnostics).toContainText('lock your vaults and use Reload to update');
+    await expect(diagnostics).toContainText('KeeWebX checks for updates before unlocking.');
     await diagnostics.getByText('Keyboard reference', { exact: true }).click();
     await expect(diagnostics.locator('.shortcut-reference dt')).toHaveCount(27);
     await expect(diagnostics.locator('.shortcut-reference')).toContainText('Apply valid drafts and save vaults');

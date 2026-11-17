@@ -38,6 +38,8 @@ import { getStorageNamespace } from 'comp/settings/storage-namespace';
 import { AppInstance, appInstanceLock } from './app-instance';
 import { AppInstanceNotice } from './app-instance-notice';
 import { identifyInstance, prepareInstanceReturn, returnToInstance } from './app-instance-return';
+import { checkStartupUpdate } from './startup-update';
+import { RuntimeInfo } from 'const/runtime-info';
 
 declare const __KW_NEW_EXTENSION__: boolean;
 declare const __KEEWEBX_BUILD_SHA__: string;
@@ -280,19 +282,37 @@ if (classicEntry) location.replace(classicEntry);
 else {
     const root = document.getElementById('root')!;
     let started: Promise<AppModel> | undefined;
+    let checked: Promise<'continue' | 'reloading'> | undefined;
+    const startup = new AbortController();
     let instance: AppInstance | undefined;
     let returnWorker: ReturnType<typeof prepareInstanceReturn> | undefined;
     let returning = false;
     let returnOperation: AbortController | undefined;
     let returnMessage = '';
     const showApp = () => {
-        started ??= startVault();
-        void started.then(model => {
-            if (instance && !instance.primary) return;
+        if (!checked) {
+            const enabled = window.top === window && /^https?:$/.test(location.protocol) && window.isSecureContext &&
+                'serviceWorker' in navigator && !RuntimeInfo.devMode && !getStorageNamespace();
+            if (enabled) {
+                document.documentElement.dataset.appStartup = 'checking';
+                render(<><PreferenceEffects /><AppInstanceNotice state="checking" message={t('Checking for updates…')}
+                    onReturn={() => {}} onRetry={() => {}} /></>, root);
+                checked = checkStartupUpdate({ container: navigator.serviceWorker,
+                    scriptURL: new URL('service-worker.js', document.baseURI).href,
+                    reload: () => location.reload(), canReload: () => !started && (!instance || instance.primary),
+                    onRegistration: registration => { ServiceWorkerClient.registration = registration; }, signal: startup.signal });
+            } else checked = Promise.resolve('continue');
+        }
+        void checked.then(async result => {
+            if (result === 'reloading' || startup.signal.aborted || instance && !instance.primary) return;
+            started ??= startVault();
+            const model = await started;
+            if (startup.signal.aborted || instance && !instance.primary) return;
+            document.documentElement.dataset.appStartup = 'ready';
             render(<App model={model} />, root);
             ServiceWorkerClient.init();
         }).catch(() => {
-            if (instance && !instance.primary) return;
+            if (startup.signal.aborted || instance && !instance.primary) return;
             render(
         <main class="start__main">
             <div class="card" role="alert">
@@ -304,6 +324,7 @@ else {
         root
         ); });
     };
+    window.addEventListener('pagehide', event => { if (!event.persisted) startup.abort(); });
     const notice = () => {
         if (!instance || instance.state === 'primary') return;
         render(<><PreferenceEffects /><AppInstanceNotice state={instance.state} returning={returning} message={returnMessage}
@@ -345,7 +366,13 @@ else {
                 });
             }
         });
-        window.addEventListener('pagehide', event => { returnOperation?.abort(); instance?.pageHide(event.persisted); });
+        window.addEventListener('pagehide', event => {
+            if (!event.persisted && instance?.primary) {
+                root.dataset.appInstance = 'departed';
+                document.documentElement.dataset.appInstance = 'departed';
+            }
+            returnOperation?.abort(); instance?.pageHide(event.persisted);
+        });
         window.addEventListener('pageshow', event => { if (event.persisted) instance?.start(); });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) returnOperation?.abort();

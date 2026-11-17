@@ -1,4 +1,4 @@
-import { watchManagerGrant } from './manager-events';
+import { watchManagerGrant, watchManagerStorage } from './manager-events';
 import { AppPortReceiver, SitePortLink } from './direct-ports';
 import { signPortReady } from './port-auth';
 import { ReplyReceipt, type ReceiptBinding } from './reply-receipt';
@@ -58,16 +58,34 @@ function directClient(endpoint: URL) {
 }
 /** Prepare while the website is foreground; handoff never depends on a late GM read. */
 export async function prepareDirect(endpoint: URL): Promise<void> {
-    const client = directClient(endpoint), revision = ++client.revision, generation = client.link.generation;
-    const route = await approvedRoute(endpoint);
-    const keys = route?.messagePort === 1 ? await managerCall(() => identity()) : undefined;
-    if (client.revision !== revision || client.link.generation !== generation) return;
-    if (!route || route.publicKey !== (keys ? toBase64(keys.publicKey) : route.publicKey)) {
-        client.link.reset('The saved Connect authorization changed.'); client.route = undefined; client.keys = undefined; return;
+    const client = directClient(endpoint), revision = ++client.revision;
+    try {
+        const route = await approvedRoute(endpoint);
+        const keys = route?.messagePort === 1 ? await managerCall(() => identity()) : undefined;
+        // Canceling a physical connection must not discard the latest grant read.
+        // New reads, grant invalidations and document departure still fence it.
+        if (client.revision !== revision) return;
+        if (!route || route.publicKey !== (keys ? toBase64(keys.publicKey) : route.publicKey)) {
+            client.link.reset('The saved Connect authorization changed.'); client.route = undefined; client.keys = undefined; return;
+        }
+        if (client.route && client.route.host !== route.host) client.link.reset('The selected KeeWebX App changed.');
+        client.route = route; client.keys = keys;
+        if (route.messagePort === 1) client.link.configure(route);
+    } catch (error) {
+        if (client.revision === revision) {
+            client.route = undefined; client.keys = undefined;
+            client.link.reset('The saved Connect authorization could not be checked.');
+        }
+        throw error;
     }
-    if (client.route && client.route.host !== route.host) client.link.reset('The selected KeeWebX App changed.');
-    client.route = route; client.keys = keys;
-    if (route.messagePort === 1) client.link.configure(route);
+}
+/** Storage events invalidate pending reads and wake a fresh authenticated read. */
+export function watchApprovedRoute(endpoint: URL, onChange: () => void): () => void {
+    const client = directClient(endpoint);
+    return watchManagerStorage([routeKey(endpoint)], () => {
+        client.revision++;
+        onChange();
+    });
 }
 export function directCredentials(endpoint: URL): Keys | undefined { return directClient(endpoint).keys; }
 /** Must be called synchronously from a trusted tap, before awaiting anything. */
@@ -98,10 +116,10 @@ export class NativeHost {
         this.leaseKey = `${MARK}:active:${endpoint.href}`;
         try {
             if (navigator.serviceWorker) {
-                this.direct = new AppPortReceiver(endpoint, () => ({ host: this.host, active: this.live && !!this.keys }),
+                this.direct = new AppPortReceiver(endpoint, () => ({ host: this.host, active: this.live && !!this.keys && this.canServe() }),
                     (value, reply, origin, id) => this.receive(value, reply, { origin, id }), id => {
                         if (this.session?.port === id) { this.session.bridge.dispose(); this.session = undefined; }
-                    }, this.diagnostic, () => this.live && !!this.keys && this.selectedDirect(), value => {
+                    }, this.diagnostic, () => this.live && !!this.keys && this.canServe() && this.selectedDirect(), value => {
                         if (!this.keys) throw new Error('Connect is inactive.');
                         return signPortReady(value, this.keys.secretKey);
                     });
@@ -139,12 +157,21 @@ export class NativeHost {
     }
     get hasDirectReceiver(): boolean { return !!this.direct; }
     diagnostics(): Readonly<{ locked: boolean; live: boolean; selected: boolean; direct: boolean; hasSession: boolean; authorization: number; runtimeCount: number }> {
-        return Object.freeze({ locked: this.locked || !!this.session?.locked, live: this.live, selected: this.selectedDirect(),
+        return Object.freeze({ locked: this.locked || !!this.session?.locked, live: this.live && this.canServe(), selected: this.canServe() && this.selectedDirect(),
             direct: !!this.direct, hasSession: !!this.session, authorization: this.authorization, runtimeCount: this.direct?.runtimeCount ?? 0 });
     }
+    private appRole(): string | undefined {
+        return typeof document === 'undefined' ? undefined : document.documentElement?.dataset?.appInstance;
+    }
+    private canServe(): boolean { const role = this.appRole(); return role === undefined || role === 'primary'; }
     private selectedDirect(): boolean { try { return localStorage.getItem(this.leaseKey) === this.host; } catch { return false; } }
     private restorationBlocked(): boolean { try { return localStorage.getItem(this.leaseKey + ':restore-blocked') === '1'; } catch { return false; } }
-    async selected(): Promise<boolean> { await this.ownerReady; if (this.restorationBlocked()) return false; const route = await approvedRoute(this.endpoint); return !route || route.owner === this.owner; }
+    async selected(): Promise<boolean> {
+        await this.ownerReady;
+        if (!this.canServe() || this.restorationBlocked()) return false;
+        const route = await approvedRoute(this.endpoint);
+        return this.canServe() && (!route || route.owner === this.owner || this.appRole() === 'primary');
+    }
     private updateRoute(operation: () => Promise<void>): Promise<void> {
         // App tabs share this origin and endpoint lock. Only the caller times
         // out: the lock remains held until the actual GM work and cleanup end.
@@ -166,7 +193,7 @@ export class NativeHost {
     }
     async authorize(keys: Keys, current: () => boolean = () => true, mode: 'explicit' | 'restore' = 'explicit'): Promise<void> {
         const generation = ++this.authorization;
-        const valid = () => generation === this.authorization && current();
+        const valid = () => generation === this.authorization && this.canServe() && current();
         await this.ownerReady;
         if (!valid()) throw new Error('Authorization was canceled.');
         try {
@@ -174,9 +201,13 @@ export class NativeHost {
                 if (!valid()) throw new Error('Authorization was canceled.');
                 if (mode === 'restore') {
                     if (this.restorationBlocked()) throw new Error('Connect was disconnected. Authorize this App explicitly to enable it again.');
-                    const route = await GM.getValue(routeKey(this.endpoint));
-                    if (route && route.owner !== this.owner) throw new Error('Another KeeWebX tab was selected. Authorize this tab explicitly to replace it.');
+                    const route = await approvedRoute(this.endpoint, true);
                     if (!valid()) throw new Error('Authorization was canceled.');
+                    // The caller has already checked pairing, unlock and listing
+                    // permissions. Only the elected New UI can inherit another
+                    // tab's grant, and only with the same userscript identity.
+                    if (route && route.publicKey !== toBase64(keys.publicKey)) throw new Error('The saved Connect identity changed. Authorize this App explicitly.');
+                    if (route && route.owner !== this.owner && this.appRole() !== 'primary') throw new Error('Another KeeWebX tab was selected. Authorize this tab explicitly to replace it.');
                 }
                 // Fail closed before publication, including selection by a legacy-only host.
                 if (typeof localStorage !== 'undefined') localStorage.removeItem(this.leaseKey);
@@ -197,9 +228,9 @@ export class NativeHost {
         if (!valid()) throw new Error('Authorization was canceled.');
         this.keys = keys; this.locked = false; this.live = true; this.mailbox.start(!this.direct);
     }
-    resume(): void { if (this.keys) { this.live = true; this.mailbox.start(!this.direct); } }
+    resume(): void { if (this.keys && this.canServe()) { this.live = true; this.mailbox.start(!this.direct); } }
     unlock(): boolean {
-        if (!this.direct || !this.live || !this.keys || !this.selectedDirect()) return false;
+        if (!this.canServe() || !this.direct || !this.live || !this.keys || !this.selectedDirect()) return false;
         // Unlock resumes the grant, never a locked protocol scope or its receipts.
         if (this.locked || this.session?.locked) {
             this.session?.bridge.dispose(); this.session = undefined;
@@ -227,7 +258,7 @@ export class NativeHost {
     private async receive(value: unknown, reply: (value: Signed) => void | Promise<void> = value => this.channel.postMessage({ marker: MARK, value }), direct?: { origin: string; id: string }): Promise<void> {
         const authorization = this.authorization;
         const keys = this.keys;
-        if (!this.live || !keys || !verified(value, keys.publicKey)) return;
+        if (!this.canServe() || !this.live || !keys || !verified(value, keys.publicKey)) return;
         const p = value.packet;
         if (p.type !== 'request' || p.host !== this.host || p.endpoint !== this.endpoint.href || !valid(p) || direct && p.origin !== direct.origin) return;
         if (direct) transportEvent({ event: 'rpc-received', traceId: p.id, portId: direct.id });
@@ -235,7 +266,7 @@ export class NativeHost {
         if (direct && p.operation === 'hello') this.diagnostic('Signed hello received; checking selected App grant');
         // A previously selected tab must stop serving after another app wins.
         const selected = direct ? this.selectedDirect() : (await approvedRoute(this.endpoint))?.host === this.host;
-        if (!selected || authorization !== this.authorization || !this.live || this.keys !== keys || Date.now() >= p.deadline) {
+        if (!this.canServe() || !selected || authorization !== this.authorization || !this.live || this.keys !== keys || Date.now() >= p.deadline) {
             if (direct) transportEvent({ event: 'rpc-rejected', traceId: p.id, portId: direct.id,
                 detail: !selected ? 'not-selected' : Date.now() >= p.deadline ? 'expired' : 'wrong-generation' });
             if (direct && p.operation === 'hello') this.diagnostic(`Hello rejected: selected=${selected}; current=${authorization === this.authorization && this.live && this.keys === keys}; expired=${Date.now() >= p.deadline}`);
@@ -265,14 +296,14 @@ export class NativeHost {
                         // The App prepares its cached response again, checking
                         // current permissions and entry/session lifetime before publication.
                         const body = await session.bridge.replay(p.body, Math.min(p.deadline, session.expiresAt));
-                        if (this.session === session && !session.locked && !this.locked && this.live &&
+                        if (this.canServe() && this.session === session && !session.locked && !this.locked && this.live &&
                             authorization === this.authorization && this.keys === keys && this.selectedDirect() && Date.now() < p.deadline) {
                             await reply(signed({ ...p, type: 'reply', body }, keys));
                             transportEvent({ event: 'rpc-sent', traceId: p.id, portId: direct.id });
                             this.diagnostic('Revalidated encrypted protocol receipt posted');
                         }
                     } catch (error) {
-                        if (this.session === session && authorization === this.authorization && this.live && this.keys === keys &&
+                        if (this.canServe() && this.session === session && authorization === this.authorization && this.live && this.keys === keys &&
                             this.selectedDirect() && Date.now() < p.deadline) {
                             await reply(signed({ ...p, type: 'reply', body: undefined, error: error instanceof Error ? error.message : 'The App receipt could not be checked. Find accounts again.' }, keys));
                         }
@@ -310,7 +341,7 @@ export class NativeHost {
                 if (this.session !== session) return;
             }
         } catch (reason) { error = reason instanceof Error ? reason.message : 'KeeWebX could not complete the request.'; }
-        if (authorization === this.authorization && this.live && this.keys === keys && (!direct || this.selectedDirect()) && Date.now() < p.deadline) {
+        if (this.canServe() && authorization === this.authorization && this.live && this.keys === keys && (!direct || this.selectedDirect()) && Date.now() < p.deadline) {
             try {
                 const response = signed({ ...p, type: 'reply', body, error }, keys);
                 if (direct && p.operation === 'hello' && !error && this.session?.port === direct.id) {

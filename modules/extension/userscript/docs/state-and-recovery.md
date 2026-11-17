@@ -17,9 +17,31 @@ keep transport and account-selection state confined to the owning documents.
 | Optional diagnostics | One-hour consent and upload capability; expiring sanitized records | Separate from vault authorization and transport availability. Off by default. |
 
 The selected route's `host` identifies one document boot. Its `owner` identifies
-the selected browser tab. A saved host is a discovery pointer, not proof that a
-port remains usable. Each actual connection still verifies signed readiness and
-the encrypted protocol handshake.
+the selected browser tab. In the New UI, the sole browser-elected primary can
+restore the same signing identity after reload or replacement, but only after
+unlock and the existing database pairing/listing checks. Secondary and departing
+documents cannot serve or restore it. Legacy Apps retain strict tab ownership.
+A saved host is a routing pointer, not proof that a port remains usable. Each
+actual connection still verifies signed readiness and the encrypted handshake.
+
+## Reload and replacement in 0.6.9
+
+The worker can hand off directly to the browser-verified main New App using its
+live lifetime lock and client locator. This removes the separate discovery
+round trip from that route. Deployments without that locator keep discovery.
+Neither path selects an authorization or changes the requested host identity.
+
+Websites reload the saved route on foreground return and manager storage changes.
+Connection actions wait for that read. Canceling a physical connection does not
+discard a newer route read; failed reads cannot leave a stale cached target active.
+
+| Event | Recovery |
+|---|---|
+| App reload or close/reopen | Old sessions end; unlock restores the same identity's existing permissions in the sole New App. Websites rebuild their ports. |
+| Lock/unlock | Credential sessions are cleared. New requests recheck the unlocked database; no new consent is needed for an existing grant. |
+| Explicit Disconnect | Restoration stays blocked until the user authorizes Connect again. |
+| Old worker or compatible script | Existing discovery and signed protocol remain available; installation still requires reloading both script endpoints. |
+| Missing protocol capability | Authorization fails with an update instruction instead of assuming compatibility. |
 
 `authorization` and `publishedAuthorization` also serve different purposes. The
 current generation can advance on pause; the published generation identifies
