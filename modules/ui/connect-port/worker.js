@@ -341,7 +341,7 @@ async function attach(event) {
                 !probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
                 fail(event, 'refreshed', 'The KeeWebX app was refreshed or the selected tab changed. Select it again for Connect, then retry from the website.');
             } else if (probes.some((result) => result.state === 'timeout')) {
-                fail(event, 'timeout', 'The App receiver did not answer. Visit your existing KeeWebX tab, unlock if needed, then retry.');
+                fail(event, 'app-timeout', 'The App receiver did not answer. Visit your existing KeeWebX tab, unlock if needed, then retry.');
             } else {
                 fail(event, 'unreachable', 'The KeeWebX app tab could not be reached. Return to the website and retry.');
             }

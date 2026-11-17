@@ -7,6 +7,7 @@ import type { DiagnosticData } from '../../../diagnostics/src';
 export const PORT_MARK = 'keewebx-connect-port-v1';
 export const PORT_IDLE_MS = 10 * 60 * 1000;
 const PORT_SETUP_MS = 25000;
+export class AppDiscoveryTimeoutError extends Error {}
 export interface PortRoute { host: string; endpoint: string; publicKey: string; messagePort?: number; readyProof?: number }
 const originValid = (value: unknown): value is string => {
     if (typeof value !== 'string') return false;
@@ -74,7 +75,12 @@ export class SitePortLink {
             if (!this.ready && Date.now() >= this.setupDeadline) {
                 this.reset('The connection attempt expired. Return to the existing KeeWebX App, then reconnect.'); return;
             }
-            if (data.kind === 'error') { this.reset(typeof data.message === 'string' ? data.message : 'The original App could not receive the connection.'); return; }
+            if (data.kind === 'error') {
+                const message = typeof data.message === 'string' ? data.message : 'The original App could not receive the connection.';
+                const discoveryTimeout = data.code === 'app-timeout' && data.nonce === this.nonce && data.connectionId === this.id;
+                this.reset(discoveryTimeout ? new AppDiscoveryTimeoutError(message) : message);
+                return;
+            }
             const mismatch = data.connectionId !== this.id ? 'wrong-port' : data.appBoot !== this.route?.host ? 'wrong-host'
                 : data.endpoint !== this.endpoint.href ? 'wrong-address' : data.siteOrigin !== location.origin ? 'wrong-origin' : undefined;
             if (mismatch) { recordPortEvent('port-rejected', data, mismatch); return; }
@@ -155,7 +161,8 @@ export class SitePortLink {
         this.listeners.add(listener); if (closed) this.closed.add(closed);
         return () => { this.listeners.delete(listener); if (closed) this.closed.delete(closed); };
     }
-    reset(reason = 'The website connection closed.'): void {
+    reset(reason: string | Error = 'The website connection closed.'): void {
+        const error = typeof reason === 'string' ? new Error(reason) : reason;
         if (this.port) recordPortEvent('port-rejected', { connectionId: this.id }, 'closed');
         this.generation++; clearTimeout(this.timer);
         if (this.helper) {
@@ -174,8 +181,8 @@ export class SitePortLink {
         try { this.port?.postMessage({ marker: PORT_MARK, kind: 'close', connectionId: this.id }); } catch {}
         this.port?.close(); this.transfer?.close(); this.port = this.transfer = undefined;
         this.ready = false; this.verifiedReady = false; this.consecutiveTimeouts = 0; this.sent = false; this.promise = undefined;
-        for (const closed of [...this.closed]) closed(reason);
-        this.reject?.(new Error(reason)); this.resolve = this.reject = undefined;
+        for (const closed of [...this.closed]) closed(error.message);
+        this.reject?.(error); this.resolve = this.reject = undefined;
     }
     dispose(): void { this.reset(); this.listeners.clear(); this.closed.clear(); removeEventListener('message', this.receive); }
 }

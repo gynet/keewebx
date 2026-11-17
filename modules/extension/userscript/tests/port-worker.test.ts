@@ -301,7 +301,7 @@ test('discovery retries remain bounded by two eight-second rounds and close ever
     expect(f.settled()).toBe(true); await f.work();
     expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(8);
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
-    expect(f.website.messages.at(-1)).toMatchObject({ kind: 'error', code: 'timeout' });
+    expect(f.website.messages.at(-1)).toMatchObject({ kind: 'error', code: 'app-timeout' });
     expect(f.website.closed).toBe(true);
     expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
     expect(f.timers.size).toBe(0);
@@ -313,7 +313,7 @@ test('an unrelated refreshed App cannot replace the selected App timeout after b
         if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-state', appBoot: f.silent.id, endpoint, state: 'enabled' });
     };
     await flush(); await f.tick(16000); await f.work();
-    expect(f.website.messages.at(-1).code).toBe('timeout');
+    expect(f.website.messages.at(-1).code).toBe('app-timeout');
     expect(f.queries.matchAll).toBe(2);
     expect(f.timers.size).toBe(0);
 });
@@ -331,7 +331,7 @@ test('a delayed browser lookup shortens round two to the remaining sixteen-secon
     expect(f.settled()).toBe(false);
     await f.tick(1999); expect(f.settled()).toBe(false);
     await f.tick(1); await f.work();
-    expect(f.website.messages.at(-1).code).toBe('timeout');
+    expect(f.website.messages.at(-1).code).toBe('app-timeout');
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
     expect(f.timers.size).toBe(0);
 });
@@ -344,7 +344,7 @@ test('a stalled recovery lookup cannot extend discovery or start late probes', a
     f.browserClients.get = async id => { if (id === f.relay.id) await waiting; return get(id); };
     await f.tick(15999); expect(f.settled()).toBe(false);
     await f.tick(1); await f.work();
-    expect(f.website.messages.at(-1).code).toBe('timeout');
+    expect(f.website.messages.at(-1).code).toBe('app-timeout');
     resume(); await flush();
     expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
@@ -494,7 +494,7 @@ test('a silent selected primary still requires discovery acknowledgement before 
     await f.tick(16000); await f.work();
     expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(8);
     expect(f.app.posts.some(post => post.data.kind === 'attach-port')).toBe(false);
-    expect(f.website.messages[0]).toMatchObject({ kind: 'error', code: 'timeout' });
+    expect(f.website.messages[0]).toMatchObject({ kind: 'error', code: 'app-timeout' });
     expect(f.queries.locks).toBe(0); expect(f.timers.size).toBe(0);
 });
 

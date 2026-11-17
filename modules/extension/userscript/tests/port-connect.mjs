@@ -11,6 +11,7 @@
 // KWX_FOCUS_APP_REFRESH=1 covers App reload/reopen, route readiness and cross-site fills.
 // FOCUS_FOREGROUND_FAILURE=1 checks a foreground GM timeout during signed hello.
 // FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
+// KWX_FOCUS_MAILBOX_RECOVERY=1 suppresses both discovery replies and verifies the local fallback.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
@@ -38,6 +39,7 @@ const FOCUS_REINJECT = process.env.KWX_FOCUS_REINJECT === '1';
 const FOCUS_APP_REFRESH = process.env.KWX_FOCUS_APP_REFRESH === '1';
 const FOCUS_FOREGROUND_FAILURE = process.env.FOCUS_FOREGROUND_FAILURE === '1';
 const FOCUS_REVOKE = process.env.FASTFOCUS_REVOKE === '1';
+const FOCUS_MAILBOX_RECOVERY = process.env.KWX_FOCUS_MAILBOX_RECOVERY === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
@@ -1180,7 +1182,7 @@ async function cancelPending(page, kind) {
 
 // These observers live beside the installer, in the extension's isolated world.
 // They retain native port identity and traffic; they never implement a receiver.
-function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
+function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMailbox }) {
     helperCloseFault({ marker: portMarker, appOrigin: new URL(appURL).origin, blocked: blockHelperClose });
     const isApp = location.href === appURL;
     const state = {
@@ -1243,7 +1245,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
     const nativeWorkerPost = ServiceWorker.prototype.postMessage;
     ServiceWorker.prototype.postMessage = function (data, ...rest) {
         if (isApp && data?.marker === portMarker && ['app-ready', 'app-state'].includes(data.kind)
-            && (state.holdDiscoveryUntil > Date.now() || droppedDiscoveryTraces.delete(data.traceId))) return;
+            && (state.dropAllDiscovery || state.holdDiscoveryUntil > Date.now() || droppedDiscoveryTraces.delete(data.traceId))) return;
         return nativeWorkerPost.call(this, data, ...rest);
     };
     MessagePort.prototype.postMessage = function (data, ...rest) {
@@ -1256,6 +1258,9 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         if (isApp && state.dropDiscoveryReplies > 0 && ['app-ready', 'app-state'].includes(data.kind)) {
             state.dropDiscoveryReplies--; state.droppedDiscoveryReplies = (state.droppedDiscoveryReplies || 0) + 1;
             droppedDiscoveryTraces.add(data.traceId);
+            record(this, 'dropped', data); return;
+        }
+        if (isApp && state.dropAllDiscovery && ['app-ready', 'app-state'].includes(data.kind)) {
             record(this, 'dropped', data); return;
         }
         if (isApp && ['app-ready', 'app-state'].includes(data.kind) && state.holdDiscoveryUntil > Date.now()) {
@@ -1368,7 +1373,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
     function mailbox(operation, key) {
         if (!String(key).startsWith('keewebx-connect-mailbox-v1:')) return;
         state.mailboxAttempts.push({ operation, key });
-        throw new Error('MessagePort acceptance forbids mailbox fallback');
+        if (!allowMailbox) throw new Error('MessagePort acceptance forbids mailbox fallback');
     }
     function blocked() {
         state.reads++;
@@ -1485,7 +1490,7 @@ async function setup(bundle, appBundle = bundle) {
     }`;
     writeFileSync(join(extension, 'content.js'), `(() => {
         ${helperCloseFault.toString()}
-        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE })});
+        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE, allowMailbox: FOCUS_MAILBOX_RECOVERY })});
         // Retain this exact source and its lexical GM adapter in the original isolated world.
         // Only CDP can reach the hook; it accepts no source or privileged arguments.
         const runInstaller = () => {
@@ -1721,6 +1726,56 @@ acceptance: try {
     });
     // Historical App overrides remain compatibility runs for that older installer.
     if (appBundle === bundle) await step('reinjecting the exact installer twice retains one UI and App receiver while the same website repeatedly fills', sameDocumentReinjection);
+    if (FOCUS_MAILBOX_RECOVERY) {
+        await step('a reopened website fills through the local fallback after every App discovery reply is lost', async () => {
+            const foreground = await context.newPage(); await foreground.bringToFront();
+            await first.close(); first = await newWebsite(ACCOUNTS[0]);
+            await foreground.close();
+            const before = helpers.size;
+            await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
+            await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            await noHelpers(); expect(helpers.size).toBe(before + 1);
+            const receiving = await snapshot(first);
+            expect(receiving.packets.some(item => item.data.kind === 'ready')).toBe(false);
+            expect(receiving.mailboxAttempts.some(item => item.operation === 'setValue')).toBe(true);
+            expect(await app.evaluate(() => document.hidden)).toBe(true);
+            await sameApp();
+
+            await clearFields(first); await lookup(first, ACCOUNTS[0]);
+            await app.evaluate(() => { globalThis.__kwxNativeTest.holdFields = true; });
+            try {
+                await action(first, 'entry-0');
+                await expect.poll(() => app.evaluate(() => globalThis.__kwxNativeTest.heldFields.length)).toBe(1);
+                await action(first, 'close');
+                expect(await app.evaluate(() => globalThis.__kwxNativeTest.releaseFields())).toBe(1);
+                await first.waitForTimeout(350);
+                await emptyFields(first);
+            } finally { await app.evaluate(() => globalThis.__kwxNativeTest.releaseFields()); }
+            await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            expect(helpers.size).toBe(before + 1);
+
+            await app.bringToFront(); await app.getByRole('button', { name: 'Lock', exact: true }).filter({ visible: true }).click();
+            await untilStatus(app, /locked.*unlock/i);
+            const reads = await fieldReads();
+            await clearFields(first); await startLookup(first);
+            await untilStatus(first, /locked.*unlock/i); await emptyFields(first);
+            expect(await fieldReads()).toBe(reads);
+            expect(helpers.size).toBe(before + 1);
+            await sameApp({ unlocked: false });
+
+            const audit = await nativeWorker.evaluate(() => globalThis.audit);
+            const stored = audit.filter(item => item.key.includes('keewebx-connect-mailbox-v1:') && item.value);
+            expect(stored.length).toBeGreaterThan(0);
+            const encrypted = stored.filter(item => item.value.packet.body?.action === 'kwx-get-entry-fields');
+            expect(encrypted.length).toBeGreaterThan(0);
+            expect(encrypted.every(item => typeof item.value.packet.body.message === 'string' && validSignature(item.value))).toBe(true);
+            for (const secret of [DB_PASSWORD, ...ACCOUNTS.flatMap(item => [item.user, item.password])]) {
+                expect(JSON.stringify(stored)).not.toContain(secret);
+            }
+            return { fallbackFilled: true, canceledFillIgnored: true, lockedVaultDenied: true, reusedOriginalApp: true };
+        });
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'mailbox-recovery'; break acceptance;
+    }
     if (FOCUS_FOREGROUND_FAILURE) {
         await step('a real foreground GM timeout preserves the signed hello port and the next connection test reuses it', async () => {
             // A fresh document on the first website prepares its saved grant;

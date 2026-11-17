@@ -1,5 +1,5 @@
 import { watchManagerGrant, watchManagerStorage } from './manager-events';
-import { AppPortReceiver, SitePortLink } from './direct-ports';
+import { AppDiscoveryTimeoutError, AppPortReceiver, SitePortLink } from './direct-ports';
 import { signPortReady } from './port-auth';
 import { ReplyReceipt, type ReceiptBinding } from './reply-receipt';
 import { sign } from 'tweetnacl';
@@ -45,7 +45,8 @@ const valid = (p: Packet) => isId(p.host) && isId(p.id) && isId(p.document) && /
     Number.isFinite(p.deadline) && p.deadline > Date.now() && p.deadline <= Date.now() + 66000 &&
     ['hello', 'wire', 'probe', 'focus', 'release'].includes(p.operation);
 
-const directClients = new Map<string, { link: SitePortLink; route?: Route; keys?: Keys; revision: number }>();
+const directClients = new Map<string, { link: SitePortLink; route?: Route; keys?: Keys; revision: number;
+    mailboxUntil?: { host: string; revision?: number; expires: number } }>();
 function directClient(endpoint: URL) {
     let client = directClients.get(endpoint.href);
     if (!client) {
@@ -89,10 +90,18 @@ export function watchApprovedRoute(endpoint: URL, onChange: () => void): () => v
     });
 }
 export function directCredentials(endpoint: URL): Keys | undefined { return directClient(endpoint).keys; }
+function preferMailbox(client: ReturnType<typeof directClient>): boolean {
+    const { route, mailboxUntil } = client;
+    return !!route?.mailbox && !!mailboxUntil && mailboxUntil.host === route.host &&
+        mailboxUntil.revision === route.authorizationRevision && Date.now() < mailboxUntil.expires;
+}
+
 /** Must be called synchronously from a trusted tap, before awaiting anything. */
 export function openDirect(endpoint: URL, force = false): boolean {
     const client = directClient(endpoint);
     if (client.route?.messagePort !== 1 || !client.keys) return false;
+    if (force) client.mailboxUntil = undefined;
+    else if (preferMailbox(client)) return true;
     client.link.open(force); return true;
 }
 
@@ -503,18 +512,38 @@ export class NativeRpc {
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
         const prepared = directClient(this.endpoint);
+        let useMailbox = false;
         if (prepared.route?.messagePort === 1 && prepared.keys) {
-            this.route = prepared.route; this.keys = prepared.keys; this.window = undefined; this.direct = prepared.link;
-            this.unsubscribeDirect = this.direct.subscribe(this.accept, reason => {
-                for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error(reason)); }
-                this.pending.clear();
-            });
-            this.progress('Connecting directly to the original KeeWebX App');
-            this.directGeneration = this.direct.generation;
-            await this.direct.connect(); this.assertCurrent();
+            this.route = prepared.route; this.keys = prepared.keys; this.window = undefined;
+            useMailbox = preferMailbox(prepared);
+            if (!useMailbox) {
+                this.direct = prepared.link;
+                this.unsubscribeDirect = this.direct.subscribe(this.accept, reason => {
+                    for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error(reason)); }
+                    this.pending.clear();
+                });
+                this.progress('Connecting directly to the original KeeWebX App');
+                this.directGeneration = this.direct.generation;
+                try { await this.direct.connect(); }
+                catch (error) {
+                    if (!(error instanceof AppDiscoveryTimeoutError) || !this.route.mailbox || Date.now() >= deadline) throw error;
+                    this.unsubscribeDirect(); this.unsubscribeDirect = undefined;
+                    this.direct = undefined; this.directGeneration = undefined;
+                    useMailbox = true;
+                }
+                this.assertCurrent();
+            }
         } else { this.keys = await managerCall(() => identity()); this.route = await approvedRoute(this.endpoint); this.assertCurrent(); }
-        if (!this.direct && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
+        if (!this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
+        if (useMailbox) {
+            this.progress('Trying the encrypted local connection to the original KeeWebX App');
+            const selected = await approvedRoute(this.endpoint); this.assertCurrent();
+            if (!selected?.mailbox || selected.host !== this.route.host || selected.publicKey !== this.route.publicKey ||
+                selected.authorizationRevision !== this.route.authorizationRevision) {
+                throw new Error('The selected KeeWebX App changed. Find accounts again.');
+            }
+        }
         if (!this.direct && this.window) try {
             this.progress('Connecting the website window');
             await new Promise<void>((resolve, reject) => {
@@ -540,7 +569,7 @@ export class NativeRpc {
             this.assertCurrent(); if (!this.route.mailbox) throw error;
         }
         if (!this.direct && !this.window && !this.route.mailbox) throw new Error('Update Connect in your existing KeeWebX app tab, or open its connection page once.');
-        this.progress('Contacting the selected app');
+        if (!useMailbox) this.progress('Contacting the selected app');
         let result: any;
         try { result = await this.call('hello', undefined, 8000, deadline); }
         catch (error) {
@@ -553,6 +582,8 @@ export class NativeRpc {
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
+        if (useMailbox) prepared.mailboxUntil = { host: this.route.host, revision: this.route.authorizationRevision,
+            expires: Date.now() + 120000 };
     }
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || event.source !== this.window || event.origin !== this.endpoint.origin || event.data?.marker !== MARK) return;

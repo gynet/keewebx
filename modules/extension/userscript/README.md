@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.13
+# Userscripts on iOS: KeeWebX Connect 0.6.14
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,11 +7,11 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.13)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.13/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.14)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.14/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.13 release notes](docs/release-0.6.13.md)
+· [0.6.14 release notes](docs/release-0.6.14.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -22,7 +22,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.13** at both ends. The App reload
+   App and the login website to load **Connect 0.6.14** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
