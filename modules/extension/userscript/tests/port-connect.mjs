@@ -11,7 +11,7 @@
 // KWX_FOCUS_APP_REFRESH=1 covers App reload/reopen, route readiness and cross-site fills.
 // FOCUS_FOREGROUND_FAILURE=1 checks a foreground GM timeout during signed hello.
 // FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
-// KWX_FOCUS_MAILBOX_RECOVERY=1 suppresses both discovery replies and verifies the local fallback.
+// KWX_FOCUS_MAILBOX_RECOVERY=1 drops App discovery and the port's error to verify local recovery.
 // KWX_FOCUS_RELEASED_PORT_RECOVERY=1 checks mailbox recovery after a proven App port stops receiving requests.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
@@ -1340,9 +1340,11 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         ports.set(port, ++sequence);
         port.addEventListener('message', event => {
             const data = event.data;
-            if (blockedAppPort?.port === ports.get(port) && data?.marker === portMarker
-                && data.kind === 'request' && data.connectionId === blockedAppPort.connection) {
-                // This observer is installed before the App receiver handles the transferred port.
+            const blockedRequest = blockedAppPort?.port === ports.get(port) && data?.kind === 'request'
+                && data.connectionId === blockedAppPort.connection;
+            const blockedError = state.dropPortSetupError && data?.kind === 'error' && data.code === 'app-timeout';
+            if (data?.marker === portMarker && (blockedRequest || blockedError)) {
+                // This observer is installed before the runtime handles the port.
                 event.stopImmediatePropagation();
                 record(port, 'dropped', data);
                 return;
@@ -1877,19 +1879,37 @@ acceptance: try {
             await config(first);
             for (const page of [app, first]) {
                 await shadowClick(page, disclosure);
+                await expect.poll(() => shadowValue(page, '.kwx-connect__local-log', 'open')).toBe(true);
+                // Opening the disclosure can reposition the floating panel.
+                await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
                 expect(await shadowValue(page, checkbox, 'checked')).toBe(false);
                 expect(await shadowValue(page, copy)).toBeNull();
                 await shadowClick(page, checkbox);
                 await expect.poll(() => shadowValue(page, checkbox, 'checked')).toBe(true);
             }
             await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true; __kwxPortAdapter.dropMailboxNotifications = true');
-            await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+            await adapter(first, '__kwxPortAdapter.dropPortSetupError = true');
+            const beforeSelection = await fieldReads();
+            await adapter(app, '__kwxPortAdapter.holdMailboxScan = true');
+            try {
+                await startLookup(first);
+                await untilStatus(first, /waiting for your original KeeWebX tab/i, OPERATION_BUDGET);
+                await expect.poll(async () => (await snapshot(app)).heldMailboxScans).toBeGreaterThan(0);
+                await first.waitForTimeout(9000);
+                await app.bringToFront();
+            } finally { await adapter(app, '__kwxPortAdapter.releaseMailboxScans()'); }
+            await first.bringToFront();
+            await matchingList(first, ACCOUNTS[0], beforeSelection); await fill(first, ACCOUNTS[0]);
             await noHelpers(); expect(helpers.size).toBe(before + 1);
             const receiving = await snapshot(first);
             expect(receiving.packets.some(item => item.data.kind === 'ready')).toBe(false);
+            expect(receiving.packets.filter(item => item.data.code === 'app-timeout' && item.direction === 'received')).toHaveLength(0);
+            expect(receiving.packets.some(item => item.data.code === 'app-timeout' && item.direction === 'dropped')).toBe(true);
             expect(receiving.mailboxAttempts.some(item => item.operation === 'setValue')).toBe(true);
             expect(await app.evaluate(() => document.hidden)).toBe(true);
             await sameApp();
+            await config(first); await shadowClick(first, copy);
+            await expect.poll(() => shadowValue(first, output, 'value')).toContain('"event":"relay-error"');
 
             await clearFields(first); await lookup(first, ACCOUNTS[0]);
             await app.evaluate(() => { globalThis.__kwxNativeTest.holdFields = true; });
@@ -1949,7 +1969,7 @@ acceptance: try {
                 await expect.poll(() => shadowValue(page, output, 'value')).toBeNull();
             }
             expect([...assetRequests.keys()].some(path => path.includes('connect-diagnostics'))).toBe(false);
-            return { fallbackFilled: true, mailboxNotificationsSuppressed: true, canceledFillIgnored: true, retryArrivedDuringStaleScan: true,
+            return { fallbackFilled: true, helperForwardedSetupError: true, resumedAfterAppVisit: true, mailboxNotificationsSuppressed: true, canceledFillIgnored: true, retryArrivedDuringStaleScan: true,
                 lockedVaultDenied: true, reusedOriginalApp: true, sanitizedLocalLogsCopied: true };
         });
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'mailbox-recovery'; break acceptance;

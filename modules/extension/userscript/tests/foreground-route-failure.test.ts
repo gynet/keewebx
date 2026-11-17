@@ -27,7 +27,7 @@ afterEach(() => {
 
 // Real NativeRpc and SitePortLink validation with signed ready/hello/wire
 // envelopes. Only the manager, clock and message delivery are controlled.
-async function fixture({ mailbox = false, ready = true } = {}) {
+async function fixture({ mailbox = false, ready = true, allowAppVisit = false } = {}) {
     const endpoint = new URL('https://keewebx.app/app?foreground=' + crypto.randomUUID()), keys = sign.keyPair();
     const route = { host: crypto.randomUUID(), owner: crypto.randomUUID(), endpoint: endpoint.href,
         publicKey: Buffer.from(keys.publicKey).toString('base64'), messagePort: 1, readyProof: 1, mailbox };
@@ -36,6 +36,8 @@ async function fixture({ mailbox = false, ready = true } = {}) {
     replace('location', { href: 'https://login.example.org/login', origin: 'https://login.example.org' });
     let helpers = 0;
     replace('window', { open: () => { helpers++; return { closed: false, close() {}, postMessage() {} }; } });
+    const website = Object.assign(new EventTarget(), { hidden: false });
+    if (allowAppVisit) replace('document', website);
     const stored = new Map<string, any>();
     replace('GM', {
         async getValue(key: string) {
@@ -71,7 +73,8 @@ async function fixture({ mailbox = false, ready = true } = {}) {
     replace('MessageChannel', class { port1 = port = new Port(); port2 = new Port(); });
     expect(openDirect(endpoint)).toBe(true);
     rpc = new NativeRpc(endpoint, () => undefined);
-    const connecting = rpc.connect().then(() => undefined, (error: Error) => error);
+    const connecting = rpc.connect(undefined, allowAppVisit ? (budgetMs: number) => now + budgetMs : undefined)
+        .then(() => undefined, (error: Error) => error);
     link = rpc.direct;
     const outer = { marker: 'keewebx-connect-port-v1', connectionId: link.id, appBoot: route.host,
         endpoint: endpoint.href, siteOrigin: location.origin };
@@ -79,7 +82,7 @@ async function fixture({ mailbox = false, ready = true } = {}) {
     await flush();
     const hello = () => ({ scope: crypto.randomUUID(), appBoot: route.host, expiresAt: now + 120000 });
     return {
-        endpoint, connecting, port: port!, sent, timers, route, stored, hello,
+        endpoint, connecting, port: port!, sent, timers, route, stored, hello, website,
         get helpers() { return helpers; }, get reads() { return reads; }, get now() { return now; },
         block() { blocked = true; }, unblock(value: any = route) { blocked = false; saved = value; },
         replyMailbox() {
@@ -142,6 +145,23 @@ test.each(['same grant', 'changed grant', 'expired setup'])('a direct timeout re
     }
     f.replyMailbox(); await f.tick(100);
     expect(await connecting).toBeUndefined();
+    expect(f.timers.size).toBe(0);
+});
+
+test('mailbox setup waits across a 35-second App visit and resumes only on website return', async () => {
+    const f = await fixture({ mailbox: true, ready: false, allowAppVisit: true });
+    let finished = false;
+    void f.connecting.then(() => { finished = true; });
+    await f.tick(25000);
+    f.website.hidden = true;
+    await f.tick(35000);
+    expect(finished).toBe(false);
+    f.replyMailbox(); await f.tick(100);
+    expect(finished).toBe(false);
+    expect(f.sent).toHaveLength(0);
+    f.website.hidden = false;
+    f.website.dispatchEvent(new Event('visibilitychange'));
+    expect(await f.connecting).toBeUndefined();
     expect(f.timers.size).toBe(0);
 });
 

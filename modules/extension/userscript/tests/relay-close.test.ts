@@ -150,6 +150,14 @@ test('an old controller that never upgrades fails within the existing worker bud
     expect(f.oldWorker.posts.filter(post => post.data.kind === 'attach')).toHaveLength(0);
 });
 
+test('an unavailable worker reports startup failure even before a port arrives', async () => {
+    const f = fixture(true, true);
+    f.fire(8000);
+    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    expect(f.opener.posts.at(-1)).toMatchObject({ marker, kind: 'error', code: 'worker-unavailable', connectionId: '' });
+    expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
+});
+
 test('a matching worker failure closes its own helper without a remote close', async () => {
     const f = fixture(); await f.attach();
     await f.complete({}, { data: { marker, kind: 'error', code: 'disabled',
@@ -157,6 +165,7 @@ test('a matching worker failure closes its own helper without a remote close', a
         connectionId: f.worker.posts.find(post => post.data.kind === 'attach').data.connectionId } });
     expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
     expect(f.status.textContent).toBe('Connect is disabled.');
+    expect(f.opener.posts.at(-1)).toMatchObject({ marker, kind: 'error', code: 'disabled', message: 'Connect is disabled.' });
 });
 test('untrusted, stale or port-bearing worker errors cannot close the helper', async () => {
     const f = fixture(); await f.attach();

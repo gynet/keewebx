@@ -1,26 +1,40 @@
-/** One user action has one deadline, even when it contains several RPCs. */
+/** Bound each operation and its explicit App recovery phase. */
 export class Operation {
-    readonly deadline: number;
     stage: string;
+    private expiresAt: number;
     private closed = false;
     private stop!: (error: Error) => void;
     private readonly aborted: Promise<never>;
-    private readonly timer: ReturnType<typeof setTimeout>;
+    private timer: ReturnType<typeof setTimeout>;
 
     constructor(stage: string, budgetMs: number, private readonly progress: (stage: string) => void,
-        expired: (stage: string) => void, private readonly now: () => number = () => Date.now()) {
+        private readonly expired: (stage: string) => void, private readonly now: () => number = () => Date.now()) {
         if (!Number.isFinite(budgetMs) || budgetMs <= 0) throw new RangeError('The operation needs a finite positive budget.');
         this.stage = stage;
-        this.deadline = this.now() + budgetMs;
+        this.expiresAt = this.now() + budgetMs;
         this.aborted = new Promise<never>((_resolve, reject) => { this.stop = reject; });
         void this.aborted.catch(() => {});
-        this.timer = setTimeout(() => {
+        this.timer = this.expirationTimer();
+        this.progress(stage);
+    }
+
+    get deadline(): number { return this.expiresAt; }
+
+    resetBudget(budgetMs: number): number {
+        this.assert();
+        if (!Number.isFinite(budgetMs) || budgetMs <= 0) throw new RangeError('The operation needs a finite positive budget.');
+        this.expiresAt = this.now() + budgetMs;
+        clearTimeout(this.timer); this.timer = this.expirationTimer();
+        return this.expiresAt;
+    }
+
+    private expirationTimer(): ReturnType<typeof setTimeout> {
+        return setTimeout(() => {
             if (this.closed) return;
             const stage = this.stage;
             this.cancel(this.timeout());
-            expired(stage);
-        }, Math.max(1, budgetMs));
-        this.progress(stage);
+            this.expired(stage);
+        }, Math.max(1, this.deadline - this.now()));
     }
 
     private timeout(): Error { return new Error(`${this.stage} timed out. Try Find accounts again.`); }

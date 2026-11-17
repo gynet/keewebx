@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { sign } from 'tweetnacl';
 import { toBase64 } from '../../src/background/utils';
 import { signPortReady, verifyPortReady } from '../src/port-auth';
-import { PORT_MARK, SitePortLink } from '../src/direct-ports';
+import { AppSetupTimeoutError, PORT_MARK, SitePortLink } from '../src/direct-ports';
 
 const endpoint = new URL('https://keewebx.app/app');
 const identity = () => ({ appBoot: crypto.randomUUID(), connectionId: crypto.randomUUID(), endpoint: endpoint.href, siteOrigin: 'https://login.example.org' });
@@ -34,12 +34,16 @@ function replace(key: string, value: unknown) {
 }
 let link: SitePortLink, port: Port, helperClosed: boolean, closeAllowed: boolean, keys: ReturnType<typeof sign.keyPair>, route: any;
 let closeAttempts: number;
+let windowMessage: (event: MessageEvent) => void;
 let helper: { readonly closed: boolean; close(): void; postMessage(data: unknown, origin: string): void }, helperPosts: { data: any; origin: string }[];
 beforeEach(() => {
     helperClosed = false; closeAllowed = true; closeAttempts = 0; helperPosts = []; keys = sign.keyPair();
     route = { host: crypto.randomUUID(), endpoint: endpoint.href, publicKey: toBase64(keys.publicKey), messagePort: 1, readyProof: 1 };
     replace('location', { origin: 'https://login.example.org', href: 'https://login.example.org/login' });
-    replace('addEventListener', () => {}); replace('removeEventListener', () => {});
+    replace('addEventListener', (name: string, listener: (event: MessageEvent) => void) => {
+        if (name === 'message') windowMessage = listener;
+    });
+    replace('removeEventListener', () => {});
     helper = { get closed() { return helperClosed; }, close() { closeAttempts++; if (closeAllowed) helperClosed = true; },
         postMessage(data, origin) { helperPosts.push({ data: structuredClone(data), origin }); } };
     replace('window', { open: () => helper });
@@ -117,6 +121,34 @@ test('a failed setup cancels its own helper when cross-window close is denied', 
     expect(helperPosts).toContainEqual({ origin: endpoint.origin, data: { marker: PORT_MARK, kind: 'relay-cancel',
         nonce, connectionId: value.connectionId, endpoint: endpoint.href } });
     expect(link.authenticatedReady).toBe(false);
+});
+test.each(['app-timeout', 'worker-unavailable', 'disabled'])('the helper can report %s when the transferred port delivers no error', async code => {
+    const connectionId = code === 'worker-unavailable' ? '' : ready().connectionId;
+    const data = { marker: PORT_MARK, kind: 'error', code, message: 'Connection setup failed.', nonce: (link as any).nonce, connectionId };
+    const event = { isTrusted: true, source: helper, origin: endpoint.origin, ports: [], data };
+    for (const wrong of [{ isTrusted: false }, { source: {} }, { origin: location.origin }, { ports: [new Port()] },
+        { data: { ...data, nonce: crypto.randomUUID() } }, { data: { ...data, connectionId: crypto.randomUUID() } }]) {
+        windowMessage({ ...event, ...wrong } as MessageEvent);
+        expect(port.closed).toBe(false);
+    }
+    // The caller may resume after the helper has already closed.
+    windowMessage(event as unknown as MessageEvent);
+    const error = await link.connect().catch(error => error);
+    expect(error.message).toBe(data.message);
+    expect(error instanceof AppSetupTimeoutError).toBe(code !== 'disabled');
+    expect(port.closed).toBe(true);
+    expect(link.authenticatedReady).toBe(false);
+});
+test('a helper error cannot disrupt an authenticated port', async () => {
+    const connected = link.connect(), value = ready();
+    const nonce = (link as any).nonce;
+    port.onmessage!({ data: { ...value, proof: signPortReady(value, keys.secretKey) } });
+    await connected;
+    windowMessage({ isTrusted: true, source: helper, origin: endpoint.origin, ports: [], data: {
+        marker: PORT_MARK, kind: 'error', code: 'app-timeout', message: 'Late failure.', nonce, connectionId: value.connectionId
+    } } as unknown as MessageEvent);
+    expect(port.closed).toBe(false);
+    expect(link.authenticatedReady).toBe(true);
 });
 test.each(['missing', 'forged', 'wrong connection', 'wrong site'])('a required receipt cannot be bypassed (%s)', async scenario => {
     const rejected = link.connect().catch(error => error);

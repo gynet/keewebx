@@ -13,6 +13,7 @@ import { transportEvent } from './transport-events';
 
 const MARK = 'keewebx-native-connect-v1';
 const REUSED_PORT_HELLO_MS = 3000;
+const APP_VISIT_BUDGET_MS = 60000;
 class RequestDeadlineError extends Error {}
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
 const routeKey = (endpoint: URL) => `${MARK}:selected:${endpoint.href}`;
@@ -501,14 +502,14 @@ export class NativeRpc {
         const current = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || current?.host !== this.route.host || current.publicKey !== this.route.publicKey) throw new Error('The selected app changed. Find accounts again.');
     }
-    async connect(deadline = Date.now() + 35000): Promise<void> {
-        try { await this.connectAttempt(deadline); }
+    async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number): Promise<void> {
+        try { await this.connectAttempt(deadline, onAppVisit); }
         catch (error) {
             this.resetUnauthenticatedDirect('The connection attempt failed.');
             throw error;
         }
     }
-    private async connectAttempt(deadline: number): Promise<void> {
+    private async connectAttempt(deadline: number, onAppVisit?: (budgetMs: number) => number): Promise<void> {
         if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new RequestDeadlineError('The connection attempt expired. Try again.');
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
@@ -536,7 +537,12 @@ export class NativeRpc {
         } else { this.keys = await managerCall(() => identity()); this.route = await approvedRoute(this.endpoint); this.assertCurrent(); }
         if (!this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
-        if (useMailbox) await this.checkMailbox(this.route);
+        const route = this.route;
+        const startMailbox = async () => {
+            if (onAppVisit) deadline = onAppVisit(APP_VISIT_BUDGET_MS);
+            await this.checkMailbox(route);
+        };
+        if (useMailbox) await startMailbox();
         if (!this.direct && this.window) try {
             this.progress('Connecting the website window');
             await new Promise<void>((resolve, reject) => {
@@ -565,12 +571,13 @@ export class NativeRpc {
         if (!useMailbox) this.progress('Contacting the selected app');
         const recoverReusedPort = this.route.mailbox && this.direct?.hasVerifiedReply;
         let result: any;
-        try { result = await this.call('hello', undefined, recoverReusedPort ? REUSED_PORT_HELLO_MS : 8000, deadline); }
+        const hello = (timeout = 8000) => this.call('hello', undefined, useMailbox && onAppVisit ? APP_VISIT_BUDGET_MS : timeout, deadline);
+        try { result = await hello(recoverReusedPort ? REUSED_PORT_HELLO_MS : 8000); }
         catch (error) {
             if (!(error instanceof RequestDeadlineError) || Date.now() >= deadline) throw error;
             if (recoverReusedPort) {
                 this.leaveDirect(true);
-                await this.checkMailbox(this.route);
+                await startMailbox();
                 useMailbox = true;
             } else {
                 if (!this.direct?.authenticatedReady) throw error;
@@ -578,12 +585,14 @@ export class NativeRpc {
                 this.progress('Resuming the existing KeeWebX connection');
             }
             // Start a new handshake, never replay an account or credential request.
-            result = await this.call('hello', undefined, 8000, deadline);
+            result = await hello();
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
-        if (useMailbox) prepared.mailboxUntil = { host: this.route.host, revision: this.route.authorizationRevision,
-            expires: Date.now() + 120000 };
+        if (useMailbox) {
+            if (onAppVisit) await this.waitForWebsiteReturn(deadline);
+            prepared.mailboxUntil = { host: route.host, revision: route.authorizationRevision, expires: Date.now() + 120000 };
+        }
     }
     private leaveDirect(reset = false): void {
         this.unsubscribeDirect?.(); this.unsubscribeDirect = undefined;
@@ -595,12 +604,27 @@ export class NativeRpc {
     private async checkMailbox(route: Route): Promise<void> {
         this.assertCurrent();
         transportEvent({ event: 'mailbox-start' });
-        this.progress('Trying the encrypted local connection to the original KeeWebX App');
+        this.progress('Waiting for your original KeeWebX tab. If needed, visit that tab, then return here');
         const selected = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!selected?.mailbox || selected.host !== route.host || selected.publicKey !== route.publicKey ||
             selected.authorizationRevision !== route.authorizationRevision) {
             throw new Error('The selected KeeWebX App changed. Find accounts again.');
         }
+    }
+    private async waitForWebsiteReturn(deadline: number): Promise<void> {
+        const timeout = () => new RequestDeadlineError('Return to the website and try Connect again.');
+        if (document.hidden) await new Promise<void>((resolve, reject) => {
+            const finish = (error?: Error) => {
+                clearTimeout(timer); document.removeEventListener('visibilitychange', visible); this.cancelSetup = undefined;
+                if (error) reject(error); else resolve();
+            };
+            const visible = () => { if (!document.hidden) finish(); };
+            const timer = setTimeout(() => finish(timeout()), Math.max(0, deadline - Date.now()));
+            this.cancelSetup = () => finish(new Error('The operation was canceled.'));
+            document.addEventListener('visibilitychange', visible);
+        });
+        this.assertCurrent();
+        if (Date.now() >= deadline) throw timeout();
     }
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || event.source !== this.window || event.origin !== this.endpoint.origin || event.data?.marker !== MARK) return;

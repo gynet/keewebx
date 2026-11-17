@@ -38,7 +38,8 @@ export interface DiagnosticData {
         | 'suppressed' | 'unavailable' | 'mailbox-start' | 'mailbox-notified' | 'mailbox-signal'
         | 'mailbox-signal-read' | 'mailbox-read-failed' | 'mailbox-request' | 'mailbox-reply'
         | 'discovery-received' | 'discovery-sent' | 'discovery-rejected' | 'port-received' | 'port-rejected'
-        | 'rpc-sent' | 'rpc-received' | 'rpc-accepted' | 'rpc-rejected' | 'runtime-duplicate';
+        | 'rpc-sent' | 'rpc-received' | 'rpc-accepted' | 'rpc-rejected' | 'runtime-duplicate'
+        | 'relay-opened' | 'relay-ready' | 'relay-error';
     reason?: 'timeout' | 'locked' | 'canceled' | 'unavailable' | 'changed' | 'other';
     detail?: 'wrong-source' | 'wrong-address' | 'wrong-host' | 'wrong-origin' | 'wrong-generation'
         | 'wrong-port' | 'wrong-shape' | 'bad-signature' | 'no-pending' | 'expired' | 'closed'

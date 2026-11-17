@@ -23,7 +23,7 @@ const enums = {
     event: ['receiver-ready', 'discovery', 'discovery-reply', 'discovery-timeout', 'handoff', 'port-ready', 'hello-received', 'hello-replied',
         'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable',
         'discovery-received', 'discovery-sent', 'discovery-rejected', 'port-received', 'port-rejected',
-        'rpc-sent', 'rpc-received', 'rpc-accepted', 'rpc-rejected', 'runtime-duplicate', 'mailbox-start', 'mailbox-notified',
+        'rpc-sent', 'rpc-received', 'rpc-accepted', 'rpc-rejected', 'runtime-duplicate', 'relay-opened', 'relay-ready', 'relay-error', 'mailbox-start', 'mailbox-notified',
         'mailbox-signal', 'mailbox-signal-read', 'mailbox-read-failed', 'mailbox-request', 'mailbox-reply'],
     reason: ['timeout', 'locked', 'canceled', 'unavailable', 'changed', 'other'],
     detail: [

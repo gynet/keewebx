@@ -13,6 +13,7 @@ import { userscriptPreferences } from './preferences';
 import { claimRuntime } from './runtime-owner';
 
 const VERSION = CONNECT_VERSION;
+const LOOKUP_BUDGET_MS = 30000;
 const runtime = { getVersion: () => VERSION, getMessage: (key: string) => key === 'errorAppReturnedError' ? 'KeeWebX returned an error' : key, allowDebug: false };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const assertWebsiteScope = (features: { features: string[]; websiteOrigin?: string }, origin: string) => {
@@ -191,7 +192,7 @@ async function start(): Promise<void> {
     };
     const guard = (epoch: number) => { if (epoch !== generation) throw new Error('The operation was canceled. Find accounts again.'); };
     const beginOperation = (stage: string, epoch: number) => {
-        const active = new Operation(stage, 30000, stage => {
+        const active = new Operation(stage, LOOKUP_BUDGET_MS, stage => {
             if (epoch === generation) ui.state(State.Connecting, stage + '…');
         }, stage => {
             if (epoch !== generation) return;
@@ -268,10 +269,17 @@ async function start(): Promise<void> {
             if (!anchor) throw new Error('This login form changed. Focus its username or password field and try again.');
             const target = targets(anchor), origin = location.origin;
             const direct = openDirect(endpoint);
-            rpc = new NativeRpc(endpoint, () => connector); pending = rpc;
+            rpc = new NativeRpc(endpoint, () => connector, stage => {
+                if (epoch === generation) ui.state(State.Connecting, stage + '…');
+            }); pending = rpc;
             if (!direct && !await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
             const keys = directCredentials(endpoint) || await managerCall(() => identity()); guard(epoch);
-            await task.run('Connecting to KeeWebX', () => rpc!.connect(task.deadline)); guard(epoch);
+            let waitingForApp = false;
+            await task.run('Connecting to KeeWebX', () => rpc!.connect(task.deadline, budgetMs => {
+                waitingForApp = true;
+                return task.resetBudget(budgetMs);
+            })); guard(epoch);
+            if (waitingForApp) task.resetBudget(LOOKUP_BUDGET_MS);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request, wireTimeout()) }, runtime);
             await task.run('Connecting to KeeWebX', () => protocol.ping());
             await task.run('Connecting to KeeWebX', () => protocol.changePublicKeys());
@@ -303,13 +311,14 @@ async function start(): Promise<void> {
         clean(); const epoch = generation; ui.busy(true);
         let stage = 'Starting the connection test';
         let rpc: NativeRpc | undefined;
-        const startedAt = Date.now(), deadline = startedAt + 35000;
+        const startedAt = Date.now();
+        let deadline = startedAt + 35000, waitingForApp = false;
         const progress = () => {
             if (epoch !== generation) { clearInterval(timer); return; }
             const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
             if (Date.now() >= deadline) {
                 clearInterval(timer);
-                clean(); ui.state(State.Error, `${stage} timed out after 35 seconds. The test stopped; you can retry.`);
+                clean(); ui.state(State.Error, `${stage} timed out. You can retry.`);
             } else ui.state(State.Connecting, `${stage}… (${elapsed}s)`);
         };
         const timer = setInterval(progress, 250);
@@ -318,7 +327,12 @@ async function start(): Promise<void> {
         try {
             openDirect(endpoint);
             rpc = new NativeRpc(endpoint, () => connector, value => { guard(epoch); stage = value; progress(); }, recovery ? 5000 : 2000); pending = rpc;
-            const started = performance.now(); await rpc.connect(deadline); guard(epoch);
+            const started = performance.now();
+            await rpc.connect(deadline, budgetMs => {
+                guard(epoch); waitingForApp = true;
+                return deadline = Date.now() + budgetMs;
+            }); guard(epoch);
+            if (waitingForApp) deadline = Date.now() + 5000;
             stage = 'Checking the KeeWebX reply'; progress(); guard(epoch);
             const result = await rpc.call('probe', undefined, 5000); guard(epoch);
             ui.state(State.Connected, `Connected to the authorized KeeWebX tab (${Math.round(performance.now() - started)} ms; ${result.visibility}).`);

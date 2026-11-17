@@ -191,11 +191,8 @@
     const controllerResult = getController().then(
         (result) => ({ controller: result }),
         (error) => {
-            expired = true;
-            stopAnnouncements();
-            showError(error.message);
             // An accepted attachment forwards this failure through its port first.
-            if (!accepted) closeSelf();
+            if (!accepted && !expired) fail([], 'worker-unavailable', error.message);
             return { error };
         }
     );
@@ -254,13 +251,11 @@
             // Only the website's authenticated-ready confirmation can complete.
             return;
         }
-        if (event.ports.length === 0 && event.isTrusted && controller && event.source === controller &&
+        if (!expired && !completed && event.ports.length === 0 && event.isTrusted && controller && event.source === controller &&
             messageWithKeys(data, ERROR_KEYS) && data.marker === MARK && data.kind === 'error' &&
             data.nonce === nonce && data.connectionId === connectionId) {
-            // The worker also sent this error through the transferred port.
-            // Leave the error on the website, not a stranded foreground helper.
-            showError(data.message);
-            closeSelf();
+            // Safari may drop the worker's copy on the transferred port.
+            fail([], data.code, data.message);
         }
     });
 

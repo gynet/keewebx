@@ -38,6 +38,7 @@ export class SitePortLink {
     private consecutiveTimeouts = 0;
     private lastSeen = 0;
     private promise?: Promise<void>;
+    private openingFailure?: Error;
     private resolve?: () => void;
     private reject?: (error: Error) => void;
     private timer?: ReturnType<typeof setTimeout>;
@@ -62,6 +63,7 @@ export class SitePortLink {
         if (!this.route || this.route.messagePort !== 1) throw new Error('Authorize the updated Connect script in your existing KeeWebX tab first.');
         if (force || this.ready && Date.now() - this.lastSeen > PORT_IDLE_MS) this.reset('The idle connection expired.');
         if (this.ready || this.promise) return;
+        this.openingFailure = undefined;
         const channel = new MessageChannel(); this.port = channel.port1; this.transfer = channel.port2;
         this.id = uuid(); this.nonce = uuid(); this.sent = false; this.closingRequested = false;
         this.promise = new Promise<void>((resolve, reject) => { this.resolve = resolve; this.reject = reject; });
@@ -71,7 +73,7 @@ export class SitePortLink {
         this.setupDeadline = Date.now() + PORT_SETUP_MS;
         const expire = (message: string) => {
             recordPortEvent('discovery-timeout', { connectionId: this.id }, 'expired');
-            this.reset(new AppSetupTimeoutError(message));
+            this.failSetup(new AppSetupTimeoutError(message));
         };
         current.onmessage = event => {
             if (this.port !== current || generation !== this.generation) { recordPortEvent('port-rejected', event.data, 'wrong-generation'); return; }
@@ -83,9 +85,8 @@ export class SitePortLink {
             }
             if (data.kind === 'error') {
                 const message = typeof data.message === 'string' ? data.message : 'The original App could not receive the connection.';
-                const discoveryTimeout = data.code === 'app-timeout' && data.nonce === this.nonce && data.connectionId === this.id;
-                if (discoveryTimeout) recordPortEvent('discovery-timeout', data);
-                this.reset(discoveryTimeout ? new AppSetupTimeoutError(message) : message);
+                if (!this.ready && this.relayError(data)) return;
+                this.failSetup(new Error(message));
                 return;
             }
             const mismatch = data.connectionId !== this.id ? 'wrong-port' : data.appBoot !== this.route?.host ? 'wrong-host'
@@ -115,21 +116,40 @@ export class SitePortLink {
         const url = new URL('connect-port/relay.html', this.endpoint);
         url.searchParams.set('site', location.origin); url.searchParams.set('nonce', this.nonce); url.searchParams.set('endpoint', this.endpoint.href);
         this.helper = window.open(url.href, PORT_MARK + ':' + this.id) || undefined;
-        if (!this.helper) { this.reset('Safari blocked the temporary connection page. Allow pop-ups and retry.'); return; }
+        if (!this.helper) { this.failSetup(new Error('Safari blocked the temporary connection page. Allow pop-ups and retry.')); return; }
+        recordPortEvent('relay-opened', { connectionId: this.id });
         this.timer = setTimeout(() => {
             if (this.port === current && !this.ready) expire('The original KeeWebX App did not reply. Visit that tab, then reconnect.');
         }, Math.max(0, this.setupDeadline - Date.now()));
     }
+    private failSetup(error: Error): void {
+        const opening = !this.ready;
+        this.reset(error);
+        if (opening) this.openingFailure = error;
+    }
+    private relayError(data: Record<string, unknown>): boolean {
+        const startupFailure = data.code === 'worker-unavailable' || data.code === 'timeout';
+        if (data.nonce !== this.nonce || (this.id !== data.connectionId && !(startupFailure && data.connectionId === '')) ||
+            typeof data.code !== 'string' || typeof data.message !== 'string' || data.message.length > 2048) return false;
+        const recoverable = startupFailure || data.code === 'app-timeout';
+        transportEvent({ event: 'relay-error', portId: this.id, reason: data.code === 'app-timeout' || data.code === 'timeout' ? 'timeout' : 'unavailable' });
+        if (data.code === 'app-timeout') recordPortEvent('discovery-timeout', data);
+        this.failSetup(recoverable ? new AppSetupTimeoutError(data.message) : new Error(data.message));
+        return true;
+    }
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || !this.helper || event.source !== this.helper || event.origin !== this.endpoint.origin || !object(event.data) ||
-            event.data.marker !== PORT_MARK || event.data.kind !== 'relay-ready' || event.data.nonce !== this.nonce || event.data.endpoint !== this.endpoint.href || this.sent || !this.transfer || !this.route) return;
+            event.ports.length || event.data.marker !== PORT_MARK || event.data.nonce !== this.nonce) return;
+        if (event.data.kind === 'error' && !this.ready) { this.relayError(event.data); return; }
+        if (event.data.kind !== 'relay-ready' || event.data.endpoint !== this.endpoint.href || this.sent || !this.transfer || !this.route) return;
+        recordPortEvent('relay-ready', { connectionId: this.id });
         this.sent = true;
         try { this.helper.postMessage({ marker: PORT_MARK, kind: 'attach', nonce: this.nonce, appBoot: this.route.host,
             connectionId: this.id, endpoint: this.endpoint.href, siteOrigin: location.origin }, this.endpoint.origin, [this.transfer]); this.transfer = undefined; }
-        catch { this.reset('The temporary connection page could not receive its port. Reconnect.'); }
+        catch { this.failSetup(new AppSetupTimeoutError('The temporary connection page could not receive its port. Reconnect.')); }
     };
     async connect(): Promise<number> {
-        if (!this.promise) throw new Error('Select Find accounts or Test connection again to reconnect to the existing App.');
+        if (!this.promise) throw this.openingFailure ?? new Error('Select Find accounts or Test connection again to reconnect to the existing App.');
         await this.promise;
         if (!this.ready || !this.port || this.href !== location.href) throw new Error('The website connection changed. Reconnect.');
         return this.generation;
@@ -173,6 +193,7 @@ export class SitePortLink {
     }
     reset(reason: string | Error = 'The website connection closed.'): void {
         const error = typeof reason === 'string' ? new Error(reason) : reason;
+        this.openingFailure = undefined;
         if (this.port) recordPortEvent('port-rejected', { connectionId: this.id }, 'closed');
         this.generation++; clearTimeout(this.timer);
         if (this.helper) {
