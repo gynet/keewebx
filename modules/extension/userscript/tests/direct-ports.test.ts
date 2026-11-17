@@ -73,6 +73,42 @@ afterEach(() => {
     }
 });
 
+test('a queued expired handoff is rejected before opening an App peer', () => {
+    const connectionId = crypto.randomUUID();
+    const port = receive({ kind: 'attach-port', connectionId, siteOrigin,
+        handoffDeadline: Date.now() - 1 });
+    expect(port.closed).toBe(true);
+    expect(port.messages).toHaveLength(1);
+    expect(port.messages[0]).toMatchObject({ marker, kind: 'error', code: 'expired' });
+    expect(port.onmessage).toBeNull();
+    expect(requests).toEqual([]);
+});
+
+test.each([NaN, Infinity, 'later', null])('an invalid handoff deadline cannot create a peer (%s)', handoffDeadline => {
+    const port = receive({ kind: 'attach-port', connectionId: crypto.randomUUID(), siteOrigin, handoffDeadline });
+    expect(port.closed).toBe(true); expect(requests).toEqual([]);
+});
+
+test.each([false, true])('setup slots expire unless the authenticated handler replies (reply=%s)', replied => {
+    const schedule = globalThis.setTimeout, cancel = globalThis.clearTimeout;
+    const timers = new Map<number, () => void>();
+    (globalThis as any).setTimeout = (callback: () => void) => { timers.set(1, callback); return 1; };
+    (globalThis as any).clearTimeout = (id: number) => timers.delete(id);
+    try {
+        const connectionId = crypto.randomUUID();
+        const port = receive({ kind: 'attach-port', connectionId, siteOrigin, handoffDeadline: Date.now() + 20000 });
+        expect(port.closed).toBe(false); expect(timers.size).toBe(1);
+        if (replied) {
+            port.dispatch({ marker, kind: 'request', connectionId, value: { signedFixture: true } });
+            requests[0].reply({ signedFixtureReply: true });
+            expect(timers.size).toBe(0); expect(port.closed).toBe(false);
+        } else {
+            timers.get(1)!();
+            expect(port.closed).toBe(true); expect(released).toContain(connectionId);
+        }
+    } finally { globalThis.setTimeout = schedule; globalThis.clearTimeout = cancel; }
+});
+
 test('exact-worker discovery answers an untrusted event without invoking the request handler', () => {
     admit = () => { throw new Error('Discovery must not check the selection lease'); };
     const port = receive({ kind: 'find-app' });
@@ -123,6 +159,8 @@ test('an inactive grant denies attachment without invoking the request handler',
     state.active = false;
     const port = receive({ kind: 'attach-port', connectionId: crypto.randomUUID(), siteOrigin }, { scriptURL: workerURL }, true);
     expect(port.closed).toBe(true);
+    expect(port.messages).toEqual([{ marker, kind: 'error', code: 'disabled',
+        message: 'Connect is disabled in this KeeWebX App. Unlock it and authorize Connect, then retry.' }]);
     expect(port.messages.some(message => message.kind === 'ready')).toBe(false);
     expect(port.onmessage).toBeNull();
     expect(requests).toHaveLength(0);

@@ -9,6 +9,7 @@
 // KWX_FOCUS_HELLO=1 runs startup and delayed-hello recovery without the later stress cases.
 // KWX_FOCUS_REINJECT=1 runs startup and same-document installer reinjection acceptance.
 // KWX_FOCUS_APP_REFRESH=1 covers App reload/reopen, route readiness and cross-site fills.
+// FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
@@ -34,6 +35,7 @@ const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
 const FOCUS_HELLO = process.env.KWX_FOCUS_HELLO === '1';
 const FOCUS_REINJECT = process.env.KWX_FOCUS_REINJECT === '1';
 const FOCUS_APP_REFRESH = process.env.KWX_FOCUS_APP_REFRESH === '1';
+const FOCUS_REVOKE = process.env.FASTFOCUS_REVOKE === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
@@ -246,6 +248,9 @@ async function newWebsite(account) {
 }
 async function startLookup(page) {
     await page.bringToFront();
+    await expect.poll(() => shadowValue(page, '[data-action="lookup"]', 'disabled'), {
+        timeout: 15000, message: 'Wait for foreground authorization refresh before a trusted lookup tap'
+    }).toBe(false);
     if (await shadowValue(page, 'section', 'hidden')) {
         await page.locator('#username').click();
         await action(page, 'toggle');
@@ -986,23 +991,17 @@ function helperCloseFault({ marker, appOrigin, blocked }) {
     };
 }
 
-// Capture public close controls before the production relay listener. A one-shot
-// flag drops only the worker handoff notice to exercise the trusted opener path.
+// Capture public close controls before the production relay listener.
 function observeHelper({ marker }) {
     if (location.pathname !== '/connect-port/relay.html') return;
-    const dropHandoff = localStorage.getItem('__kwxDropWorkerHandoff') === '1';
-    if (dropHandoff) localStorage.removeItem('__kwxDropWorkerHandoff');
-    const record = (channel, event, sourceMatches, dropped = false) => {
+    const record = (channel, event, sourceMatches) => {
         if (event.data?.marker !== marker) return;
         void globalThis.kwxHelperTrace({ url: location.href, at: Date.now(), channel, trusted: event.isTrusted,
-            sourceMatches, origin: event.origin, ports: event.ports.length, dropped, data: structuredClone(event.data) });
+            sourceMatches, origin: event.origin, ports: event.ports.length, data: structuredClone(event.data) });
     };
     addEventListener('message', event => record('opener', event, event.source === window.opener), true);
-    navigator.serviceWorker.addEventListener('message', event => {
-        const dropped = dropHandoff && event.data?.marker === marker && event.data.kind === 'handoff-complete';
-        record('worker', event, event.source === navigator.serviceWorker.controller, dropped);
-        if (dropped) event.stopImmediatePropagation();
-    }, true);
+    navigator.serviceWorker.addEventListener('message', event => record('worker', event,
+        event.source === navigator.serviceWorker.controller), true);
 }
 
 function assertAccountAuthority(packets) {
@@ -1054,39 +1053,41 @@ async function finishLegacyWorker() {
         legacyControllerProbed: true, attachedToLegacyWorker: false, firstConnectionSucceeded: true };
     await upgradePage.close(); upgradePage = undefined;
 }
-async function closureNotice(page, before, kind, dropped = false) {
+async function closureNotice(page, before) {
+    const kind = 'relay-complete';
     const helper = [...helpers.values()][before], url = new URL(helper.url);
     const ready = (await snapshot(page)).packets.find(item => item.direction === 'received'
         && item.data.kind === 'ready' && item.at >= helper.openedAt);
     const expected = { marker: PORT_MARK, kind, nonce: url.searchParams.get('nonce'),
         connectionId: ready.data.connectionId, endpoint: url.searchParams.get('endpoint') };
     const matches = () => (report.helperMessages || []).filter(item => item.url === helper.url
-        && item.data.kind === kind && item.dropped === dropped);
+        && item.data.kind === kind);
     await expect.poll(() => matches().length, { timeout: 2000 }).toBeGreaterThan(0);
     const notice = matches()[0];
     expect(notice.data).toEqual(expected);
     expect(notice.trusted && notice.sourceMatches).toBe(true);
     expect(notice.ports).toBe(0);
-    expect(notice.channel).toBe(kind === 'handoff-complete' ? 'worker' : 'opener');
-    if (notice.channel === 'opener') expect(notice.origin).toBe(url.searchParams.get('site'));
-    helper.closureControl = kind; helper.closureControlDropped = dropped;
+    expect(notice.channel).toBe('opener');
+    expect(notice.origin).toBe(url.searchParams.get('site'));
+    expect(validReadyProof(ready.data)).toBe(true);
+    expect(notice.at).toBeGreaterThanOrEqual(ready.at);
+    expect(helper.closedAt).toBeGreaterThanOrEqual(ready.at);
+    helper.closureControl = kind;
     return notice;
 }
 
-async function openerFallback() {
-    return bounded('Opener self-close fallback', async remaining => {
+async function openerSelfClose() {
+    return bounded('Opener self-close after signed App readiness', async remaining => {
         const website = await context.newPage(), before = helpers.size;
         await website.goto(ACCOUNTS[0].url); await ready(website); await emptyFields(website);
         await adapter(website, '__kwxHelperClose.blocked = true');
-        await app.evaluate(() => localStorage.setItem('__kwxDropWorkerHandoff', '1'));
         const reads = await fieldReads(), lists = await entryReads();
         await adapter(app, '__kwxPortAdapter.holdHello = true');
         try {
             await startLookup(website);
             await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: remaining() }).toBeGreaterThan(0);
             await closedHelper(website, before);
-            await closureNotice(website, before, 'handoff-complete', true);
-            await closureNotice(website, before, 'relay-complete');
+            await closureNotice(website, before);
             const { helperClose, packets } = await snapshot(website);
             expect(helperClose.attempts.length).toBeGreaterThan(0);
             expect(helperClose.attempts.every(item => item.blocked && !item.closedBefore && !item.closedAfter)).toBe(true);
@@ -1097,15 +1098,30 @@ async function openerFallback() {
             await matchingList(website, ACCOUNTS[0], reads, remaining);
             await fill(website, ACCOUNTS[0]);
             remaining();
-            return { workerNoticeDropped: true, trustedOpenerSelfClosed: true, remoteCloseAttemptsBlocked: helperClose.attempts.length,
+            return { trustedOpenerSelfClosed: true, remoteCloseAttemptsBlocked: helperClose.attempts.length,
                 signedReadyAndHelloRequiredBeforeAccountData: true };
         } finally {
             await adapter(app, '__kwxPortAdapter.releaseHello()');
-            await app.evaluate(() => localStorage.removeItem('__kwxDropWorkerHandoff'));
             await archive(website);
             await website.close();
         }
     });
+}
+
+async function revocationAcceptance(account) {
+    await clearFields(first); await lookup(first, account);
+    const reads = await fieldReads(), count = helpers.size;
+    await app.bringToFront(); await action(app, 'revoke'); await untilStatus(app, /Disconnected/);
+    await first.bringToFront(); await startLookup(first);
+    await untilStatus(first, /revoked|authorize|disabled|Enable Connect|disconnected|selected app changed|session changed|no longer connected/i, 15000);
+    await emptyFields(first); expect(await fieldReads()).toBe(reads);
+    expect((await settings()).has(ROUTE_KEY)).toBe(BLOCK_APP_GM);
+    second = await newWebsite(ACCOUNTS[0]); await startLookup(second);
+    await untilStatus(second, /authorize|disabled|Enable Connect/i); await emptyFields(second);
+    expect(await fieldReads()).toBe(reads);
+    if (!BLOCK_APP_GM) expect(helpers.size).toBe(count);
+    await sameApp({ authorized: false }); await noHelpers();
+    return { attachedAndFreshDocumentsDenied: true, additionalFieldReads: 0 };
 }
 
 async function closedHelper(page, countBefore) {
@@ -1174,6 +1190,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         boot: crypto.randomUUID(), href: location.href, role: isApp ? 'app' : 'site', blockGM: false,
         installerRuns: 0,
         reads: 0, allowedReads: 0, blockedReads: 0, mailboxAttempts: [], packets: [], attachments: [], statuses: [], actions: [],
+        holdAppReady: false, heldReady: [], releaseReady: undefined,
         holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null,
         holdRouteReads: false, heldRouteReads: []
     };
@@ -1228,6 +1245,10 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker !== portMarker) return nativePost.call(this, data, ...rest);
         observe(this);
+        if (isApp && state.holdAppReady && data.kind === 'ready') {
+            state.heldReady.push({ port: this, data, rest });
+            record(this, 'held', data); return;
+        }
         if (isApp && state.dropDiscoveryReplies > 0 && ['app-ready', 'app-state'].includes(data.kind)) {
             state.dropDiscoveryReplies--; state.droppedDiscoveryReplies = (state.droppedDiscoveryReplies || 0) + 1;
             record(this, 'dropped', data); return;
@@ -1293,6 +1314,14 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         }
         return result;
     };
+    state.releaseReady = () => {
+        state.holdAppReady = false;
+        const pending = state.heldReady.splice(0);
+        for (const { port, data, rest } of pending) {
+            record(port, 'sent', data); nativePost.call(port, data, ...rest);
+        }
+        return pending.length;
+    };
     state.releaseHello = (dropFirst = false) => {
         state.holdHello = false;
         const pending = state.heldHello.splice(0);
@@ -1325,7 +1354,8 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         appReceivers: worker[Symbol.for(portMarker + ':app-receivers')]?.size || 0,
         reads: state.reads, allowedReads: state.allowedReads, blockedReads: state.blockedReads,
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
-        helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
+        helperClose: __kwxHelperClose.snapshot(), heldReady: state.heldReady.length,
+        heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
         droppedDiscoveryReplies: state.droppedDiscoveryReplies || 0,
         delayedDiscoveryReplies: state.delayedDiscoveryReplies || 0,
         heldRouteReads: state.heldRouteReads.length
@@ -1636,20 +1666,29 @@ acceptance: try {
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
-    await step('worker handoff self-closes the first helper while hello is held; a cached retry survives a lost first reply', async () => {
+    await step('helper stays open until signed App ready, then opener self-closes it while hello is held and a cached retry survives reply loss', async () => {
         await installLegacyWorker(new URL(APP).origin);
         first = await newWebsite(ACCOUNTS[0]);
         const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
         await adapter(first, '__kwxHelperClose.blocked = true');
-        await adapter(app, '__kwxPortAdapter.holdHello = true');
+        await adapter(app, '__kwxPortAdapter.holdAppReady = true; __kwxPortAdapter.holdHello = true');
         try {
             await startLookup(first);
-            await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 25000 }).toBeGreaterThanOrEqual(1);
+            await expect.poll(async () => (await snapshot(app)).heldReady, { timeout: 25000 }).toBe(1);
             await expect.poll(() => helpers.size).toBe(count + 1);
             const helper = [...helpers.keys()][count];
-            await expect.poll(() => helper.isClosed(), { timeout: 2000, message: 'Worker handoff must self-close the helper while RPC hello is held' }).toBe(true);
+            await first.waitForTimeout(1000);
+            expect(helper.isClosed(), 'Helper must remain open while the actual App ready packet is held').toBe(false);
+            const waiting = await snapshot(first);
+            expect(waiting.packets.some(item => item.direction === 'received' && item.data.kind === 'ready')).toBe(false);
+            expect(waiting.packets.some(item => item.direction === 'sent' && item.data.kind === 'request')).toBe(false);
+            expect(waiting.helperClose.messages.some(item => item.data.kind === 'relay-complete')).toBe(false);
+            expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(reads);
+            expect(await adapter(app, '__kwxPortAdapter.releaseReady()')).toBe(1);
+            await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 25000 }).toBeGreaterThanOrEqual(1);
+            await expect.poll(() => helper.isClosed(), { timeout: 2000, message: 'Verified App ready must let the trusted opener self-close the helper while RPC hello is held' }).toBe(true);
             await closedHelper(first, count);
-            await closureNotice(first, count, 'handoff-complete');
+            await closureNotice(first, count);
             await finishLegacyWorker();
             expect(await entryReads()).toBe(lists);
             await expect.poll(async () => (await snapshot(app)).heldHello, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
@@ -1671,11 +1710,17 @@ acceptance: try {
             await fill(first, ACCOUNTS[0]);
             expect(await app.evaluate(() => document.hidden)).toBe(true);
             expect(await physicalPort(first)).toEqual(port);
-            return { helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
-        } finally { await adapter(app, '__kwxPortAdapter.releaseHello()'); }
+            return { helperStayedOpenUntilSignedReady: true, heldAppReadyPackets: 1,
+                helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
+        } finally { await adapter(app, '__kwxPortAdapter.releaseReady(); __kwxPortAdapter.releaseHello()'); }
     });
     // Historical App overrides remain compatibility runs for that older installer.
     if (appBundle === bundle) await step('reinjecting the exact installer twice retains one UI and App receiver while the same website repeatedly fills', sameDocumentReinjection);
+    if (FOCUS_REVOKE) {
+        await step('revocation denies an attached site and a fresh document without another app or consent', () => revocationAcceptance(ACCOUNTS[0]));
+        expect(report.errors).toEqual([]);
+        report.passed = true; report.focus = 'revocation'; break acceptance;
+    }
     if (FOCUS_REINJECT) {
         expect(report.errors).toEqual([]);
         report.passed = true; report.focus = 'same-document-reinjection'; break acceptance;
@@ -1713,7 +1758,7 @@ acceptance: try {
         }
     });
     if (FOCUS_HELLO) { report.passed = true; report.focus = 'delayed-hello'; break acceptance; }
-    await step('trusted opener self-closes the helper when worker handoff notice is lost and remote close is blocked', openerFallback);
+    await step('trusted opener self-closes the helper after signed App readiness while remote close is blocked', openerSelfClose);
     await step('Find accounts on another origin opens one temporary helper and matches only that origin', async () => {
         second = await newWebsite(ACCOUNTS[1]);
         const count = helpers.size, reads = await fieldReads();
@@ -1961,20 +2006,7 @@ acceptance: try {
         await lookup(first, ACCOUNTS[1]); await closedHelper(first, count + 1); await fill(first, ACCOUNTS[1]);
         await sameApp(); await noHelpers();
     });
-    await step('revocation denies an attached site and a fresh document without another app or consent', async () => {
-        await clearFields(first); await lookup(first, ACCOUNTS[1]);
-        const reads = await fieldReads(), count = helpers.size;
-        await app.bringToFront(); await action(app, 'revoke'); await untilStatus(app, /Disconnected/);
-        await first.bringToFront(); await startLookup(first);
-        await untilStatus(first, /revoked|authorize|disabled|Enable Connect|disconnected|selected app changed|session changed|no longer connected/i, 15000);
-        await emptyFields(first); expect(await fieldReads()).toBe(reads);
-        expect((await settings()).has(ROUTE_KEY)).toBe(BLOCK_APP_GM);
-        second = await newWebsite(ACCOUNTS[0]); await startLookup(second);
-        await untilStatus(second, /authorize|disabled|Enable Connect/i); await emptyFields(second);
-        expect(await fieldReads()).toBe(reads);
-        if (!BLOCK_APP_GM) expect(helpers.size).toBe(count);
-        await sameApp({ authorized: false }); await noHelpers();
-    });
+    await step('revocation denies an attached site and a fresh document without another app or consent', () => revocationAcceptance(ACCOUNTS[1]));
     await step('audit real worker provenance, signed encrypted port traffic and automatic helper closure', async () => {
         for (const page of context.pages()) await archive(page);
         const allDocuments = [...documents.values()];
@@ -2026,8 +2058,15 @@ acceptance: try {
             if (document) report[name + 'Diagnostics'] = {
                 boot: document.boot, role: document.role, blockedReads: document.blockedReads,
                 installerRuns: document.installerRuns, workerMessageListeners: document.workerMessageListeners, appReceivers: document.appReceivers,
+                statuses: document.statuses.slice(-20), actions: document.actions.slice(-20),
+                heldReady: document.heldReady, heldHello: document.heldHello,
+                lookupDisabled: await shadowValue(page, '[data-action="lookup"]', 'disabled').catch(() => null),
+                attachments: document.attachments.map(item => ({ at: item.at, kind: item.data.kind,
+                    connectionId: item.data.connectionId, appBoot: item.data.appBoot })),
+                helperClose: document.helperClose,
                 mailboxAttempts: document.mailboxAttempts,
-                traffic: document.packets.map(item => ({ port: item.port, direction: item.direction,
+                traffic: document.packets.map(item => ({ at: item.at, port: item.port, direction: item.direction,
+                    connectionId: item.data.connectionId, traceId: item.data.value?.packet?.id,
                     kind: item.data.kind, operation: item.data.value?.packet?.operation, error: item.data.value?.packet?.error }))
             };
         }

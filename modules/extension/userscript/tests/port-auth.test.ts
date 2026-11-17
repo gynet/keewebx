@@ -67,6 +67,16 @@ test('a verified receipt closes the helper synchronously before any RPC round tr
     expect(port.closed).toBe(false);
     expect(await connected).toBe(link.generation);
 });
+test('a queued ready event cannot revive a setup after its absolute deadline', async () => {
+    const result = link.connect().catch(error => error), value = ready();
+    const NativeDate = Date, now = Date.now();
+    replace('Date', class extends NativeDate { static now() { return now + 26000; } });
+    // Deliver the event before the delayed timeout callback, as on tab resume.
+    port.onmessage!({ data: { ...value, proof: signPortReady(value, keys.secretKey) } });
+    expect((await result).message).toContain('connection attempt expired');
+    expect(link.authenticatedReady).toBe(false);
+    expect(port.closed).toBe(true);
+});
 test('a silent cross-window close failure retains the helper and asks its own page to close', async () => {
     closeAllowed = false;
     const connected = link.connect(), value = ready();
@@ -97,6 +107,16 @@ test('helper closure is never accepted as a substitute for the App signature', a
     port.onmessage!({ data: ready() });
     expect((await result).message).toContain('signature could not be verified');
     expect(port.closed).toBe(true);
+});
+test('a failed setup cancels its own helper when cross-window close is denied', async () => {
+    closeAllowed = false;
+    const result = link.connect().catch(error => error), value = ready();
+    const nonce = (link as any).nonce;
+    port.onmessage!({ data: { marker: PORT_MARK, kind: 'error', message: 'Connect is disabled.' } });
+    expect((await result).message).toBe('Connect is disabled.');
+    expect(helperPosts).toContainEqual({ origin: endpoint.origin, data: { marker: PORT_MARK, kind: 'relay-cancel',
+        nonce, connectionId: value.connectionId, endpoint: endpoint.href } });
+    expect(link.authenticatedReady).toBe(false);
 });
 test.each(['missing', 'forged', 'wrong connection', 'wrong site'])('a required receipt cannot be bypassed (%s)', async scenario => {
     const rejected = link.connect().catch(error => error);

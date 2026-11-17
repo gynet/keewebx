@@ -68,19 +68,26 @@ function fixture(closeAllowed = true, oldControllerInitially = false) {
     };
 }
 
-test('the routing helper closes itself after a validated worker handoff without requiring website execution', async () => {
+test('a worker transfer cannot close the helper before the website verifies App readiness', async () => {
     const f = fixture(); await f.attach(); await f.complete();
+    expect(f.window.closed).toBe(false); expect(f.closes()).toBe(0);
+    await f.confirm();
     expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
     expect(f.worker.posts.filter(post => post.data.kind === 'attach')).toHaveLength(1);
     expect(f.status.textContent).toContain('Returning');
     await f.complete(); expect(f.closes()).toBe(1);
 });
-test('the verified website can ask its own helper to close as a compatible fallback', async () => {
+test('the verified website asks its own helper to close after App readiness', async () => {
     const f = fixture(); await f.attach(); await f.confirm();
     expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
 });
+test('the originating website can cancel a failed setup without claiming App readiness', async () => {
+    const f = fixture(); await f.attach(); await f.confirm({ kind: 'relay-cancel' });
+    expect(f.window.closed).toBe(true); expect(f.closes()).toBe(1);
+    await f.confirm(); expect(f.closes()).toBe(1);
+});
 test('completion cannot close a helper before attachment', async () => {
-    const f = fixture(); await f.complete(); await f.confirm(); expect(f.closes()).toBe(0);
+    const f = fixture(); await f.complete(); await f.confirm(); await f.confirm({ kind: 'relay-cancel' }); expect(f.closes()).toBe(0);
 });
 test('spoofed or mismatched worker completion is ignored', async () => {
     const f = fixture(); await f.attach();
@@ -89,14 +96,14 @@ test('spoofed or mismatched worker completion is ignored', async () => {
     for (const event of [{ isTrusted: false }, { source: {} }, { ports: [{ close() {} }] }]) await f.complete({}, event);
     expect(f.closes()).toBe(0); expect(f.window.closed).toBe(false);
 });
-test('opener closure control requires its exact source, origin and connection metadata', async () => {
+test.each(['relay-complete', 'relay-cancel'])('opener %s requires its exact source, origin and connection metadata', async kind => {
     const f = fixture(); await f.attach();
-    for (const data of [{ nonce: crypto.randomUUID() }, { connectionId: crypto.randomUUID() }, { endpoint: 'https://other.example/app' }]) await f.confirm(data);
-    for (const event of [{ isTrusted: false }, { source: {} }, { origin: 'https://attacker.example' }, { ports: [{ close() {} }] }]) await f.confirm({}, event);
+    for (const data of [{ nonce: crypto.randomUUID() }, { connectionId: crypto.randomUUID() }, { endpoint: 'https://other.example/app' }]) await f.confirm({ kind, ...data });
+    for (const event of [{ isTrusted: false }, { source: {} }, { origin: 'https://attacker.example' }, { ports: [{ close() {} }] }]) await f.confirm({ kind }, event);
     expect(f.closes()).toBe(0);
 });
 test('a silent self-close denial gives an explicit manual close action rather than waiting forever', async () => {
-    const f = fixture(false); await f.attach(); await f.complete(); f.fire(300);
+    const f = fixture(false); await f.attach(); await f.confirm(); f.fire(300);
     expect(f.window.closed).toBe(false); expect(f.closes()).toBe(1);
     expect(f.status.textContent).toContain('Close this page'); expect(f.status.textContent).not.toContain('Waiting');
     expect(f.back.textContent).toBe('Close connection page');
@@ -132,7 +139,7 @@ test('an old activated controller with the same URL cannot accept the first hand
     expect(f.oldWorker.posts.some(post => post.data.kind === 'probe-relay')).toBe(true);
     expect(f.oldWorker.posts.filter(post => post.data.kind === 'attach')).toHaveLength(0);
     expect(f.worker.posts.filter(post => post.data.kind === 'attach')).toHaveLength(0);
-    f.upgrade(); await attached; await f.complete();
+    f.upgrade(); await attached; await f.confirm();
     expect(f.window.closed).toBe(true);
 });
 test('an old controller that never upgrades fails within the existing worker budget', async () => {

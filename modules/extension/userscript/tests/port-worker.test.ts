@@ -151,9 +151,7 @@ test('a selected App hands off immediately without waiting for a silent unrelate
     expect(f.settled()).toBe(true);
     await f.work();
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
-    expect(f.relay.posts).toHaveLength(1);
-    expect(f.relay.posts[0].data).toEqual({ marker, kind: 'handoff-complete', nonce: f.data.nonce,
-        connectionId: f.data.connectionId, endpoint });
+    expect(f.relay.posts).toEqual([]);
     expect(f.silent.posts.map(post => post.data.kind)).toEqual(['find-app']);
     expect(f.website.messages).toEqual([]);
     expect(f.website.closed).toBe(false);
@@ -214,8 +212,7 @@ test.each([10000, 12000])('an App resumed at %i ms reuses the original attachmen
     expect(handoffs).toHaveLength(1);
     expect(handoffs[0].ports).toEqual([f.website]);
     expect(handoffs[0].data).toMatchObject({ appBoot: f.data.appBoot, connectionId: f.data.connectionId, endpoint });
-    expect(f.relay.posts).toHaveLength(1);
-    expect(f.relay.posts[0].data).toMatchObject({ kind: 'handoff-complete', nonce: f.data.nonce, connectionId: f.data.connectionId });
+    expect(f.relay.posts).toEqual([]);
     expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
     expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
     expect(f.timers.size).toBe(0);
@@ -449,12 +446,13 @@ test.each(['top-level', 'auxiliary'])('browser primary routing needs no discover
     expect(f.settled()).toBe(true);
     expect(primary.posts).toHaveLength(1);
     expect(primary.posts[0]).toEqual({ data: { marker, kind: 'attach-port', appBoot: f.data.appBoot,
-        connectionId: f.data.connectionId, endpoint: f.data.endpoint, siteOrigin: f.data.siteOrigin }, ports: [f.website] });
+        connectionId: f.data.connectionId, endpoint: f.data.endpoint, siteOrigin: f.data.siteOrigin,
+        handoffDeadline: f.time() + 25000 }, ports: [f.website] });
     expect(f.app.posts).toEqual([]); expect(f.silent.posts).toEqual([]);
     expect(f.channels).toHaveLength(0); expect(f.queries.locks).toBe(1);
     expect(f.queries.get.filter(id => id === primary.id)).toHaveLength(2);
     expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(2);
-    expect(f.relay.posts[0].data.kind).toBe('handoff-complete');
+    expect(f.relay.posts).toEqual([]);
     expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
     expect(f.timers.size).toBe(0);
     await f.tick(16000);

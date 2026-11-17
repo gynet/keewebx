@@ -6,6 +6,7 @@ import type { DiagnosticData } from '../../../diagnostics/src';
 
 export const PORT_MARK = 'keewebx-connect-port-v1';
 export const PORT_IDLE_MS = 10 * 60 * 1000;
+const PORT_SETUP_MS = 25000;
 export interface PortRoute { host: string; endpoint: string; publicKey: string; messagePort?: number; readyProof?: number }
 const originValid = (value: unknown): value is string => {
     if (typeof value !== 'string') return false;
@@ -40,6 +41,7 @@ export class SitePortLink {
     private timer?: ReturnType<typeof setTimeout>;
     private transfer?: MessagePort;
     private closingRequested = false;
+    private setupDeadline = 0;
     private listeners = new Set<(value: unknown) => void>();
     private closed = new Set<(reason: string) => void>();
     onGrantEnded = () => {};
@@ -63,11 +65,15 @@ export class SitePortLink {
         // Handle startup failure even when the UI is canceled before awaiting connect.
         void this.promise.catch(() => {});
         const current = this.port, generation = this.generation;
+        this.setupDeadline = Date.now() + PORT_SETUP_MS;
         current.onmessage = event => {
             if (this.port !== current || generation !== this.generation) { recordPortEvent('port-rejected', event.data, 'wrong-generation'); return; }
             if (!small(event.data) || event.data.marker !== PORT_MARK) { recordPortEvent('port-rejected', event.data, 'wrong-shape'); return; }
             const data = event.data;
             recordPortEvent('port-received', data);
+            if (!this.ready && Date.now() >= this.setupDeadline) {
+                this.reset('The connection attempt expired. Return to the existing KeeWebX App, then reconnect.'); return;
+            }
             if (data.kind === 'error') { this.reset(typeof data.message === 'string' ? data.message : 'The original App could not receive the connection.'); return; }
             const mismatch = data.connectionId !== this.id ? 'wrong-port' : data.appBoot !== this.route?.host ? 'wrong-host'
                 : data.endpoint !== this.endpoint.href ? 'wrong-address' : data.siteOrigin !== location.origin ? 'wrong-origin' : undefined;
@@ -97,7 +103,7 @@ export class SitePortLink {
         url.searchParams.set('site', location.origin); url.searchParams.set('nonce', this.nonce); url.searchParams.set('endpoint', this.endpoint.href);
         this.helper = window.open(url.href, PORT_MARK + ':' + this.id) || undefined;
         if (!this.helper) { this.reset('Safari blocked the temporary connection page. Allow pop-ups and retry.'); return; }
-        this.timer = setTimeout(() => { if (this.port === current && !this.ready) this.reset('The original KeeWebX App did not reply. Visit that tab, then reconnect.'); }, 25000);
+        this.timer = setTimeout(() => { if (this.port === current && !this.ready) this.reset('The original KeeWebX App did not reply. Visit that tab, then reconnect.'); }, Math.max(0, this.setupDeadline - Date.now()));
     }
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || !this.helper || event.source !== this.helper || event.origin !== this.endpoint.origin || !object(event.data) ||
@@ -158,7 +164,11 @@ export class SitePortLink {
                 // Only the original helper can recognize this scoped command.
                 try { this.helper.postMessage({ marker: PORT_MARK, kind: 'relay-complete', nonce: this.nonce,
                     connectionId: this.id, endpoint: this.endpoint.href }, this.endpoint.origin); } catch {}
-            } else try { this.helper.close(); } catch {}
+            } else {
+                try { this.helper.postMessage({ marker: PORT_MARK, kind: 'relay-cancel', nonce: this.nonce,
+                    connectionId: this.id, endpoint: this.endpoint.href }, this.endpoint.origin); } catch {}
+                try { this.helper.close(); } catch {}
+            }
         }
         this.helper = undefined;
         try { this.port?.postMessage({ marker: PORT_MARK, kind: 'close', connectionId: this.id }); } catch {}
@@ -215,7 +225,7 @@ class AppReceiverCoordinator {
 
 /** The worker can discover this receiver without waiting for extension storage. */
 export class AppPortReceiver {
-    private ports = new Map<string, { port: MessagePort; origin: string; lastSeen: number }>();
+    private ports = new Map<string, { port: MessagePort; origin: string; lastSeen: number; setupDeadline: number; setupTimer?: ReturnType<typeof setTimeout> }>();
     private probes = new Map<MessagePort, ReturnType<typeof setTimeout>>();
     private coordinator: AppReceiverCoordinator;
     private unregister: () => void;
@@ -241,6 +251,7 @@ export class AppPortReceiver {
     }
     private remove(id: string, reason = 'expired'): void {
         const peer = this.ports.get(id); if (!peer) return;
+        clearTimeout(peer.setupTimer);
         try { peer.port.postMessage({ marker: PORT_MARK, kind: 'closed', connectionId: id, appBoot: this.snapshot().host,
             endpoint: this.endpoint.href, siteOrigin: peer.origin, reason }); } catch {}
         peer.port.close(); this.ports.delete(id); this.released(id);
@@ -258,6 +269,12 @@ export class AppPortReceiver {
         if (!sourceMatches || event.ports.length !== 1) return;
         const port = event.ports[0], state = this.snapshot();
         if (data.kind === 'attach-port' && data.appBoot !== state.host) return;
+        if (data.kind === 'attach-port' && data.handoffDeadline !== undefined &&
+            (!Number.isFinite(data.handoffDeadline) || data.handoffDeadline <= Date.now() || data.handoffDeadline > Date.now() + PORT_SETUP_MS)) {
+            recordPortEvent('port-rejected', data, 'expired', this.runtimeCount);
+            port.postMessage({ marker: PORT_MARK, kind: 'error', code: 'expired', message: 'The connection attempt expired. Reconnect from the website.' });
+            port.close(); return;
+        }
         if (data.kind === 'find-app') {
             // No extension or WebStorage reads may block a discovery acknowledgement.
             port.postMessage({ marker: PORT_MARK,
@@ -276,9 +293,15 @@ export class AppPortReceiver {
                 this.closeProbe(port);
             }; port.start(); return;
         }
-        if (data.kind !== 'attach-port' || !matchesAddress || !state.active || !isId(data.connectionId) || !originValid(data.siteOrigin)) {
-            recordPortEvent('port-rejected', data, !matchesAddress ? 'wrong-address' : !state.active ? 'not-selected'
+        if (data.kind !== 'attach-port' || !matchesAddress || !isId(data.connectionId) || !originValid(data.siteOrigin)) {
+            recordPortEvent('port-rejected', data, !matchesAddress ? 'wrong-address'
                 : !originValid(data.siteOrigin) ? 'wrong-origin' : 'wrong-shape', this.runtimeCount);
+            port.close(); return;
+        }
+        if (!state.active) {
+            recordPortEvent('port-rejected', data, 'not-selected', this.runtimeCount);
+            port.postMessage({ marker: PORT_MARK, kind: 'error', code: 'disabled',
+                message: 'Connect is disabled in this KeeWebX App. Unlock it and authorize Connect, then retry.' });
             port.close(); return;
         }
         this.diagnostic('Handoff received; validating selected App grant');
@@ -300,9 +323,15 @@ export class AppPortReceiver {
         for (const [id, peer] of this.ports) if (Date.now() - peer.lastSeen > PORT_IDLE_MS) this.remove(id);
         if (this.ports.size >= 32) { port.postMessage({ marker: PORT_MARK, kind: 'error', message: 'Too many website connections. Close an old website and retry.' }); port.close(); return; }
         const id = data.connectionId, origin = data.siteOrigin; this.remove(id);
-        const peer = { port, origin, lastSeen: Date.now() }; this.ports.set(id, peer);
+        const peer = { port, origin, lastSeen: Date.now(), setupDeadline: Date.now() + PORT_SETUP_MS,
+            setupTimer: undefined as ReturnType<typeof setTimeout> | undefined };
+        this.ports.set(id, peer);
+        // A dead website must not leave an unauthenticated peer occupying a slot.
+        peer.setupTimer = setTimeout(() => { if (this.ports.get(id) === peer) this.remove(id); }, PORT_SETUP_MS);
         const reply = (value: unknown) => {
             if (this.ports.get(id) === peer && this.snapshot().active) {
+                if (peer.setupTimer !== undefined && Date.now() >= peer.setupDeadline) { this.remove(id); return; }
+                clearTimeout(peer.setupTimer); peer.setupTimer = undefined;
                 peer.lastSeen = Date.now(); port.postMessage({ marker: PORT_MARK, kind: 'reply', connectionId: id,
                     appBoot: state.host, endpoint: this.endpoint.href, siteOrigin: origin, value });
             }
@@ -310,6 +339,7 @@ export class AppPortReceiver {
         port.onmessage = message => {
             const value = message.data;
             if (this.ports.get(id) !== peer || !small(value) || value.marker !== PORT_MARK || value.connectionId !== id) return;
+            if (peer.setupTimer !== undefined && Date.now() >= peer.setupDeadline) { this.remove(id); return; }
             if (!this.snapshot().active || Date.now() - peer.lastSeen > PORT_IDLE_MS || value.kind === 'close') { this.remove(id); return; }
             peer.lastSeen = Date.now();
             if (value.kind === 'request') void this.request(value.value, reply, origin, id).catch(() => this.remove(id));

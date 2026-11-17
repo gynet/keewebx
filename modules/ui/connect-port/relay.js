@@ -250,7 +250,9 @@
         const data = event.data;
         closePorts(event.ports);
         if (event.ports.length === 0 && event.isTrusted && controller && event.source === controller && data?.kind === 'handoff-complete') {
-            complete(data); return;
+            // Older workers announce transfer before the App has received it.
+            // Only the website's authenticated-ready confirmation can complete.
+            return;
         }
         if (event.ports.length === 0 && event.isTrusted && controller && event.source === controller &&
             messageWithKeys(data, ERROR_KEYS) && data.marker === MARK && data.kind === 'error' &&
@@ -263,9 +265,15 @@
     });
 
     window.addEventListener('message', event => {
-        if (event.data?.kind !== 'relay-complete') return;
+        if (!['relay-complete', 'relay-cancel'].includes(event.data?.kind)) return;
         if (event.ports.length) { closePorts(event.ports); return; }
-        if (event.isTrusted && event.source === opener && event.origin === site) complete(event.data);
+        if (!event.isTrusted || event.source !== opener || event.origin !== site) return;
+        const data = event.data;
+        if (data.kind === 'relay-complete') complete(data);
+        else if (accepted && !completed && !expired && messageWithKeys(data, COMPLETE_KEYS) && data.marker === MARK &&
+            data.nonce === nonce && data.connectionId === connectionId && data.endpoint === endpoint) {
+            expired = true; stopAnnouncements(); clearTimeout(completionTimer); closeSelf();
+        }
     });
 
     function announce() {

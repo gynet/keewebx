@@ -350,6 +350,7 @@ async function attach(event) {
     active++;
     try {
         const data = event.data;
+        const handoffDeadline = Date.now() + 25000;
         // Re-read the browser-owned client so a navigated relay cannot authorize a handoff.
         let relay = await self.clients.get(event.source.id);
         if (!relay || !validRelay(relay, data)) {
@@ -423,15 +424,11 @@ async function attach(event) {
             appBoot: data.appBoot,
             connectionId: data.connectionId,
             endpoint: data.endpoint,
-            siteOrigin: data.siteOrigin
+            siteOrigin: data.siteOrigin,
+            handoffDeadline
         }, [event.ports[0]]);
-        // The endpoint now belongs to the App, independently of the helper.
-        // Closing this routing page grants no access; the website still verifies
-        // the signed port receipt and encrypted protocol on its own endpoint.
-        try {
-            relay.postMessage({ marker: MARK, kind: 'handoff-complete', nonce: data.nonce,
-                connectionId: data.connectionId, endpoint: data.endpoint });
-        } catch { /* The website may already have closed its helper. */ }
+        // Transfer is not acceptance. Keep the helper alive until the website
+        // verifies the App's signed ready receipt and asks its opener to close.
     } catch {
         fail(event, 'unreachable', 'The app could not receive the connection. Return to the website and retry.');
     } finally {

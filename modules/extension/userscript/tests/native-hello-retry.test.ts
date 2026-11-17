@@ -11,6 +11,7 @@ replace('addEventListener', () => {});
 const { NativeRpc, prepareDirect, openDirect } = await import('../src/native-connect');
 const stable = (value: any): string => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().filter(key => item[key] !== undefined).map(key => [key, item[key]])) : item);
+const flush = async () => { for (let turn = 0; turn < 12; turn++) await Promise.resolve(); };
 let rpc: any, link: any;
 afterEach(() => {
     try { rpc?.dispose(); link?.dispose(); }
@@ -67,9 +68,10 @@ async function fixture(failInitial = false, wireReceipt = false, authenticatedRe
     const outer = { marker: 'keewebx-connect-port-v1', connectionId: link.id, appBoot: route.host,
         endpoint: endpoint.href, siteOrigin: location.origin };
     port!.onmessage!({ data: { ...outer, kind: 'ready', ...(authenticatedReady ? { proof: signPortReady(outer, keys.secretKey) } : {}) } });
-    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    await flush();
     return {
-        sent, timers, outcome, port: port!, fail() { failSend = true; },
+        endpoint, sent, timers, outcome, port: port!, fail() { failSend = true; },
+        jump(ms: number) { now += ms; },
         tick(ms: number) {
             const until = now + ms;
             for (;;) {
@@ -107,7 +109,7 @@ test.each(['reply', 'error reply', 'cancel', 'reset', 'timeout', 'send error', '
         else if (scenario === 'timeout') {
             f.tick(7250);
             if (proof) {
-                for (let turn = 0; turn < 12; turn++) await Promise.resolve();
+                await flush();
                 expect(new Set(f.sent.map(value => value.packet.id)).size).toBe(2);
                 f.tick(8000);
             }
@@ -121,8 +123,12 @@ test.each(['reply', 'error reply', 'cancel', 'reset', 'timeout', 'send error', '
     }
     const error = await f.outcome;
     if (scenario === 'reply') expect(error).toBeUndefined(); else expect(error).toBeInstanceOf(Error);
-    if (scenario === 'cancel') expect(f.port.closed).toBe(!proof);
-    if (scenario === 'timeout') expect(f.port.closed).toBe(true);
+    if (scenario === 'cancel') expect(f.port.closed).toBe(true);
+    if (scenario === 'timeout') {
+        expect(f.port.closed).toBe(true);
+        expect(error.message).toBe('The KeeWebX request timed out. Try Find accounts again.');
+    }
+    if (scenario === 'reset') expect(error.message).toBe('The website connection closed.');
     if (scenario === 'send error' || scenario === 'initial error') expect(f.port.closed).toBe(true);
     expect(rpc.pending.size).toBe(0);
     expect(f.timers.size).toBe(0);
@@ -135,6 +141,65 @@ test.each(['reply', 'error reply', 'cancel', 'reset', 'timeout', 'send error', '
     const count = f.sent.length;
     f.tick(10000);
     expect(f.sent).toHaveLength(count);
+});
+
+test('a canceled hello discards signed-ready transport and its timeout debt before the next tap', async () => {
+    const f = await fixture(false, false, true), generation = link.generation;
+    f.tick(8000); await flush();
+    expect(f.port.closed).toBe(false); expect(link.generation).toBe(generation);
+    expect(new Set(f.sent.map(value => value.packet.id)).size).toBe(2);
+    rpc.dispose();
+    expect(f.port.closed).toBe(true); expect(link.generation).toBe(generation + 1);
+    expect(rpc.pending.size).toBe(0); expect(f.timers.size).toBe(0);
+
+    // The old attempt's continuation cannot close a newly opened generation.
+    expect(openDirect(f.endpoint)).toBe(true);
+    const replacement = link.connectionId, nextGeneration = link.generation;
+    expect(replacement).toBeDefined();
+    expect((await f.outcome).message).toBe('The operation was canceled.');
+    await flush();
+    expect(link.connectionId).toBe(replacement); expect(link.generation).toBe(nextGeneration);
+});
+
+test('a failed hello closes its unauthenticated port without requiring caller disposal', async () => {
+    const f = await fixture(false, false, true), generation = link.generation;
+    // Timeout debt left by a prior request must not mask this attempt's timeout.
+    link.requestTimedOut(generation);
+    f.tick(8000);
+    expect((await f.outcome).message).toBe('The KeeWebX request timed out. Try Find accounts again.');
+    expect(f.port.closed).toBe(true); expect(link.generation).toBe(generation + 1);
+    expect(new Set(f.sent.map(value => value.packet.id)).size).toBe(1);
+    expect(rpc.pending.size).toBe(0); expect(f.timers.size).toBe(0);
+});
+
+test('expired signed replies preserve their cause and allow only the in-action fresh hello', async () => {
+    const f = await fixture(false, false, true), generation = link.generation;
+    f.jump(8000); f.reply(); await flush();
+    expect(f.port.closed).toBe(false); expect(link.generation).toBe(generation);
+    expect(new Set(f.sent.map(value => value.packet.id)).size).toBe(2);
+    f.jump(8000); f.reply();
+    expect((await f.outcome).message).toBe('The reply expired. Retry.');
+    expect(f.port.closed).toBe(true); expect(link.generation).toBe(generation + 1);
+    expect(rpc.pending.size).toBe(0); expect(f.timers.size).toBe(0);
+});
+
+test('an exhausted connection budget closes ready-only transport after a single expired hello', async () => {
+    const f = await fixture(false, false, true), generation = link.generation;
+    f.jump(35000); f.reply();
+    expect((await f.outcome).message).toBe('The reply expired. Retry.');
+    expect(new Set(f.sent.map(value => value.packet.id)).size).toBe(1);
+    expect(f.port.closed).toBe(true); expect(link.generation).toBe(generation + 1);
+    expect(rpc.pending.size).toBe(0); expect(f.timers.size).toBe(0);
+});
+
+test.each([undefined, 'KeeWebX is locked.'])('a verified fresh RPC response permits physical-port reuse (%s)', async error => {
+    const f = await fixture(false, false, true), generation = link.generation;
+    f.reply(error);
+    const outcome = await f.outcome;
+    if (error) expect(outcome.message).toBe(error); else expect(outcome).toBeUndefined();
+    rpc.dispose();
+    expect(f.port.closed).toBe(false); expect(link.generation).toBe(generation);
+    expect(f.timers.size).toBe(0);
 });
 
 test('direct wire requests are sent once and never acquire a retry interval', async () => {

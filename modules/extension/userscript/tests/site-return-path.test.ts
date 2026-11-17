@@ -143,7 +143,7 @@ test.each([35000, 36000])('an expired reply delivered before timers cannot retry
     expect(await f.outcome).toBeInstanceOf(Error);
     expect(f.sent).toHaveLength(1); expect(f.rpc.scope).toBeUndefined();
     expect(f.rpc.pending.size).toBe(0); expect(f.timers.size).toBe(0);
-    expect(f.port.closed).toBe(false); expect(f.helperOpens()).toBe(1);
+    expect(f.port.closed).toBe(true); expect(f.helperOpens()).toBe(1);
     f.advance(30000); await flush(); expect(f.sent).toHaveLength(1); expect(f.helperOpens()).toBe(1);
 });
 
@@ -201,14 +201,17 @@ test.each(['success', 'signed error'])('a fresh matching signed reply clears the
     expect(f.port.closed).toBe(true);
 });
 
-test('canceling hello after a verified ready retains only transport, with no session or retry', async () => {
+test('canceling hello after a verified ready discards transport before a fresh user attempt', async () => {
     const f = await fixture(), generation = f.link.generation, canceled = f.envelope();
     f.rpc.dispose(); expect(await f.outcome).toBeInstanceOf(Error);
-    expect(f.port.closed).toBe(false); expect(f.link.generation).toBe(generation);
+    expect(f.port.closed).toBe(true); expect(f.link.generation).toBe(generation + 1);
     expect(f.timers.size).toBe(0); expect(f.rpc.scope).toBeUndefined();
     const count = f.sent.length; f.advance(20000); expect(f.sent).toHaveLength(count);
-    const next = await f.start(); f.deliver(canceled); expect(next.rpc.pending.size).toBe(1);
-    f.deliver(f.envelope()); expect(await next.outcome).toBeUndefined(); expect(f.helperOpens()).toBe(1);
+    expect(openDirect(f.endpoint)).toBe(true);
+    const replacement = f.link.connectionId;
+    f.deliver(canceled); await flush();
+    expect(f.rpc.pending.size).toBe(0); expect(f.rpc.scope).toBeUndefined();
+    expect(f.link.connectionId).toBe(replacement); expect(f.helperOpens()).toBe(2);
 });
 
 test.each(['before retry continuation', 'during second hello'])('canceling hello prevents further recovery (%s)', async phase => {
@@ -220,7 +223,7 @@ test.each(['before retry continuation', 'during second hello'])('canceling hello
     expect(new Set(f.sent.map(value => value.packet.id)).size).toBe(phase === 'during second hello' ? 2 : 1);
     expect(f.rpc.pending.size).toBe(0); expect(f.rpc.scope).toBeUndefined(); expect(f.timers.size).toBe(0);
     f.deliver(cached); f.advance(30000); await flush();
-    expect(f.sent).toHaveLength(count); expect(f.port.closed).toBe(false); expect(f.helperOpens()).toBe(1);
+    expect(f.sent).toHaveLength(count); expect(f.port.closed).toBe(true); expect(f.helperOpens()).toBe(1);
 });
 
 test.each(['The KeeWebX request timed out. Try Find accounts again.', 'The reply expired. Retry.', 'KeeWebX is locked.'])

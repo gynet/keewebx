@@ -491,6 +491,13 @@ export class NativeRpc {
         if (!this.route || current?.host !== this.route.host || current.publicKey !== this.route.publicKey) throw new Error('The selected app changed. Find accounts again.');
     }
     async connect(deadline = Date.now() + 35000): Promise<void> {
+        try { await this.connectAttempt(deadline); }
+        catch (error) {
+            this.resetUnauthenticatedDirect('The connection attempt failed.');
+            throw error;
+        }
+    }
+    private async connectAttempt(deadline: number): Promise<void> {
         if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new RequestDeadlineError('The connection attempt expired. Try again.');
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
@@ -536,8 +543,8 @@ export class NativeRpc {
         let result: any;
         try { result = await this.call('hello', undefined, 8000, deadline); }
         catch (error) {
-            this.assertCurrent();
             if (!(error instanceof RequestDeadlineError) || !this.direct?.authenticatedReady || Date.now() >= deadline) throw error;
+            this.assertCurrent();
             // A resumed website gets one fresh handshake on the proven port.
             // Expired replies stay invalid; no credential request is repeated.
             this.progress('Resuming the existing KeeWebX connection');
@@ -632,11 +639,16 @@ export class NativeRpc {
             catch (error) { clearTimeout(timer); this.pending.get(p.id)?.stop?.(); this.pending.delete(p.id); reject(error); }
         });
     }
+    private resetUnauthenticatedDirect(reason: string): void {
+        // A signed ready receipt permits one retry within this attempt, but
+        // only a verified RPC reply can justify reusing its port afterwards.
+        if (this.direct && !this.authenticated && this.directGeneration === this.direct.generation) this.direct.reset(reason);
+    }
     dispose(): void {
         if (!this.live) return;
         this.live = false; removeEventListener('message', this.receive); this.unsubscribeDirect?.();
         this.cancelSetup?.();
-        if (this.direct && !this.authenticated && !this.direct.authenticatedReady && this.directGeneration === this.direct.generation) this.direct.reset('The connection attempt was canceled.');
+        this.resetUnauthenticatedDirect('The connection attempt was canceled.');
         for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error('The operation was canceled.')); }
         this.pending.clear();
         if (this.scope && this.route && this.keys) {

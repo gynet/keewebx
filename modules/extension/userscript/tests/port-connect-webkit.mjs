@@ -40,7 +40,7 @@ const VAULT_ACCOUNTS = [...ACCOUNTS, ...CHOICE_ACCOUNTS];
 const WEBSITE_ORIGINS = [...ACCOUNTS.slice(0, 2), CHOICE_ACCOUNTS[0]].map(account => new URL(account.url).origin);
 const CASES = [
     'authorize original App once with encrypted KDBX and native consent',
-    'worker handoff self-closes site A helper while hello is held; a cached retry survives a lost first reply',
+    'helper stays open until signed App ready, then opener self-closes it while hello is held and a cached retry survives reply loss',
     'site B fills and repeated Test connection reuses both physical ports to the same App',
     'an open settings panel overlapping login fields can start lookup through its visible controls',
     'after three successful fills, inner and outer reply loss recovers with one logical request per operation',
@@ -49,7 +49,7 @@ const CASES = [
     'toggle key closes and cancels pending lookup before late encrypted replies',
     'toggle key closes and cancels pending fill before late encrypted replies',
     'site A reload rebuilds transport to the original App',
-    'trusted opener self-closes the helper when worker handoff notice is lost and remote close is blocked',
+    'trusted opener self-closes the helper after signed App readiness while remote close is blocked',
     'launcher follows recognized login fields and settings before focus opens without network traffic',
     'native opt-in persists across reload and fills a single match; opt-out restores manual selection',
     'opt-in keeps multiple matches as a choice and narrow panels fit normal and keyboard viewports',
@@ -133,6 +133,9 @@ async function clearFields(page) {
 }
 async function startLookup(page) {
     await page.bringToFront();
+    await expect.poll(() => shadow(page, '[data-action="lookup"]', 'disabled'), {
+        timeout: 15000, message: 'Wait for foreground authorization refresh before a trusted lookup tap'
+    }).toBe(false);
     if (await shadow(page, 'section', 'hidden')) {
         await page.locator('#username').click();
         await action(page, 'toggle');
@@ -607,23 +610,17 @@ function helperCloseFault({ marker, appOrigin, blocked }) {
     };
 }
 
-// Capture public close controls before the production relay listener. A one-shot
-// flag drops only the worker handoff notice to exercise the trusted opener path.
+// Capture public close controls before the production relay listener.
 function observeHelper({ marker }) {
     if (location.pathname !== '/connect-port/relay.html') return;
-    const dropHandoff = localStorage.getItem('__kwxDropWorkerHandoff') === '1';
-    if (dropHandoff) localStorage.removeItem('__kwxDropWorkerHandoff');
-    const record = (channel, event, sourceMatches, dropped = false) => {
+    const record = (channel, event, sourceMatches) => {
         if (event.data?.marker !== marker) return;
         void globalThis.kwxHelperTrace({ url: location.href, at: Date.now(), channel, trusted: event.isTrusted,
-            sourceMatches, origin: event.origin, ports: event.ports.length, dropped, data: structuredClone(event.data) });
+            sourceMatches, origin: event.origin, ports: event.ports.length, data: structuredClone(event.data) });
     };
     addEventListener('message', event => record('opener', event, event.source === window.opener), true);
-    navigator.serviceWorker.addEventListener('message', event => {
-        const dropped = dropHandoff && event.data?.marker === marker && event.data.kind === 'handoff-complete';
-        record('worker', event, event.source === navigator.serviceWorker.controller, dropped);
-        if (dropped) event.stopImmediatePropagation();
-    }, true);
+    navigator.serviceWorker.addEventListener('message', event => record('worker', event,
+        event.source === navigator.serviceWorker.controller), true);
 }
 
 function assertAccountAuthority(packets) {
@@ -675,39 +672,41 @@ async function finishLegacyWorker() {
         legacyControllerProbed: true, attachedToLegacyWorker: false, firstConnectionSucceeded: true };
     await upgradePage.close(); upgradePage = undefined;
 }
-async function closureNotice(page, before, kind, dropped = false) {
+async function closureNotice(page, before) {
+    const kind = 'relay-complete';
     const helper = [...helpers.values()][before], url = new URL(helper.url);
     const ready = (await snapshot(page)).packets.find(item => item.direction === 'received'
         && item.data.kind === 'ready' && item.at >= helper.openedAt);
     const expected = { marker: PORT_MARK, kind, nonce: url.searchParams.get('nonce'),
         connectionId: ready.data.connectionId, endpoint: url.searchParams.get('endpoint') };
     const matches = () => (report.helperMessages || []).filter(item => item.url === helper.url
-        && item.data.kind === kind && item.dropped === dropped);
+        && item.data.kind === kind);
     await expect.poll(() => matches().length, { timeout: 2000 }).toBeGreaterThan(0);
     const notice = matches()[0];
     expect(notice.data).toEqual(expected);
     expect(notice.trusted && notice.sourceMatches).toBe(true);
     expect(notice.ports).toBe(0);
-    expect(notice.channel).toBe(kind === 'handoff-complete' ? 'worker' : 'opener');
-    if (notice.channel === 'opener') expect(notice.origin).toBe(url.searchParams.get('site'));
-    helper.closureControl = kind; helper.closureControlDropped = dropped;
+    expect(notice.channel).toBe('opener');
+    expect(notice.origin).toBe(url.searchParams.get('site'));
+    expect(validReadyProof(ready.data)).toBe(true);
+    expect(notice.at).toBeGreaterThanOrEqual(ready.at);
+    expect(helper.closedAt).toBeGreaterThanOrEqual(ready.at);
+    helper.closureControl = kind;
     return notice;
 }
 
-async function openerFallback() {
-    return bounded('Opener self-close fallback', async remaining => {
+async function openerSelfClose() {
+    return bounded('Opener self-close after signed App readiness', async remaining => {
         const website = await context.newPage(), before = helpers.size;
         await website.goto(ACCOUNTS[0].url); await ready(website); await emptyFields(website);
         await utility(website, '__kwxHelperClose.blocked = true');
-        await app.evaluate(() => localStorage.setItem('__kwxDropWorkerHandoff', '1'));
         const reads = await fieldReads(), lists = await entryReads();
         await utility(app, '__kwxWebKit.hold()');
         try {
             await startLookup(website);
             await expect.poll(async () => (await snapshot(app)).held, { timeout: remaining() }).toBeGreaterThan(0);
             await closedHelper(website, before);
-            await closureNotice(website, before, 'handoff-complete', true);
-            await closureNotice(website, before, 'relay-complete');
+            await closureNotice(website, before);
             const { helperClose, packets } = await snapshot(website);
             expect(helperClose.attempts.length).toBeGreaterThan(0);
             expect(helperClose.attempts.every(item => item.blocked && !item.closedBefore && !item.closedAfter)).toBe(true);
@@ -718,11 +717,10 @@ async function openerFallback() {
             await matching(website, ACCOUNTS[0], remaining);
             await fill(website, ACCOUNTS[0]);
             remaining();
-            return { workerNoticeDropped: true, trustedOpenerSelfClosed: true, remoteCloseAttemptsBlocked: helperClose.attempts.length,
+            return { trustedOpenerSelfClosed: true, remoteCloseAttemptsBlocked: helperClose.attempts.length,
                 signedReadyAndHelloRequiredBeforeAccountData: true };
         } finally {
             await utility(app, '__kwxWebKit.release()');
-            await app.evaluate(() => localStorage.removeItem('__kwxDropWorkerHandoff'));
 
             await website.close();
         }
@@ -773,9 +771,17 @@ async function step(name, fn) {
 function adapter(marker, appOrigin, blockHelperClose) {
     helperCloseFault({ marker, appOrigin, blocked: blockHelperClose });
     const roots = new WeakMap(), ports = new WeakMap();
-    const state = { boot: crypto.randomUUID(), packets: [], attachments: [], holdHello: false, held: [], dropNext: null, statuses: [], actions: [] };
+    const state = { boot: crypto.randomUUID(), packets: [], attachments: [], holdAppReady: false, heldReady: [],
+        holdHello: false, held: [], dropNext: null, statuses: [], actions: [] };
     globalThis.__kwxWebKit = { roots, snapshot: () => ({ boot: state.boot, packets: state.packets, attachments: state.attachments,
-        helperClose: __kwxHelperClose.snapshot(), held: state.held.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions }),
+        helperClose: __kwxHelperClose.snapshot(), heldReady: state.heldReady.length,
+        held: state.held.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions }),
+        holdReady: () => { state.holdAppReady = true; }, releaseReady: () => {
+            state.holdAppReady = false;
+            const pending = state.heldReady.splice(0);
+            for (const [port, data, rest] of pending) { record(port, 'sent', data); nativePost.call(port, data, ...rest); }
+            return pending.length;
+        },
         dropWire: (kind, action) => {
             if (state.dropNext || !['request', 'reply'].includes(kind)
                 || !['kwx-get-entries', 'kwx-get-entry-fields'].includes(action)) throw new Error('Invalid or already armed one-shot wire drop');
@@ -823,6 +829,9 @@ function adapter(marker, appOrigin, blockHelperClose) {
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker === marker) {
             observe(this);
+            if (state.holdAppReady && location.origin === appOrigin && data.kind === 'ready') {
+                state.heldReady.push([this, data, rest]); record(this, 'held', data); return;
+            }
             if (state.holdHello && data.kind === 'reply' && data.value?.packet?.operation === 'hello') { state.held.push([this, data, rest]); return; }
             if (state.dropNext?.kind === data.kind && data.value?.packet?.operation === 'wire'
                 && data.value.packet.body?.action === state.dropNext.action) {
@@ -1013,15 +1022,26 @@ try {
         expect(helpers.size).toBe(0); await emptyFields(first);
         const lists = await entryReads(), reads = await fieldReads();
         await utility(first, '__kwxHelperClose.blocked = true');
-        await utility(app, '__kwxWebKit.hold()');
+        await utility(app, '__kwxWebKit.holdReady(); __kwxWebKit.hold()');
         try {
             await startLookup(first);
+            await expect.poll(async () => (await snapshot(app)).heldReady, { timeout: 25000 }).toBe(1);
+            await expect.poll(() => helpers.size).toBe(1);
+            const helper = [...helpers.keys()][0];
+            await first.waitForTimeout(1000);
+            expect(helper.isClosed(), 'Helper must remain open while the actual App ready packet is held').toBe(false);
+            const waiting = await snapshot(first);
+            expect(waiting.packets.some(item => item.direction === 'received' && item.data.kind === 'ready')).toBe(false);
+            expect(waiting.packets.some(item => item.direction === 'sent' && item.data.kind === 'request')).toBe(false);
+            expect(waiting.helperClose.messages.some(item => item.data.kind === 'relay-complete')).toBe(false);
+            expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(reads);
+            expect(await utility(app, '__kwxWebKit.releaseReady()')).toBe(1);
             await expect.poll(async () => (await snapshot(app)).held || (/invalid|blocked|could not/i.test(await status(first)) ? -1 : 0), { timeout: 25000 }).not.toBe(0);
             if ((await snapshot(app)).held < 1) throw new Error('Signed hello was not reached: ' + await status(first));
             await expect.poll(() => helpers.size).toBe(1);
-            await expect.poll(() => [...helpers.keys()][0].isClosed(), { timeout: 2000, message: 'Worker handoff must self-close the helper while RPC hello is held' }).toBe(true);
+            await expect.poll(() => helper.isClosed(), { timeout: 2000, message: 'Verified App ready must let the trusted opener self-close the helper while RPC hello is held' }).toBe(true);
             await closedHelper(first, 0);
-            await closureNotice(first, 0, 'handoff-complete');
+            await closureNotice(first, 0);
             await finishLegacyWorker();
             expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(reads);
             expect([...helpers.keys()][0].isClosed()).toBe(true);
@@ -1043,8 +1063,9 @@ try {
             report.appHiddenDuringSiteA = await app.evaluate(() => document.hidden);
             report.siteA = await physicalPort(first);
             expect(report.siteA).toEqual(port);
-            return { helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
-        } finally { await utility(app, '__kwxWebKit.release()'); }
+            return { helperStayedOpenUntilSignedReady: true, heldAppReadyPackets: 1,
+                helloRepliesHeld, droppedFirstHelloReply: true, identicalHelloRetries: true, physicalPortReused: true };
+        } finally { await utility(app, '__kwxWebKit.releaseReady(); __kwxWebKit.release()'); }
     });
     await step(CASES[2], async () => {
         second = await context.newPage(); await second.goto(ACCOUNTS[1].url); await ready(second); expect(helpers.size).toBe(1);
@@ -1127,7 +1148,7 @@ try {
         expect(report.siteAReload.boot).not.toBe(report.siteA.boot); expect(report.siteAReload.connection).not.toBe(report.siteA.connection);
         expect(await physicalPort(second)).toEqual(report.siteB);
     });
-    await step(CASES[10], openerFallback);
+    await step(CASES[10], openerSelfClose);
     const beforePreferences = helpers.size;
     await step(CASES[11], testLauncherVisibility);
     await step(CASES[12], testSinglePreference);
