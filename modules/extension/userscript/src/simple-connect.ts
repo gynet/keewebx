@@ -1,7 +1,8 @@
 import { CONNECT_VERSION } from './version';
+import { Operation } from './operation';
 import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/protocol-impl';
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
-import { AppBridge } from './app-bridge';
+import { AppBridge, appReceiptsSupported } from './app-bridge';
 import { ConnectUI } from './connect-ui';
 import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials } from './native-connect';
 import { identity } from './identity';
@@ -71,6 +72,7 @@ async function start(): Promise<void> {
                     if (explicit) throw new Error('Allow account listing to enable Connect for all websites.');
                     return;
                 }
+                if (!appReceiptsSupported()) throw new Error('Save database changes and reload KeeWebX to update its Connect receiver.');
                 await host.authorize(keys, () => epoch === generation, explicit ? 'explicit' : 'restore'); guard(); revoked = false; authorized = true;
                 ui.state(State.Connected, 'Authorized. All websites can use this tab. Return to your website and select an account.');
                 ui.authorize.textContent = 'Use this tab for all websites';
@@ -152,14 +154,27 @@ async function start(): Promise<void> {
     };
     void connectorTabId().then(id => { clientId = id; register(); }).catch(error => ui.state(State.Error, message(error)));
     let generation = 0, selecting = false;
+    let operation: Operation | undefined;
     let pending: NativeRpc | undefined;
     let current: { rpc: NativeRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
     const clean = () => {
+        operation?.cancel(); operation = undefined;
         generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined;
         selecting = false; ui.clear(); ui.busy(false);
         ui.state(State.ReadyToConnect, 'Connection test or lookup stopped. You can retry.');
     };
     const guard = (epoch: number) => { if (epoch !== generation) throw new Error('The operation was canceled. Find accounts again.'); };
+    const beginOperation = (stage: string, epoch: number) => {
+        const active = new Operation(stage, 30000, stage => {
+            if (epoch === generation) ui.state(State.Connecting, stage + '…');
+        }, stage => {
+            if (epoch !== generation) return;
+            clean(); ui.state(State.Error, `${stage} timed out. Try Find accounts again.`);
+        });
+        operation = active;
+        return active;
+    };
+    const wireTimeout = () => Math.min(15000, operation?.remainingMs ?? 15000);
     ui.onClose = clean;
     ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Your authorized KeeWebX tab is used on every website. Test the connection here.'); };
     ui.save.onclick = async event => {
@@ -188,30 +203,33 @@ async function start(): Promise<void> {
         if (!active || selecting) return;
         const epoch = generation;
         selecting = true; ui.busy(true);
+        const task = beginOperation('Checking account access', epoch);
         try {
             active.rpc.assertCurrent(); assertTargets(active.target);
-            await active.rpc.assertSelected(); guard(epoch);
+            await task.run('Checking account access', () => active.rpc.assertSelected()); guard(epoch);
             if (location.origin !== active.origin) throw new Error('The website changed. Filling stopped.');
-            const before = await active.protocol.features(); guard(epoch);
+            const before = await task.run('Checking account access', () => active.protocol.features()); guard(epoch);
             assertWebsiteScope(before, active.origin);
             if (before.locked || !before.canList || !before.paired) throw new Error('The database is locked or access was revoked. Unlock the existing KeeWebX tab.');
             const fields = [...(active.target.user ? ['user'] : []), ...(active.target.password ? ['password'] : [])];
-            const values = await active.protocol.getEntryFields(entry.handle, fields); guard(epoch);
+            const values = await task.run('Reading account details', () => active.protocol.getEntryFields(entry.handle, fields)); guard(epoch);
             active.rpc.assertCurrent(); assertTargets(active.target);
-            const features = await active.protocol.features(); guard(epoch);
+            const features = await task.run('Checking access before filling', () => active.protocol.features()); guard(epoch);
             assertWebsiteScope(features, active.origin);
             if (current !== active || features.locked || !features.canList || !features.paired) throw new Error('The database or authorization changed. Filling stopped.');
             active.rpc.assertCurrent(); assertTargets(active.target);
-            await active.rpc.assertSelected(); guard(epoch);
+            await task.run('Checking access before filling', () => active.rpc.assertSelected()); guard(epoch);
+            task.assert();
             fill(active.target, values, () => { guard(epoch); active.rpc.assertCurrent(); if (current !== active) throw new Error('The account selection is no longer valid.'); });
             ui.hide(); ui.state(State.Connected, 'Filled the account details. The form was not submitted.');
-        } catch (error) { if (epoch === generation) { clean(); ui.state(State.Error, message(error)); } }
-        finally { if (epoch === generation) { selecting = false; ui.busy(false); } }
+        } catch (error) { if (epoch === generation) { clean(); ui.state(State.Error, `${task.stage}: ${message(error)}`); } }
+        finally { task.cancel(); if (operation === task) operation = undefined; if (epoch === generation) { selecting = false; ui.busy(false); } }
     }
     const lookup = async (event: MouseEvent) => {
         if (!event.isTrusted || ui.lookup.disabled || selecting) return;
         clean(); ui.busy(true); ui.state(State.Connecting, 'Finding accounts in your authorized KeeWebX tab...');
         const epoch = generation;
+        const task = beginOperation('Connecting to KeeWebX', epoch);
         let rpc: NativeRpc | undefined;
         try {
             const target = targets(selected), origin = location.origin;
@@ -219,16 +237,17 @@ async function start(): Promise<void> {
             rpc = new NativeRpc(endpoint, () => connector); pending = rpc;
             if (!direct && !await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
             const keys = directCredentials(endpoint) || await managerCall(() => identity()); guard(epoch);
-            await rpc.connect(); guard(epoch);
-            const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request) }, runtime);
-            await protocol.ping(); await protocol.changePublicKeys();
-            if (!await protocol.pair(keys)) throw new Error('Authorize Connect once in your KeeWebX tab.');
+            await task.run('Connecting to KeeWebX', () => rpc!.connect()); guard(epoch);
+            const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request, wireTimeout()) }, runtime);
+            await task.run('Connecting to KeeWebX', () => protocol.ping());
+            await task.run('Connecting to KeeWebX', () => protocol.changePublicKeys());
+            if (!await task.run('Checking account access', () => protocol.pair(keys))) throw new Error('Authorize Connect once in your KeeWebX tab.');
             guard(epoch);
-            const features = await protocol.features(); guard(epoch);
+            const features = await task.run('Checking account access', () => protocol.features()); guard(epoch);
             assertWebsiteScope(features, origin);
             if (features.locked) throw new Error('The database is locked. Unlock the existing KeeWebX tab.');
             if (!features.canList || !features.paired) throw new Error('Connect access was revoked. Authorize it again in KeeWebX.');
-            const list = await protocol.getEntries(undefined, undefined); guard(epoch);
+            const list = await task.run('Finding matching accounts', () => protocol.getEntries(undefined, undefined)); guard(epoch);
             rpc.assertCurrent(); assertTargets(target);
             if (list.locked) throw new Error('The database is locked.');
             const entries = list.suggested.slice(0, 10);
@@ -237,8 +256,8 @@ async function start(): Promise<void> {
             entries.forEach((entry, index) => ui.entry(index, entry.title, entry.user, () => { void choose(entry); }));
             ui.state(State.Connected, entries.length ? `Found ${entries.length} matching account(s). Select one to fill.` : 'Connected. No matching accounts found.');
             ui.show('accounts');
-        } catch (error) { rpc?.dispose(); if (epoch === generation) { clean(); ui.state(State.Error, message(error)); } }
-        finally { if (epoch === generation) ui.busy(false); }
+        } catch (error) { rpc?.dispose(); if (epoch === generation) { clean(); ui.state(State.Error, `${task.stage}: ${message(error)}`); } }
+        finally { task.cancel(); if (operation === task) operation = undefined; if (epoch === generation) ui.busy(false); }
     };
     ui.lookup.onclick = lookup;
     ui.onOpen = event => { if (eligible(selected)) void lookup(event); };

@@ -23,10 +23,10 @@ afterEach(() => {
     }
 });
 
-async function fixture(failInitial = false) {
+async function fixture(failInitial = false, wireReceipt = false) {
     const endpoint = new URL('https://keewebx.app/app?retry=' + crypto.randomUUID()), keys = sign.keyPair();
     const route = { host: crypto.randomUUID(), owner: crypto.randomUUID(), endpoint: endpoint.href,
-        publicKey: Buffer.from(keys.publicKey).toString('base64'), messagePort: 1 };
+        publicKey: Buffer.from(keys.publicKey).toString('base64'), messagePort: 1, ...(wireReceipt ? { wireReceipt: 1 } : {}) };
     replace('addEventListener', () => {}); replace('removeEventListener', () => {});
     replace('location', { href: 'https://login.example.org/login', origin: 'https://login.example.org' });
     replace('window', { open: () => ({ close() {} }) });
@@ -127,4 +127,28 @@ test('direct wire requests are sent once and never acquire a retry interval', as
     expect(f.sent).toHaveLength(count);
     f.reply(); await result;
     expect(f.timers.size).toBe(0);
+});
+
+test.each(['reply', 'cancel', 'reset', 'timeout', 'send error', 'navigation'])
+('capable wire retries preserve the signed request and stop on %s', async scenario => {
+    const f = await fixture(false, true); f.reply(); await f.outcome;
+    const result = rpc.call('wire', { action: 'kwx-get-entry-fields', message: 'encrypted request', nonce: 'fixture nonce' })
+        .then(() => undefined, (error: Error) => error);
+    const first = f.sent.at(-1), before = f.sent.length;
+    f.tick(750);
+    expect(f.sent).toHaveLength(before + 1);
+    expect(f.sent.at(-1)).toEqual(first);
+    if (scenario === 'reply') f.reply();
+    else if (scenario === 'cancel') rpc.dispose();
+    else if (scenario === 'reset') link.reset();
+    else if (scenario === 'timeout') f.tick(15000);
+    else {
+        if (scenario === 'send error') f.fail();
+        else (globalThis as any).location.href += '#changed';
+        f.tick(750);
+    }
+    const error = await result;
+    if (scenario === 'reply') expect(error).toBeUndefined(); else expect(error).toBeInstanceOf(Error);
+    expect(rpc.pending.size).toBe(0); expect(f.timers.size).toBe(0);
+    const count = f.sent.length; f.tick(20000); expect(f.sent).toHaveLength(count);
 });

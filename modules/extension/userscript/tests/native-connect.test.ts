@@ -18,6 +18,7 @@ let host: InstanceType<typeof NativeHost>, keys: ReturnType<typeof sign.keyPair>
 let storage: Map<string, any>, replies: any[], reads: number, lastBridge: AppBridge;
 let locks: ReturnType<typeof sharedLocks>;
 const requestImpl = AppBridge.prototype.request;
+const replayImpl = AppBridge.prototype.replay;
 const stable = (value: any): string => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().filter(key => item[key] !== undefined).map(key => [key, item[key]])) : item);
 function envelope(packet: any) { return { packet, signature: toBase64(sign.detached(new TextEncoder().encode(stable(packet)), keys.secretKey)) }; }
@@ -68,10 +69,11 @@ beforeEach(async () => {
     replace('GM', { async getValue(key: string) { return structuredClone(storage.get(key)); },
         async setValue(key: string, value: any) { storage.set(key, structuredClone(value)); }, async deleteValue(key: string) { storage.delete(key); } });
     AppBridge.prototype.request = async function() { reads++; lastBridge = this; return { action: 'test-wire' }; };
+    AppBridge.prototype.replay = async function() { return { action: 'test-wire' }; };
     host = new NativeHost(endpoint); await host.authorize(keys);
 });
 afterEach(() => {
-    host.pause(); AppBridge.prototype.request = requestImpl;
+    host.pause(); AppBridge.prototype.request = requestImpl; AppBridge.prototype.replay = replayImpl;
     for (const [key, descriptor] of original) {
         if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete (globalThis as any)[key];
     }
@@ -550,7 +552,8 @@ test('a lost direct hello receipt can be replayed without creating another sessi
     const p = value.packet;
     const wire = envelope({ ...p, id: crypto.randomUUID(), operation: 'wire', scope: first.value.packet.body.scope, body: { action: 'kwx-features' } });
     await directSend(wire); await directSend(wire);
-    expect(reads).toBe(1); expect(replies).toHaveLength(2);
+    expect(reads).toBe(1); expect(replies).toHaveLength(3);
+    expect(replies[2]).toEqual(replies[1]);
 });
 test('a cached hello receipt cannot migrate to another physical port or another request', async () => {
     await directHost();
@@ -609,13 +612,57 @@ test('a direct hello receipt recovers a lost reply without replacing its session
     expect((host as any).session).toBe(session);
 });
 
-test('a direct wire request never caches or reexecutes a credential response', async () => {
+test('a direct wire retry resends its encrypted receipt without reexecuting the request', async () => {
     await directHost(); const p = await directSession(), receipt = (host as any).session.hello;
     await directSend(envelope(p)); await directSend(envelope(p));
     expect(reads).toBe(1);
-    expect(replies).toHaveLength(2);
+    expect(replies).toHaveLength(3);
+    expect(replies[2]).toEqual(replies[1]);
     expect((host as any).session.hello).toBe(receipt);
     expect(receipt.reply.packet.operation).toBe('hello');
+});
+test('an in-flight wire retry cannot execute work twice and a finished retry revalidates its receipt', async () => {
+    await directHost(); const p = await directSession(), gate = deferred<Record<string, string>>();
+    let checked = 0;
+    AppBridge.prototype.request = async () => { reads++; return gate.promise; };
+    AppBridge.prototype.replay = async () => { checked++; return { action: 'kwx-get-entry-fields', message: 'encrypted response', nonce: 'nonce' }; };
+    const value = envelope(p), first = directSend(value);
+    await Promise.resolve(); await directSend(value);
+    expect(reads).toBe(1); expect(replies).toHaveLength(1);
+    gate.resolve({ action: 'kwx-get-entry-fields', message: 'encrypted response', nonce: 'nonce' }); await first;
+    await directSend(value);
+    expect(reads).toBe(1); expect(checked).toBe(1); expect(replies).toHaveLength(3);
+    expect(replies[2]).toEqual(replies[1]);
+});
+test('a wire receipt never bypasses current App permissions after a lost reply', async () => {
+    await directHost(); const p = await directSession();
+    AppBridge.prototype.request = async () => { reads++; return { action: 'kwx-get-entry-fields', message: 'old encrypted fields', nonce: 'nonce' }; };
+    await directSend(envelope(p));
+    AppBridge.prototype.replay = async () => ({ action: 'kwx-get-entry-fields', error: 'Access revoked', errorCode: '6' });
+    await directSend(envelope(p));
+    expect(reads).toBe(1);
+    expect(replies.at(-1).value.packet.body.error).toBe('Access revoked');
+    expect(JSON.stringify(replies.at(-1))).not.toContain('old encrypted fields');
+});
+test.each(['origin', 'scope', 'document', 'body', 'deadline', 'port', 'selection', 'lock', 'reauthorize', 'new session', 'revoke'])
+('a wire receipt cannot cross a changed binding (%s)', async change => {
+    const local = await directHost(), p = await directSession();
+    let checked = 0;
+    AppBridge.prototype.replay = async () => { checked++; return { action: 'test-wire' }; };
+    await directSend(envelope(p));
+    const changed = { ...p };
+    if (change === 'origin') changed.origin = 'https://attacker.example';
+    else if (change === 'scope' || change === 'document') changed[change] = crypto.randomUUID();
+    else if (change === 'body') changed.body = { action: 'kwx-get-entry-fields' };
+    else if (change === 'deadline') changed.deadline--;
+    else if (change === 'selection') local.set(`keewebx-native-connect-v1:active:${endpoint.href}`, crypto.randomUUID());
+    else if (change === 'lock') host.lock();
+    else if (change === 'reauthorize') await host.authorize(keys);
+    else if (change === 'new session') await directSend(envelope(packet()));
+    else if (change === 'revoke') await host.revoke();
+    const count = replies.length;
+    await directSend(envelope(changed), { origin: p.origin, id: change === 'port' ? 'another-port' : 'test-port' });
+    expect(checked).toBe(0); expect(replies).toHaveLength(count); expect(reads).toBe(1);
 });
 
 test('a direct hello receipt cannot cross reauthorization or a replacement session', async () => {

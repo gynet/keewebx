@@ -130,3 +130,32 @@ test('a late reply write after stop is removed even when its timeout already fir
     expect(storage.has(key('reply', value.packet.id))).toBe(false);
     expect(errors).toEqual([]);
 });
+
+test('direct-port receivers do not keep polling idle extension storage', async () => {
+    let reads = 0;
+    (globalThis as any).GM.listValues = async () => { reads++; return [...storage.keys()]; };
+    const mailbox = new ConnectMailbox(host, async () => {}, error => errors.push(error.message));
+    stops.push(() => mailbox.stop()); mailbox.start(false); await flush();
+    expect(reads).toBe(1); expect(timers.size).toBe(0);
+    await advance(10000); expect(reads).toBe(1); expect(timers.size).toBe(0);
+});
+test('event-driven compatibility work drains once and returns to idle', async () => {
+    const events = new Map<string, () => void>();
+    (globalThis as any).addEventListener = (name: string, listener: () => void) => events.set(name, listener);
+    let reads = 0;
+    (globalThis as any).GM.listValues = async () => { reads++; return [...storage.keys()]; };
+    const mailbox = new ConnectMailbox(host, async value => { delivered.push(value.packet.id); }, error => errors.push(error.message));
+    stops.push(() => mailbox.stop()); mailbox.start(false); await flush();
+    const value = envelope(); storage.set(key('request', value.packet.id), value);
+    events.get('focus')!(); await flush(); await advance(150);
+    expect(delivered).toEqual([value.packet.id]); expect(timers.size).toBe(0);
+    const before = reads; await advance(10000); expect(reads).toBe(before);
+});
+test('unavailable idle storage does not start a permanent background retry loop', async () => {
+    let reads = 0;
+    (globalThis as any).GM.listValues = () => { reads++; return new Promise(() => {}); };
+    const mailbox = new ConnectMailbox(host, async () => {}, error => errors.push(error.message));
+    stops.push(() => mailbox.stop()); mailbox.start(false); await flush();
+    await advance(10000);
+    expect(errors).toHaveLength(1); expect(reads).toBe(1); expect(timers.size).toBe(0);
+});

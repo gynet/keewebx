@@ -1,14 +1,14 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.2
+# Userscripts on iOS: KeeWebX Connect 0.6.3
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
 to the same original App. A temporary connection page closes after a signed
 port receipt, before the normal encrypted protocol handshake. Forms are filled only after selecting an account and are not submitted.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.2)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.2/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.3)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.3/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
-· [0.6.2 acceptance report](docs/release-0.6.2.md)
+· [0.6.3 acceptance report](docs/release-0.6.3.md)
 
 ## Install or upgrade
 
@@ -18,7 +18,7 @@ port receipt, before the normal encrypted protocol handshake. Forms are filled o
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Save pending database changes, then reload your original
-   `https://keewebx.app/app` tab and the login website so both show **Connect 0.6.2**.
+   `https://keewebx.app/app` tab and the login website so both show **Connect 0.6.3**.
    Existing database entries and the script's stored identity are retained.
 3. Unlock the original App, open its Connect key panel, and choose
    **Authorize Connect**. Approve account listing once in the native permission
@@ -62,6 +62,14 @@ port. The existing App bridge runs one encrypted account-selection session at
 a time; a fresh lookup replaces old handles, and busy requests fail safely.
 Database permissions remain independently revocable in browser extension settings.
 
+Lookups and selections display their current stage and share a 30-second total
+budget. Closing the panel cancels pending work, including the key toggle. Current
+Apps can recover a lost request or reply using the original execution ID and
+encrypted receipt; the same field query is never executed twice. Receipt reuse
+rechecks current App permissions and is limited to the original session, port,
+request and deadline. Save pending edits and reload the App as well as the script
+when upgrading so the local receiver supports this capability.
+
 ## Transport and security
 
 The [architecture guide](docs/messageport-connect.md) describes the handoff and
@@ -89,7 +97,7 @@ receivers and separate regression coverage; new receivers use direct ports.
 
 ```sh
 bun modules/extension/userscript/build-connect.ts
-bun test modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
+bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
 modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
 bun run --filter @keewebx/ui build
 ```

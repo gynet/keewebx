@@ -1399,6 +1399,7 @@ describe('ProtocolImpl — explicit UI decisions', () => {
 
 
 describe('extension transport lifecycle', () => {
+    const realProtocol = { ...ProtocolImpl };
     let connector: typeof import('../../../../vault/src/comp/extension/browser-extension-connector').BrowserExtensionConnector;
     let originalGlobals: Map<string, PropertyDescriptor | undefined>;
     const listeners = new Set<unknown>();
@@ -1452,6 +1453,42 @@ describe('extension transport lifecycle', () => {
         send(); await settle();
         expect(posted.mock.calls[0]).toEqual([{ action: 'get-logins', error: 'Access suspended', errorCode: '1', kwConnect: 'response' }, 'https://vault.example']);
     });
+    test('an unexpected handler rejection replies with an error and drains the same port queue', async () => {
+        send('ping', 'current-port'); await settle(); handle.mockClear(); posted.mockClear();
+        let reject!: (reason: Error) => void;
+        handle.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+        handle.mockImplementationOnce(async () => ({ action: 'kwx-get-entry-fields', message: 'current ciphertext' }));
+        send('kwx-features', 'current-port'); send('kwx-get-entry-fields', 'current-port');
+        expect(handle).toHaveBeenCalledTimes(1);
+        reject(new Error('Unexpected endpoint failure')); await settle(); await settle();
+        expect(handle).toHaveBeenCalledTimes(2);
+        expect(posted.mock.calls.map(([response]) => response)).toEqual([
+            { action: 'kwx-features', error: 'Unexpected endpoint failure', errorCode: 0,
+                kwConnect: 'response', kwConnection: 'current-port' },
+            { action: 'kwx-get-entry-fields', message: 'current ciphertext',
+                kwConnect: 'response', kwConnection: 'current-port' }
+        ]);
+    });
+    test('a stale handler rejection cannot reply or release a replacement port queue', async () => {
+        send('ping', 'old-port'); await settle(); handle.mockClear(); posted.mockClear();
+        let rejectOld!: (reason: Error) => void;
+        let finishNew!: (value: ProtocolResponse) => void;
+        handle.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; }));
+        handle.mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve; }));
+        handle.mockImplementationOnce(async () => ({ action: 'kwx-features', message: 'new ciphertext' }));
+        send('kwx-get-entry-fields', 'old-port');
+        send('ping', 'new-port'); send('kwx-features', 'new-port');
+        expect(handle).toHaveBeenCalledTimes(2);
+        rejectOld(new Error('Late old endpoint failure')); await settle(); await settle();
+        expect(posted).not.toHaveBeenCalled();
+        expect(handle).toHaveBeenCalledTimes(2);
+        finishNew({ data: 'new ping' }); await settle(); await settle();
+        expect(handle).toHaveBeenCalledTimes(3);
+        expect(posted.mock.calls.map(([response]) => response)).toEqual([
+            { data: 'new ping', kwConnect: 'response', kwConnection: 'new-port' },
+            { action: 'kwx-features', message: 'new ciphertext', kwConnect: 'response', kwConnection: 'new-port' }
+        ]);
+    });
     test('queued operations are denied synchronously on invalidation', async () => {
         let finish!: (value: ProtocolResponse) => void;
         handle.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
@@ -1502,10 +1539,81 @@ describe('extension transport lifecycle', () => {
         } finally { remove.mockRestore(); }
     });
     test('an old port content request cannot take over a fresh connection', async () => {
-        send('ping', 'new-port'); await settle(); handle.mockClear(); posted.mockClear();
-        send('get-logins', 'old-port'); await settle();
-        expect(handle).not.toHaveBeenCalled(); expect(posted).not.toHaveBeenCalled();
-        send('get-logins', 'new-port'); await settle(); expect(handle).toHaveBeenCalledTimes(1);
+        send('ping', 'new-port'); await settle();
+        const bound = handle.mock.calls.at(-1)![1];
+        handle.mockClear(); posted.mockClear(); prepare.mockClear();
+        const remove = spyOn(ProtocolImpl, 'deleteConnection');
+        try {
+            send('get-logins', 'old-port');
+            expect(handle).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
+            expect(prepare).toHaveBeenCalledTimes(1);
+            expect(posted.mock.calls[0]).toEqual([
+                { action: 'get-logins', error: 'KeeWebX connection changed. Find accounts again.',
+                    errorCode: 'kwx-connection-changed', kwConnect: 'response', kwConnection: 'old-port' },
+                'https://vault.example'
+            ]);
+            send('get-logins', 'new-port'); await settle();
+            expect(handle).toHaveBeenCalledTimes(1);
+            expect(handle.mock.calls[0][1]).toBe(bound);
+            expect(posted.mock.calls[1][0]).toMatchObject({ action: 'get-logins', kwConnection: 'new-port' });
+        } finally { remove.mockRestore(); }
+    });
+    test('an explicit null destination never falls back to the active port', async () => {
+        send('ping', 'current-port'); await settle(); posted.mockClear(); prepare.mockClear();
+        connector.sendWebResponse({ action: 'kwx-features', error: 'Connection changed', kwConnection: 'stale-port' }, null);
+        expect(prepare).toHaveBeenCalledTimes(1);
+        expect(posted.mock.calls[0]).toEqual([
+            { action: 'kwx-features', error: 'Connection changed', kwConnect: 'response' }, 'https://vault.example'
+        ]);
+        connector.sendEvent({ action: 'database-unlocked' });
+        expect(posted.mock.calls[1][0]).toMatchObject({ action: 'database-unlocked', kwConnection: 'current-port' });
+    });
+    test('competing AppBridge instances fail promptly and can rebind with a fresh handshake', async () => {
+        const { AppBridge } = await import('../../../../extension/userscript/src/app-bridge');
+        const bridgeListeners = new Set<(event: MessageEvent) => void>();
+        const previous = new Map(['addEventListener', 'removeEventListener'].map(name =>
+            [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+        const previousPost = Object.getOwnPropertyDescriptor(fakeWindow, 'postMessage');
+        Object.defineProperty(globalThis, 'addEventListener', { configurable: true,
+            value: (_type: string, listener: (event: MessageEvent) => void) => bridgeListeners.add(listener) });
+        Object.defineProperty(globalThis, 'removeEventListener', { configurable: true,
+            value: (_type: string, listener: (event: MessageEvent) => void) => bridgeListeners.delete(listener) });
+        Object.defineProperty(fakeWindow, 'postMessage', { configurable: true, value: (data: ProtocolResponse) =>
+            connector.browserWindowMessage({ source: window, origin: location.origin, data } as MessageEvent) });
+        posted.mockImplementation(response => {
+            const event = { source: window, origin: location.origin, isTrusted: true, data: response } as MessageEvent;
+            bridgeListeners.forEach(listener => listener(event));
+        });
+        handle.mockImplementation(async request => request.action === 'ping'
+            ? { data: request.data }
+            : { action: request.action, message: 'current ciphertext' });
+        const a = new AppBridge(), b = new AppBridge();
+        try {
+            await a.request({ action: 'ping', data: 'bridge A' });
+            await b.request({ action: 'ping', data: 'bridge B' });
+            handle.mockClear();
+            expect(await a.request({ action: 'kwx-features' }, Date.now() + 1000)).toEqual({
+                action: 'kwx-features', error: 'KeeWebX connection changed. Find accounts again.',
+                errorCode: 'kwx-connection-changed'
+            });
+            expect(handle).not.toHaveBeenCalled();
+            expect(await b.request({ action: 'kwx-features' })).toEqual({ action: 'kwx-features', message: 'current ciphertext' });
+            await a.request({ action: 'ping', data: 'bridge A rebound' });
+            expect(await a.request({ action: 'kwx-features' })).toEqual({ action: 'kwx-features', message: 'current ciphertext' });
+            handle.mockClear();
+            expect(await b.request({ action: 'kwx-get-entry-fields' }, Date.now() + 1000)).toMatchObject({
+                action: 'kwx-get-entry-fields', errorCode: 'kwx-connection-changed'
+            });
+            expect(handle).not.toHaveBeenCalled();
+        } finally {
+            a.dispose(); b.dispose(); posted.mockImplementation(() => {});
+            for (const [name, descriptor] of previous) {
+                if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+                else Reflect.deleteProperty(globalThis, name);
+            }
+            if (previousPost) Object.defineProperty(fakeWindow, 'postMessage', previousPost);
+            else Reflect.deleteProperty(fakeWindow, 'postMessage');
+        }
     });
     test('legacy untagged handshakes cannot inherit a tagged lifetime disconnect', async () => {
         send('ping', 'tagged'); await settle(); send('change-public-keys'); await settle();
@@ -1528,9 +1636,305 @@ describe('extension transport lifecycle', () => {
         } finally { remove.mockRestore(); }
     });
     test('other windows and origins cannot enter the queue', async () => {
-        connector.browserWindowMessage({ source: null, origin: location.origin, data: { kwConnect: 'request' } } as MessageEvent);
-        connector.browserWindowMessage({ source: window, origin: 'https://evil.example', data: { kwConnect: 'request' } } as MessageEvent);
-        await settle(); expect(handle).not.toHaveBeenCalled();
+        send('ping', 'current-port'); await settle(); handle.mockClear(); posted.mockClear();
+        const data = { kwConnect: 'request', kwConnection: 'old-port', action: 'kwx-get-entry-fields' };
+        connector.browserWindowMessage({ source: null, origin: location.origin, data } as MessageEvent);
+        connector.browserWindowMessage({ source: window, origin: 'https://evil.example', data } as MessageEvent);
+        await settle(); expect(handle).not.toHaveBeenCalled(); expect(posted).not.toHaveBeenCalled();
+    });
+
+    describe('bounded same-window request receipts', () => {
+        const packet = (overrides: ProtocolResponse = {}) => ({ kwConnect: 'request', kwConnection: 'receipt-port',
+            action: 'kwx-get-entry-fields', clientID: 'receipt-client', message: 'request ciphertext', nonce: 'request nonce',
+            kwRequest: crypto.randomUUID(), kwAttempt: crypto.randomUUID(), kwDeadline: Date.now() + 5000, ...overrides });
+        const dispatch = (data: ProtocolResponse, origin = location.origin) =>
+            connector.browserWindowMessage({ source: window, origin, data } as MessageEvent);
+        beforeEach(async () => {
+            send('ping', 'receipt-port'); await settle(); handle.mockClear(); posted.mockClear(); prepare.mockClear();
+        });
+
+        test('a lost first response is replayed without reexecuting queued or in-flight duplicates', async () => {
+            const request = packet();
+            let finish!: (value: ProtocolResponse) => void;
+            const response = { action: 'kwx-get-entry-fields', message: 'encrypted fields', nonce: 'response nonce' };
+            handle.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+            dispatch(request); dispatch({ ...request });
+            expect(handle).toHaveBeenCalledTimes(1); expect(posted).not.toHaveBeenCalled();
+            finish(response); await settle();
+            const first = posted.mock.calls[0]; posted.mockClear();
+            dispatch({ ...request }); dispatch({ ...request });
+            expect(handle).toHaveBeenCalledTimes(1);
+            expect(posted.mock.calls).toEqual([first, first]);
+            expect(first).toEqual([{ ...response, kwConnect: 'response', kwConnection: 'receipt-port',
+                kwRequest: request.kwRequest, kwAttempt: request.kwAttempt, kwReceipt: 1 }, 'https://vault.example']);
+            expect(prepare).toHaveBeenCalledTimes(3);
+            expect(prepare.mock.calls.every(([original]) => original === response)).toBe(true);
+            expect(response).not.toHaveProperty('kwRequest');
+        });
+
+        test('a fresh attempt rechecks the same execution and echoes only the incoming attempt', async () => {
+            const request = packet(), response = { action: request.action, message: 'encrypted fields' };
+            handle.mockImplementationOnce(async () => response);
+            dispatch(request); await settle();
+            expect(posted.mock.calls[0][0]).toMatchObject({ kwRequest: request.kwRequest, kwAttempt: request.kwAttempt, kwReceipt: 1 });
+            const fresh = { ...request, kwAttempt: crypto.randomUUID() }; posted.mockClear();
+            prepare.mockImplementation(() => ({ action: request.action, error: 'Permission revoked', errorCode: '6' }));
+            dispatch(fresh);
+            expect(handle).toHaveBeenCalledTimes(1); expect(prepare).toHaveBeenCalledTimes(2);
+            expect(prepare).toHaveBeenLastCalledWith(response);
+            expect(posted.mock.calls[0][0]).toEqual({ action: request.action, error: 'Permission revoked', errorCode: '6',
+                kwConnect: 'response', kwConnection: 'receipt-port', kwRequest: request.kwRequest, kwAttempt: fresh.kwAttempt, kwReceipt: 1 });
+            posted.mockClear(); dispatch({ ...fresh, message: 'different ciphertext', kwAttempt: crypto.randomUUID() });
+            expect(posted).not.toHaveBeenCalled(); expect(handle).toHaveBeenCalledTimes(1); expect(prepare).toHaveBeenCalledTimes(2);
+        });
+
+        test('a failed response post keeps its receipt for retry and the queue keeps draining', async () => {
+            const request = packet(), response = { action: request.action, message: 'encrypted fields' };
+            let finish!: (value: ProtocolResponse) => void;
+            handle.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+            posted.mockImplementationOnce(() => { throw new Error('Injected response post failure'); });
+            dispatch(request); send('kwx-features', 'receipt-port');
+            finish(response); await settle(); await settle();
+            expect(posted).toHaveBeenCalledTimes(2); expect(handle).toHaveBeenCalledTimes(2);
+            const fresh = { ...request, kwAttempt: crypto.randomUUID() };
+            dispatch(fresh);
+            expect(handle).toHaveBeenCalledTimes(2);
+            expect(posted.mock.calls[2][0]).toEqual({ ...response, kwConnect: 'response', kwConnection: 'receipt-port',
+                kwRequest: request.kwRequest, kwAttempt: fresh.kwAttempt, kwReceipt: 1 });
+            dispatch(packet()); await settle(); expect(handle).toHaveBeenCalledTimes(3);
+            expect(posted).toHaveBeenCalledTimes(4);
+        });
+
+        test('unexpected handler errors retain and echo the requesting attempt without reexecution', async () => {
+            const request = packet(); handle.mockRejectedValueOnce(new Error('Unexpected endpoint failure'));
+            dispatch(request); await settle();
+            expect(posted.mock.calls[0][0]).toMatchObject({ error: 'Unexpected endpoint failure',
+                kwRequest: request.kwRequest, kwAttempt: request.kwAttempt, kwReceipt: 1 });
+            const fresh = { ...request, kwAttempt: crypto.randomUUID() };
+            dispatch(fresh); expect(handle).toHaveBeenCalledTimes(1);
+            expect(posted.mock.calls[1][0]).toMatchObject({ error: 'Unexpected endpoint failure',
+                kwRequest: request.kwRequest, kwAttempt: fresh.kwAttempt, kwReceipt: 1 });
+        });
+
+        test('a seen ID with changed body, deadline, website or port cannot execute or replay', async () => {
+            const request = packet(); dispatch(request); await settle(); handle.mockClear(); posted.mockClear();
+            for (const changes of [{ message: 'different ciphertext' }, { nonce: 'different nonce' },
+                { kwDeadline: request.kwDeadline + 1 }, { kwConnection: 'other-port' },
+                { kwWebsiteOrigin: 'https://other.example' }, { action: 'ping' }]) dispatch({ ...request, ...changes });
+            dispatch(request, 'https://foreign.example');
+            expect(handle).not.toHaveBeenCalled(); expect(posted).not.toHaveBeenCalled();
+            dispatch(packet()); await settle(); expect(handle).toHaveBeenCalledTimes(1);
+        });
+
+        test('duplicates waiting behind another request are reserved before they start', async () => {
+            let finish!: (value: ProtocolResponse) => void;
+            handle.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+            send('kwx-features', 'receipt-port');
+            const request = packet(); dispatch(request); dispatch({ ...request });
+            expect(handle).toHaveBeenCalledTimes(1);
+            finish({ action: 'kwx-features' }); await settle(); await settle();
+            expect(handle).toHaveBeenCalledTimes(2);
+            expect(posted.mock.calls.filter(([response]) => response.kwRequest === request.kwRequest)).toHaveLength(1);
+        });
+
+        test('only the latest response is retained while older seen IDs stay suppressed', async () => {
+            const first = packet(), second = packet();
+            dispatch(first); await settle(); dispatch(second); await settle(); posted.mockClear();
+            dispatch(first); expect(posted).not.toHaveBeenCalled();
+            dispatch(second); expect(posted).toHaveBeenCalledTimes(1);
+            expect(posted.mock.calls[0][0]).toMatchObject({ kwRequest: second.kwRequest, kwReceipt: 1 });
+            expect(handle).toHaveBeenCalledTimes(2);
+        });
+
+        test('a queued old expiry callback cannot detach the replacement receipt timer', async () => {
+            const schedule = globalThis.setTimeout, cancel = globalThis.clearTimeout;
+            const scheduled: Array<{ callback: () => void; timer: ReturnType<typeof setTimeout> }> = [];
+            const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((callback: () => void, delay?: number) => {
+                const handle = schedule(callback, delay);
+                scheduled.push({ callback, timer: handle });
+                return handle;
+            }) as typeof setTimeout);
+            const cleared = spyOn(globalThis, 'clearTimeout');
+            try {
+                dispatch(packet()); await settle();
+                const replacement = packet(); dispatch(replacement); await settle();
+                expect(scheduled).toHaveLength(2);
+                scheduled[0].callback(); posted.mockClear();
+                dispatch(replacement);
+                expect(posted.mock.calls[0][0]).toMatchObject({ kwRequest: replacement.kwRequest, kwReceipt: 1 });
+                cleared.mockClear(); connector.invalidateWebConnection();
+                expect(cleared).toHaveBeenCalledWith(scheduled[1].timer);
+            } finally {
+                scheduled.forEach(item => cancel(item.timer)); timer.mockRestore(); cleared.mockRestore();
+            }
+        });
+
+        for (const replacement of ['other-port', 'receipt-port']) {
+            test(`a replacement generation on ${replacement} cannot replay old website work`, async () => {
+                const request = packet(); dispatch(request); await settle();
+                dispatch(packet({ action: 'ping', kwConnection: replacement, kwWebsiteOrigin: 'https://other.example' }));
+                await settle(); handle.mockClear(); posted.mockClear();
+                dispatch(request);
+                expect(handle).not.toHaveBeenCalled();
+                expect(posted.mock.calls[0][0]).toMatchObject({ errorCode: 'kwx-connection-changed',
+                    kwConnection: 'receipt-port', kwRequest: request.kwRequest, kwAttempt: request.kwAttempt, kwReceipt: 1 });
+                expect(posted.mock.calls[0][0]).not.toHaveProperty('message');
+            });
+        }
+
+        test('stop/start clears receipts and requires a handshake before old content can run', async () => {
+            const request = packet(); dispatch(request); await settle(); connector.stop(); connector.start();
+            handle.mockClear(); posted.mockClear(); dispatch(request);
+            expect(handle).not.toHaveBeenCalled();
+            expect(posted.mock.calls[0][0]).toMatchObject({ errorCode: 'kwx-connection-changed', kwRequest: request.kwRequest });
+        });
+
+        test('access invalidation clears completed receipts and rejects retries until a new handshake', async () => {
+            const request = packet(); dispatch(request); await settle();
+            invalidation.forEach(listener => listener()); handle.mockClear(); posted.mockClear();
+            dispatch(request); dispatch(packet());
+            expect(handle).not.toHaveBeenCalled();
+            expect(posted.mock.calls.every(([response]) => response.errorCode === 'kwx-connection-changed' && !response.message)).toBe(true);
+            dispatch(packet({ action: 'ping' })); await settle(); dispatch(packet()); await settle();
+            expect(handle).toHaveBeenCalledTimes(2);
+        });
+
+        test('late completion after access invalidation cannot repopulate an encrypted receipt', async () => {
+            const request = packet(); let finish!: (value: ProtocolResponse) => void;
+            handle.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+            dispatch(request); invalidation.forEach(listener => listener());
+            finish({ action: request.action, message: 'stale encrypted fields' }); await settle();
+            expect(posted.mock.calls[0][0]).toMatchObject({ error: 'Access suspended', kwRequest: request.kwRequest,
+                kwAttempt: request.kwAttempt, kwReceipt: 1 });
+            expect(posted.mock.calls[0][0]).not.toHaveProperty('message');
+            posted.mockClear(); dispatch(request);
+            expect(posted.mock.calls[0][0]).toMatchObject({ errorCode: 'kwx-connection-changed' });
+            expect(posted.mock.calls[0][0]).not.toHaveProperty('message');
+            expect(handle).toHaveBeenCalledTimes(1);
+        });
+
+        test('cached encrypted responses pass the policy guard again before every replay', async () => {
+            const request = packet(), response = { action: request.action, message: 'encrypted fields' };
+            handle.mockImplementationOnce(async () => response);
+            dispatch(request); await settle(); posted.mockClear();
+            prepare.mockImplementation(() => ({ action: request.action, error: 'Permission revoked', errorCode: '6' }));
+            dispatch(request);
+            expect(handle).toHaveBeenCalledTimes(1);
+            expect(prepare).toHaveBeenLastCalledWith(response);
+            expect(posted.mock.calls[0][0]).toEqual({ action: request.action, error: 'Permission revoked', errorCode: '6',
+                kwConnect: 'response', kwConnection: 'receipt-port', kwRequest: request.kwRequest, kwAttempt: request.kwAttempt, kwReceipt: 1 });
+        });
+
+        for (const revoked of ['permission', 'lock', 'disconnect']) {
+            test(`a real encrypted receipt publishes no ciphertext after ${revoked}`, async () => {
+                let open = true, passwordReads = 0;
+                const file = { id: 'receipt-file', active: true, db: {},
+                    getEntry: (id: string) => id === entry.id ? entry : undefined };
+                const entry = { id: 'receipt-entry', entry: {}, file, title: 'Receipt account', user: 'fixture user',
+                    url: 'https://example.com/', updated: new Date(),
+                    password: { getText: () => { passwordReads++; return 'fixture secret'; } } };
+                const model = { files: { hasOpenFiles: () => open, filter: () => [file],
+                    get: (id: string) => id === file.id ? file : undefined }, getEntriesByFilter: () => [entry] } as unknown as AppModel;
+                const policy = { snapshot: () => ({ open, epoch: 0 }), assertOpen() {
+                    if (!open) throw new Error('Access suspended');
+                }, subscribeInvalidation: () => () => {} };
+                const identity = naclSign.keyPair(), identityKey = kdbxweb.ByteUtils.bytesToBase64(identity.publicKey);
+                const previousPairings = RuntimeDataModel.extensionPairings;
+                RuntimeDataModel.extensionPairings = { [identityKey]: { created: '2026-11-16',
+                    permissions: { allFiles: true, canList: true } } };
+                realProtocol.init({ appModel: model, access: policy, ui: testUi(), logger: connector.logger, sendEvent: () => {} });
+                handle.mockImplementation((request, connection) => realProtocol.handleRequest(request, connection));
+                prepare.mockImplementation(response => realProtocol.prepareResponse(response));
+                const exchange = async (request: ProtocolRequest) => {
+                    const envelope = packet(request), before = posted.mock.calls.length;
+                    dispatch(envelope);
+                    for (let turn = 0; posted.mock.calls.length === before && turn < 50; turn++) await settle();
+                    const response = posted.mock.calls.at(-1)![0];
+                    expect(response.kwRequest).toBe(envelope.kwRequest);
+                    expect(response.error).toBeUndefined();
+                    return { envelope, response };
+                };
+                try {
+                    const keys = naclBox.keyPair(), clientId = 'real-receipt-client';
+                    const handshake = await exchange({ action: 'change-public-keys', clientID: clientId,
+                        publicKey: kdbxweb.ByteUtils.bytesToBase64(keys.publicKey),
+                        nonce: kdbxweb.ByteUtils.bytesToBase64(new Uint8Array(24)) });
+                    const client = { clientId, keys, appPublicKey: new Uint8Array(
+                        kdbxweb.ByteUtils.base64ToBytes(handshake.response.publicKey as string)) };
+                    const signature = naclSign.detached(new Uint8Array([
+                        ...new TextEncoder().encode('kwx-pair-v1'), ...keys.publicKey, ...client.appPublicKey
+                    ]), identity.secretKey);
+                    await exchange(buildEncryptedRequest(client, 'kwx-pair', { identityKey,
+                        signature: kdbxweb.ByteUtils.bytesToBase64(signature) }));
+                    const listing = await exchange(buildEncryptedRequest(client, 'kwx-get-entries', {}));
+                    const items = decryptResponse(client, listing.envelope, listing.response).items as Array<{ handle: string }>;
+                    const fields = await exchange(buildEncryptedRequest(client, 'kwx-get-entry-fields', {
+                        handle: items[0].handle, fields: ['password']
+                    }));
+                    expect(decryptResponse(client, fields.envelope, fields.response).values).toEqual({ password: 'fixture secret' });
+                    expect(passwordReads).toBe(1);
+                    if (revoked === 'permission') realProtocol.setClientPermissions(clientId, { canList: false });
+                    if (revoked === 'lock') open = false;
+                    if (revoked === 'disconnect') realProtocol.deleteConnection(1);
+                    posted.mockClear(); handle.mockClear();
+                    const fresh = { ...fields.envelope, kwAttempt: crypto.randomUUID() };
+                    dispatch(fresh);
+                    expect(handle).not.toHaveBeenCalled(); expect(passwordReads).toBe(1);
+                    const denied = posted.mock.calls[0][0];
+                    expect(denied).toMatchObject({ action: 'kwx-get-entry-fields', kwRequest: fields.envelope.kwRequest,
+                        kwAttempt: fresh.kwAttempt, kwReceipt: 1 });
+                    expect(denied.error).toBeDefined(); expect(denied.message).toBeUndefined(); expect(denied.nonce).toBeUndefined();
+                } finally {
+                    realProtocol.cleanup();
+                    if (previousPairings === undefined) delete RuntimeDataModel.extensionPairings;
+                    else RuntimeDataModel.extensionPairings = previousPairings;
+                }
+            });
+        }
+
+        test('malformed or expired metadata cannot execute or advertise receipt support', () => {
+            for (const changes of [{ kwRequest: 'not-a-uuid' }, { kwAttempt: undefined }, { kwAttempt: 'not-a-uuid' }, { kwDeadline: undefined }, { kwDeadline: NaN },
+                { kwDeadline: Infinity }, { kwDeadline: Date.now() - 1 }, { kwDeadline: Date.now() + 70000 },
+                { kwDeadline: '5000' }, { kwConnection: undefined }]) dispatch(packet(changes));
+            expect(handle).not.toHaveBeenCalled(); expect(posted).not.toHaveBeenCalled();
+        });
+
+        test('expired queued work and retries cannot execute or replay after their original deadline', async () => {
+            const now = Date.now(), active = packet({ kwDeadline: now + 5000 }), queued = packet({ kwDeadline: now + 50 });
+            let finish!: (value: ProtocolResponse) => void;
+            handle.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+            dispatch(active); dispatch(queued);
+            const clock = spyOn(Date, 'now').mockReturnValue(now + 100);
+            try {
+                finish({ action: active.action, message: 'encrypted fields' }); await settle(); await settle();
+                expect(handle).toHaveBeenCalledTimes(1); expect(posted).toHaveBeenCalledTimes(1);
+                posted.mockClear(); dispatch(queued);
+                clock.mockReturnValue(now + 6000); dispatch(active);
+                expect(handle).toHaveBeenCalledTimes(1); expect(posted).not.toHaveBeenCalled();
+                dispatch(packet()); await settle(); expect(handle).toHaveBeenCalledTimes(2);
+            } finally { clock.mockRestore(); }
+        });
+
+        test('legacy duplicates still execute normally and notifications never inherit request metadata', async () => {
+            const request = packet({ kwRequest: undefined });
+            dispatch(request); dispatch(request); await settle(); await settle();
+            expect(handle).toHaveBeenCalledTimes(2);
+            expect(posted.mock.calls.every(([response]) => response.kwRequest === undefined && response.kwAttempt === undefined && response.kwReceipt === undefined)).toBe(true);
+            posted.mockClear(); connector.sendEvent({ action: 'database-unlocked', kwRequest: 'unrelated', kwAttempt: 'unrelated', kwReceipt: 1 });
+            expect(posted.mock.calls[0][0]).toEqual({ action: 'database-unlocked', kwConnect: 'response', kwConnection: 'receipt-port' });
+        });
+
+        test('256 live IDs are bounded without evicting IDs that could execute twice', async () => {
+            const requests = Array.from({ length: 256 }, () => packet());
+            requests.forEach(request => dispatch(request)); const excess = packet(); dispatch(excess);
+            expect(posted.mock.calls[0][0]).toMatchObject({ errorCode: 'kwx-request-limit', kwRequest: excess.kwRequest,
+                kwAttempt: excess.kwAttempt, kwReceipt: 1 });
+            for (let turn = 0; turn < 256; turn++) await settle();
+            expect(handle).toHaveBeenCalledTimes(256); posted.mockClear();
+            dispatch(requests[0]); expect(posted).not.toHaveBeenCalled();
+            dispatch(requests[255]); expect(posted).toHaveBeenCalledTimes(1);
+            expect(handle).toHaveBeenCalledTimes(256);
+        });
     });
 
     describe('website transport metadata admission', () => {
@@ -1570,14 +1974,19 @@ describe('extension transport lifecycle', () => {
                 sendWebsite('kwx-get-entry-fields', undefined, undefined);
                 await settle();
                 expect(handle).not.toHaveBeenCalled();
-                expect(posted).not.toHaveBeenCalled();
+                expect(posted.mock.calls.map(([response]) => response)).toEqual([
+                    { action: 'kwx-get-entry-fields', error: 'KeeWebX connection changed. Find accounts again.',
+                        errorCode: 'kwx-connection-changed', kwConnect: 'response', kwConnection: 'website-port' },
+                    { action: 'kwx-get-entry-fields', error: 'KeeWebX connection changed. Find accounts again.',
+                        errorCode: 'kwx-connection-changed', kwConnect: 'response', kwConnection: 'website-port' }
+                ]);
                 expect(remove).not.toHaveBeenCalled();
                 expect(bound.websiteOrigin).toBe(website);
 
                 sendWebsite('kwx-get-entry-fields', 'website-port', website); await settle();
                 expect(handle).toHaveBeenCalledTimes(1);
                 expect(handle.mock.calls[0][1]).toBe(bound);
-                expect(posted).toHaveBeenCalledTimes(1);
+                expect(posted).toHaveBeenCalledTimes(3);
             } finally { remove.mockRestore(); }
         });
 

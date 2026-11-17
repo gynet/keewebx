@@ -323,7 +323,7 @@ try {
   await session.send('Page.setWebLifecycleState',{state:'frozen'});
   try {
    await action(first,'toggle');
-   await untilStatus(first,/Visit your existing KeeWebX tab/,14000);await emptyFields(first);
+   await untilStatus(first,/The KeeWebX request timed out/,14000);await emptyFields(first);
   } finally {await session.send('Page.setWebLifecycleState',{state:'active'});}
   const lifecycle=await app.evaluate(()=>globalThis.__kwxNativeTest.lifecycle);
   expect(lifecycle.some(event=>event.name==='freeze'&&event.hidden&&event.trusted)).toBe(true);
@@ -357,7 +357,7 @@ try {
   await nativeWorker.evaluate(()=>{globalThis.muteAppMailbox=true;});
   try {
    await clearFields(first);await action(first,'toggle');await action(first,'config-tab');await action(first,'probe');
-   await untilStatus(first,/Visit your existing KeeWebX tab/,14000);await emptyFields(first);await sameApp();
+   await untilStatus(first,/The KeeWebX request timed out/,14000);await emptyFields(first);await sameApp();
    expect(await shadowValue(first,'[data-action="open"]')).toBe('Reconnect to existing tab');
    await app.evaluate(({marker,appUrl})=>{
     const channel=new BroadcastChannel(marker+':'+appUrl);globalThis.recoveryForgery=channel;globalThis.recoveryForgeryIds=[];

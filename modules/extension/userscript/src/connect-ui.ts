@@ -100,8 +100,8 @@ export class ConnectUI {
         this.shadow.append(this.panel, this.toggle); document.body.append(this.host);
         this.toggle.onclick = event => { if (event.isTrusted) {
             const opening = this.panel.hidden;
-            this.show(this.app ? 'config' : 'accounts', opening);
-            if (opening) this.onOpen(event);
+            if (opening) { this.show(this.app ? 'config' : 'accounts'); this.onOpen(event); }
+            else this.hide();
         } };
         this.close.onclick = event => { if (event.isTrusted) this.hide(); };
         this.accountTab.onclick = event => { if (event.isTrusted) this.show('accounts'); };
@@ -134,7 +134,10 @@ export class ConnectUI {
         if (origin !== undefined) this.show('config');
     }
     state(state: BackendConnectionState, message: string): void { this.dot.dataset.state = state; this.status.textContent = message; }
-    busy(value: boolean): void { this.lookup.disabled = value; this.probe.disabled = value; }
+    busy(value: boolean): void {
+        this.lookup.disabled = value; this.probe.disabled = value;
+        for (const button of this.list.querySelectorAll<HTMLButtonElement>('button')) button.disabled = value;
+    }
     clear(): void { this.list.replaceChildren(); }
     anchor(field: HTMLInputElement): void {
         if (this.app) return;

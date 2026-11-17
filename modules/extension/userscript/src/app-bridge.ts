@@ -1,6 +1,22 @@
 import { APP_ORIGIN, MARK, SESSION_TTL, object, uuid, validEnvelope, type Envelope } from './native-rpc';
 
 const ACTIONS = new Set(['ping', 'change-public-keys', 'kwx-pair', 'kwx-features', 'kwx-get-entries', 'kwx-get-entry-fields']);
+export interface AppBridgeCapabilities { receipts: boolean }
+const documentCapabilities: AppBridgeCapabilities = { receipts: false };
+export const appReceiptsSupported = (): boolean => documentCapabilities.receipts;
+
+interface PendingRequest {
+    id: string;
+    attempt: string;
+    request: Record<string, unknown>;
+    payload: Record<string, unknown>;
+    deadline: number;
+    receipted: boolean;
+    resolve(value: unknown): void;
+    reject(error: Error): void;
+    timer: ReturnType<typeof setTimeout>;
+    retry?: ReturnType<typeof setInterval>;
+}
 
 export interface ConnectBridge {
     request(request: any, deadline?: number): Promise<any>;
@@ -14,10 +30,12 @@ export interface ConnectBridge {
 export class AppBridge {
     private live = true;
     private port = uuid();
-    private pending?: { request: any; deadline: number; resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
+    private pending?: PendingRequest;
+    private completed?: { request: string; payload: Record<string, unknown>; deadline: number };
     onAttention = () => {};
     onLocked = () => {};
-    constructor(private origin = location.origin, private websiteOrigin?: string) { addEventListener('message', this.receive); }
+    constructor(private origin = location.origin, private websiteOrigin?: string,
+        private readonly capabilities = documentCapabilities) { addEventListener('message', this.receive); }
 
     private receive = (event: MessageEvent) => {
         if (!event.isTrusted || event.source !== window || event.origin !== this.origin || !object(event.data) ||
@@ -28,27 +46,60 @@ export class AppBridge {
         if (response.action === 'database-unlocked') return;
         const pending = this.pending;
         if (!pending) return;
+        if ((pending.receipted || response.kwRequest !== undefined) &&
+            (response.kwRequest !== pending.id || response.kwAttempt !== pending.attempt)) return;
         const matches = pending.request.action === 'ping'
             ? response.data === pending.request.data || response.action === 'ping'
             : response.action === pending.request.action;
         if (!matches) return;
         if (Date.now() >= pending.deadline) { this.reset('The KeeWebX request expired.'); return; }
         this.pending = undefined;
-        clearTimeout(pending.timer);
-        const { kwConnect, kwConnection, ...wire } = response;
+        clearTimeout(pending.timer); clearInterval(pending.retry);
+        if (response.kwReceipt === 1 && response.kwRequest === pending.id) this.capabilities.receipts = true;
+        if (response.kwReceipt === 1 && response.kwRequest === pending.id) {
+            this.completed = { request: JSON.stringify(pending.request), payload: pending.payload, deadline: pending.deadline };
+        }
+        const { kwConnect, kwConnection, kwRequest, kwAttempt, kwReceipt, ...wire } = response;
         pending.resolve(wire);
     };
 
     request(request: any, deadline = Date.now() + 65000): Promise<any> {
+        return this.send(request, deadline);
+    }
+
+    /** Revalidate the original App receipt; never perform a fresh field read. */
+    replay(request: unknown, deadline: number): Promise<unknown> {
+        const saved = this.completed;
+        if (!this.capabilities.receipts || !saved || saved.deadline !== deadline || saved.request !== JSON.stringify(request)) {
+            return Promise.reject(new Error('The App request receipt is no longer available. Find accounts again.'));
+        }
+        return this.send(request, deadline, { ...saved.payload, kwAttempt: uuid() });
+    }
+
+    private send(request: any, deadline: number, previous?: Record<string, unknown>): Promise<any> {
         if (!this.live) return Promise.reject(new Error('The connection is closed.'));
         if (!object(request) || !ACTIONS.has(request.action) || JSON.stringify(request).length > 262144) return Promise.reject(new Error('Unsupported Connect request.'));
         if (this.pending) return Promise.reject(new Error('KeeWebX is processing another request.'));
         if (deadline <= Date.now()) return Promise.reject(new Error('The request expired.'));
         return new Promise((resolve, reject) => {
-            const pending = { request, deadline, resolve, reject, timer: undefined as unknown as ReturnType<typeof setTimeout> };
+            const id = previous ? String(previous.kwRequest) : uuid();
+            const attempt = previous ? String(previous.kwAttempt) : uuid();
+            const snapshot = { ...request };
+            const payload = previous ?? { ...snapshot, kwConnect: 'request', kwConnection: this.port, kwWebsiteOrigin: this.websiteOrigin, kwRequest: id, kwAttempt: attempt, kwDeadline: deadline };
+            const pending: PendingRequest = { id, attempt, request: snapshot, payload, deadline, resolve, reject, receipted: this.capabilities.receipts,
+                timer: undefined as unknown as ReturnType<typeof setTimeout> };
             pending.timer = setTimeout(() => { if (this.pending === pending) this.reset('The KeeWebX Connect request timed out.'); }, deadline - Date.now());
             this.pending = pending;
-            window.postMessage({ ...request, kwConnect: 'request', kwConnection: this.port, kwWebsiteOrigin: this.websiteOrigin }, this.origin);
+            if (pending.receipted) pending.retry = setInterval(() => {
+                if (this.pending !== pending || !this.live || Date.now() >= pending.deadline) { clearInterval(pending.retry); return; }
+                try { window.postMessage(pending.payload, this.origin); }
+                catch { this.reset('The App connection could not send this request.'); }
+            }, 750);
+            try { window.postMessage(payload, this.origin); }
+            catch (error) {
+                this.pending = undefined; clearTimeout(pending.timer); clearInterval(pending.retry);
+                reject(error instanceof Error ? error : new Error('The App connection could not send this request.'));
+            }
         });
     }
 
@@ -56,14 +107,16 @@ export class AppBridge {
         if (!this.live) return;
         // Matching disconnection cancels an old app prompt and advances the app's
         // transport generation before a new owner/handshake can be admitted.
-        window.postMessage({ kwConnect: 'disconnected', kwConnection: this.port }, this.origin);
+        const port = this.port;
+        this.completed = undefined;
         this.port = uuid();
         const pending = this.pending;
         this.pending = undefined;
         if (pending) {
-            clearTimeout(pending.timer);
+            clearTimeout(pending.timer); clearInterval(pending.retry);
             pending.reject(new Error(reason));
         }
+        try { window.postMessage({ kwConnect: 'disconnected', kwConnection: port }, this.origin); } catch {}
     }
 
     dispose(): void { this.reset(); this.live = false; removeEventListener('message', this.receive); }

@@ -40,7 +40,30 @@ if (!localStorage[storageKey('debugBrowserExtension')]) {
 }
 
 const connections = new Map<number, ConnectionInfo>();
-const pendingBrowserMessages: ProtocolRequest[] = [];
+type BrowserRequest = ProtocolRequest & { kwConnection?: string; kwRequest?: string; kwAttempt?: string; kwDeadline?: number };
+const validReceiptId = (value: unknown): value is string => typeof value === 'string' &&
+    /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
+interface RequestReceipt {
+    id: string;
+    attempt: string;
+    deadline: number;
+    fingerprint: string;
+    origin: string;
+    epoch: number;
+}
+const pendingBrowserMessages: Array<{ request: BrowserRequest; receipt?: RequestReceipt }> = [];
+const seenRequests = new Map<string, number>();
+let latestReceipt: (RequestReceipt & { response: ProtocolResponse; port: string; generation: number }) | undefined;
+let receiptTimer: ReturnType<typeof setTimeout> | undefined;
+let receiptEpoch = 0;
+let receiptNeedsHandshake = false;
+function clearReceipts(needsHandshake = false): void {
+    ++receiptEpoch;
+    seenRequests.clear();
+    latestReceipt = undefined;
+    clearTimeout(receiptTimer); receiptTimer = undefined;
+    receiptNeedsHandshake = needsHandshake;
+}
 let processingBrowserMessage = false;
 let transportGeneration = 0;
 let webPort: string | undefined;
@@ -76,14 +99,16 @@ const BrowserExtensionConnector = {
 
         this.started = true;
         unsubscribeInvalidation = initVars.access.subscribeInvalidation(() => {
-            for (const request of pendingBrowserMessages.splice(0)) {
-                this.sendWebResponse({ action: request.action, error: 'Access suspended', errorCode: '1' });
+            clearReceipts(true);
+            for (const { request, receipt } of pendingBrowserMessages.splice(0)) {
+                this.sendWebResponse({ action: request.action, error: 'Access suspended', errorCode: '1' }, request.kwConnection ?? null, receipt?.id, receipt?.attempt);
             }
         });
     },
 
     stop(): void {
         ++transportGeneration;
+        clearReceipts();
         webPort = undefined;
         webWebsiteOrigin = undefined;
         unsubscribeInvalidation?.(); unsubscribeInvalidation = undefined;
@@ -147,22 +172,65 @@ const BrowserExtensionConnector = {
         }
         const websiteOrigin = validWebsiteOrigin(e.data.kwWebsiteOrigin);
         if (e.data.kwWebsiteOrigin !== undefined && (!websiteOrigin || !port)) return;
+        let receipt: RequestReceipt | undefined;
+        if (e.data.kwRequest !== undefined) {
+            const id = e.data.kwRequest, attempt = e.data.kwAttempt, deadline = e.data.kwDeadline, now = Date.now();
+            if (!port || !validReceiptId(id) || !validReceiptId(attempt) ||
+                typeof deadline !== 'number' || !Number.isFinite(deadline) || deadline <= now || deadline > now + 66000) return;
+            let fingerprint: string;
+            try {
+                // A fresh policy check changes its attempt token, never the execution identity.
+                const { kwAttempt, ...execution } = e.data;
+                fingerprint = JSON.stringify(execution);
+            } catch { return; }
+            receipt = { id, attempt, deadline, fingerprint, origin: e.origin, epoch: receiptEpoch };
+            for (const [seen, until] of seenRequests) if (until <= now) seenRequests.delete(seen);
+            if (latestReceipt && latestReceipt.deadline <= now) latestReceipt = undefined;
+            if (seenRequests.has(id)) {
+                const cached = latestReceipt;
+                if (cached && cached.id === id && cached.deadline === deadline && cached.fingerprint === fingerprint &&
+                    cached.port === port && cached.origin === e.origin && cached.generation === transportGeneration && cached.epoch === receiptEpoch) {
+                    this.sendWebResponse(cached.response, port, id, attempt);
+                }
+                return;
+            }
+        }
+        const handshake = e.data.action === 'ping' || e.data.action === 'change-public-keys';
         // A bridge port is a transport lifetime, not an authentication identity.
         // A new handshake must bypass abandoned work; old port notifications
         // must not invalidate its replacement. Untagged legacy bridges still work.
-        if (port !== webPort || websiteOrigin !== webWebsiteOrigin) {
-            if (e.data.action !== 'ping' && e.data.action !== 'change-public-keys') return;
+        if (port !== webPort || websiteOrigin !== webWebsiteOrigin || (receipt && receiptNeedsHandshake)) {
+            if (!handshake) {
+                // Fail the displaced bridge without accessing or replacing the active connection.
+                if (port) this.sendWebResponse({
+                    action: typeof e.data.action === 'string' ? e.data.action : undefined,
+                    error: 'KeeWebX connection changed. Find accounts again.',
+                    errorCode: 'kwx-connection-changed'
+                }, port ?? null, receipt?.id, receipt?.attempt);
+                return;
+            }
             this.invalidateWebConnection();
             webPort = port;
             webWebsiteOrigin = websiteOrigin;
         }
+        if (receipt) {
+            if (seenRequests.size >= 256) {
+                this.sendWebResponse({ action: typeof e.data.action === 'string' ? e.data.action : undefined,
+                    error: 'Too many Connect requests. Find accounts again.', errorCode: 'kwx-request-limit' }, port ?? null, receipt.id, receipt.attempt);
+                return;
+            }
+            receipt.epoch = receiptEpoch;
+            // Reserve before queueing so retries cannot execute pending work twice.
+            seenRequests.set(receipt.id, receipt.deadline);
+        }
         logger.debug('Extension -> KeeWeb', e.data);
-        pendingBrowserMessages.push(e.data as unknown as ProtocolRequest);
-        this.processBrowserMessages();
+        pendingBrowserMessages.push({ request: e.data as unknown as BrowserRequest, receipt });
+        void this.processBrowserMessages().catch(error => logger.error('Error draining browser extension queue', error));
     },
 
     invalidateWebConnection(): void {
         ++transportGeneration;
+        clearReceipts();
         pendingBrowserMessages.length = 0;
         processingBrowserMessage = false;
         connections.delete(WebConnectionInfo.connectionId);
@@ -180,38 +248,68 @@ const BrowserExtensionConnector = {
 
         processingBrowserMessage = true;
 
-        const request = pendingBrowserMessages.shift();
-        if (!request) {
+        const pending = pendingBrowserMessages.shift();
+        if (!pending) {
             processingBrowserMessage = false;
             return;
         }
 
+        const { request, receipt } = pending;
         const generation = transportGeneration;
-        const response = await ProtocolImpl.handleRequest(request, connections.get(WebConnectionInfo.connectionId)!);
-        if (!this.started || generation !== transportGeneration) return;
-
-        processingBrowserMessage = false;
-
-        if (response) {
-            this.sendWebResponse(response);
+        const respond = (response: ProtocolResponse) => {
+            if (!this.started || generation !== transportGeneration) return;
+            if (receipt) {
+                if (Date.now() >= receipt.deadline) return;
+                if (receipt.epoch !== receiptEpoch) {
+                    this.sendWebResponse({ action: request.action, error: 'Access suspended', errorCode: '1' }, request.kwConnection ?? null, receipt.id, receipt.attempt);
+                    return;
+                }
+                // Retain the original encrypted response object for its final policy guard.
+                const cached = latestReceipt = { ...receipt, response, port: request.kwConnection!, generation };
+                clearTimeout(receiptTimer);
+                const ownTimer = setTimeout(() => {
+                    if (latestReceipt === cached) latestReceipt = undefined;
+                    if (receiptTimer === ownTimer) receiptTimer = undefined;
+                }, Math.max(1, receipt.deadline - Date.now()));
+                receiptTimer = ownTimer;
+            }
+            this.sendWebResponse(response, request.kwConnection ?? null, receipt?.id, receipt?.attempt);
+        };
+        try {
+            if (receipt && (receipt.epoch !== receiptEpoch || Date.now() >= receipt.deadline)) return;
+            const response = await ProtocolImpl.handleRequest(request, connections.get(WebConnectionInfo.connectionId)!);
+            if (response) respond(response);
+        } catch (error) {
+            if (!this.started || generation !== transportGeneration) return;
+            const failure = error instanceof Error ? error : new Error(String(error));
+            logger.error('Error processing browser extension request', failure);
+            respond(ProtocolImpl.errorToResponse(failure, request));
+        } finally {
+            // Old work must never release or drain a replacement transport's queue.
+            if (this.started && generation === transportGeneration) {
+                processingBrowserMessage = false;
+                void this.processBrowserMessages().catch(error => logger.error('Error draining browser extension queue', error));
+            }
         }
-
-        this.processBrowserMessages();
     },
 
-    sendWebResponse(response: ProtocolResponse): void {
+    sendWebResponse(response: ProtocolResponse, port: string | null = webPort ?? null, requestId?: string, attempt?: string): void {
         if (!this.started) return;
-        response = ProtocolImpl.prepareResponse(response);
+        response = { ...ProtocolImpl.prepareResponse(response) };
         logger.debug('KeeWeb -> Extension', response);
         response.kwConnect = 'response';
-        if (webPort) response.kwConnection = webPort;
+        if (port) response.kwConnection = port;
+        else delete response.kwConnection;
+        if (requestId && attempt) { response.kwRequest = requestId; response.kwAttempt = attempt; response.kwReceipt = 1; }
+        else { delete response.kwRequest; delete response.kwAttempt; delete response.kwReceipt; }
         // On file:// in Firefox, location.origin is "null" which
         // postMessage rejects as targetOrigin. Fall back to "*" —
         // the content script's window-message listener additionally
         // validates `e.source === window` to prevent cross-document
         // leaks.
         const targetOrigin = location.origin === 'null' ? '*' : window.location.origin;
-        postMessage(response, targetOrigin);
+        try { postMessage(response, targetOrigin); }
+        catch (error) { logger.error('Error posting browser extension response', error); }
     },
 
     sendEvent(data: ProtocolResponse): void {

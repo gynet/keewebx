@@ -83,13 +83,29 @@ website reload, abnormal termination and timeout require fresh channel endpoints
 reconnection always discovers an existing selected App and never navigates an
 unlocked database to create a replacement.
 
-Only the active logical session's hello receipt can be cached. A repeated, valid,
-identical hello on the same physical port receives that receipt until its original
-deadline. It does not create another session or execute a wire request. Selection,
-lock, expiry, release and revocation checks remain in force. The website retries
-only this idempotent handshake on the existing port; credential operations are
-never automatically replayed. Discovery hands off as soon as the selected boot
-answers, then closes unused probe ports rather than waiting for unrelated tabs.
+The active hello receipt can be repeated for the identical request on its original
+port and deadline. New App builds also support exact-once wire delivery. The
+website repeats the identical signed request, while NativeHost retains only its
+request binding. It asks the main App to revalidate the original execution ID
+instead of reading fields again. The main App retains one original encrypted
+response in memory until the request deadline and reruns `prepareResponse` before
+every publication, including current permission and entry-lifetime checks.
+
+A fresh `kwAttempt` distinguishes each revalidation from a delayed original
+response. Periodic transport retries preserve that attempt. Neither retries nor
+revalidation create a new Connect execution ID, cryptographic nonce or field
+query. The original deadline, exact request, origin, physical port, logical
+session, selected App and key generation still bind the operation. Cancellation,
+lock, invalidation and replacement discard receipts. No receipt enters GM or
+persistent storage. Older Apps keep their single-send path until capability is
+confirmed by a matching App response.
+
+Each lookup or selection has one 30-second budget across its stages. Closing the
+panel through either control cancels it, releases pending work and rejects late
+results. A stale local bridge receives an explicit error instead of a silently
+dropped request. Queue cleanup is protected by `finally` and its generation.
+Direct-port Apps listen for compatibility-storage changes without idle GM polling;
+legacy-only receivers retain their existing polling path.
 
 ## Acceptance scope
 

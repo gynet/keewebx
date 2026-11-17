@@ -1,9 +1,10 @@
 import { watchManagerGrant } from './manager-events';
 import { AppPortReceiver, SitePortLink } from './direct-ports';
 import { signPortReady } from './port-auth';
+import { ReplyReceipt, type ReceiptBinding } from './reply-receipt';
 import { sign } from 'tweetnacl';
 import { fromBase64, toBase64 } from '../../src/background/utils';
-import { AppBridge } from './app-bridge';
+import { AppBridge, appReceiptsSupported } from './app-bridge';
 import { identity } from './identity';
 import { isId, object, SESSION_TTL, uuid } from './native-rpc';
 import { SiteLink, SETUP_MARK } from './site-link';
@@ -13,7 +14,7 @@ const MARK = 'keewebx-native-connect-v1';
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
 const routeKey = (endpoint: URL) => `${MARK}:selected:${endpoint.href}`;
 type Keys = { publicKey: Uint8Array; secretKey: Uint8Array };
-type Route = { host: string; owner: string; endpoint: string; publicKey: string; mailbox?: boolean; messagePort?: number; readyProof?: number; authorizationRevision?: number };
+type Route = { host: string; owner: string; endpoint: string; publicKey: string; mailbox?: boolean; messagePort?: number; readyProof?: number; wireReceipt?: number; authorizationRevision?: number };
 type Packet = { type: 'request' | 'reply'; host: string; endpoint: string; id: string; document: string; origin: string;
     operation: 'hello' | 'wire' | 'probe' | 'focus' | 'release'; deadline: number; scope?: string; body?: any; error?: string };
 type Signed = { packet: Packet; signature: string };
@@ -90,7 +91,7 @@ export class NativeHost {
     private leaseKey: string;
     private consumed = new Map<string, number>();
     private session?: { document: string; origin: string; scope: string; expiresAt: number; bridge: AppBridge; locked: boolean; busy: boolean; port?: string;
-        hello?: { request: string; reply: Signed; authorization: number; keys: Keys } };
+        wire: ReplyReceipt<true>; hello?: { request: string; reply: Signed; authorization: number; keys: Keys } };
     constructor(private endpoint: URL, private onError: (error: Error) => void = () => {}, private diagnostic: (message: string) => void = () => {}) {
         this.leaseKey = `${MARK}:active:${endpoint.href}`;
         try {
@@ -173,7 +174,7 @@ export class NativeHost {
                 }
                 // Fail closed before publication, including selection by a legacy-only host.
                 if (typeof localStorage !== 'undefined') localStorage.removeItem(this.leaseKey);
-                await GM.setValue(routeKey(this.endpoint), { host: this.host, owner: this.owner, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey), authorizationRevision: generation, mailbox: this.mailbox.available, ...(this.direct ? { messagePort: 1, readyProof: 1 } : {}) } satisfies Route);
+                await GM.setValue(routeKey(this.endpoint), { host: this.host, owner: this.owner, endpoint: this.endpoint.href, publicKey: toBase64(keys.publicKey), authorizationRevision: generation, mailbox: this.mailbox.available, ...(this.direct ? { messagePort: 1, readyProof: 1, ...(appReceiptsSupported() ? { wireReceipt: 1 } : {}) } : {}) } satisfies Route);
                 if (!valid()) {
                     // The exclusive route lock is still held; no replacement can publish yet.
                     await GM.deleteValue(routeKey(this.endpoint));
@@ -188,9 +189,9 @@ export class NativeHost {
             });
         } catch (error) { if (generation === this.authorization) this.authorization++; throw error; }
         if (!valid()) throw new Error('Authorization was canceled.');
-        this.keys = keys; this.locked = false; this.live = true; this.mailbox.start();
+        this.keys = keys; this.locked = false; this.live = true; this.mailbox.start(!this.direct);
     }
-    resume(): void { if (this.keys) { this.live = true; this.mailbox.start(); } }
+    resume(): void { if (this.keys) { this.live = true; this.mailbox.start(!this.direct); } }
     unlock(): boolean {
         if (!this.direct || !this.live || !this.keys || !this.selectedDirect()) return false;
         this.locked = false; return true;
@@ -229,8 +230,8 @@ export class NativeHost {
         }
         if (this.consumed.has(p.id)) {
             const session = this.session;
-            // Only the active hello receipt is replayable. Never re-execute wire
-            // requests, reset another session, or cache credential responses.
+            // A duplicate can only resend an exact receipt. It cannot execute
+            // work again or replace the active encrypted protocol session.
             if (direct && p.operation === 'hello' && !this.locked && session && !session.locked && session.port === direct.id &&
                 session.expiresAt > Date.now() && session.hello?.authorization === authorization && session.hello.keys === keys &&
                 session.hello.request === JSON.stringify(canonical(p))) {
@@ -240,6 +241,27 @@ export class NativeHost {
                 } catch (reason) {
                     this.diagnostic('Hello reply failed: ' + (reason instanceof Error ? reason.name : 'Error'));
                     this.onError(reason instanceof Error ? reason : new Error('The connection page is unavailable.'));
+                }
+            } else if (direct && p.operation === 'wire' && !this.locked && session && !session.locked && !session.busy &&
+                session.port === direct.id && session.scope === p.scope && session.document === p.document &&
+                session.origin === p.origin && session.expiresAt > Date.now()) {
+                if (session.wire.read(this.receiptBinding(p, direct.id, authorization, keys))) {
+                    session.busy = true;
+                    try {
+                        // The App prepares its cached response again, checking
+                        // current permissions and entry/session lifetime before publication.
+                        const body = await session.bridge.replay(p.body, Math.min(p.deadline, session.expiresAt));
+                        if (this.session === session && !session.locked && !this.locked && this.live &&
+                            authorization === this.authorization && this.keys === keys && this.selectedDirect() && Date.now() < p.deadline) {
+                            await reply(signed({ ...p, type: 'reply', body }, keys));
+                            this.diagnostic('Revalidated encrypted protocol receipt posted');
+                        }
+                    } catch (error) {
+                        if (this.session === session && authorization === this.authorization && this.live && this.keys === keys &&
+                            this.selectedDirect() && Date.now() < p.deadline) {
+                            await reply(signed({ ...p, type: 'reply', body: undefined, error: error instanceof Error ? error.message : 'The App receipt could not be checked. Find accounts again.' }, keys));
+                        }
+                    } finally { session.busy = false; }
                 }
             }
             return;
@@ -253,9 +275,9 @@ export class NativeHost {
             if (p.operation === 'hello') {
                 if (session?.busy) throw new Error('Another website request is finishing. Retry.');
                 session?.bridge.dispose();
-                session = { document: p.document, origin: p.origin, scope: uuid(), expiresAt: Date.now() + SESSION_TTL, bridge: new AppBridge(location.origin, p.origin), locked: false, busy: false, port: direct?.id };
+                session = { document: p.document, origin: p.origin, scope: uuid(), expiresAt: Date.now() + SESSION_TTL, bridge: new AppBridge(location.origin, p.origin), locked: false, busy: false, port: direct?.id, wire: new ReplyReceipt<true>() };
                 const current = session;
-                session.bridge.onLocked = () => { current.locked = true; current.hello = undefined; };
+                session.bridge.onLocked = () => { current.locked = true; current.hello = undefined; current.wire.clear(); };
                 this.session = session;
                 body = { scope: session.scope, appBoot: this.host, expiresAt: session.expiresAt };
             } else {
@@ -266,6 +288,7 @@ export class NativeHost {
                     if (session.locked) throw new Error('KeeWebX is locked. Unlock that app tab, then retry.');
                     if (session.busy) throw new Error('A request is already running. Retry.');
                     session.busy = true;
+                    this.diagnostic('Encrypted protocol request received');
                     try { body = await session.bridge.request(p.body, Math.min(p.deadline, session.expiresAt)); }
                     finally { session.busy = false; }
                 }
@@ -278,7 +301,11 @@ export class NativeHost {
                 if (direct && p.operation === 'hello' && !error && this.session?.port === direct.id) {
                     this.session.hello = { request: JSON.stringify(canonical(p)), reply: response, authorization, keys };
                 }
+                if (direct && p.operation === 'wire' && this.session?.port === direct.id && this.session.scope === p.scope) {
+                    this.session.wire.remember(this.receiptBinding(p, direct.id, authorization, keys), true);
+                }
                 await reply(response);
+                if (direct && p.operation === 'wire') this.diagnostic(error ? 'Encrypted protocol error reply posted' : 'Encrypted protocol reply posted');
                 if (direct && p.operation === 'hello') this.diagnostic(error ? 'Signed hello error reply posted' : 'Signed hello reply posted');
             }
             catch (reason) {
@@ -288,6 +315,9 @@ export class NativeHost {
         } else if (direct && p.operation === 'hello') {
             this.diagnostic('Hello reply suppressed: grant changed or request expired');
         }
+    }
+    private receiptBinding(request: Packet, port: string, authorization: number, keys: Keys): ReceiptBinding {
+        return { request: JSON.stringify(canonical(request)), port, authorization, key: keys, deadline: request.deadline };
     }
 }
 
@@ -488,15 +518,15 @@ export class NativeRpc {
                 this.pending.get(p.id)?.stop?.();
                 this.pending.delete(p.id);
                 this.direct?.reset('The KeeWebX port timed out. Reconnect to the original App.');
-                reject(new Error('Visit your existing KeeWebX tab, unlock if needed, then retry. No new page is needed.'));
+                reject(new Error('The KeeWebX request timed out. Try Find accounts again.'));
             }, Math.max(1, p.deadline - Date.now()));
             this.pending.set(p.id, { packet: p, resolve, reject, timer });
             try {
                 if (this.direct) {
                     const envelope = signed(p, keys), port = this.direct, generation = port.generation;
-                    if (operation === 'hello') {
-                        // One idempotent handshake receipt may be retried on this
-                        // port. No helper is reopened and no credential RPC repeats.
+                    if (operation === 'hello' || operation === 'wire' && route.wireReceipt === 1) {
+                        // Repeat only the identical signed envelope. A capable
+                        // receiver resends its receipt without re-executing work.
                         const retry = setInterval(() => {
                             if (!this.pending.has(p.id) || Date.now() >= p.deadline) { clearInterval(retry); return; }
                             try { this.assertCurrent(); port.assert(generation); port.send(envelope); }

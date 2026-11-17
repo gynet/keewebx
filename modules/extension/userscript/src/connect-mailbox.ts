@@ -28,12 +28,14 @@ export class ConnectMailbox {
     private generation = 0;
     private requestCursor = '';
     private cleanupCursor = '';
+    private pollIdle = true;
     private timer?: ReturnType<typeof setTimeout>;
     private unwatch?: () => void;
     constructor(private host: string, private deliver: (value: any, reply: (value: any) => Promise<void>) => Promise<void>, private failed: (error: Error) => void) {}
     get available(): boolean { return typeof GM.listValues === 'function'; }
-    start(): void {
+    start(pollIdle = true): void {
         if (this.live || !this.available) return;
+        this.pollIdle = pollIdle;
         this.live = true; this.generation++;
         this.unwatch = watchManagerStorage([`${ROOT}request:${this.host}:`], this.wake, true);
         addEventListener('focus', this.wake); addEventListener('pageshow', this.wake); addEventListener('visibilitychange', this.wake);
@@ -46,6 +48,7 @@ export class ConnectMailbox {
     private wake = () => { if (this.live && !this.busy) { clearTimeout(this.timer); void this.read(); } };
     private async read(): Promise<void> {
         this.busy = true;
+        let pendingRequests = false;
         const generation = this.generation, current = () => this.live && generation === this.generation;
         try {
             const names = await bounded(() => GM.listValues!());
@@ -59,6 +62,7 @@ export class ConnectMailbox {
                 if (!current()) return;
                 if (!p || !Number.isFinite(p.deadline) || p.deadline <= Date.now() || p.deadline > Date.now() + 66000) { discard(name); continue; }
                 if (name !== key('request', this.host, p.id) || p.host !== this.host) continue;
+                pendingRequests = true;
                 discard(name);
                 // Admission, signatures, replay and session checks stay in NativeHost.
                 void this.deliver(value, reply => write(key('reply', this.host, p.id), reply, current)).catch(error => {
@@ -75,7 +79,12 @@ export class ConnectMailbox {
                 if (!Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 66000) discard(name);
             }
         } catch (error) { if (current()) this.failed(error instanceof Error ? error : new Error('Userscripts storage is unavailable.')); }
-        finally { if (current()) { this.busy = false; this.timer = setTimeout(this.wake, 150); } }
+        finally {
+            if (current()) {
+                this.busy = false;
+                if (this.pollIdle || pendingRequests) this.timer = setTimeout(this.wake, 150);
+            }
+        }
     }
 }
 
