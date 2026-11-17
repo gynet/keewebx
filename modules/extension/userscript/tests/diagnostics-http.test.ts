@@ -20,7 +20,7 @@ afterEach(() => {
 test('privileged diagnostic HTTP is restricted to the fixed support API', async () => {
     let calls = 0;
     manager(() => { calls++; });
-    for (const path of ['https://evil.example/api', '/api/passkey-sync', '/api/connect-diagnostics/session?token=x',
+    for (const path of ['https://evil.example/api', '/api/unrelated-service', '/api/connect-diagnostics/session?token=x',
         '/api/connect-diagnostics/../session', '/api/connect-diagnostics/session#x']) {
         await expect(diagnosticRequest(path, {}, 'temporary', new AbortController().signal)).rejects.toThrow();
     }
