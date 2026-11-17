@@ -1757,6 +1757,19 @@ acceptance: try {
             await first.close(); first = await newWebsite(ACCOUNTS[0]);
             await foreground.close();
             const before = helpers.size;
+            const disclosure = '.kwx-connect__local-log summary';
+            const checkbox = '.kwx-connect__local-log input[type=checkbox]';
+            const copy = '.kwx-connect__local-log button';
+            const output = '.kwx-connect__log-text';
+            if (await shadowValue(app, 'section', 'hidden')) await action(app, 'toggle');
+            await config(first);
+            for (const page of [app, first]) {
+                await shadowClick(page, disclosure);
+                expect(await shadowValue(page, checkbox, 'checked')).toBe(false);
+                expect(await shadowValue(page, copy)).toBeNull();
+                await shadowClick(page, checkbox);
+                await expect.poll(() => shadowValue(page, checkbox, 'checked')).toBe(true);
+            }
             await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true; __kwxPortAdapter.dropMailboxNotifications = true');
             await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
             await noHelpers(); expect(helpers.size).toBe(before + 1);
@@ -1809,8 +1822,23 @@ acceptance: try {
             for (const secret of [DB_PASSWORD, ...ACCOUNTS.flatMap(item => [item.user, item.password])]) {
                 expect(JSON.stringify(stored)).not.toContain(secret);
             }
+            for (const [page, event] of [[first, 'mailbox-start'], [app, 'mailbox-signal-read']]) {
+                if (page === first) await config(first);
+                if (await shadowValue(page, 'section', 'hidden')) await action(page, 'toggle');
+                await shadowClick(page, copy);
+                await expect.poll(() => shadowValue(page, output, 'value')).toContain(event);
+                const log = await shadowValue(page, output, 'value');
+                expect(log.split('\n').length).toBeLessThanOrEqual(122);
+                expect(log).not.toMatch(/https?:\/\//);
+                for (const secret of [DB_PASSWORD, ...ACCOUNTS.flatMap(item => [item.title, item.user, item.password])]) {
+                    expect(log).not.toContain(secret);
+                }
+                await shadowClick(page, checkbox);
+                await expect.poll(() => shadowValue(page, output, 'value')).toBeNull();
+            }
+            expect([...assetRequests.keys()].some(path => path.includes('connect-diagnostics'))).toBe(false);
             return { fallbackFilled: true, mailboxNotificationsSuppressed: true, canceledFillIgnored: true, retryArrivedDuringStaleScan: true,
-                lockedVaultDenied: true, reusedOriginalApp: true };
+                lockedVaultDenied: true, reusedOriginalApp: true, sanitizedLocalLogsCopied: true };
         });
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'mailbox-recovery'; break acceptance;
     }

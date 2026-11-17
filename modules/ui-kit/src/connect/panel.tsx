@@ -26,6 +26,7 @@ export function ConnectPanel({
     panelStyle,
     panelRef,
     launcherRef,
+    connectionExtra,
     ...callbacks
 }: ConnectPanelProps) {
     const accountsActive = state.mode === 'website' && state.tab === 'accounts';
@@ -115,6 +116,7 @@ export function ConnectPanel({
                         onAddressInput={callbacks.onAddressInput}
                         onAutoFillSingleChange={callbacks.onAutoFillSingleChange}
                     />
+                    {connectionExtra}
                 </section>
                 <footer class="kwx-connect__version" data-role="version">{state.version}</footer>
             </section>

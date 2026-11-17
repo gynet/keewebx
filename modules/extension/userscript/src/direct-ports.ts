@@ -78,6 +78,7 @@ export class SitePortLink {
             if (data.kind === 'error') {
                 const message = typeof data.message === 'string' ? data.message : 'The original App could not receive the connection.';
                 const discoveryTimeout = data.code === 'app-timeout' && data.nonce === this.nonce && data.connectionId === this.id;
+                if (discoveryTimeout) recordPortEvent('discovery-timeout', data);
                 this.reset(discoveryTimeout ? new AppDiscoveryTimeoutError(message) : message);
                 return;
             }

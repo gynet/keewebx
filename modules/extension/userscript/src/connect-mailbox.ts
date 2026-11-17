@@ -1,4 +1,5 @@
 import { watchManagerStorage } from './manager-events';
+import { transportEvent } from './transport-events';
 
 declare const GM: { getValue(key: string): Promise<any>; setValue(key: string, value: any): Promise<void>; deleteValue(key: string): Promise<void>; listValues?(): Promise<string[]> };
 const ROOT = 'keewebx-connect-mailbox-v1:';
@@ -23,7 +24,10 @@ function signal(value: any): void {
     if (deadline <= Date.now()) return;
     // A single local hint lets the App recover a missed storage notification.
     // The signed mailbox request still controls every operation.
-    void bounded(() => GM.setValue(WAKE_KEY, { host, id, deadline })).catch(() => {});
+    void bounded(() => GM.setValue(WAKE_KEY, { host, id, deadline })).then(
+        () => transportEvent({ event: 'mailbox-signal', traceId: id }),
+        () => transportEvent({ event: 'mailbox-signal', traceId: id, reason: 'unavailable' })
+    );
 }
 function batch(names: string[], after: string, limit: number): string[] {
     names.sort();
@@ -50,7 +54,10 @@ export class ConnectMailbox {
         if (this.live || !this.available) return;
         this.pollIdle = pollIdle;
         this.live = true; this.generation++;
-        this.unwatch = watchManagerStorage([`${ROOT}request:${this.host}:`], this.wake, true);
+        this.unwatch = watchManagerStorage([`${ROOT}request:${this.host}:`], () => {
+            transportEvent({ event: 'mailbox-notified' });
+            this.wake();
+        }, true);
         addEventListener('focus', this.wake); addEventListener('pageshow', this.wake); addEventListener('visibilitychange', this.wake);
         this.wake();
         if (checkMissedEvents) this.scheduleWakeCheck(this.generation);
@@ -69,9 +76,10 @@ export class ConnectMailbox {
                 if (current() && hint?.host === this.host && typeof hint.id === 'string' && hint.id !== this.lastSignal &&
                     Number.isFinite(hint.deadline) && hint.deadline > Date.now()) {
                     this.lastSignal = hint.id;
+                    transportEvent({ event: 'mailbox-signal-read', traceId: hint.id });
                     this.wake();
                 }
-            } catch { /* Keep the event-driven path available if a manager read fails. */ }
+            } catch { if (current()) transportEvent({ event: 'mailbox-read-failed', reason: 'unavailable' }); }
             finally { if (current()) this.scheduleWakeCheck(generation); }
         }, WAKE_CHECK_MS);
     }
@@ -100,7 +108,11 @@ export class ConnectMailbox {
                 pendingRequests = true;
                 discard(name);
                 // Admission, signatures, replay and session checks stay in NativeHost.
-                void this.deliver(value, reply => write(key('reply', this.host, p.id), reply, current)).catch(error => {
+                transportEvent({ event: 'mailbox-request', traceId: p.id });
+                void this.deliver(value, async reply => {
+                    await write(key('reply', this.host, p.id), reply, current);
+                    if (current()) transportEvent({ event: 'mailbox-reply', traceId: p.id });
+                }).catch(error => {
                     if (current()) this.failed(error instanceof Error ? error : new Error('Connect request failed.'));
                 });
             }
@@ -113,7 +125,10 @@ export class ConnectMailbox {
                 if (!current()) return;
                 if (!Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 66000) discard(name);
             }
-        } catch (error) { if (current()) this.failed(error instanceof Error ? error : new Error('Userscripts storage is unavailable.')); }
+        } catch (error) { if (current()) {
+            transportEvent({ event: 'mailbox-read-failed', reason: 'unavailable' });
+            this.failed(error instanceof Error ? error : new Error('Userscripts storage is unavailable.'));
+        } }
         finally {
             if (current()) {
                 this.busy = false;

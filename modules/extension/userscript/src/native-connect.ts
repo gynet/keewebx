@@ -537,6 +537,7 @@ export class NativeRpc {
         if (!this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
         if (useMailbox) {
+            transportEvent({ event: 'mailbox-start' });
             this.progress('Trying the encrypted local connection to the original KeeWebX App');
             const selected = await approvedRoute(this.endpoint); this.assertCurrent();
             if (!selected?.mailbox || selected.host !== this.route.host || selected.publicKey !== this.route.publicKey ||

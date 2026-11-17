@@ -1,4 +1,4 @@
-import type { JSX } from 'preact';
+import type { ComponentChildren, JSX } from 'preact';
 
 export type ConnectMode = 'website' | 'app' | 'relay';
 export type ConnectTab = 'accounts' | 'config';
@@ -55,4 +55,5 @@ export interface ConnectPanelProps {
     onPanelKeyDown(event: KeyboardEvent): void;
     panelRef?(element: HTMLElement | null): void;
     launcherRef?(element: HTMLButtonElement | null): void;
+    connectionExtra?: ComponentChildren;
 }

@@ -105,6 +105,9 @@ export const connectStyles = `
 .kwx-connect .kwx-connect__checkbox { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; accent-color: var(--kwx-connect-accent); }
 .kwx-connect .kwx-connect__checkbox:disabled { cursor: default; }
 .kwx-connect .kwx-connect__preference-hint { margin: 4px 0 0 28px; }
+.kwx-connect .kwx-connect__local-log { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--kwx-connect-line); }
+.kwx-connect .kwx-connect__local-log summary { cursor: pointer; padding: 10px 0; }
+.kwx-connect .kwx-connect__log-text { width: 100%; margin-top: 8px; padding: 8px; color: var(--kwx-connect-ink); background: var(--kwx-connect-soft); border: 1px solid var(--kwx-connect-line); border-radius: 8px; font: 16px monospace; }
 .kwx-connect .kwx-connect__error { margin: 8px 0; color: var(--kwx-connect-danger); font-size: 12px; overflow-wrap: anywhere; }
 .kwx-connect .kwx-connect__version { margin-top: 12px; color: var(--kwx-connect-muted); font-size: 11px; text-align: end; overflow-wrap: anywhere; }
 .kwx-connect .kwx-connect__toggle { width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 14px; background: var(--kwx-connect-accent); color: var(--kwx-connect-on-accent); box-shadow: 0 4px 14px #1769e033; }

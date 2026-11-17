@@ -35,6 +35,7 @@ async function start(): Promise<void> {
     const ui = new ConnectUI(app ? 'app' : 'website', endpoint.href);
     if (app) {
         const host = new NativeHost(endpoint, error => ui.state(State.Error, message(error)));
+        ui.connectionSnapshot = () => host.diagnostics();
         const bridge = new AppBridge();
         let generation = 0, authorizing = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
         let appUnlocked: boolean | undefined;

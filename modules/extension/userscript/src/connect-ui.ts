@@ -4,6 +4,9 @@ import type { ActionState, ConnectAction, ConnectMode, ConnectTab, ConnectViewSt
 import type { BackendConnectionState } from '../../src/common/backend-connection-state';
 import { CONNECT_VERSION } from './version';
 import { ConnectLauncherDrag } from './connect-drag';
+import { LocalConnectLog } from './local-connect-log';
+import { transportEvent } from './transport-events';
+import type { DiagnosticData } from '../../../diagnostics/src';
 
 type ActionHandler = (event: MouseEvent) => void;
 
@@ -37,6 +40,7 @@ export class ConnectUI {
     onConfig = () => {};
     onOpen = (_event: MouseEvent) => {};
     onAutoFillSingleChange = (_enabled: boolean) => {};
+    connectionSnapshot: () => DiagnosticData = () => ({});
 
     constructor(readonly mode: ConnectMode, endpoint: string) {
         this.host.id = 'keewebx-userscript-connect';
@@ -91,6 +95,7 @@ export class ConnectUI {
     hide(): void { this.update({ open: false }); this.onClose(); }
     pairing(origin?: string): void { this.update({ pairingOrigin: origin }); if (origin !== undefined) this.show('config'); }
     state(status: BackendConnectionState, message: string): void {
+        if (status !== this.view.status) transportEvent({ state: status });
         this.update({ status, message });
     }
     busy(busy: boolean): void {
@@ -119,6 +124,9 @@ export class ConnectUI {
         } } : this.view;
         render(h(Fragment, null, h('style', null, connectStyles), h(ConnectPanel, {
             state, panelStyle: this.panelStyle, panelRef: this.panelRef, launcherRef: this.appDrag?.ref,
+            connectionExtra: this.mode === 'relay' ? undefined : h(LocalConnectLog, {
+                mode: this.mode, snapshot: this.readLogSnapshot
+            }),
             onAction: (action, event) => { if (event.isTrusted && !this.isDisabled(action)) {
                 this.actions.get(action)?.(event);
             } },
@@ -136,6 +144,7 @@ export class ConnectUI {
             onPanelKeyDown: event => { if (event.isTrusted && event.key === 'Escape') { event.stopPropagation(); this.hide(); } }
         })), this.shadow);
     }
+    private readonly readLogSnapshot = () => ({ ...this.connectionSnapshot(), state: this.view.status });
     private panelRef = (element: HTMLElement | null): void => { this.panel = element ?? undefined; };
 
     private place(): void {
