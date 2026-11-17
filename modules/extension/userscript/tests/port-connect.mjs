@@ -237,9 +237,10 @@ async function newWebsite(account) {
 }
 async function startLookup(page) {
     await page.bringToFront();
-    await page.locator('#username').click();
-    if (await shadowValue(page, 'section', 'hidden')) await action(page, 'toggle');
-    else { await action(page, 'accounts-tab'); await action(page, 'lookup'); }
+    if (await shadowValue(page, 'section', 'hidden')) {
+        await page.locator('#username').click();
+        await action(page, 'toggle');
+    } else { await action(page, 'accounts-tab'); await action(page, 'lookup'); }
 }
 async function bounded(label, run) {
     const deadline = Date.now() + OPERATION_BUDGET;

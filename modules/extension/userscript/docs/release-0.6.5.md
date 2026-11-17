@@ -49,7 +49,7 @@ zero helpers, account requests and field requests.
 | Existing fill-destination browser guards | 14 passed |
 | Shared Preact components in ordinary DOM and Shadow DOM, Chromium and WebKit | 192 passed |
 | Chromium isolated-world real-KDBX E2E, with App GM reads and remote helper close blocked | 26 passed |
-| WebKit isolated-world real-KDBX E2E, with remote helper close blocked | 14 passed |
+| WebKit isolated-world real-KDBX E2E, with remote helper close blocked | 15 passed |
 | New website UI with exact existing 0.6.4 App userscript | 26 passed |
 | Userscript typecheck, package boundaries and App build | Passed |
 
@@ -68,3 +68,16 @@ Userscripts execution. Device acceptance remains separate from desktop WebKit.
 
 Bun produces a self-contained installer with Preact's MIT notice. The published
 installer and actual production assets are verified separately during release.
+
+## CI driver follow-up
+
+A WebKit CI run exposed an invalid driver assumption: its repeated-lookup helper
+always clicked the underlying username field even when the settings panel covered
+that field. A controlled 480-pixel viewport reproduced the same 30-second lookup
+failure before any new account request was sent.
+
+Both browser drivers now use Accounts and Find accounts when the panel is open;
+only a closed panel requires a field click followed by the key. An explicit
+occlusion case verifies that a covered field does not prevent lookup and selected
+fill through the visible panel controls. All 15 WebKit cases pass with that
+regression included. The product installer is unchanged by this test follow-up.

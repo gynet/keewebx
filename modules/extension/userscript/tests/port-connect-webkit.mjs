@@ -41,6 +41,7 @@ const CASES = [
     'authorize original App once with encrypted KDBX and native consent',
     'worker handoff self-closes site A helper while hello is held; a cached retry survives a lost first reply',
     'site B fills and repeated Test connection reuses both physical ports to the same App',
+    'an open settings panel overlapping login fields can start lookup through its visible controls',
     'after three successful fills, inner and outer reply loss recovers with one logical request per operation',
     'lost first list and detail requests resend the same signed packet with one logical App request',
     '24 alternating lookup and fill cycles recover periodic losses and UI cancellation on both physical ports',
@@ -131,9 +132,10 @@ async function clearFields(page) {
 }
 async function startLookup(page) {
     await page.bringToFront();
-    await page.locator('#username').click();
-    if (await shadow(page, 'section', 'hidden')) await action(page, 'toggle');
-    else { await action(page, 'accounts-tab'); await action(page, 'lookup'); }
+    if (await shadow(page, 'section', 'hidden')) {
+        await page.locator('#username').click();
+        await action(page, 'toggle');
+    } else { await action(page, 'accounts-tab'); await action(page, 'lookup'); }
 }
 async function bounded(label, run) {
     const deadline = Date.now() + OPERATION_BUDGET;
@@ -1063,6 +1065,27 @@ try {
         report.repeatedConnectionTests = { checks: 4, persistentPhysicalPorts: 2, idleHelpers: 0 };
     });
     await step(CASES[3], async () => {
+        const originalViewport = first.viewportSize();
+        try {
+            await first.bringToFront();
+            await first.setViewportSize({ width: 1280, height: 480 });
+            await preferenceSettings(first);
+            await clearFields(first);
+            const overlay = await panelLayout(first), field = await first.locator('#username').boundingBox();
+            expect(field).not.toBeNull();
+            const covered = field.x + field.width / 2 >= overlay.panel.x
+                && field.x + field.width / 2 <= overlay.panel.x + overlay.panel.width
+                && field.y + field.height / 2 >= overlay.panel.y
+                && field.y + field.height / 2 <= overlay.panel.y + overlay.panel.height;
+            expect(covered, 'The regression must start with an actually covered input').toBe(true);
+            const reads = await fieldReads();
+            await lookup(first, ACCOUNTS[0]);
+            expect(await fieldReads()).toBe(reads);
+            await fill(first, ACCOUNTS[0]);
+            return { inputCoveredBySettings: true, nativePanelActions: true, originalAppReused: true };
+        } finally { await first.setViewportSize(originalViewport); }
+    });
+    await step(CASES[4], async () => {
         for (let index = 0; index < 3; index++) {
             await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
         }
@@ -1071,13 +1094,13 @@ try {
             recoveries.push(await recoverOperation(first, ACCOUNTS[0], 'reply', wireAction));
         return { warmupFills: 3, innerRecovery, recoveries };
     });
-    await step(CASES[4], async () => {
+    await step(CASES[5], async () => {
         const recoveries = [];
         for (const wireAction of ['kwx-get-entries', 'kwx-get-entry-fields'])
             recoveries.push(await recoverOperation(first, ACCOUNTS[0], 'request', wireAction));
         return { recoveries };
     });
-    await step(CASES[5], async () => {
+    await step(CASES[6], async () => {
         const count = helpers.size, ports = [await physicalPort(first), await physicalPort(second)], reads = await fieldReads();
         let canceledRecoveries = 0;
         for (let index = 0; index < 24; index++) {
@@ -1094,23 +1117,23 @@ try {
         return { alternatingFills: 24, periodicDrops: 20, canceledRecoveries, logicalFieldRequests: 24 + canceledRecoveries,
             persistentPhysicalPorts: 2, idleHelpers: 0, aggregateLookupOrFillBudget: OPERATION_BUDGET };
     });
-    await step(CASES[6], () => cancelWithToggle(first, ACCOUNTS[0], 'lookup'));
-    await step(CASES[7], () => cancelWithToggle(first, ACCOUNTS[0], 'fill'));
-    await step(CASES[8], async () => {
+    await step(CASES[7], () => cancelWithToggle(first, ACCOUNTS[0], 'lookup'));
+    await step(CASES[8], () => cancelWithToggle(first, ACCOUNTS[0], 'fill'));
+    await step(CASES[9], async () => {
         await first.reload(); await ready(first); expect(helpers.size).toBe(2);
         await lookup(first, ACCOUNTS[0]); await closedHelper(first, 2); await fill(first, ACCOUNTS[0]);
         report.siteAReload = await physicalPort(first);
         expect(report.siteAReload.boot).not.toBe(report.siteA.boot); expect(report.siteAReload.connection).not.toBe(report.siteA.connection);
         expect(await physicalPort(second)).toEqual(report.siteB);
     });
-    await step(CASES[9], openerFallback);
+    await step(CASES[10], openerFallback);
     const beforePreferences = helpers.size;
-    await step(CASES[10], testLauncherVisibility);
-    await step(CASES[11], testSinglePreference);
-    await step(CASES[12], testChoicePreference);
+    await step(CASES[11], testLauncherVisibility);
+    await step(CASES[12], testSinglePreference);
+    await step(CASES[13], testChoicePreference);
     preferenceHelperCount = helpers.size - beforePreferences;
     expect(preferenceHelperCount).toBe(3);
-    await step(CASES[13], async () => {
+    await step(CASES[14], async () => {
         await noHelpers(); await first.close(); await second.close(); first = second = undefined;
         expect(context.pages()).toEqual([app]); await sameApp();
         const before = helpers.size;
