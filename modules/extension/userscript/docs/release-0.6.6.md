@@ -39,6 +39,18 @@ probe cannot cancel a later healthy one, and the website's credential transport
 port transfers once. Receiver selection, signed ready receipts and the encrypted
 protocol still gate access.
 
+The hosted worker follow-up retains the same pending connection for one more
+discovery round when the first round times out. Total discovery remains bounded
+to 16 seconds, within the existing website operation deadline. Explicit disabled
+or address-mismatch replies fail immediately. A selected App that resumes after
+the initial eight seconds can answer the new round without another helper or
+App tab. This server asset update also works with the installed 0.6.6 script.
+
+A real-KDBX browser regression holds App replies for 10.5 seconds. The previous
+worker fails; the follow-up completes the lookup and fill with the same helper,
+one port transfer and the original App. All 29 Chromium acceptance steps and 27
+worker unit cases pass with that recovery included.
+
 The browser regression enables a virtual PRF passkey, locks and unlocks the real
 encrypted fixture database, and reconnects to the original App. A separate
 injected lost-discovery-reply case reproduces the reported timeout and verifies

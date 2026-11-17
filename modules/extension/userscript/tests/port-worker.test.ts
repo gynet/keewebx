@@ -27,7 +27,7 @@ class FakeWindowClient {
     id = crypto.randomUUID();
     posts: { data: any; ports: FakePort[] }[] = [];
     onPost?: (data: any, ports: FakePort[]) => void;
-    constructor(readonly url: string, readonly frameType = 'top-level') {}
+    constructor(public url: string, readonly frameType = 'top-level') {}
     postMessage(data: any, ports: FakePort[] = []) {
         this.posts.push({ data: structuredClone(data), ports });
         this.onPost?.(data, ports);
@@ -50,6 +50,11 @@ function fixture(withSilentApp = false) {
     const timers = new Map<number, { callback: () => void; due: number }>();
     const channels: { port1: FakePort; port2: FakePort }[] = [];
     const listeners = new Map<string, (event: any) => void>();
+    const queries = { get: [] as string[], matchAll: 0 };
+    const browserClients = {
+        async get(id: string) { queries.get.push(id); return clients.get(id); },
+        async matchAll() { queries.matchAll++; return [...clients.values()]; }
+    };
     let nextTimer = 0, now = Date.now(), settled = false, work: Promise<void> | undefined;
 
     runInNewContext(source, {
@@ -68,14 +73,14 @@ function fixture(withSilentApp = false) {
         self: {
             location: new URL('https://keewebx.app/connect-port/worker.js'),
             addEventListener(name: string, listener: (event: any) => void) { listeners.set(name, listener); },
-            clients: { async get(id: string) { return clients.get(id); }, async matchAll() { return [...clients.values()]; } }
+            clients: browserClients
         }
     }, { filename: 'connect-port/worker.js' });
 
     listeners.get('message')!({ data, source: relay, ports: [website], waitUntil(promise: Promise<void>) {
         work = promise; void promise.then(() => { settled = true; }, () => { settled = true; });
     } });
-    return { data, relay, app, silent, website, timers, channels, time: () => now, settled: () => settled, work: () => work!,
+    return { data, relay, app, silent, website, timers, channels, clients, queries, browserClients, time: () => now, settled: () => settled, work: () => work!,
         control(value: unknown, from = app) { listeners.get('message')!({ data: value, source: from, ports: [] }); },
         async tick(ms: number) {
             const until = now + ms;
@@ -186,14 +191,134 @@ test('a lost discovery reply retries on a fresh channel and hands off the websit
     expect(f.timers.size).toBe(0);
 });
 
-test('discovery retries remain bounded by the original deadline and close every temporary port', async () => {
-    const f = fixture(); await flush(); await f.tick(8000);
+test.each([10000, 12000])('an App resumed at %i ms reuses the original attachment despite an unrelated refreshed tab', async resumeMs => {
+    const f = fixture(true), pending: { request: any; port: FakePort }[] = [];
+    f.app.onPost = (request, ports) => {
+        if (request.kind === 'find-app') pending.push({ request, port: ports[0] });
+    };
+    f.silent.onPost = (request, ports) => {
+        if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-state', appBoot: f.silent.id, endpoint, state: 'enabled' });
+    };
+    await flush(); await f.tick(8000);
+    expect(f.settled()).toBe(false);
+    expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
+    expect(f.queries.matchAll).toBe(2);
+    expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(2);
+    await f.tick(resumeMs - 8000);
+    for (const { request, port } of pending) port.postMessage({ marker, kind: 'app-ready',
+        appBoot: request.appBoot, endpoint: request.endpoint, state: 'enabled', receiverVersion: CONNECT_VERSION });
+    await flush(); await f.work();
+    const handoffs = f.app.posts.filter(post => post.data.kind === 'attach-port');
+    expect(handoffs).toHaveLength(1);
+    expect(handoffs[0].ports).toEqual([f.website]);
+    expect(handoffs[0].data).toMatchObject({ appBoot: f.data.appBoot, connectionId: f.data.connectionId, endpoint });
+    expect(f.relay.posts).toHaveLength(1);
+    expect(f.relay.posts[0].data).toMatchObject({ kind: 'handoff-complete', nonce: f.data.nonce, connectionId: f.data.connectionId });
+    expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
+    expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+    expect(f.timers.size).toBe(0);
+    await f.tick(16000);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+});
+
+test.each(['disabled', 'address-mismatch'])('selected %s fails immediately even with a silent unrelated tab', async state => {
+    const f = fixture(true);
+    f.app.onPost = (request, ports) => {
+        if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-state', appBoot: request.appBoot, endpoint, state });
+    };
+    await flush();
     expect(f.settled()).toBe(true); await f.work();
+    expect(f.website.messages.at(-1).code).toBe(state === 'disabled' ? 'disabled' : 'address');
+    expect(f.queries.matchAll).toBe(1);
+    expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(1);
+    expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+    expect(f.timers.size).toBe(0);
+});
+
+test.each(['closed', 'navigated'])('the helper is revalidated before the recovery round (%s)', async change => {
+    const f = fixture(); await flush();
+    if (change === 'closed') f.clients.delete(f.relay.id);
+    else f.relay.url = 'https://keewebx.app/other-page';
+    await f.tick(8000); await f.work();
+    expect(f.website.messages.at(-1).code).toBe('invalid');
     expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
+    expect(f.queries.matchAll).toBe(1);
+    expect(f.timers.size).toBe(0);
+});
+
+test('recovery enumerates current App clients instead of probing a client that navigated away', async () => {
+    const f = fixture(); await flush();
+    f.app.url = 'https://keewebx.app/other-page';
+    const replacement = new FakeWindowClient(endpoint); f.clients.set(replacement.id, replacement);
+    replacement.onPost = (request, ports) => {
+        if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot, endpoint, state: 'enabled' });
+    };
+    await f.tick(8000); await f.work();
+    expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
+    expect(replacement.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+    expect(replacement.posts.at(-1)!.ports).toEqual([f.website]);
+    expect(f.website.messages).toEqual([]);
+    expect(f.timers.size).toBe(0);
+});
+
+test('discovery retries remain bounded by two eight-second rounds and close every temporary port', async () => {
+    const f = fixture(); await flush(); await f.tick(8000);
+    expect(f.settled()).toBe(false);
+    expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
+    await f.tick(7999); expect(f.settled()).toBe(false);
+    await f.tick(1);
+    expect(f.settled()).toBe(true); await f.work();
+    expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(8);
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
     expect(f.website.messages.at(-1)).toMatchObject({ kind: 'error', code: 'timeout' });
     expect(f.website.closed).toBe(true);
     expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+    expect(f.timers.size).toBe(0);
+});
+
+test('an unrelated refreshed App cannot replace the selected App timeout after both rounds', async () => {
+    const f = fixture(true);
+    f.silent.onPost = (request, ports) => {
+        if (request.kind === 'find-app') ports[0].postMessage({ marker, kind: 'app-state', appBoot: f.silent.id, endpoint, state: 'enabled' });
+    };
+    await flush(); await f.tick(16000); await f.work();
+    expect(f.website.messages.at(-1).code).toBe('timeout');
+    expect(f.queries.matchAll).toBe(2);
+    expect(f.timers.size).toBe(0);
+});
+
+test('a delayed browser lookup shortens round two to the remaining sixteen-second budget', async () => {
+    const f = fixture(); await flush();
+    const get = f.browserClients.get;
+    let resume!: () => void;
+    const waiting = new Promise<void>(resolve => { resume = resolve; });
+    f.browserClients.get = async id => { if (id === f.relay.id) await waiting; return get(id); };
+    await f.tick(8000);
+    expect(f.queries.matchAll).toBe(1);
+    await f.tick(6000); resume(); await flush();
+    expect(f.queries.matchAll).toBe(2);
+    expect(f.settled()).toBe(false);
+    await f.tick(1999); expect(f.settled()).toBe(false);
+    await f.tick(1); await f.work();
+    expect(f.website.messages.at(-1).code).toBe('timeout');
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
+    expect(f.timers.size).toBe(0);
+});
+
+test('a stalled recovery lookup cannot extend discovery or start late probes', async () => {
+    const f = fixture(); await flush();
+    const get = f.browserClients.get;
+    let resume!: () => void;
+    const waiting = new Promise<void>(resolve => { resume = resolve; });
+    f.browserClients.get = async id => { if (id === f.relay.id) await waiting; return get(id); };
+    await f.tick(15999); expect(f.settled()).toBe(false);
+    await f.tick(1); await f.work();
+    expect(f.website.messages.at(-1).code).toBe('timeout');
+    resume(); await flush();
+    expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
     expect(f.timers.size).toBe(0);
 });
 
@@ -234,7 +359,7 @@ test.each(['helper', 'subframe', 'foreign', 'expired', 'overlong', 'disabled'])
     f.control({ ...enable, ...(scenario === 'expired' ? { expiresAt: f.time() - 1 }
         : scenario === 'overlong' ? { expiresAt: f.time() + 3600001 } : {}) }, from);
     if (scenario === 'disabled') f.control({ ...enable, action: 'disable' });
-    await flush(); await f.tick(8000); await f.work();
+    await flush(); await f.tick(16000); await f.work();
     expect(diagnosticEvents(f)).toEqual([]);
     expect(f.website.messages.at(-1).code).toBe('timeout');
 });
@@ -242,7 +367,7 @@ test.each(['helper', 'subframe', 'foreign', 'expired', 'overlong', 'disabled'])
 test('worker diagnostic opt-in expires during discovery and cannot emit later stages', async () => {
     const f = fixture();
     f.control({ kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: Date.now() + 500 });
-    await flush(); await f.tick(8000); await f.work();
+    await flush(); await f.tick(16000); await f.work();
     expect(diagnosticEvents(f).map(event => event.data.event)).toEqual(['discovery']);
     expect(f.website.messages.at(-1).code).toBe('timeout');
 });
@@ -250,8 +375,9 @@ test('worker diagnostic opt-in expires during discovery and cannot emit later st
 test('an opted-in App receives discovery-timeout when every reply is lost', async () => {
     const f = fixture();
     f.control({ kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: Date.now() + 60000 });
-    await flush(); await f.tick(8000); await f.work();
+    await flush(); await f.tick(16000); await f.work();
     expect(diagnosticEvents(f).map(event => event.data.event)).toEqual([
+        'discovery', 'discovery', 'discovery', 'discovery', 'discovery-timeout',
         'discovery', 'discovery', 'discovery', 'discovery', 'discovery-timeout'
     ]);
 });
@@ -261,7 +387,7 @@ test('worker diagnostic grants are bounded to 32 clients', async () => {
     const enable = { kwDiagnostics: diagnosticMarker, kind: 'control', action: 'enable', expiresAt: f.time() + 60000 };
     f.control(enable);
     for (let index = 0; index < 32; index++) f.control(enable, new FakeWindowClient(endpoint));
-    await flush(); await f.tick(8000); await f.work();
+    await flush(); await f.tick(16000); await f.work();
     expect(diagnosticEvents(f)).toEqual([]);
     expect(f.website.messages.at(-1).code).toBe('timeout');
 });

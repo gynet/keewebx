@@ -6,6 +6,7 @@ const MAX_BYTES = 2048;
 const MAX_ACTIVE = 8;
 const MAX_CANDIDATES = 32;
 const PROBE_MS = 8000;
+const DISCOVERY_MS = 2 * PROBE_MS;
 const PROBE_RETRY_MS = 750;
 const MAX_PROBE_ATTEMPTS = 4;
 const DIAGNOSTICS_MARK = 'keewebx-connect-diagnostics-v1';
@@ -135,14 +136,14 @@ function diagnostic(client, event) {
         data: { layer: 'worker', event } }); } catch { /* Diagnostics cannot affect handoff. */ }
 }
 
-function probe(client, appBoot, endpoint) {
+function probe(client, appBoot, endpoint, timeout = PROBE_MS) {
     let cancel = () => {};
     const result = new Promise((resolve) => {
         const channels = [];
         let finished = false;
         let retry;
         let attempts = 0;
-        const timer = setTimeout(() => finish('timeout'), PROBE_MS);
+        const timer = setTimeout(() => finish('timeout'), timeout);
 
         function finish(state) {
             if (finished) return;
@@ -197,19 +198,38 @@ function probe(client, appBoot, endpoint) {
     return { result, cancel: () => cancel() };
 }
 
-async function discover(candidates, appBoot, endpoint) {
-    const probes = candidates.map((client) => probe(client, appBoot, endpoint));
+async function discover(candidates, appBoot, endpoint, timeout = PROBE_MS) {
+    const probes = candidates.map((client) => probe(client, appBoot, endpoint, timeout));
     let found;
     const selected = new Promise((resolve) => { found = resolve; });
     const all = Promise.all(probes.map((probe) => probe.result.then((result) => {
-        if (result.state === 'ready') found([result]);
+        if (['ready', 'disabled', 'address-mismatch'].includes(result.state)) found([result]);
         return result;
     })));
-    // Boot IDs identify one document. Do not wait for unrelated stale tabs.
+    // Boot IDs identify one document. Its explicit rejection is also final;
+    // do not wait for unrelated stale tabs or retry a disabled selected App.
     // The website still authenticates the chosen port before accepting it.
     const results = await Promise.race([selected, all]);
     for (const probe of probes) probe.cancel();
     return results;
+}
+
+async function recoveryClients(sourceId, data, endpoint, deadline) {
+    let timer;
+    try {
+        // Browser-owned lookups must also fit inside the discovery budget.
+        return await Promise.race([
+            (async () => {
+                const relay = await self.clients.get(sourceId);
+                if (!relay || !validRelay(relay, data)) return { invalid: true };
+                const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+                return { relay, candidates: clients.filter((client) => client.id !== relay.id && isApp(client, endpoint)).slice(0, MAX_CANDIDATES) };
+            })(),
+            new Promise((resolve) => { timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now())); })
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 async function attach(event) {
@@ -225,7 +245,7 @@ async function attach(event) {
     try {
         const data = event.data;
         // Re-read the browser-owned client so a navigated relay cannot authorize a handoff.
-        const relay = await self.clients.get(event.source.id);
+        let relay = await self.clients.get(event.source.id);
         if (!relay || !validRelay(relay, data)) {
             fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
             return;
@@ -237,14 +257,35 @@ async function attach(event) {
             fail(event, 'noapp', 'No KeeWebX app tab was found. Keep your original app open in the same browser profile and browsing mode, then retry.');
             return;
         }
-        const probes = await discover(candidates, data.appBoot, data.endpoint);
+        const discoveryDeadline = Date.now() + DISCOVERY_MS;
+        let probes = await discover(candidates, data.appBoot, data.endpoint);
+        if (!probes.some((result) => ['ready', 'disabled', 'address-mismatch'].includes(result.state)) &&
+            probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
+            // iOS can queue every probe until the App resumes after round one.
+            // Keep the website endpoint here; only public probes get new ports.
+            const refreshed = await recoveryClients(event.source.id, data, endpoint, discoveryDeadline);
+            if (refreshed?.invalid) {
+                fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
+                return;
+            }
+            if (refreshed) {
+                relay = refreshed.relay;
+                if (!refreshed.candidates.length) {
+                    fail(event, 'noapp', 'No KeeWebX app tab was found. Keep your original app open in the same browser profile and browsing mode, then retry.');
+                    return;
+                }
+                const remaining = Math.min(PROBE_MS, discoveryDeadline - Date.now());
+                if (remaining > 0) probes = await discover(refreshed.candidates, data.appBoot, data.endpoint, remaining);
+            }
+        }
         const matches = probes.filter((result) => result.state === 'ready');
         if (!matches.length) {
             if (probes.some((result) => result.state === 'address-mismatch')) {
                 fail(event, 'address', 'The App and website have different saved KeeWebX addresses. Save the same App address, then refresh both Connect scripts.');
             } else if (probes.some((result) => result.state === 'disabled')) {
                 fail(event, 'disabled', 'Connect is disabled in the selected KeeWebX tab. Enable Connect there, then retry from the website.');
-            } else if (probes.some((result) => result.state === 'refreshed')) {
+            } else if (probes.some((result) => result.state === 'refreshed') &&
+                !probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
                 fail(event, 'refreshed', 'The KeeWebX app was refreshed or the selected tab changed. Select it again for Connect, then retry from the website.');
             } else if (probes.some((result) => result.state === 'timeout')) {
                 fail(event, 'timeout', 'The App receiver did not acknowledge discovery. Open Connection diagnostics in the App Connect panel and check the last discovery result.');

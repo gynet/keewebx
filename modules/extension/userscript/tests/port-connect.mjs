@@ -1035,6 +1035,16 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
             state.dropDiscoveryReplies--; state.droppedDiscoveryReplies = (state.droppedDiscoveryReplies || 0) + 1;
             record(this, 'dropped', data); return;
         }
+        if (isApp && ['app-ready', 'app-state'].includes(data.kind) && state.holdDiscoveryUntil > Date.now()) {
+            const port = this;
+            state.delayedDiscoveryReplies = (state.delayedDiscoveryReplies || 0) + 1;
+            record(port, 'delayed', data);
+            setTimeout(() => {
+                record(port, 'sent', data);
+                nativePost.call(port, data, ...rest);
+            }, state.holdDiscoveryUntil - Date.now());
+            return;
+        }
         if (!isApp && data.kind === 'request') lastRequest = { port: this, data };
         if (isApp && state.holdHello && data.kind === 'reply' && data.value?.packet?.operation === 'hello') {
             state.heldHello.push({ port: this, data, rest });
@@ -1080,7 +1090,8 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose }) {
         reads: state.reads, allowedReads: state.allowedReads, blockedReads: state.blockedReads,
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
         helperClose: __kwxHelperClose.snapshot(), heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
-        droppedDiscoveryReplies: state.droppedDiscoveryReplies || 0
+        droppedDiscoveryReplies: state.droppedDiscoveryReplies || 0,
+        delayedDiscoveryReplies: state.delayedDiscoveryReplies || 0
     });
     function mailbox(operation, key) {
         if (!String(key).startsWith('keewebx-connect-mailbox-v1:')) return;
@@ -1580,6 +1591,30 @@ try {
             expect(helpers.size).toBe(count);
             await sameApp(); await noHelpers();
         } finally { await adapter(app, '__kwxPortAdapter.suppressRestoration = false'); }
+    });
+    await step('an App replying after the first discovery deadline resumes the same helper and fills once', async () => {
+        const before = await snapshot(app), count = helpers.size;
+        const page = await newWebsite(ACCOUNTS[0]);
+        const started = Date.now();
+        await adapter(app, '__kwxPortAdapter.holdDiscoveryUntil = Date.now() + 10500');
+        try {
+            await lookup(page, ACCOUNTS[0]);
+            const elapsed = Date.now() - started;
+            expect(elapsed).toBeGreaterThanOrEqual(10000);
+            expect(elapsed).toBeLessThan(OPERATION_BUDGET);
+            await closedHelper(page, count); await fill(page, ACCOUNTS[0]);
+            const after = await snapshot(app), attempts = after.attachments.slice(before.attachments.length);
+            expect(after.delayedDiscoveryReplies).toBeGreaterThan(before.delayedDiscoveryReplies);
+            expect(attempts.filter(item => item.data.kind === 'find-app').length).toBeGreaterThanOrEqual(5);
+            expect(attempts.filter(item => item.data.kind === 'attach-port')).toHaveLength(1);
+            expect(helpers.size).toBe(count + 1);
+            await sameApp(); await noHelpers();
+            return { elapsedMs: elapsed, delayedReplyMs: 10500, sameTemporaryPage: true,
+                websitePortTransferredOnce: true, originalAppReused: true };
+        } finally {
+            await adapter(app, '__kwxPortAdapter.holdDiscoveryUntil = 0');
+            await archive(page); await page.close();
+        }
     });
     await step('a lost App discovery reply recovers on a fresh channel before handing off once', async () => {
         const before = await snapshot(app), count = helpers.size;
