@@ -289,6 +289,8 @@ else {
     let returning = false;
     let returnOperation: AbortController | undefined;
     let returnMessage = '';
+    let autoCloseAttempted = false;
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
     const showApp = () => {
         if (!checked) {
             const enabled = window.top === window && /^https?:$/.test(location.protocol) && window.isSecureContext &&
@@ -296,7 +298,7 @@ else {
             if (enabled) {
                 document.documentElement.dataset.appStartup = 'checking';
                 render(<><PreferenceEffects /><AppInstanceNotice state="checking" message={t('Checking for updates…')}
-                    onReturn={() => {}} onRetry={() => {}} /></>, root);
+                    onClose={() => {}} onReturn={() => {}} onRetry={() => {}} /></>, root);
                 checked = checkStartupUpdate({ container: navigator.serviceWorker,
                     scriptURL: new URL('service-worker.js', document.baseURI).href,
                     reload: () => location.reload(), canReload: () => !started && (!instance || instance.primary),
@@ -324,12 +326,14 @@ else {
         root
         ); });
     };
-    window.addEventListener('pagehide', event => { if (!event.persisted) startup.abort(); });
+    window.addEventListener('pagehide', event => { clearTimeout(closeTimer); if (!event.persisted) startup.abort(); });
     const notice = () => {
         if (!instance || instance.state === 'primary') return;
         render(<><PreferenceEffects /><AppInstanceNotice state={instance.state} returning={returning} message={returnMessage}
+            onClose={() => closeDuplicate()}
             onRetry={() => instance?.start()} onReturn={() => {
                 if (!instance || instance.state !== 'secondary' || returning) return;
+                clearTimeout(closeTimer);
                 const operation = returnOperation = new AbortController();
                 returning = true; returnMessage = ''; notice();
                 void returnToInstance(returnWorker ??= prepareInstanceReturn(document.baseURI), instance.name, operation.signal).then(focused => {
@@ -344,6 +348,19 @@ else {
                 });
             }} /></>, root);
     };
+    const closeDuplicate = () => {
+        // Only an unused duplicate may close itself. Never close or navigate the
+        // original App, including a duplicate promoted while this was queued.
+        if (instance?.state !== 'secondary' || started) return;
+        returnOperation?.abort(); returnOperation = undefined; returning = false;
+        try { window.close(); } catch { /* The browser can require manual closure. */ }
+        clearTimeout(closeTimer);
+        closeTimer = setTimeout(() => {
+            if (instance?.state !== 'secondary' || started || window.closed) return;
+            returnMessage = t('Your browser kept this tab open. Close it from the tab overview, then select your original KeeWebX tab.');
+            notice();
+        }, 250);
+    };
     // File downloads, extension documents and embedded frames keep their own
     // startup policy. Only top-level browser Apps share this origin's lock.
     const locks = 'locks' in navigator ? navigator.locks : undefined;
@@ -352,6 +369,7 @@ else {
             root.dataset.appInstance = state;
             document.documentElement.dataset.appInstance = state;
             if (state === 'primary') {
+                clearTimeout(closeTimer);
                 returnOperation?.abort();
                 showApp();
                 void identifyInstance(returnWorker ??= prepareInstanceReturn(document.baseURI)).then(id => {
@@ -361,6 +379,12 @@ else {
             else {
                 if (state === 'secondary') returnWorker ??= prepareInstanceReturn(document.baseURI);
                 notice();
+                // An opener and a fresh history identify a disposable web-opened
+                // tab. Manually opened or navigated tabs require a user action.
+                if (state === 'secondary' && !started && !autoCloseAttempted && window.opener && history.length === 1) {
+                    autoCloseAttempted = true;
+                    queueMicrotask(closeDuplicate);
+                }
                 if (state === 'secondary' && document.hidden) queueMicrotask(() => {
                     if (document.hidden) instance?.visibility(false);
                 });

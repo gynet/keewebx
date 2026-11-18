@@ -1,4 +1,8 @@
 {
+  "Your vault is open in another tab. You can close this tab.": "Ihr Tresor ist in einem anderen Tab geöffnet. Sie können diesen Tab schließen.",
+  "Close this tab": "Diesen Tab schließen",
+  "Try switching to KeeWebX": "Versuchen, zu KeeWebX zu wechseln",
+  "Your browser kept this tab open. Close it from the tab overview, then select your original KeeWebX tab.": "Ihr Browser hat diesen Tab geöffnet gelassen. Schließen Sie ihn in der Tabübersicht und wählen Sie dann Ihren ursprünglichen KeeWebX-Tab aus.",
   "Checking for updates…": "Nach Updates suchen…",
   "An update is ready for the next time you open KeeWebX.": "Ein Update ist für das nächste Öffnen von KeeWebX bereit.",
   "KeeWebX checks for updates before unlocking. Updates found during a session are applied the next time you open the app.": "KeeWebX sucht vor dem Entsperren nach Updates. Während einer Sitzung gefundene Updates werden beim nächsten Öffnen der App angewendet.",

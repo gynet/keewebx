@@ -78,9 +78,10 @@ async function primary(page) {
 async function secondary(page) {
     await expect(page.locator('#root')).toHaveAttribute('data-app-instance', 'secondary');
     await expect(page.getByRole('heading', { name: 'KeeWebX is already open', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Return to KeeWebX', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try switching to KeeWebX', exact: true })).toBeVisible();
     await expect(page.locator('#open-demo, #open-file-input, #password, #unlock, .entry-row, input[type="password"], input[type="file"]')).toHaveCount(0);
-    await expect(page.getByRole('button')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Close this tab', exact: true })).toBeVisible();
+    await expect(page.getByRole('button')).toHaveCount(2);
     expect(await page.evaluate(() => window.__singleAppEvidence.states)).toEqual([]);
 }
 async function lockSnapshot(page) {
@@ -170,7 +171,7 @@ const cases = {
             await second.emulateMedia({ colorScheme });
             await expect(second.locator('html')).toHaveAttribute('data-kx-theme', colorScheme);
             expect(await second.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-            const button = second.getByRole('button', { name: 'Return to KeeWebX', exact: true });
+            const button = second.getByRole('button', { name: 'Close this tab', exact: true });
             const box = await button.boundingBox();
             expect(box.height).toBeGreaterThanOrEqual(44);
             expect(box.x).toBeGreaterThanOrEqual(0);
@@ -294,6 +295,88 @@ const cases = {
         await locks(second, 0);
     },
 
+    async 'duplicate-close-manual-fallback'(context, result, dir) {
+        // Exercise browser refusal deterministically; native popup closure has
+        // its own case below. No vault or Connect behavior is substituted.
+        await context.addInitScript(() => {
+            window.__closeAttempts = 0;
+            window.close = () => { window.__closeAttempts++; };
+        });
+        const first = await open(context);
+        await primary(first);
+        const title = await demo(first);
+        const second = await open(context);
+        await secondary(second);
+        expect(await second.evaluate(() => window.opener)).toBe(null);
+        expect(await second.evaluate(() => window.__closeAttempts)).toBe(0);
+        const before = await lockSnapshot(second);
+        await second.getByRole('button', { name: 'Close this tab', exact: true }).click();
+        await expect(second.getByRole('status')).toContainText('Close it from the tab overview');
+        expect(await second.evaluate(() => window.__closeAttempts)).toBe(1);
+        expect(await first.evaluate(() => window.__closeAttempts)).toBe(0);
+        await secondary(second);
+        await unchangedDemo(first, title);
+        expect((await lockSnapshot(second)).held).toEqual(before.held);
+        await noWindowOpen(context, 2);
+        await second.setViewportSize({ width: 320, height: 568 });
+        expect(await second.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await second.screenshot({ path: resolve(dir, 'manual-close-guidance.png'), fullPage: true });
+        result.originalVaultUnchanged = true;
+        result.nativeCloseRefusalSimulated = true;
+    },
+
+    async 'duplicate-close-script-opened'(context, result) {
+        const first = await open(context);
+        await primary(first);
+        const title = await demo(first);
+        const before = await lockSnapshot(first);
+        await first.evaluate(url => {
+            const button = document.createElement('button');
+            button.id = 'open-duplicate-fixture'; button.textContent = 'Open duplicate fixture';
+            button.addEventListener('click', () => window.open(url, '_blank'));
+            document.body.prepend(button);
+        }, appUrl);
+        const opened = context.waitForEvent('page');
+        await first.locator('#open-duplicate-fixture').click();
+        const duplicate = await opened;
+        await expect.poll(() => duplicate.isClosed()).toBe(true);
+        await unchangedDemo(first, title);
+        expect(context.pages()).toEqual([first]);
+        expect((await lockSnapshot(first)).held).toEqual(before.held);
+        expect(await first.evaluate(() => window.__singleAppEvidence.windowOpenCalls)).toBe(1);
+        result.nativePopupClosed = true;
+        result.originalVaultUnchanged = true;
+    },
+
+    async 'duplicate-close-blocked-popup'(context, result) {
+        await context.addInitScript(() => {
+            window.__closeAttempts = 0;
+            window.close = () => { window.__closeAttempts++; };
+        });
+        const first = await open(context);
+        await primary(first);
+        const title = await demo(first);
+        await first.evaluate(url => {
+            const button = document.createElement('button');
+            button.id = 'open-duplicate-fixture'; button.textContent = 'Open duplicate fixture';
+            button.addEventListener('click', () => window.open(url, '_blank'));
+            document.body.prepend(button);
+        }, appUrl);
+        const opened = context.waitForEvent('page');
+        await first.locator('#open-duplicate-fixture').click();
+        const duplicate = await opened;
+        await secondary(duplicate);
+        await expect(duplicate.getByRole('status')).toContainText('Close it from the tab overview');
+        expect(await duplicate.evaluate(() => window.__closeAttempts)).toBe(1);
+        await duplicate.getByRole('button', { name: 'Close this tab', exact: true }).click();
+        await expect.poll(() => duplicate.evaluate(() => window.__closeAttempts)).toBe(2);
+        expect(await first.evaluate(() => window.__closeAttempts)).toBe(0);
+        await unchangedDemo(first, title);
+        await locks(duplicate, 1);
+        result.autoCloseAttemptedOnce = true;
+        result.manualCloseAvailable = true;
+    },
+
     async 'return-existing-primary'(context, result, dir) {
         const first = await open(context);
         await primary(first);
@@ -338,7 +421,7 @@ const cases = {
                 };
             });
         }
-        await second.getByRole('button', { name: 'Return to KeeWebX', exact: true }).click();
+        await second.getByRole('button', { name: 'Try switching to KeeWebX', exact: true }).click();
         const manual = second.getByRole('status').filter({ hasText: /switch.*(?:tab|window)|manually/i });
         await expect.poll(async () => await first.evaluate(() => document.hasFocus()) || await manual.isVisible()).toBe(true);
         result.focusAfter = await first.evaluate(() => document.hasFocus());
@@ -422,7 +505,7 @@ const cases = {
         await primary(first);
         const second = await open(context);
         await secondary(second);
-        await second.getByRole('button', { name: 'Return to KeeWebX', exact: true }).click();
+        await second.getByRole('button', { name: 'Try switching to KeeWebX', exact: true }).click();
         const manual = second.getByRole('status').filter({ hasText: /switch.*(?:tab|window)|manually/i });
         await expect(manual).toBeVisible();
         result.manualText = await manual.innerText();

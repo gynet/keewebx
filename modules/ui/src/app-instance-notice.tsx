@@ -5,11 +5,12 @@ export interface AppInstanceNoticeProps {
     state: 'checking' | 'secondary' | 'error';
     returning?: boolean;
     message?: string;
+    onClose: () => void;
     onReturn: () => void;
     onRetry: () => void;
 }
 
-export function AppInstanceNotice({ state, returning = false, message, onReturn, onRetry }: AppInstanceNoticeProps) {
+export function AppInstanceNotice({ state, returning = false, message, onClose, onReturn, onRetry }: AppInstanceNoticeProps) {
     const checking = state === 'checking';
     const secondary = state === 'secondary';
 
@@ -21,14 +22,17 @@ export function AppInstanceNotice({ state, returning = false, message, onReturn,
                     {t(secondary ? 'KeeWebX is already open' : 'Unable to check open tabs')}
                 </h1>
                 <p class="app-instance-notice__body">
-                    {t(secondary ? 'Return to your original tab to keep using your unlocked vault.'
+                    {t(secondary ? 'Your vault is open in another tab. You can close this tab.'
                         : 'Please try again so KeeWebX can check that it is safe to access your vault in this tab.')}
                 </p>
                 <button type="button" class="pill pill--primary app-instance-notice__action"
-                    disabled={secondary && returning} aria-busy={secondary && returning}
-                    onClick={secondary ? onReturn : onRetry}>
-                    {t(secondary ? 'Return to KeeWebX' : 'Try again')}
+                    onClick={secondary ? onClose : onRetry}>
+                    {t(secondary ? 'Close this tab' : 'Try again')}
                 </button>
+                {secondary && <button type="button" class="pill app-instance-notice__action"
+                    disabled={returning} aria-busy={returning} onClick={onReturn}>
+                    {t('Try switching to KeeWebX')}
+                </button>}
                 {message && <p class="app-instance-notice__status" role="status">{t(message)}</p>}
             </>}
         </section>

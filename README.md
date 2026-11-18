@@ -54,10 +54,12 @@ Use the sidebar’s database menu to save or close a vault. The key icon in the 
 Switching interfaces checks pending edits and saves before navigating. A failed save keeps the vault available for recovery.
 
 The current web interface keeps one main App per site and browser storage partition.
-Opening it again shows **KeeWebX is already open** with a **Return to KeeWebX**
-button. The existing App keeps its vault; the waiting page does not start another
-database session. A visible waiting page can continue after the main App closes.
-If Safari refuses to switch tabs, select the existing tab manually. See
+Opening it again shows **KeeWebX is already open** with **Close this tab** as the
+main action and **Try switching to KeeWebX** as an alternative. A fresh duplicate
+opened by another page attempts to close automatically. If the browser keeps it
+open, the page explains how to close it manually. The original App keeps its vault;
+the duplicate does not start another database session. A visible waiting page
+can continue after the main App closes. See
 [single-instance behavior and limits](modules/ui/docs/single-app.md).
 
 On startup, the web App checks for updates before showing the unlock screen.

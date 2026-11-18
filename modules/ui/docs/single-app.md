@@ -1,11 +1,18 @@
 # One main KeeWebX App
 
 The first top-level browser page acquires an exclusive Web Lock before starting
-the vault. Further pages show **KeeWebX is already open** and one action,
-**Return to KeeWebX**. They do not create another vault model or show another
+the vault. Further pages show **KeeWebX is already open** with **Close this tab**
+as the main action and **Try switching to KeeWebX** as an alternative. They do not create another vault model or show another
 unlock form. Opening another database within the main App continues to work.
 
-The return action asks the existing connection worker to query the browser's
+A fresh duplicate with an opener and no navigation history attempts to close
+itself once. Other duplicates only attempt closure when the user selects the
+close action. If the browser refuses, the page explains how to close it through
+the tab overview. Closure is restricted to a secondary page that has never
+started a vault; a page promoted to primary cannot be closed by a queued attempt.
+The original App, its unlock state and Connect protocol are not changed.
+
+The optional switch action asks the existing connection worker to query the browser's
 actual lock holder and focus that WindowClient. It creates no new window and
 stores no owner ID. When focus is unsupported, refused or slow, the page gives
 a manual tab-switching instruction. A late query cannot focus a tab after its

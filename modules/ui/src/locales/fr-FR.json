@@ -1,4 +1,8 @@
 {
+  "Your vault is open in another tab. You can close this tab.": "Votre coffre est ouvert dans un autre onglet. Vous pouvez fermer cet onglet.",
+  "Close this tab": "Fermer cet onglet",
+  "Try switching to KeeWebX": "Essayer de revenir à KeeWebX",
+  "Your browser kept this tab open. Close it from the tab overview, then select your original KeeWebX tab.": "Votre navigateur a gardé cet onglet ouvert. Fermez-le depuis la liste des onglets, puis sélectionnez votre onglet KeeWebX d’origine.",
   "Checking for updates…": "Recherche de mises à jour…",
   "An update is ready for the next time you open KeeWebX.": "Une mise à jour est prête pour la prochaine ouverture de KeeWebX.",
   "KeeWebX checks for updates before unlocking. Updates found during a session are applied the next time you open the app.": "KeeWebX recherche les mises à jour avant le déverrouillage. Les mises à jour trouvées pendant une session sont appliquées à la prochaine ouverture de l’application.",
