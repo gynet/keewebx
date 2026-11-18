@@ -115,7 +115,7 @@ export class NativeHost {
     private leaseKey: string;
     private consumed = new Map<string, number>();
     private session?: { document: string; origin: string; scope: string; expiresAt: number; bridge: AppBridge; locked: boolean; busy: boolean; port?: string;
-        wire: ReplyReceipt<true>; hello?: { request: string; reply: Signed; authorization: number; keys: Keys } };
+        wire: ReplyReceipt<true>; replay?: Promise<unknown>; hello?: { request: string; reply: Signed; authorization: number; keys: Keys } };
     constructor(private endpoint: URL, private onError: (error: Error) => void = () => {}, private diagnostic: (message: string) => void = () => {}) {
         this.leaseKey = `${MARK}:active:${endpoint.href}`;
         try {
@@ -303,15 +303,16 @@ export class NativeHost {
                     this.diagnostic('Hello reply failed: ' + (reason instanceof Error ? reason.name : 'Error'));
                     this.onError(reason instanceof Error ? reason : new Error('The connection page is unavailable.'));
                 }
-            } else if (direct && p.operation === 'wire' && !this.locked && session && !session.locked && !session.busy &&
+            } else if (direct && p.operation === 'wire' && !this.locked && session && !session.locked && !session.busy && !session.replay &&
                 session.port === direct.id && session.scope === p.scope && session.document === p.document &&
                 session.origin === p.origin && session.expiresAt > Date.now()) {
                 if (session.wire.read(this.receiptBinding(p, direct.id, authorization, keys))) {
-                    session.busy = true;
+                    const replay = Promise.resolve().then(() => session.bridge.replay(p.body, Math.min(p.deadline, session.expiresAt)));
+                    session.replay = replay;
                     try {
                         // The App prepares its cached response again, checking
                         // current permissions and entry/session lifetime before publication.
-                        const body = await session.bridge.replay(p.body, Math.min(p.deadline, session.expiresAt));
+                        const body = await replay;
                         if (this.canServe() && this.session === session && !session.locked && !this.locked && this.live &&
                             authorization === this.authorization && this.keys === keys && this.selectedDirect() && Date.now() < p.deadline) {
                             await reply(signed({ ...p, type: 'reply', body }, keys));
@@ -323,7 +324,7 @@ export class NativeHost {
                             this.selectedDirect() && Date.now() < p.deadline) {
                             await reply(signed({ ...p, type: 'reply', body: undefined, error: error instanceof Error ? error.message : 'The App receipt could not be checked. Find accounts again.' }, keys));
                         }
-                    } finally { session.busy = false; }
+                    } finally { if (session.replay === replay) session.replay = undefined; }
                 }
             }
             return;
@@ -335,7 +336,7 @@ export class NativeHost {
             if (this.locked) throw new Error('KeeWebX is locked. Unlock that app tab, then retry.');
             let session = this.session;
             if (p.operation === 'hello') {
-                if (session?.busy) throw new Error('Another website request is finishing. Retry.');
+                if (session?.busy || session?.replay) throw new Error('Another website request is finishing. Retry.');
                 session?.bridge.dispose();
                 session = { document: p.document, origin: p.origin, scope: uuid(), expiresAt: Date.now() + SESSION_TTL, bridge: new AppBridge(location.origin, p.origin), locked: false, busy: false, port: direct?.id, wire: new ReplyReceipt<true>() };
                 const current = session;
@@ -351,7 +352,20 @@ export class NativeHost {
                     if (session.busy) throw new Error('A request is already running. Retry.');
                     session.busy = true;
                     this.diagnostic('Encrypted protocol request received');
-                    try { body = await session.bridge.request(p.body, Math.min(p.deadline, session.expiresAt)); }
+                    try {
+                        // The website may have received the original reply while a
+                        // queued duplicate is still revalidating its receipt. Reserve
+                        // this next request and let that replay leave the single-slot
+                        // App bridge instead of rejecting valid sequential traffic.
+                        if (session.replay) {
+                            await session.replay.catch(() => {});
+                            if (this.session !== session || !this.canServe() || authorization !== this.authorization ||
+                                !this.live || this.keys !== keys || !this.selectedDirect() || Date.now() >= p.deadline) return;
+                            if (this.locked || session.locked) throw new Error('KeeWebX is locked. Unlock that app tab, then retry.');
+                            if (session.expiresAt <= Date.now()) throw new Error('The website session changed. Find accounts again.');
+                        }
+                        body = await session.bridge.request(p.body, Math.min(p.deadline, session.expiresAt));
+                    }
                     finally { session.busy = false; }
                 }
                 if (this.session !== session) return;

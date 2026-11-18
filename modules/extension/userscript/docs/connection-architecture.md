@@ -1,8 +1,10 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.22**. This describes implemented behavior, not a
+Architecture of **Connect 0.6.23**. This describes implemented behavior, not a
 guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.22.md) for changes and verification limits.
+[release notes](release-0.6.23.md) for changes and verification limits. The
+[detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
+native failure timeline and subsequent lifecycle and receipt-ordering fixes.
 
 **Runtime and components.** [build-connect.ts](../build-connect.ts) bundles
 [simple-connect.ts](../src/simple-connect.ts) as a browser IIFE with Bun, Preact and TweetNaCl.
@@ -282,6 +284,14 @@ expired. Authorization stayed at generation 3 during that failure. Thus fresh ha
 not fix the mid-operation stall. The trace locates the delay before the App port callback, not
 inside the vault account handler; it cannot distinguish browser document scheduling from
 userscript-world scheduling. Version 0.6.22 repairs disposal, not this unexplained dispatch delay.
+
+Version 0.6.23 also repairs a separately reproduced receipt-ordering race. A queued
+duplicate can be revalidating its receipt after the website has already received
+the original reply and sent the next request. The next unique request reserves the
+normal request slot and waits for replay to leave the App bridge, then rechecks
+its original session, grant, lock state and deadlines. Duplicate replay owns a
+separate transient promise and cannot clear the next request's busy flag. No
+credential read is replayed and no deadline is extended.
 
 The local recording preference persists in manager-private GM storage as a boolean;
 events themselves remain a 300-line in-memory ring in each document. It adds no

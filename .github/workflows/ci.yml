@@ -306,6 +306,7 @@ jobs:
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_FRESH_PORT=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-fresh-port node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_LIFECYCLE=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-lifecycle node modules/extension/userscript/tests/port-connect.mjs
+          KWX_FOCUS_REPLAY_OVERLAP=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-replay-overlap node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_APP_REFRESH=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-app-refresh node modules/extension/userscript/tests/port-connect.mjs
           FOCUS_FOREGROUND_FAILURE=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-foreground-route node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_MAILBOX_RECOVERY=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-mailbox-recovery node modules/extension/userscript/tests/port-connect.mjs

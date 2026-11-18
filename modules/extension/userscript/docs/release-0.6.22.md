@@ -1,5 +1,10 @@
 # Connect 0.6.22
 
+A subsequent repeat of Chromium acceptance exposed a pre-existing receipt-replay
+race despite the first full run passing. See [0.6.23](release-0.6.23.md) for the
+ordering correction. The lifecycle results below remain valid; they are not
+evidence that every connection failure was resolved.
+
 Finished and canceled operations now close their physical MessagePort as well as
 sending the existing best-effort session release. Previously, a successful test
 or fill could leave its port allocated until the next operation. If the App

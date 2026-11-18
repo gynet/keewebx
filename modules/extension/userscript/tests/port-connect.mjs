@@ -15,6 +15,7 @@
 // KWX_FOCUS_RELEASED_PORT_RECOVERY=1 checks fresh operations after a completed port is physically closed.
 // KWX_FOCUS_FRESH_PORT=1 checks stale signed replies from a canceled operation against its replacement.
 // KWX_FOCUS_LIFECYCLE=1 covers operation disposal, delayed cleanup and replacement connections.
+// KWX_FOCUS_REPLAY_OVERLAP=1 holds a receipt replay while the original reply advances the next request.
 // KWX_FOCUS_AUTH_CANCEL=1 checks recovery after closing repeated App authorization.
 // KWX_FOCUS_LAUNCHER=1 checks trusted key connection, visibility, preferences and repeated fills.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
@@ -48,6 +49,7 @@ const FOCUS_MAILBOX_RECOVERY = process.env.KWX_FOCUS_MAILBOX_RECOVERY === '1';
 const FOCUS_RELEASED_PORT_RECOVERY = process.env.KWX_FOCUS_RELEASED_PORT_RECOVERY === '1';
 const FOCUS_FRESH_PORT = process.env.KWX_FOCUS_FRESH_PORT === '1';
 const FOCUS_LIFECYCLE = process.env.KWX_FOCUS_LIFECYCLE === '1';
+const FOCUS_REPLAY_OVERLAP = process.env.KWX_FOCUS_REPLAY_OVERLAP === '1';
 const FOCUS_AUTH_CANCEL = process.env.KWX_FOCUS_AUTH_CANCEL === '1';
 const FOCUS_LAUNCHER = process.env.KWX_FOCUS_LAUNCHER === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
@@ -992,6 +994,74 @@ async function appConnectionState() {
     // website intentionally cancels an account list and would change the subject.
     return adapter(app, '__kwxPortAdapter.connectionSnapshot()');
 }
+async function replayOverlapAcceptance(page, account) {
+    return bounded('Receipt replay overlapping the next request', async remaining => {
+        const wireAction = 'kwx-pair', nextAction = 'kwx-features';
+        const reads = await fieldReads(), lists = await entryReads(), count = helpers.size;
+        const appOffset = (await snapshot(app)).packets.length;
+        const wireOffset = (await windowTraffic()).requests.length;
+        await adapter(app, `__kwxPortAdapter.holdFirstWireReply = ${JSON.stringify(wireAction)}`);
+        await app.evaluate(action => { __kwxNativeTest.holdReplayAction = action; }, wireAction);
+        try {
+            await startLookup(page);
+            await expect.poll(async () => (await snapshot(app)).heldWireReplies, { timeout: remaining() }).toBe(1);
+            // The original App response was published, but its signed port reply
+            // is held. The website's real retry enters receipt revalidation.
+            await expect.poll(() => app.evaluate(() => __kwxNativeTest.heldReplayResponses.length), {
+                timeout: remaining()
+            }).toBeGreaterThan(0);
+            const beforeRelease = await snapshot(app);
+            const original = beforeRelease.packets.slice(appOffset).find(item => item.direction === 'held'
+                && item.data.kind === 'reply' && item.data.value?.packet?.body?.action === wireAction);
+            expect(original).toBeTruthy(); expect(validSignature(original.data.value)).toBe(true);
+            const trace = original.data.value.packet.id;
+            const retries = beforeRelease.packets.slice(appOffset).filter(item => item.direction === 'received'
+                && item.data.kind === 'request' && item.data.value?.packet?.id === trace);
+            expect(retries.length).toBeGreaterThanOrEqual(2);
+            expect(new Set(retries.map(item => stable(item.data.value))).size).toBe(1);
+            expect(await adapter(app, '__kwxPortAdapter.releaseWireReplies()')).toBe(1);
+            // Let the original success advance the actual client protocol while
+            // the duplicate's inner response is still held in the App fixture.
+            const nextRequest = async () => (await snapshot(app)).packets.slice(appOffset).find(item =>
+                item.direction === 'received' && item.data.kind === 'request'
+                && item.data.value?.packet?.body?.action === nextAction);
+            await expect.poll(nextRequest, { timeout: remaining() }).toBeTruthy();
+            const next = await nextRequest(), nextId = next.data.value.packet.id;
+            const duringReplay = await snapshot(app);
+            const prematureReplies = duringReplay.packets.slice(appOffset).filter(item => item.direction === 'sent'
+                && item.data.kind === 'reply' && item.data.value?.packet?.id === nextId);
+            expect(prematureReplies.map(item => item.data.value.packet.error),
+                'The next legitimate request must wait for receipt replay instead of failing busy').toEqual([]);
+            expect((await windowTraffic()).requests.slice(wireOffset).some(item => item.data.action === nextAction)).toBe(false);
+            expect(await app.evaluate(() => __kwxNativeTest.heldReplayResponses.length)).toBeGreaterThan(0);
+            await emptyFields(page);
+            expect(await app.evaluate(() => __kwxNativeTest.releaseReplayResponses())).toBeGreaterThan(0);
+            await matchingList(page, account, reads, remaining);
+            const link = await physicalPort(page);
+            await fill(page, account);
+            expect(await physicalPort(page)).toEqual(link);
+            await disposedPort(page, link);
+            const final = await snapshot(app), accepted = final.packets.slice(appOffset).filter(item =>
+                item.direction === 'sent' && item.data.kind === 'reply' && item.data.value?.packet?.id === nextId);
+            expect(accepted.length).toBeGreaterThan(0);
+            expect(accepted.every(item => !item.data.value.packet.error && validSignature(item.data.value))).toBe(true);
+            const pairPosts = (await windowTraffic()).requests.slice(wireOffset).filter(item => item.data.action === wireAction);
+            expect(pairPosts.length).toBeGreaterThanOrEqual(2);
+            expect(new Set(pairPosts.map(item => item.data.kwRequest)).size).toBe(1);
+            expect(new Set(pairPosts.map(item => item.data.kwAttempt)).size).toBeGreaterThanOrEqual(2);
+            expect(await fieldReads()).toBe(reads + 1); expect(await entryReads()).toBe(lists + 1);
+            expect(helpers.size).toBe(count + 1); await sameApp(); await noHelpers();
+            remaining();
+            return { replayAction: wireAction, queuedAction: nextAction, identicalSignedRetries: retries.length,
+                originalReplyAdvancedClientWhileReplayHeld: true, nextRequestWaitedForReplay: true,
+                logicalPairRequests: 1, logicalListRequests: 1, logicalFieldRequests: 1,
+                physicalPortReusedWithinOperation: true, appPortsAfterFill: 0, nativeIOSVerified: false };
+        } finally {
+            await adapter(app, '__kwxPortAdapter.holdFirstWireReply = null; __kwxPortAdapter.releaseWireReplies()');
+            await app.evaluate(() => __kwxNativeTest.releaseReplayResponses());
+        }
+    });
+}
 async function appLifecycle(ports, hasSession) {
     await expect.poll(appConnectionState, { timeout: 5000 }).toMatchObject({ ports, hasSession, locked: false, selected: true });
 }
@@ -1538,7 +1608,8 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         holdAppReady: false, heldReady: [], releaseReady: undefined,
         holdHello: false, heldHello: [], releaseHello: undefined, send: undefined, dropNext: null,
         holdRouteReads: false, heldRouteReads: [], heldMailboxScans: [],
-        holdCleanup: false, heldCleanup: [], closedPorts: []
+        holdCleanup: false, heldCleanup: [], closedPorts: [],
+        holdFirstWireReply: null, heldWireReplies: []
     };
     globalThis.__kwxPortAdapter = state;
     if (isApp && allowMailbox) {
@@ -1671,6 +1742,12 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker !== portMarker) return nativePost.call(this, data, ...rest);
         observe(this);
+        if (isApp && state.holdFirstWireReply && data.kind === 'reply' && data.value?.packet?.operation === 'wire'
+            && data.value.packet.body?.action === state.holdFirstWireReply) {
+            state.holdFirstWireReply = null;
+            state.heldWireReplies.push({ port: this, data, rest });
+            record(this, 'held', data); return;
+        }
         if (isApp && state.holdAppReady && data.kind === 'ready') {
             state.heldReady.push({ port: this, data, rest });
             record(this, 'held', data); return;
@@ -1763,6 +1840,13 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         }
         return released.length;
     };
+    state.releaseWireReplies = () => {
+        const pending = state.heldWireReplies.splice(0);
+        for (const { port, data, rest } of pending) {
+            record(port, 'sent', data); nativePost.call(port, data, ...rest);
+        }
+        return pending.length;
+    };
     state.send = envelope => {
         if (!lastRequest) throw new Error('No physical website port available');
         lastRequest.port.postMessage({ ...lastRequest.data, value: envelope });
@@ -1791,6 +1875,7 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         mailboxAttempts: state.mailboxAttempts, packets: state.packets, attachments: state.attachments,
         helperClose: __kwxHelperClose.snapshot(), heldReady: state.heldReady.length,
         heldHello: state.heldHello.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
+        heldWireReplies: state.heldWireReplies.length,
         droppedDiscoveryReplies: state.droppedDiscoveryReplies || 0,
         delayedDiscoveryReplies: state.delayedDiscoveryReplies || 0,
         heldRouteReads: state.heldRouteReads.length,
@@ -1952,11 +2037,17 @@ async function setup(bundle, appBundle = bundle) {
     await context.addInitScript(() => {
         if (location.protocol !== 'https:') return;
         const observed = { documentBoot: crypto.randomUUID(), wireRequests: {}, logicalRequests: {}, windowRequests: [], windowResponses: [],
-            droppedResponses: [], dropNextResponse: null, holdAction: null, heldResponses: [], consentCount: 0, heldFields: [], holdFields: false };
+            droppedResponses: [], dropNextResponse: null, holdAction: null, heldResponses: [], consentCount: 0, heldFields: [], holdFields: false,
+            holdReplayAction: null, heldReplayResponses: [] };
         globalThis.__kwxNativeTest = observed;
         const requestIds = new Set();
         const nativePost = window.postMessage.bind(window);
         window.postMessage = (value, ...rest) => {
+            if (observed.holdReplayAction && value?.kwConnect === 'response' && value.action === observed.holdReplayAction
+                && observed.windowResponses.some(item => item.data.kwRequest === value.kwRequest
+                    && item.data.kwConnection === value.kwConnection)) {
+                observed.heldReplayResponses.push([value, rest]); return;
+            }
             if (value?.kwConnect === 'response' && value.action === observed.dropNextResponse) {
                 observed.dropNextResponse = null;
                 observed.droppedResponses.push({ at: Date.now(), data: structuredClone(value) }); return;
@@ -1972,6 +2063,12 @@ async function setup(bundle, appBundle = bundle) {
         observed.releaseResponses = () => {
             observed.holdAction = null;
             const pending = observed.heldResponses.splice(0);
+            for (const [value, rest] of pending) nativePost(value, ...rest);
+            return pending.length;
+        };
+        observed.releaseReplayResponses = () => {
+            observed.holdReplayAction = null;
+            const pending = observed.heldReplayResponses.splice(0);
             for (const [value, rest] of pending) nativePost(value, ...rest);
             return pending.length;
         };
@@ -2112,6 +2209,24 @@ acceptance: try {
             return freshPortAcceptance(first, ACCOUNTS[0]);
         });
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'fresh-port'; break acceptance;
+    }
+    if (FOCUS_REPLAY_OVERLAP) {
+        await step('the next legitimate wire request waits for a duplicate receipt replay after the original reply', async () => {
+            first = await newWebsite(ACCOUNTS[0]);
+            return replayOverlapAcceptance(first, ACCOUNTS[0]);
+        });
+        await step('six alternating fills after overlapping receipt recovery use fresh operation ports', async () => {
+            second = await newWebsite(ACCOUNTS[1]);
+            const count = helpers.size, reads = await fieldReads();
+            for (let round = 0; round < 3; round++) for (const [page, account] of [[first, ACCOUNTS[0]], [second, ACCOUNTS[1]]]) {
+                await clearFields(page); await lookup(page, account); await fill(page, account);
+                await disposedPort(page, await physicalPort(page));
+            }
+            expect(await fieldReads()).toBe(reads + 6); expect(helpers.size).toBe(count + 6);
+            await sameApp(); await noHelpers();
+            return { alternatingFills: 6, helpers: 6, appPorts: 0, appHasSession: false, additionalConsentDialogs: 0 };
+        });
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'replay-overlap'; break acceptance;
     }
     if (FOCUS_LIFECYCLE) {
         await step('finished, canceled and reloaded operations release native ports without clearing a replacement session', async () => {

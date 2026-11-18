@@ -864,6 +864,98 @@ test('a wire receipt never bypasses current App permissions after a lost reply',
     expect(replies.at(-1).value.packet.body.error).toBe('Access revoked');
     expect(JSON.stringify(replies.at(-1))).not.toContain('old encrypted fields');
 });
+
+async function pendingWireReplay() {
+    const local = await directHost(), p = await directSession(), gate = deferred<any>();
+    await directSend(envelope(p));
+    const originalReply = structuredClone(replies.at(-1));
+    let checks = 0;
+    AppBridge.prototype.replay = async () => { checks++; return gate.promise; };
+    const replay = directSend(envelope(p));
+    await until(() => checks === 1);
+    return { local, p, gate, replay, originalReply, checks: () => checks,
+        response: (id: string) => replies.find(value => value.value.packet.id === id)?.value.packet };
+}
+
+test.each(['resolved', 'rejected'])('a new wire waits for a %s receipt replay and executes exactly once', async outcome => {
+    const f = await pendingWireReplay(), readGate = deferred<any>();
+    const next = { ...f.p, id: crypto.randomUUID(), body: { action: 'kwx-get-entry-fields' } };
+    AppBridge.prototype.request = async () => { reads++; return readGate.promise; };
+    const running = directSend(envelope(next));
+    try {
+        expect(f.response(next.id)).toBeUndefined(); expect(reads).toBe(1);
+        await directSend(envelope(f.p));
+        expect(f.checks()).toBe(1);
+
+        const concurrent = { ...next, id: crypto.randomUUID() };
+        await directSend(envelope(concurrent));
+        expect(f.response(concurrent.id)?.error).toContain('already running');
+        expect(reads).toBe(1);
+
+        f.gate.resolve(outcome === 'resolved' ? { action: 'test-wire' } : Promise.reject(new Error('Receipt unavailable')));
+        await f.replay; await until(() => reads === 2);
+        expect(f.response(next.id)).toBeUndefined();
+        // Finishing the replay must not release the busy slot owned by the new read.
+        const duringRead = { ...next, id: crypto.randomUUID() };
+        await directSend(envelope(duringRead));
+        expect(f.response(duringRead.id)?.error).toContain('already running');
+        expect(reads).toBe(2);
+
+        readGate.resolve({ action: 'kwx-get-entry-fields', message: 'new encrypted fields' });
+        await running;
+        expect(f.response(next.id)).toMatchObject({ body: { action: 'kwx-get-entry-fields', message: 'new encrypted fields' } });
+        expect(f.response(next.id).error).toBeUndefined();
+        expect(reads).toBe(2); expect(f.checks()).toBe(1);
+        const receiptReplies = replies.filter(value => value.value.packet.id === f.p.id);
+        expect(receiptReplies).toHaveLength(2);
+        if (outcome === 'resolved') expect(receiptReplies[1]).toEqual(f.originalReply);
+        else expect(receiptReplies[1].value.packet.error).toBe('Receipt unavailable');
+    } finally {
+        f.gate.resolve({ action: 'test-wire' }); readGate.resolve({ action: 'test-wire' });
+        await Promise.allSettled([f.replay, running]);
+    }
+});
+
+test('a fresh hello cannot replace a session while only its receipt replay is pending', async () => {
+    const f = await pendingWireReplay(), hello = packet();
+    try {
+        await directSend(envelope(hello));
+        expect(f.response(hello.id)?.error).toContain('finishing');
+        f.gate.resolve({ action: 'test-wire' }); await f.replay;
+        const probe = { ...f.p, id: crypto.randomUUID(), operation: 'probe', body: undefined };
+        await directSend(envelope(probe));
+        expect(f.response(probe.id).error).toBeUndefined();
+        expect(reads).toBe(1);
+    } finally { f.gate.resolve({ action: 'test-wire' }); await f.replay; }
+});
+
+test.each(['release', 'lock', 'bridge lock', 'revoke', 'reauthorize', 'selection', 'departure', 'request expiry', 'session expiry'])
+('a wire waiting for receipt replay cannot read after %s', async change => {
+    const f = await pendingWireReplay(), now = Date.now;
+    const next = { ...f.p, id: crypto.randomUUID(), deadline: now() + 10000, body: { action: 'kwx-get-entry-fields' } };
+    const running = directSend(envelope(next));
+    try {
+        expect(f.response(next.id)).toBeUndefined(); expect(reads).toBe(1);
+        if (change === 'release') await directSend(envelope({ ...f.p, id: crypto.randomUUID(), operation: 'release', body: undefined }));
+        else if (change === 'lock') host.lock();
+        else if (change === 'bridge lock') (host as any).session.bridge.onLocked();
+        else if (change === 'revoke') await host.revoke();
+        else if (change === 'reauthorize') await host.authorize(keys);
+        else if (change === 'selection') f.local.set(`keewebx-native-connect-v1:active:${endpoint.href}`, crypto.randomUUID());
+        else if (change === 'departure') replace('document', { documentElement: { dataset: { appInstance: 'departed' } } });
+        else {
+            const expiredAt = change === 'request expiry' ? next.deadline + 1 : (host as any).session.expiresAt + 1;
+            Date.now = () => expiredAt;
+        }
+        f.gate.resolve({ action: 'test-wire', message: 'late receipt' });
+        await Promise.all([f.replay, running]);
+        expect(reads).toBe(1); expect(f.checks()).toBe(1);
+        expect(f.response(next.id)?.body).toBeUndefined();
+        expect(replies.filter(value => value.value.packet.id === f.p.id)).toEqual([f.originalReply]);
+        expect(JSON.stringify(replies)).not.toContain('late receipt');
+    } finally { f.gate.resolve({ action: 'test-wire' }); await Promise.allSettled([f.replay, running]); Date.now = now; }
+});
+
 test.each(['origin', 'scope', 'document', 'body', 'deadline', 'port', 'selection', 'lock', 'reauthorize', 'new session', 'revoke'])
 ('a wire receipt cannot cross a changed binding (%s)', async change => {
     const local = await directHost(), p = await directSession();
