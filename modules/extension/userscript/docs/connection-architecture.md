@@ -1,8 +1,8 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.20**. This describes implemented behavior, not a
+Architecture of **Connect 0.6.21**. This describes implemented behavior, not a
 guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.20.md) for changes and verification limits.
+[release notes](release-0.6.21.md) for changes and verification limits.
 
 **Runtime and components.** [build-connect.ts](../build-connect.ts) bundles
 [simple-connect.ts](../src/simple-connect.ts) as a browser IIFE with Bun, Preact and TweetNaCl.
@@ -69,7 +69,9 @@ it does not initiate a connection or read field values. The panel's trusted key 
 The auto-test is a **trusted key action**, not periodic preconnect, page-load work or form-detection work.
 `prepareDirect()` reads route/identity ahead of time; UI connection actions are disabled while preparation
 is pending. `openDirect()` runs synchronously in the trusted action before any `await`, preserving the
-popup activation opportunity. An existing usable port returns without opening a helper.
+popup activation opportunity. The UI passes `force=true` for every new lookup or test:
+the old port is closed and a new helper opens, even after a successful probe.
+Lookup, account selection and fill share the new port within that one operation.
 Browser popup permission and document scheduling can still prevent setup.
 
 ```mermaid
@@ -81,7 +83,8 @@ sequenceDiagram
     participant Host as App receiver / NativeHost
     participant Vault as AppBridge / vault protocol
     User->>Site: Trusted key / Find accounts / Test connection
-    opt No reusable direct port; direct route prepared
+    opt Direct route prepared
+        Site->>Site: Cancel prior operation and close its port
         Site->>Helper: window.open; transfer MessageChannel endpoint
         Helper->>SW: Validate opener/origin/nonce; transfer endpoint
         SW->>Host: Probe matching App clients for selected boot
@@ -106,7 +109,7 @@ sequenceDiagram
         User->>Site: Select account (or enabled single-match shortcut)
         Site->>Vault: Recheck features; get requested user/password; recheck features
         Site->>Site: Recheck selected App, URL and targets; fill; close panel
-        Site->>Host: Best-effort release; retain authenticated physical port
+        Site->>Host: Best-effort release; next operation replaces physical port
     end
 ```
 
@@ -174,7 +177,7 @@ preserve old ports/scopes. Missing manager tab APIs limit owner continuity outsi
 | Helper/worker memory | Temporary discovery channels, pending probes and transfer bookkeeping; the worker retains no established website-port registry after transfer. Browser SW registration can persist. |
 
 **Fallback and bounded retries.** [NativeRpc.connectAttempt](../src/native-connect.ts#L525) chooses
-the prepared direct link for each new operation. It does not remember a mailbox
+the newly opened direct link for each UI operation. It does not remember a mailbox
 preference across operations. There is no universal
 “retry everything” loop and no automatic creation of a replacement vault tab.
 
@@ -183,7 +186,7 @@ preference across operations. There is no universal
 | Discovery delay | Worker retries public probes, with up to two discovery rounds within a 16-second discovery budget; website setup has its own 25-second limit. Transfer of the website endpoint happens once. |
 | Classified setup timeout or helper-unavailable failure, with mailbox capability | Try GM mailbox after verifying the saved host, public key and authorization revision. Structurally invalid requests and authorization denial remain fatal. |
 | First `hello` timeout on a newly signed-ready port | One fresh hello may use that same port while the attempt deadline allows. |
-| `hello` timeout on a previously working port, mailbox available | After a 3-second hello budget, discard the direct link, recheck the grant and try mailbox. No helper is opened by this fallback. |
+| Low-level compatibility caller reuses a previously working port and `hello` times out | After a 3-second hello budget, discard the direct link, recheck the grant and try mailbox. The current UI starts fresh ports and does not take this reuse path. |
 | Mailbox recovery with UI callback | Allow a separate 60-second visit/return phase; wait for website visibility before continuing. Lookup then restores its 30-second operation budget. |
 | Older route without direct capability | Existing connector window uses `postMessage` plus same-origin BroadcastChannel; absent/unusable window can use advertised mailbox. This legacy connector remains open while carrying traffic. |
 
@@ -205,16 +208,16 @@ are not established by this source review.
 ```mermaid
 stateDiagram-v2
     [*] --> Prepared: load route and identity
-    Prepared --> Handoff: trusted action; no reusable port
+    Prepared --> Handoff: trusted action; new physical port
     Handoff --> PortReady: verify signed ready; request helper close
     PortReady --> Session: signed hello creates one scope
     Session --> PortReady: close panel / cancel / successful test or fill; release
-    PortReady --> Session: next trusted action reuses port; fresh hello
+    PortReady --> Handoff: next trusted action closes old port and opens helper
     Session --> PortReady: lock invalidates scope; retained transport may remain
     Session --> InvalidScope: 120 seconds from hello / another hello displaces it
-    InvalidScope --> Session: fresh trusted operation and hello
+    InvalidScope --> Handoff: fresh trusted operation and port
     Handoff --> Mailbox: recoverable setup failure and grant recheck
-    PortReady --> Mailbox: reused hello times out; close direct link
+    PortReady --> Mailbox: reused hello times out in compatibility caller
     Mailbox --> Prepared: operation ends; next trusted query tries direct again
     PortReady --> Prepared: idle reclaim / force reconnect / route change
     Session --> Prepared: revocation or physical port reset
@@ -223,7 +226,8 @@ stateDiagram-v2
 ```
 
 Panel close cancels logical work, clears account UI and disposes its `NativeRpc`; an authenticated
-physical port is normally retained. Unauthenticated setup is reset. Website pagehide resets the
+physical port may remain allocated, but the next UI operation always closes and replaces it.
+Unauthenticated setup is reset. Website pagehide resets the
 website port and field observers; a BFCache return restarts observation/preparation, not the old scope.
 Hiding the site preserves pending setup/lookup, but clears a displayed selection or an actual fill.
 App lock disposes the logical bridge; unlock can resume the grant, never that old scope.
@@ -256,6 +260,15 @@ separate from helper classification and fallback preference. It does not establi
 a stale-port cause: App-side receipt/response events for the same request ID are
 needed to distinguish inbound delivery, the same-window App bridge, and return
 traffic. A fresh query does not by itself guarantee that a suspended document runs.
+
+The subsequent paired 0.6.20 trace establishes another failure: a reused port's
+hello and all retries were dispatched by the App only after it became visible,
+after the request deadline. Version 0.6.21 starts a new physical handoff for each
+UI operation instead of treating earlier success as current liveness. Independently,
+the App restoration guard now skips an already-authorized runtime and records a
+successful explicit authorization as attempted. This prevents unintended repeat
+publication after cached-page return or unrelated body mutations; it does not
+establish the cause of delayed browser dispatch.
 
 The local recording preference persists in manager-private GM storage as a boolean;
 events themselves remain a 300-line in-memory ring in each document. It adds no

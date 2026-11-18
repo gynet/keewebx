@@ -67,7 +67,7 @@ async function start(): Promise<void> {
                     return;
                 }
                 if (!appReceiptsSupported()) throw new Error('Save database changes and reload KeeWebX to update its Connect receiver.');
-                await host.authorize(keys, () => epoch === generation, explicit ? 'explicit' : 'restore'); guard(); revoked = false; authorized = true;
+                await host.authorize(keys, () => epoch === generation, explicit ? 'explicit' : 'restore'); guard(); revoked = false; authorized = true; attempted = true;
                 ui.state(State.Connected, 'Authorized. All websites can use this tab. Return to your website and select an account.');
                 ui.action('authorize', { label: 'Use this tab for all websites' });
             } catch (error) { if (epoch === generation && explicit) ui.state(State.Error, message(error)); }
@@ -115,7 +115,7 @@ async function start(): Promise<void> {
                 ui.state(State.Connected, 'Authorized. Connect resumed; existing vault permissions still apply.');
                 return;
             }
-            if (attempted || revoked || authorizing) return;
+            if (authorized || attempted || revoked || authorizing) return;
             attempted = true; void authorize(false);
         };
         watchAppLockState(unlocked => { appUnlocked = unlocked; restored(); });
@@ -225,18 +225,7 @@ async function start(): Promise<void> {
             autoFillSingle = enabled; ui.preference(enabled);
         }, () => ui.preference(autoFillSingle, false, 'Could not save this preference. Try again.'));
     };
-    const openConnection = () => {
-        clean();
-        try {
-            if (openDirect(endpoint, true)) { void testConnection(true); return; }
-            if (!clientId) throw new Error('Connection settings are not ready. Reopen the panel and retry.');
-            connector = openConnector(endpoint, clientId, connector);
-            // Start the native handshake while its connection page is active.
-            // The user should not need another test after returning here.
-            void testConnection(true);
-        } catch (error) { ui.state(State.Error, message(error)); }
-    };
-    ui.on('open', event => { if (event.isTrusted) openConnection(); });
+    ui.on('open', event => { if (event.isTrusted) void testConnection(true); });
     const setup = () => { ui.show('config'); ui.state(State.ReadyToConnect, 'Authorize Connect once in your existing KeeWebX tab, then return here and find accounts.'); };
 
     async function choose(entry: KeeWebXEntry, existingTask?: Operation): Promise<void> {
@@ -276,7 +265,9 @@ async function start(): Promise<void> {
             const anchor = isLoginField(selected) ? selected : isLoginField(detected) ? detected : undefined;
             if (!anchor) throw new Error('This login form changed. Focus its username or password field and try again.');
             const target = targets(anchor), origin = location.origin;
-            const direct = openDirect(endpoint);
+            // A previous successful probe does not prove its port is still live.
+            // Start each user operation with a new handoff in this trusted tap.
+            const direct = openDirect(endpoint, true);
             rpc = new NativeRpc(endpoint, () => connector, stage => {
                 if (epoch === generation) ui.state(State.Connecting, stage + '…');
             }); pending = rpc;
@@ -337,7 +328,11 @@ async function start(): Promise<void> {
         addEventListener('pageshow', progress); addEventListener('focus', progress);
         progress();
         try {
-            openDirect(endpoint);
+            const direct = openDirect(endpoint, true);
+            if (recovery && !direct) {
+                if (!clientId) throw new Error('Connection settings are not ready. Reopen the panel and retry.');
+                connector = openConnector(endpoint, clientId, connector);
+            }
             rpc = new NativeRpc(endpoint, () => connector, value => { guard(epoch); stage = value; progress(); }, recovery ? 5000 : 2000); pending = rpc;
             const started = performance.now();
             await rpc.connect(deadline, budgetMs => {

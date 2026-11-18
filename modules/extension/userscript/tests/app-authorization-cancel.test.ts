@@ -95,6 +95,7 @@ async function fixture(canList = true, holdStartupAction?: string) {
     let blockedAction: string | undefined = holdStartupAction;
     let held: Record<string, any> | undefined;
     let permissionRequests = 0;
+    let protocolRequests = 0;
     const respond = (request: Record<string, any>) => emit('message', {
         isTrusted: true, source: window, origin: endpoint.origin,
         data: {
@@ -105,6 +106,7 @@ async function fixture(canList = true, holdStartupAction?: string) {
     const fakeWindow: Record<string, any> = {
         postMessage(request: Record<string, any>) {
             if (request.kwConnect !== 'request') return;
+            protocolRequests++;
             if (request.action === 'kwx-get-entries') permissionRequests++;
             if (request.action === blockedAction) {
                 blockedAction = undefined;
@@ -197,6 +199,7 @@ async function fixture(canList = true, holdStartupAction?: string) {
         host, ui, storage, cycle, lockState,
         publications: () => publications,
         permissionRequests: () => permissionRequests,
+        protocolRequests: () => protocolRequests,
         async beginAuthorization(action = 'ping') {
             held = undefined;
             blockedAction = action;
@@ -205,6 +208,8 @@ async function fixture(canList = true, holdStartupAction?: string) {
         },
         lateReply() { expect(held).toBeDefined(); respond(held!); held = undefined; },
         pageHide(persisted: boolean) { emit('pagehide', { persisted }); },
+        pageShow(persisted: boolean) { emit('pageshow', { persisted }); },
+        bodyMutation() { changed(); },
         foreground() { emit('focus'); emit('visibilitychange'); ui.onOpen(); changed(); }
     };
 }
@@ -215,6 +220,96 @@ test('ordinary hello, probe and release allow another session on the same host',
     await f.cycle();
     expect(f.host.diagnostics()).toMatchObject({ live: true, selected: true, locked: false });
     expect(f.publications()).toBe(1);
+});
+
+test('body mutations preserve an authorized grant while explicit reauthorization remains allowed', async () => {
+    const f = await fixture();
+    const original = f.storage.get(routeKey);
+    const requests = f.protocolRequests();
+    const authorization = f.host.diagnostics().authorization;
+    f.bodyMutation(); f.foreground();
+    await settle();
+    expect(f.protocolRequests()).toBe(requests);
+    expect(f.publications()).toBe(1);
+    expect(f.host.diagnostics().authorization).toBe(authorization);
+    expect(f.storage.get(routeKey)).toEqual(original);
+    await f.cycle();
+
+    await f.beginAuthorization();
+    expect(f.ui.connectionSnapshot()).toMatchObject({ authorized: true, authorizing: true });
+    f.lateReply();
+    await settle();
+    expect(f.protocolRequests()).toBeGreaterThan(requests);
+    expect(f.publications()).toBe(2);
+    expect(f.storage.get(routeKey)).toMatchObject({ host: original.host, publicKey: original.publicKey });
+    expect(f.storage.get(routeKey).authorizationRevision).toBeGreaterThan(original.authorizationRevision);
+    expect(f.ui.connectionSnapshot()).toMatchObject({ authorized: true, authorizing: false });
+    expect(f.permissionRequests()).toBe(0);
+    await f.cycle();
+});
+
+test('cached page returns resume signed RPC without republishing the authorized grant', async () => {
+    const f = await fixture();
+    const original = f.storage.get(routeKey);
+    const requests = f.protocolRequests();
+    await f.cycle();
+
+    for (let visit = 0; visit < 3; visit++) {
+        const authorization = f.host.diagnostics().authorization;
+        f.pageHide(true);
+        expect(f.host.diagnostics()).toMatchObject({ live: false, hasSession: false, authorization: authorization + 1 });
+        f.pageShow(true);
+        f.bodyMutation(); f.foreground();
+        await settle();
+        // Pause fences old work, but the saved publication still names this App.
+        // A new signed session must work without equating these two generations.
+        expect(f.publications()).toBe(1);
+        expect(f.protocolRequests()).toBe(requests);
+        expect(f.storage.get(routeKey)).toEqual(original);
+        expect(f.host.diagnostics()).toMatchObject({ live: true, selected: true, locked: false, authorization: authorization + 1 });
+        expect(f.ui.connectionSnapshot()).toMatchObject({ authorized: true, authorizing: false });
+        await f.cycle();
+    }
+    expect(f.permissionRequests()).toBe(0);
+});
+
+test('body mutations do not repeat explicit authorization after disconnect, lock and unlock', async () => {
+    const f = await fixture();
+    const original = f.storage.get(routeKey);
+    const requests = f.protocolRequests();
+    f.ui.actions.get('revoke')!({ isTrusted: true });
+    await settle();
+    expect(f.storage.has(routeKey)).toBe(false);
+    f.lockState(false);
+    f.lockState(true);
+    f.bodyMutation(); f.foreground();
+    await settle();
+    expect(f.host.diagnostics().live).toBe(false);
+    expect(f.ui.connectionSnapshot()).toMatchObject({ authorized: false, authorizing: false });
+    expect(f.storage.has(routeKey)).toBe(false);
+    expect(f.publications()).toBe(1);
+    expect(f.protocolRequests()).toBe(requests);
+
+    await f.beginAuthorization();
+    f.lateReply();
+    await settle();
+    expect(f.publications()).toBe(2);
+    expect(f.storage.get(routeKey)).toMatchObject({ host: original.host, publicKey: original.publicKey });
+    const restored = f.storage.get(routeKey);
+    const authorizedRequests = f.protocolRequests();
+    const authorization = f.host.diagnostics().authorization;
+    await f.cycle();
+
+    // Exercise only the body observer: foreground retry already checks authorized.
+    f.bodyMutation();
+    await settle();
+    expect(f.publications()).toBe(2);
+    expect(f.protocolRequests()).toBe(authorizedRequests);
+    expect(f.storage.get(routeKey)).toEqual(restored);
+    expect(f.host.diagnostics()).toMatchObject({ live: true, selected: true, locked: false, authorization });
+    expect(f.ui.connectionSnapshot()).toMatchObject({ authorized: true, authorizing: false });
+    expect(f.permissionRequests()).toBe(0);
+    await f.cycle();
 });
 
 test.each(['ping', 'kwx-features'])

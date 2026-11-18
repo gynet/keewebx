@@ -1,18 +1,18 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.20
+# Userscripts on iOS: KeeWebX Connect 0.6.21
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
-login fields on other websites. Each website document gets a direct MessagePort
+login fields on other websites. Each trusted lookup or connection test gets a fresh direct MessagePort
 to the same original App. A temporary connection page closes itself after the website verifies App readiness. The website
 then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.20)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.20/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.21)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.21/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [Current connection flow and diagrams](docs/connection-architecture.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.20 release notes](docs/release-0.6.20.md)
+· [0.6.21 release notes](docs/release-0.6.21.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -23,7 +23,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.20** at both ends. The App reload
+   App and the login website to load **Connect 0.6.21** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
@@ -32,10 +32,11 @@ Forms are never submitted automatically.
    account listing in the native permission dialog. Explicit disconnect still
    requires authorization again.
 4. On a login website, focus a username/password field, tap the key, and select
-   a matching account. The first connection in that document opens a small
+   a matching account. Each new lookup or connection test opens a small
    connection page, finds the original App, and automatically closes the page
    after handing off the port. The website verifies the App signature before
-   using its connection. Further lookups in that document reuse the direct port.
+   using its connection. One lookup, account selection and fill share that port;
+   the next lookup replaces it. App authorization is retained.
 
 ## Everyday use
 
@@ -52,8 +53,9 @@ The KeeWebX App keeps its own Connect settings entry.
 
 Tap the key to check the connection immediately. If you have not selected a login
 field, the panel runs **Test connection** automatically and displays the result.
-It reuses an available connection or opens the existing temporary handoff page
-when needed. This check does not list accounts or read credential fields.
+It opens a temporary handoff page and replaces any previous physical port.
+The page closes after signed App readiness is verified. This check does not
+list accounts or read credential fields.
 After selecting a login field, tapping the key keeps the existing account lookup
 behavior. Merely loading a page or detecting a form does not start a connection.
 
@@ -86,13 +88,12 @@ blocks new setup while an existing signed connection can finish its request.
 Remote diagnostics and support-command polling were removed in 0.6.11.
 
 A delayed discovery can resume on the same temporary page. A newly authenticated
-port can retry a timed-out first handshake on the same port. If a previously working
-port stalls during a later handshake, the script closes it, checks the saved App
-grant and tries the encrypted local connection to that App. This recovery opens
-no new page during that operation. The next trusted lookup tries direct connection
-again instead of remembering the fallback for later operations. Every lookup creates
-a new encrypted session and obtains a fresh account list. Expired responses are
-ignored; credential requests retain their original deadlines and permission checks.
+port can retry a timed-out first handshake within that operation. Classified setup
+failures can use the existing encrypted local mailbox after checking the saved App
+grant. Each subsequent trusted lookup or test starts a new physical handoff; it
+does not inherit an old port or a preference for mailbox recovery. Every lookup
+also creates a new encrypted session and obtains a fresh account list. Expired
+responses are ignored; credential deadlines and permission checks are unchanged.
 
 
 Keep the original App tab open. **Test connection** checks its signed response
@@ -104,7 +105,8 @@ continues after return. Closing the panel cancels the request.
 | Event | Result |
 |---|---|
 | Temporary page closes or handoff worker stops | Established direct ports continue |
-| Website is hidden | Port remains usable while the document can execute |
+| A new lookup or test starts | Previous port is closed; a temporary page hands off a new port |
+| Website is hidden | Delivery depends on browser scheduling; a past reply is not proof of current liveness |
 | Website refreshes, navigates or closes | Its old port is released; a new document needs a new handoff |
 | App refreshes or closes | All old ports stop; reconnect to the selected App |
 | Database locks | Credential operations stop; the transport can remain connected |

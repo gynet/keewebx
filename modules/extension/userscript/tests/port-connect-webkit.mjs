@@ -1,9 +1,11 @@
 // Focused production smoke: real App/KDBX/consent, with only GM adapted in a WebKit user world.
-// Build the current installer and dist assets, then run: node modules/extension/userscript/tests/port-connect-webkit.mjs
+// With the current installer and dist assets available, run: node modules/extension/userscript/tests/port-connect-webkit.mjs
 // KWX_BUN selects Bun; KWX_WEBKIT_OUTPUT selects the disposable artifact directory.
+// KWX_WEBKIT_INSTALLER selects an existing installer for a negative control without changing production assets.
 // KWX_BLOCK_HELPER_CLOSE=1 blocks only userscript-held helper.close() calls.
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
 // KWX_WEBKIT_APP_REOPEN=1 runs only real App and website close/reopen acceptance.
+// KWX_WEBKIT_FRESH_OPERATIONS=1 focuses repeated probes, App visit/return, website reopen, and explicit reconnect.
 // KWX_WEBKIT_DELAY_DISCOVERY_MS=24000 also delays App delivery and mailbox scans in that focused run.
 import { webkit, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
@@ -16,11 +18,16 @@ import { createServer } from 'node:https';
 import { once } from 'node:events';
 
 const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
-const VERSION = readFileSync(join(ROOT, 'modules/extension/userscript/src/version.ts'), 'utf8').match(/CONNECT_VERSION\s*=\s*'([^']+)'/)[1];
+const INSTALLER_PATH = resolve(process.env.KWX_WEBKIT_INSTALLER || join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'));
+const SOURCE_VERSION = readFileSync(join(ROOT, 'modules/extension/userscript/src/version.ts'), 'utf8').match(/CONNECT_VERSION\s*=\s*'([^']+)'/)[1];
+const VERSION = process.env.KWX_WEBKIT_INSTALLER
+    ? readFileSync(INSTALLER_PATH, 'utf8').match(/^\/\/ @version\s+(\S+)\s*$/m)?.[1] : SOURCE_VERSION;
 const OUT = resolve(process.env.KWX_WEBKIT_OUTPUT || mkdtempSync(join(tmpdir(), 'keewebx-port-webkit-')));
 const PASSWORD = 'Disposable-port-vault-2026!';
 const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
 const FOCUS_APP_REOPEN = process.env.KWX_WEBKIT_APP_REOPEN === '1';
+const FOCUS_FRESH_OPERATIONS = process.env.KWX_WEBKIT_FRESH_OPERATIONS === '1';
+if (FOCUS_APP_REOPEN && FOCUS_FRESH_OPERATIONS) throw new Error('Select only one WebKit focus');
 const DISCOVERY_DELAY_MS = Number(process.env.KWX_WEBKIT_DELAY_DISCOVERY_MS || 0);
 if (DISCOVERY_DELAY_MS && (!FOCUS_APP_REOPEN || !Number.isFinite(DISCOVERY_DELAY_MS)
     || DISCOVERY_DELAY_MS < 17000 || DISCOVERY_DELAY_MS > 30000))
@@ -48,16 +55,16 @@ const WEBSITE_ORIGINS = [...ACCOUNTS.slice(0, 2), CHOICE_ACCOUNTS[0]].map(accoun
 const CASES = [
     'authorize original App once with encrypted KDBX and native consent',
     'helper stays open until signed App ready, then opener self-closes it while hello is held and a cached retry survives reply loss',
-    'site B fills and repeated Test connection reuses both physical ports to the same App',
+    'each trusted lookup and Test connection opens one fresh physical port to the same App',
     'an open settings panel overlapping login fields can start lookup through its visible controls',
     'after three successful fills, inner and outer reply loss recovers with one logical request per operation',
     'lost first list and detail requests resend the same signed packet with one logical App request',
-    '24 alternating lookup and fill cycles recover periodic losses and UI cancellation on both physical ports',
+    '24 alternating lookup and fill cycles recover periodic losses and UI cancellation on fresh operation ports',
     'toggle key closes and cancels pending lookup before late encrypted replies',
     'toggle key closes and cancels pending fill before late encrypted replies',
     'site A reload rebuilds transport to the original App',
     'trusted opener self-closes the helper after signed App readiness while remote close is blocked',
-    'unfocused key tests connection without account reads; later lookup reuses its port and cancellation survives form changes',
+    'unfocused key tests connection without account reads; later lookup opens a fresh port and cancellation survives form changes',
     'native opt-in persists across reload and fills a single match; opt-out restores manual selection',
     'opt-in keeps multiple matches as a choice and narrow panels fit normal and keyboard viewports',
     'after both websites close a fresh site finds the original App despite dropped discovery-port replies'
@@ -71,6 +78,7 @@ const report = { browser: 'webkit', headless: true, nativeIOSVerified: false, re
     isolatedWorld: 'WebKit utility world', gmFixture: 'DOM events/main-world binding/Node Map', helperCrossCloseBlocked: BLOCK_HELPER_CLOSE,
     started: new Date().toISOString(), steps: [], errors: [] };
 const values = new Map(), helpers = new Map(), sockets = new Set(), requests = new Map();
+const websiteOperations = [], currentOperations = new WeakMap();
 let browser, context, server, app, first, second, appOrigin, appURL, routeKey, approved, originalApp;
 let appNavigations = 0;
 let expectedAppNavigations = 1, expectedConsentCount = 1;
@@ -95,6 +103,17 @@ const consent = () => app.getByRole('dialog', { name: 'Allow browser extension a
 const isHelper = url => url.startsWith(appOrigin + '/connect-port/relay.html');
 async function action(page, name) {
     await page.bringToFront();
+    const startsOperation = page !== app && (['lookup', 'probe', 'open'].includes(name)
+        || name === 'toggle' && await shadow(page, 'section', 'hidden'));
+    if (startsOperation) {
+        const previous = currentOperations.get(page);
+        if (previous && !previous.checked) await checkOperation(page);
+        const state = await snapshot(page);
+        const operation = { action: name, boot: state.boot, offset: state.packets.length, helpersBefore: helpers.size,
+            previousPorts: state.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request')
+                .map(item => ({ port: item.port, connection: item.data.connectionId })), checked: false };
+        currentOperations.set(page, operation); websiteOperations.push(operation);
+    }
     const point = await utility(page, `(() => {
         const button = __kwxWebKit.roots.get(document.getElementById('keewebx-userscript-connect'))?.querySelector('[data-action="${name}"]');
         if (!button || button.disabled) throw new Error('Control missing or disabled: ${name}');
@@ -173,16 +192,16 @@ async function appCloseReopenAcceptance() {
     const count = await reopenAppThenWebsite();
     const lists = await entryReads(), reads = await fieldReads();
     await lookup(first, ACCOUNTS[0]); await closedHelper(first, count); await fill(first, ACCOUNTS[0]);
-    const port = await physicalPort(first);
     for (let cycle = 0; cycle < 2; cycle++) {
         await testConnection(first);
         await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
-        expect(await physicalPort(first)).toEqual(port); expect(helpers.size).toBe(count + 1);
     }
+    expect(helpers.size).toBe(count + 7);
     // Reopening the panel with its previously focused login field also runs lookup.
     expect(await entryReads()).toBe(lists + 5); expect(await fieldReads()).toBe(reads + 3);
     const receiving = await snapshot(app), handoffs = receiving.attachments.filter(item => item.data.kind === 'attach-port');
-    expect(handoffs).toHaveLength(1);
+    expect(handoffs).toHaveLength(7);
+    expect(new Set(handoffs.map(item => item.data.connectionId)).size).toBe(7);
     expect(handoffs.every(item => item.trusted && item.worker === appOrigin + '/connect-port/worker.js'
         && item.data.appBoot === approved.host && item.data.endpoint === appURL)).toBe(true);
     const outgoing = (await snapshot(first)).packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
@@ -191,8 +210,50 @@ async function appCloseReopenAcceptance() {
     await sameApp(); await noHelpers();
     return { realAppClosed: true, persistedVaultReopened: true, savedGrantRestored: true, additionalConsentDialogs: 0,
         changedAppHost: true, changedAppOwner: true, websiteReopenedAfterUnlock: true,
-        successfulFills: 3, repeatedConnectionTests: 2, helpersOpened: 1, physicalPortReused: true,
+        successfulFills: 3, repeatedConnectionTests: 2, helpersOpened: 7, distinctOperationPorts: 7,
+        lookupSelectionFillRetainsSession: true,
         appNavigations, faultInjected: false };
+}
+async function freshOperationsAcceptance() {
+    const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+    const operationsBefore = websiteOperations.length, ports = [];
+    let website;
+    try {
+        for (let visit = 0; visit < 2; visit++) {
+            const before = helpers.size;
+            website = await context.newPage(); await website.goto(ACCOUNTS[0].url); await ready(website);
+            ports.push(await connectWithoutFieldFocus(website, before));
+            for (let attempt = 0; attempt < 2; attempt++) {
+                await testConnection(website); ports.push(await physicalPort(website));
+            }
+            await testConnection(website, 'open'); ports.push(await physicalPort(website));
+            expect(helpers.size).toBe(before + 4);
+            expect(await entryReads()).toBe(lists + visit); expect(await fieldReads()).toBe(reads + visit);
+            const traffic = (await windowTraffic()).requests.length, packets = (await snapshot(website)).packets.length;
+            await app.bringToFront(); await sameApp(); await website.bringToFront();
+            await website.waitForTimeout(250);
+            expect(helpers.size).toBe(before + 4);
+            expect((await windowTraffic()).requests).toHaveLength(traffic);
+            expect((await snapshot(website)).packets).toHaveLength(packets);
+            await emptyFields(website); await lookup(website, ACCOUNTS[0]);
+            const lookupPort = await physicalPort(website); ports.push(lookupPort);
+            await fill(website, ACCOUNTS[0]);
+            expect(await physicalPort(website)).toEqual(lookupPort);
+            expect(helpers.size).toBe(before + 5);
+            await website.close(); website = undefined;
+            await sameApp(); await noHelpers();
+        }
+        expect(ports[5].boot).not.toBe(ports[0].boot);
+        expect(new Set(ports.map(port => port.connection)).size).toBe(10);
+        expect(new Set(ports.map(port => port.boot + ':' + port.port)).size).toBe(10);
+        expect(helpers.size).toBe(count + 10);
+        expect(websiteOperations.slice(operationsBefore)).toHaveLength(10);
+        expect(websiteOperations.slice(operationsBefore).every(operation => operation.checked)).toBe(true);
+        expect(await entryReads()).toBe(lists + 2); expect(await fieldReads()).toBe(reads + 2);
+        return { repeatedConnectionTests: 4, explicitReconnects: 2, appVisitsAndReturns: 2, websiteClosedAndReopened: true,
+            distinctOperationPorts: 10, helpersOpened: 10, successfulFills: 2, lookupSelectionFillRetainsSession: true,
+            additionalConsentDialogs: 0, originalAppReused: true, accountReadsBeforeLookup: 0 };
+    } finally { if (website && !website.isClosed()) await website.close(); }
 }
 async function delayedReopenedAppAcceptance() {
     const count = await reopenAppThenWebsite();
@@ -282,13 +343,16 @@ async function lookup(page, account) {
     return bounded('Account lookup', async remaining => {
         const reads = await fieldReads();
         await startLookup(page); await matching(page, account, remaining);
+        await checkOperation(page);
         expect(await fieldReads()).toBe(reads);
         remaining();
     });
 }
 async function fill(page, account) {
     return bounded('Selected account fill', async remaining => {
+        await checkOperation(page);
         const reads = await fieldReads(), statusOffset = (await snapshot(page)).statuses.length;
+        const port = await physicalPort(page), count = helpers.size, traffic = await windowTraffic();
         await action(page, 'entry-0');
         await expect(page.locator('#username')).toHaveValue(account.user, { timeout: remaining() });
         await expect(page.locator('#login-password')).toHaveValue(account.password, { timeout: remaining() });
@@ -301,6 +365,12 @@ async function fill(page, account) {
             expect(index, `Selection must show ${text} in order`).toBeGreaterThan(previous);
             previous = index;
         }
+        expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count);
+        const after = await windowTraffic();
+        for (const name of ['ping', 'change-public-keys', 'kwx-pair'])
+            expect(after.logicalRequests[name], 'Selecting an account must retain its existing protocol session').toBe(traffic.logicalRequests[name]);
+        await checkOperation(page);
+        assertAccountAuthority((await snapshot(page)).packets);
         await sameApp(); await noHelpers();
         remaining();
     });
@@ -337,7 +407,7 @@ async function connectWithoutFieldFocus(page, before) {
     expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
     expect((await windowTraffic()).requests).toHaveLength(requests);
     await emptyFields(page); await closedHelper(page, before);
-    return physicalPort(page);
+    return checkOperation(page);
 }
 async function preferenceCheckbox(page, expected) {
     const selector = '[data-action="auto-fill-single"]';
@@ -391,7 +461,7 @@ async function testLauncherVisibility() {
         await action(page, 'accounts-tab'); await action(page, 'lookup');
         await expect.poll(() => status(page), { timeout: OPERATION_BUDGET }).toContain('Found 2 matching account');
         expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists + 1);
-        expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count + 1);
+        expect(await checkOperation(page)).not.toEqual(port); expect(helpers.size).toBe(count + 2);
         await emptyFields(page);
         await action(page, 'close');
         // The earlier lookup used detected fields, so the key still has no selected field.
@@ -399,6 +469,7 @@ async function testLauncherVisibility() {
         try {
             await action(page, 'toggle');
             await expect.poll(async () => (await snapshot(app)).held, { timeout: OPERATION_BUDGET }).toBeGreaterThan(0);
+            await checkOperation(page);
             await action(page, 'toggle');
             expect(await shadow(page, 'section', 'hidden')).toBe(true);
             const stopped = await status(page);
@@ -411,7 +482,7 @@ async function testLauncherVisibility() {
         } finally { await utility(app, '__kwxWebKit.release()'); }
         await action(page, 'toggle');
         await expect.poll(() => status(page), { timeout: OPERATION_BUDGET }).toContain('Connected to the authorized KeeWebX tab');
-        expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count + 1);
+        await checkOperation(page); expect(helpers.size).toBe(count + 4);
         await action(page, 'close');
         await page.locator('#fixture-login').evaluate(form => { form.hidden = true; });
         await expect.poll(() => shadow(page, '[data-action="toggle"]', 'hidden')).toBe(true);
@@ -421,7 +492,7 @@ async function testLauncherVisibility() {
         expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists + 1);
         await sameApp(); await noHelpers();
         return { hiddenWithoutLogin: true, followsFormVisibility: true, requestsBeforeTrustedKey: 0,
-            keyOpensVerifiedHelper: true, keyAccountRequests: 0, lookupReusesPort: true,
+            keyOpensVerifiedHelper: true, keyAccountRequests: 0, lookupUsesFreshPort: true, helpersOpened: 4,
             canceledKeyProbeStaysStopped: true, formHideAddsRequests: 0, defaultAutoFillSingle: false };
     } finally { await page.close(); }
 }
@@ -454,14 +525,14 @@ async function testSinglePreference() {
         expect(clicks.filter(item => item.action.startsWith('entry-'))).toEqual([]);
         assertAccountAuthority(observed.packets);
         expect(await shadow(page, 'section')).not.toContain(account.password);
-        expect(await physicalPort(page)).toEqual(port);
-        await closedHelper(page, count + 1);
+        expect(await checkOperation(page)).not.toEqual(port);
+        await closedHelper(page, count + 2);
         await page.reload(); await ready(page);
         await setAutoFillSingle(page, false);
         await clearFields(page); await lookup(page, account); await emptyFields(page);
-        await closedHelper(page, count + 2);
+        await closedHelper(page, count + 4);
         await fill(page, account);
-        expect(helpers.size).toBe(count + 3);
+        expect(helpers.size).toBe(count + 5);
         await sameApp(); await noHelpers();
         return { persistedInPrivateGM: true, automaticAccountClicks: 0, automaticFieldRequests: 1,
             automaticListRequests: 1, unfocusedKeyDoesNotAutoFill: true, submissions: 0, optOutRestoresManualChoice: true };
@@ -518,15 +589,15 @@ async function testChoicePreference() {
         expect(await entryReads()).toBe(lists + 1);
         expect((await snapshot(page)).actions.slice(offset).filter(item => item.action.startsWith('entry-'))).toEqual([]);
         assertAccountAuthority((await snapshot(page)).packets);
-        await closedHelper(page, count);
+        await closedHelper(page, count + 1); await checkOperation(page);
         const firstEntry = await shadow(page, '[data-action="entry-0"]');
         const selected = CHOICE_ACCOUNTS.find(account => firstEntry.includes(account.title));
         expect(selected).toBeTruthy();
         await fill(page, selected);
         await page.reload(); await ready(page);
         await setAutoFillSingle(page, false);
-        await closedHelper(page, count + 1);
-        expect(helpers.size).toBe(count + 2);
+        await closedHelper(page, count + 2); await checkOperation(page);
+        expect(helpers.size).toBe(count + 3);
         await sameApp(); await noHelpers();
         return { matchingAccounts: 2, automaticFieldRequests: 0, manualSelectionStillFills: true,
             preferenceRestored: false, captures, keyboardViewport: 'resized desktop viewport' };
@@ -596,10 +667,11 @@ async function recoverOperation(page, account, kind, wireAction) {
     await fill(page, account);
     if (wireAction === 'kwx-get-entry-fields') recovery = await recoveredDrop(page, ticket);
     expect(await fieldReads()).toBe(before.fields + 1);
-    expect(await physicalPort(page)).toEqual(before.port);
-    expect(helpers.size).toBe(before.helpers);
+    expect(await physicalPort(page)).not.toEqual(before.port);
+    expect(helpers.size).toBe(before.helpers + 1);
     await sameApp(); await noHelpers();
-    return { ...recovery, logicalFieldRequests: 1, logicalAccountListRequests: 1, physicalPortReused: true };
+    return { ...recovery, logicalFieldRequests: 1, logicalAccountListRequests: 1,
+        freshOperationPort: true, lookupSelectionFillRetainsSession: true, helpersOpened: 1 };
 }
 async function recoverInnerReply(page, account) {
     await clearFields(page); await lookup(page, account);
@@ -666,7 +738,11 @@ async function cancelWithToggle(page, account, operation) {
             expect(await page.evaluate(() => window.credentialInputEvents)).toBe(events);
             expect(await fieldReads()).toBe(reads + (operation === 'fill' ? 1 : 0));
             expect(await entryReads()).toBe(lists + (operation === 'lookup' ? 1 : 0));
-            expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count);
+            if (operation === 'fill') {
+                expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count);
+            } else {
+                expect(await checkOperation(page)).not.toEqual(port); expect(helpers.size).toBe(count + 1);
+            }
             await sameApp(); await noHelpers();
             remaining();
         } finally { await app.evaluate(() => __kwxFixture.releaseResponses()); }
@@ -697,19 +773,57 @@ async function cancelDroppedFill(page, account) {
         await sameApp(); await noHelpers();
     });
 }
-async function testConnection(page) {
+async function testConnection(page, control = 'probe') {
     if (await shadow(page, 'section', 'hidden')) {
         await action(page, 'toggle');
         await expect.poll(() => shadow(page, '[data-action="lookup"]', 'disabled'), { timeout: 30000 }).toBe(false);
     }
-    await action(page, 'config-tab'); await action(page, 'probe');
+    await action(page, 'config-tab');
+    const reads = await fieldReads(), lists = await entryReads(), requests = (await windowTraffic()).requests.length;
+    await action(page, control);
     await expect.poll(() => status(page), { timeout: 15000 }).toContain('Connected to the authorized KeeWebX tab');
+    await checkOperation(page);
+    const operation = currentOperations.get(page), state = await snapshot(page);
+    const sent = state.packets.slice(operation.offset).filter(item => item.direction === 'sent' && item.data.kind === 'request');
+    expect(sent.some(item => item.data.value?.packet?.operation === 'hello')).toBe(true);
+    expect(sent.some(item => item.data.value?.packet?.operation === 'probe')).toBe(true);
+    expect(sent.some(item => item.data.value?.packet?.operation === 'wire')).toBe(false);
+    expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
+    expect((await windowTraffic()).requests).toHaveLength(requests);
+    await sameApp();
 }
 async function physicalPort(page) {
     const state = await snapshot(page), sent = state.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
+    expect(sent.length).toBeGreaterThan(0);
+    const latest = sent.at(-1);
+    // Every physical port has exactly one connection ID, including historical operations.
+    for (const connection of new Set(sent.map(item => item.data.connectionId)))
+        expect(new Set(sent.filter(item => item.data.connectionId === connection).map(item => item.port)).size).toBe(1);
+    for (const port of new Set(sent.map(item => item.port)))
+        expect(new Set(sent.filter(item => item.port === port).map(item => item.data.connectionId)).size).toBe(1);
+    return { boot: state.boot, port: latest.port, connection: latest.data.connectionId };
+}
+async function checkOperation(page) {
+    const operation = currentOperations.get(page);
+    expect(operation, 'A direct handoff requires a trusted website operation').toBeTruthy();
+    const state = await snapshot(page), packets = state.packets.slice(operation.offset);
+    expect(state.boot).toBe(operation.boot);
+    const sent = packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
+    expect(sent.length).toBeGreaterThan(0);
     const ports = [...new Set(sent.map(item => item.port))], connections = [...new Set(sent.map(item => item.data.connectionId))];
-    expect(ports).toHaveLength(1); expect(connections).toHaveLength(1);
-    return { boot: state.boot, port: ports[0], connection: connections[0] };
+    expect(ports, 'One physical port throughout lookup, selection, fill, and retries').toHaveLength(1);
+    expect(connections, 'One direct session per trusted operation').toHaveLength(1);
+    const wire = sent.filter(item => item.data.value?.packet?.operation === 'wire');
+    if (wire.length) {
+        const scopes = [...new Set(wire.map(item => item.data.value.packet.scope))];
+        expect(scopes, 'Lookup and selection retain one authenticated RPC scope').toHaveLength(1);
+        expect(typeof scopes[0]).toBe('string'); expect(scopes[0]).not.toBe('');
+    }
+    expect(operation.previousPorts.map(item => item.port), 'A trusted operation must open a fresh physical port').not.toContain(ports[0]);
+    expect(operation.previousPorts.map(item => item.connection), 'A trusted operation must use a fresh connection ID').not.toContain(connections[0]);
+    await closedHelper(page, operation.helpersBefore);
+    operation.port = ports[0]; operation.connection = connections[0]; operation.checked = true;
+    return physicalPort(page);
 }
 function signingPublicKey() {
     return createPublicKey({ format: 'der', type: 'spki', key: Buffer.concat([
@@ -1079,7 +1193,7 @@ function adapter(marker, appOrigin, blockHelperClose, allowMailbox) {
 }
 
 try {
-    const installer = readFileSync(join(ROOT, 'modules/extension/userscript/keewebx-connect.user.js'), 'utf8');
+    const installer = readFileSync(INSTALLER_PATH, 'utf8');
     expect(installer.match(/^\/\/ @version\s+(\S+)\s*$/m)?.[1]).toBe(VERSION);
     for (const asset of ['index.html', 'connect-port/relay.html', 'connect-port/relay.js', 'connect-port/worker.js'])
         expect(readFileSync(join(ROOT, 'dist', asset)).length).toBeGreaterThan(0);
@@ -1124,7 +1238,8 @@ try {
     routeKey = 'keewebx-native-connect-v1:selected:' + appURL;
     const bundle = installer.replaceAll('https://keewebx.app', appOrigin);
     report.appOrigin = appOrigin; report.endpointSubstituted = true;
-    report.installer = { bytes: Buffer.byteLength(installer), sha256: sha256(installer), executedSha256: sha256(bundle), onlyChange: 'replaceAll(https://keewebx.app, appOrigin)' };
+    report.installer = { path: INSTALLER_PATH, version: VERSION, sourceVersion: SOURCE_VERSION,
+        bytes: Buffer.byteLength(installer), sha256: sha256(installer), executedSha256: sha256(bundle), onlyChange: 'replaceAll(https://keewebx.app, appOrigin)' };
     browser = await webkit.launch({ headless: true }); report.browserVersion = browser.version();
     context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 900 } });
     await context.exposeBinding('kwxHelperTrace', (_source, detail) => {
@@ -1245,6 +1360,10 @@ try {
         if (DISCOVERY_DELAY_MS) await step('a reopened App resumes delayed discovery and the same website request through the signed mailbox', delayedReopenedAppAcceptance);
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'app-close-reopen'; break acceptance;
     }
+    if (FOCUS_FRESH_OPERATIONS) {
+        await step('repeated probes and reconnect use fresh ports before lookup after App visit and website reopen', freshOperationsAcceptance);
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'fresh-operations'; break acceptance;
+    }
     await step('closing repeated App authorization restores the saved grant without another consent prompt', async () => {
         await app.bringToFront();
         await app.evaluate(() => { __kwxFixture.holdAction = 'kwx-features'; });
@@ -1322,17 +1441,21 @@ try {
         report.siteB = await physicalPort(second); expect(report.siteB.connection).not.toBe(report.siteA.connection);
         await first.locator('#username').fill(''); await first.locator('#login-password').fill('');
         await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
-        expect(await physicalPort(first)).toEqual(report.siteA); expect(helpers.size).toBe(2);
+        expect(await physicalPort(first)).not.toEqual(report.siteA); expect(helpers.size).toBe(3);
         const attached = (await snapshot(app)).attachments.filter(item => item.data.kind === 'attach-port');
-        expect(new Set(attached.map(item => item.data.connectionId)).size).toBe(2);
-        for (const [page, port] of [[first, report.siteA], [second, report.siteB]]) {
+        expect(new Set(attached.map(item => item.data.connectionId)).size).toBe(3);
+        const count = helpers.size;
+        for (const page of [first, second]) {
             for (let attempt = 0; attempt < 2; attempt++) {
+                const port = await physicalPort(page);
                 await testConnection(page);
-                expect(await physicalPort(page)).toEqual(port);
-                expect(helpers.size).toBe(2); await sameApp(); await noHelpers();
+                expect(await physicalPort(page)).not.toEqual(port);
+                await sameApp(); await noHelpers();
             }
         }
-        report.repeatedConnectionTests = { checks: 4, persistentPhysicalPorts: 2, idleHelpers: 0 };
+        // Opening each hidden panel also starts one lookup before its explicit probe.
+        expect(helpers.size).toBe(count + 6);
+        report.repeatedConnectionTests = { checks: 4, panelOpeningLookups: 2, distinctOperationPorts: 6, idleHelpers: 0 };
     });
     await step(CASES[3], async () => {
         const originalViewport = first.viewportSize();
@@ -1371,7 +1494,7 @@ try {
         return { recoveries };
     });
     await step(CASES[6], async () => {
-        const count = helpers.size, ports = [await physicalPort(first), await physicalPort(second)], reads = await fieldReads();
+        const count = helpers.size, reads = await fieldReads();
         let canceledRecoveries = 0;
         for (let index = 0; index < 24; index++) {
             const site = index % 2, page = [first, second][site], account = ACCOUNTS[site], mode = Math.floor(index / 2) % 6;
@@ -1379,22 +1502,24 @@ try {
             if (mode < 4) await recoverOperation(page, account, mode < 2 ? 'reply' : 'request',
                 mode % 2 ? 'kwx-get-entry-fields' : 'kwx-get-entries');
             else { await clearFields(page); await lookup(page, account); await fill(page, account); }
+            const lookupPort = await physicalPort(page);
             await testConnection(page); await action(page, 'close');
-            expect(await physicalPort(page)).toEqual(ports[site]); await sameApp(); await noHelpers();
+            expect(await physicalPort(page)).not.toEqual(lookupPort); await sameApp(); await noHelpers();
         }
         expect(await fieldReads()).toBe(reads + 24 + canceledRecoveries);
-        expect(helpers.size).toBe(count);
+        expect(helpers.size).toBe(count + 24 * 3 + canceledRecoveries);
         return { alternatingFills: 24, periodicDrops: 20, canceledRecoveries, logicalFieldRequests: 24 + canceledRecoveries,
-            persistentPhysicalPorts: 2, idleHelpers: 0, aggregateLookupOrFillBudget: OPERATION_BUDGET };
+            distinctOperationPorts: 24 * 3 + canceledRecoveries, idleHelpers: 0, aggregateLookupOrFillBudget: OPERATION_BUDGET };
     });
     await step(CASES[7], () => cancelWithToggle(first, ACCOUNTS[0], 'lookup'));
     await step(CASES[8], () => cancelWithToggle(first, ACCOUNTS[0], 'fill'));
     await step(CASES[9], async () => {
-        await first.reload(); await ready(first); expect(helpers.size).toBe(2);
-        await lookup(first, ACCOUNTS[0]); await closedHelper(first, 2); await fill(first, ACCOUNTS[0]);
+        const count = helpers.size, secondPort = await physicalPort(second);
+        await first.reload(); await ready(first); expect(helpers.size).toBe(count);
+        await lookup(first, ACCOUNTS[0]); await closedHelper(first, count); await fill(first, ACCOUNTS[0]);
         report.siteAReload = await physicalPort(first);
         expect(report.siteAReload.boot).not.toBe(report.siteA.boot); expect(report.siteAReload.connection).not.toBe(report.siteA.connection);
-        expect(await physicalPort(second)).toEqual(report.siteB);
+        expect(await physicalPort(second)).toEqual(secondPort);
     });
     await step(CASES[10], openerSelfClose);
     const beforePreferences = helpers.size;
@@ -1402,7 +1527,7 @@ try {
     await step(CASES[12], testSinglePreference);
     await step(CASES[13], testChoicePreference);
     preferenceHelperCount = helpers.size - beforePreferences;
-    expect(preferenceHelperCount).toBe(6);
+    expect(preferenceHelperCount).toBe(12);
     await step(CASES[14], async () => {
         await noHelpers(); await first.close(); await second.close(); first = second = undefined;
         expect(context.pages()).toEqual([app]); await sameApp();
@@ -1421,7 +1546,10 @@ try {
         const observed = await snapshot(app), attachments = observed.attachments.filter(item => item.data.kind === 'attach-port');
         const droppedDiscoveryPortReplies = observed.packets.filter(item => item.direction === 'dropped' && item.data.kind === 'app-ready').length;
         expect(droppedDiscoveryPortReplies).toBeGreaterThan(0);
-        expect(attachments).toHaveLength(5 + preferenceHelperCount);
+        expect(attachments).toHaveLength(websiteOperations.length);
+        expect(helpers.size).toBe(websiteOperations.length);
+        expect(websiteOperations.every(operation => operation.checked)).toBe(true);
+        expect(new Set(attachments.map(item => item.data.connectionId)).size).toBe(websiteOperations.length);
         expect(attachments.every(item => item.trusted && item.worker === appOrigin + '/connect-port/worker.js'
             && item.data.appBoot === approved.host && item.data.endpoint === appURL)).toBe(true);
         const envelopes = observed.packets.filter(item => item.data.value?.packet).map(item => item.data.value);
@@ -1431,7 +1559,7 @@ try {
         expect(sensitive.every(item => typeof item.packet.body.message === 'string' && typeof item.packet.body.nonce === 'string')).toBe(true);
         const readyProofs = observed.packets.filter(item => item.direction === 'sent' && item.data.kind === 'ready');
         const signedReadyVerified = [...helpers.values()].filter(helper => helper.signedReadyVerified).length;
-        expect(readyProofs).toHaveLength(5 + preferenceHelperCount); expect(signedReadyVerified).toBe(5 + preferenceHelperCount);
+        expect(readyProofs).toHaveLength(websiteOperations.length); expect(signedReadyVerified).toBe(websiteOperations.length);
         expect(readyProofs.every(item => validReadyProof(item.data) && item.data.appBoot === approved.host
             && item.data.endpoint === appURL && WEBSITE_ORIGINS.includes(item.data.siteOrigin))).toBe(true);
         const windowMessages = await windowTraffic();
@@ -1442,6 +1570,7 @@ try {
             workerRequestsViaHTTPS: requests.get('/connect-port/worker.js'), legacyMailboxUsed: false,
             logicalAppRequestsByAction: windowMessages.logicalRequests, physicalWindowPostsByAction: windowMessages.postAttempts };
     });
+    await step('repeated probes and reconnect use fresh ports before lookup after App visit and website reopen', freshOperationsAcceptance);
     await step('closing and reopening the App restores its saved vault and grant before a fresh website reconnects', appCloseReopenAcceptance);
     expect(report.errors).toEqual([]); report.passed = true;
     }
@@ -1461,6 +1590,7 @@ try {
     report.helpers = { opened: helpers.size, automaticallyClosed: [...helpers.values()].filter(helper => helper.automaticClosure).length,
         signedReadyVerified: [...helpers.values()].filter(helper => helper.signedReadyVerified).length,
         remaining: context?.pages().filter(page => isHelper(page.url())).length || 0, lifecycle: [...helpers.values()] };
+    report.websiteOperations = websiteOperations.map(({ previousPorts, offset, ...operation }) => operation);
     report.finished = new Date().toISOString(); report.output = OUT;
     writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
     await browser?.close();

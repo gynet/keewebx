@@ -12,7 +12,8 @@
 // FOCUS_FOREGROUND_FAILURE=1 checks a foreground GM timeout during signed hello.
 // FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
 // KWX_FOCUS_MAILBOX_RECOVERY=1 drops App discovery and the port's error to verify local recovery.
-// KWX_FOCUS_RELEASED_PORT_RECOVERY=1 checks mailbox recovery after a proven App port stops receiving requests.
+// KWX_FOCUS_RELEASED_PORT_RECOVERY=1 checks fresh direct operations after a released App port stops receiving requests.
+// KWX_FOCUS_FRESH_PORT=1 reproduces queued hello replies on a previously successful 0.6.20 port.
 // KWX_FOCUS_AUTH_CANCEL=1 checks recovery after closing repeated App authorization.
 // KWX_FOCUS_LAUNCHER=1 checks trusted key connection, visibility, preferences and repeated fills.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
@@ -44,6 +45,7 @@ const FOCUS_FOREGROUND_FAILURE = process.env.FOCUS_FOREGROUND_FAILURE === '1';
 const FOCUS_REVOKE = process.env.FASTFOCUS_REVOKE === '1';
 const FOCUS_MAILBOX_RECOVERY = process.env.KWX_FOCUS_MAILBOX_RECOVERY === '1';
 const FOCUS_RELEASED_PORT_RECOVERY = process.env.KWX_FOCUS_RELEASED_PORT_RECOVERY === '1';
+const FOCUS_FRESH_PORT = process.env.KWX_FOCUS_FRESH_PORT === '1';
 const FOCUS_AUTH_CANCEL = process.env.KWX_FOCUS_AUTH_CANCEL === '1';
 const FOCUS_LAUNCHER = process.env.KWX_FOCUS_LAUNCHER === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
@@ -291,20 +293,29 @@ async function matchingList(page, account, readsBefore, remaining = () => OPERAT
 }
 async function lookup(page, account) {
     return bounded('Account lookup', async remaining => {
-        const readsBefore = await fieldReads();
+        const readsBefore = await fieldReads(), before = await snapshot(page), count = helpers.size;
         await startLookup(page);
         await matchingList(page, account, readsBefore, remaining);
+        await freshOperation(page, before, count);
         remaining();
     });
 }
 async function fill(page, account) {
     return bounded('Selected account fill', async remaining => {
-        const readsBefore = await fieldReads(), statusOffset = (await snapshot(page)).statuses.length;
+        const before = await snapshot(page), count = helpers.size;
+        const readsBefore = await fieldReads(), statusOffset = before.statuses.length;
         await action(page, 'entry-0');
         await expect(page.locator('#username')).toHaveValue(account.user, { timeout: remaining() });
         await expect(page.locator('#login-password')).toHaveValue(account.password, { timeout: remaining() });
         expect(await fieldReads()).toBe(readsBefore + 1);
         expect(await page.evaluate(() => window.formSubmits)).toBe(0);
+        expect(helpers.size, 'Selection and fill must retain the lookup session').toBe(count);
+        const after = await snapshot(page);
+        const requests = before.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
+        const latest = requests.at(-1);
+        if (latest) expect(after.packets.slice(before.packets.length).filter(item => item.direction === 'sent'
+            && item.data.kind === 'request').every(item => item.port === latest.port
+            && item.data.connectionId === latest.data.connectionId)).toBe(true);
         const observed = (await snapshot(page)).statuses.slice(statusOffset);
         let previous = -1;
         for (const text of SELECTION_STATUSES) {
@@ -412,8 +423,8 @@ async function testLauncherVisibility() {
         await expect.poll(() => shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(false);
         await action(page, 'toggle');
         await untilStatus(page, /Connected to the authorized KeeWebX tab/);
-        expect(await physicalPort(page)).toEqual(port);
-        expect(helpers.size).toBe(count + 1);
+        differentPort(await physicalPort(page), port);
+        await closedHelper(page, count + 1);
         const packetsBeforeMutation = (await snapshot(page)).packets.length;
         await action(page, 'accounts-tab');
         await page.locator('#username').click();
@@ -444,14 +455,14 @@ async function testLauncherVisibility() {
         expect((await snapshot(page)).actions.at(-1)).toEqual({ action: 'lookup', trusted: true });
         await expect.poll(() => shadowValue(page, '[data-action="toggle"]', 'hidden')).toBe(true);
         await page.waitForTimeout(350);
-        expect(helpers.size).toBe(count + 1);
+        expect(helpers.size).toBe(count + 2);
         expect((await windowTraffic()).requests).toHaveLength(requests);
         expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(fields);
         expect((await snapshot(page)).packets).toHaveLength(packetsBeforeMutation);
         await expect(page.locator('#newsletter')).toHaveValue('');
         expect(await page.evaluate(() => [window.formSubmits, window.credentialInputEvents])).toEqual([0, 0]);
         await sameApp(); await noHelpers();
-        return { hiddenWithoutLogin: true, followsFormVisibility: true, keyStartsConnection: true, repeatedKeyReusesPort: true, accountRequestsBeforeLoginFocus: 0,
+        return { hiddenWithoutLogin: true, followsFormVisibility: true, keyStartsConnection: true, repeatedKeyUsesFreshPort: true, accountRequestsBeforeLoginFocus: 0,
             syntheticFocusIgnored: true, syntheticFocusRequests: 0, trustedCaptureFormMutationRequests: 0,
             changedFormHelpers: 0, changedFormAccountRequests: 0, changedFormFieldRequests: 0, defaultAutoFillSingle: false };
     } finally {
@@ -489,14 +500,14 @@ async function testSinglePreference() {
         expect(clicks.filter(item => item.action.startsWith('entry-'))).toEqual([]);
         assertAccountAuthority(observed.packets);
         expect(await shadowValue(page, 'section')).not.toContain(account.password);
-        await closedHelper(page, count + 1);
+        await closedHelper(page, count + 2);
         await archive(page);
         await page.reload(); await ready(page);
         await setAutoFillSingle(page, false);
         await clearFields(page); await lookup(page, account); await emptyFields(page);
-        await closedHelper(page, count + 2);
+        await closedHelper(page, count + 4);
         await fill(page, account);
-        expect(helpers.size).toBe(count + 3);
+        expect(helpers.size).toBe(count + 5);
         await sameApp(); await noHelpers();
         return { persistedInPrivateGM: true, automaticAccountClicks: 0, automaticFieldRequests: 1,
             automaticListRequests: 1, submissions: 0, optOutRestoresManualChoice: true };
@@ -553,7 +564,7 @@ async function testChoicePreference() {
         expect(await entryReads()).toBe(lists + 1);
         expect((await snapshot(page)).actions.slice(offset).filter(item => item.action.startsWith('entry-'))).toEqual([]);
         assertAccountAuthority((await snapshot(page)).packets);
-        await closedHelper(page, count);
+        await closedHelper(page, count + 1);
         const firstEntry = await shadowValue(page, '[data-action="entry-0"]');
         const selected = CHOICE_ACCOUNTS.find(account => firstEntry.includes(account.title));
         expect(selected).toBeTruthy();
@@ -561,8 +572,8 @@ async function testChoicePreference() {
         await archive(page);
         await page.reload(); await ready(page);
         await setAutoFillSingle(page, false);
-        await closedHelper(page, count + 1);
-        expect(helpers.size).toBe(count + 2);
+        await closedHelper(page, count + 2);
+        expect(helpers.size).toBe(count + 3);
         await sameApp(); await noHelpers();
         return { matchingAccounts: 2, automaticFieldRequests: 0, manualSelectionStillFills: true,
             preferenceRestored: false, captures, keyboardViewport: 'resized desktop viewport' };
@@ -626,21 +637,24 @@ async function recoverOperation(page, account, kind, wireAction) {
     let ticket, recovery;
     if (wireAction === 'kwx-get-entries') ticket = await armDrop(page, kind, wireAction);
     await lookup(page, account);
+    const operationPort = await physicalPort(page);
+    differentPort(operationPort, before.port);
     expect(await entryReads()).toBe(before.entries + 1);
     if (wireAction === 'kwx-get-entries') recovery = await recoveredDrop(page, ticket);
     else ticket = await armDrop(page, kind, wireAction);
     await fill(page, account);
     if (wireAction === 'kwx-get-entry-fields') recovery = await recoveredDrop(page, ticket);
     expect(await fieldReads()).toBe(before.fields + 1);
-    expect(await physicalPort(page)).toEqual(before.port);
-    expect(helpers.size).toBe(before.helpers);
+    expect(await physicalPort(page)).toEqual(operationPort);
+    expect(helpers.size).toBe(before.helpers + 1);
     await sameApp(); await noHelpers();
-    return { ...recovery, logicalFieldRequests: 1, logicalAccountListRequests: 1, physicalPortReused: true };
+    return { ...recovery, logicalFieldRequests: 1, logicalAccountListRequests: 1, freshOperationPort: true, lookupAndFillSharePort: true };
 }
 async function sameDocumentReinjection() {
     const pages = [app, first], hosts = await Promise.all(pages.map(page => page.locator('#keewebx-userscript-connect').elementHandle()));
     const before = await Promise.all(pages.map(snapshot)), siteDocument = await documentState(first);
-    const port = await physicalPort(first), count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+    let port = await physicalPort(first);
+    const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
     // App registrations exclude the fixture observer: one direct receiver.
     expect(before[0].workerMessageListeners).toHaveLength(1);
     expect(before[1].workerMessageListeners).toEqual([]);
@@ -654,7 +668,8 @@ async function sameDocumentReinjection() {
             // A retained DOM host alone cannot prove the original receiver still works.
             for (let cycle = 0; cycle < 3; cycle++) {
                 await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
-                expect(await physicalPort(first)).toEqual(port);
+                const current = await physicalPort(first);
+                differentPort(current, port); port = current;
             }
             for (const [index, page] of pages.entries()) {
                 await expect(page.locator('#keewebx-userscript-connect')).toHaveCount(1);
@@ -667,15 +682,15 @@ async function sameDocumentReinjection() {
                 expect(after.appReceivers).toBe(index === 0 ? 1 : 0);
             }
             expect(await documentState(first)).toEqual(siteDocument);
-            expect(helpers.size).toBe(count);
+            expect(helpers.size).toBe(count + reinjection * 3);
             await sameApp(); await noHelpers();
         }
         expect(await fieldReads()).toBe(reads + 6);
         expect(await entryReads()).toBe(lists + 6);
         return { reinjectionsPerDocument: 2, installerRunsPerDocument: 3, successfulFillsAfterReinjection: 6,
             connectWidgetsPerDocument: 1, appReceivers: 1, originalWorkerListenersRetained: true,
-            sameIsolatedWorld: true, sameAppAndWebsiteDocuments: true, physicalPortReused: true,
-            additionalHelpers: 0, additionalAppNavigations: 0, additionalConsentDialogs: 0 };
+            sameIsolatedWorld: true, sameAppAndWebsiteDocuments: true, freshOperationPorts: 6,
+            additionalHelpers: 6, additionalAppNavigations: 0, additionalConsentDialogs: 0 };
     } finally { await Promise.all(hosts.map(host => host.dispose())); }
 }
 
@@ -856,7 +871,7 @@ async function cancelWithToggle(page, account, operation) {
     return bounded(`Toggle cancels pending ${operation}`, async remaining => {
         await clearFields(page);
         if (operation === 'fill') await lookup(page, account);
-        const reads = await fieldReads(), lists = await entryReads(), port = await physicalPort(page), count = helpers.size;
+        const reads = await fieldReads(), lists = await entryReads(), previous = await physicalPort(page), count = helpers.size;
         const events = await page.evaluate(() => window.credentialInputEvents);
         const wireAction = operation === 'fill' ? 'kwx-get-entry-fields' : 'kwx-get-entries';
         await app.evaluate(wireAction => { __kwxNativeTest.holdAction = wireAction; }, wireAction);
@@ -864,6 +879,9 @@ async function cancelWithToggle(page, account, operation) {
             if (operation === 'fill') await action(page, 'entry-0'); else await startLookup(page);
             await expect.poll(() => app.evaluate(() => __kwxNativeTest.heldResponses.length),
                 { timeout: remaining(), intervals: [25, 50, 100] }).toBeGreaterThan(0);
+            const port = await physicalPort(page);
+            if (operation === 'lookup') differentPort(port, previous);
+            else expect(port).toEqual(previous);
             await emptyFields(page);
             const packet = (await snapshot(page)).packets.filter(item => item.direction === 'sent'
                 && item.data.value?.packet?.body?.action === wireAction).at(-1).data.value.packet;
@@ -883,7 +901,7 @@ async function cancelWithToggle(page, account, operation) {
             expect(await page.evaluate(() => window.credentialInputEvents)).toBe(events);
             expect(await fieldReads()).toBe(reads + (operation === 'fill' ? 1 : 0));
             expect(await entryReads()).toBe(lists + (operation === 'lookup' ? 1 : 0));
-            expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count);
+            expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count + (operation === 'lookup' ? 1 : 0));
             await sameApp(); await noHelpers();
             remaining();
         } finally { await app.evaluate(() => __kwxNativeTest.releaseResponses()); }
@@ -924,18 +942,135 @@ async function config(page) {
     await action(page, 'config-tab');
 }
 async function probe(page) {
+    const before = await snapshot(page), count = helpers.size;
     await action(page, 'probe');
     await untilStatus(page, /Connected to the authorized KeeWebX tab/);
+    await freshOperation(page, before, count);
+}
+async function freshOperation(page, before, count) {
+    expect(helpers.size, 'A trusted operation must open exactly one helper').toBe(count + 1);
+    const after = await snapshot(page), delta = after.packets.slice(before.packets.length);
+    const requests = delta.filter(item => item.direction === 'sent' && item.data.kind === 'request'
+        && item.data.value?.packet?.operation !== 'release');
+    // A failed handoff may use the signed mailbox for this operation only.
+    if (!requests.length && FOCUS_MAILBOX_RECOVERY) {
+        expect(after.mailboxAttempts.length).toBeGreaterThan(before.mailboxAttempts.length);
+        await noHelpers(); return;
+    }
+    expect(requests.length).toBeGreaterThan(0);
+    expect(new Set(requests.map(item => item.port)).size).toBe(1);
+    expect(new Set(requests.map(item => item.data.connectionId)).size).toBe(1);
+    const oldRequests = before.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
+    for (const old of oldRequests) {
+        expect(requests[0].port).not.toBe(old.port);
+        expect(requests[0].data.connectionId).not.toBe(old.data.connectionId);
+    }
+    await closedHelper(page, count);
 }
 async function physicalPort(page) {
     const document = await snapshot(page);
-    const requests = document.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
+    const all = document.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
+    expect(all.length).toBeGreaterThan(0);
+    const connection = all.at(-1).data.connectionId;
+    const requests = all.filter(item => item.data.connectionId === connection);
     const ports = [...new Set(requests.map(item => item.port))];
     const connections = [...new Set(requests.map(item => item.data.connectionId))];
     expect(requests.length).toBeGreaterThan(0);
     expect(ports).toHaveLength(1);
     expect(connections).toHaveLength(1);
     return { boot: document.boot, port: ports[0], connection: connections[0] };
+}
+function differentPort(current, previous) {
+    expect(current.boot).toBe(previous.boot);
+    expect(current.port, 'Each trusted operation must transfer a different physical MessagePort').not.toBe(previous.port);
+    expect(current.connection, 'Each trusted operation must have a fresh connection ID').not.toBe(previous.connection);
+}
+async function freshPortAcceptance(page, account) {
+    const website = await documentState(page), count = helpers.size;
+    const reads = await fieldReads(), lists = await entryReads();
+    await action(page, 'toggle');
+    await untilStatus(page, /Connected to the authorized KeeWebX tab/);
+    await closedHelper(page, count);
+    let previous = await physicalPort(page);
+    const identity = (await settings()).get(IDENTITY_KEY);
+    const key = createPrivateKey({ format: 'der', type: 'pkcs8', key: Buffer.concat([
+        Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.from(identity.secretKey, 'base64').subarray(0, 32)
+    ]) });
+    const operations = [];
+    try {
+        for (const operation of ['probe', 'open', 'lookup']) {
+            await clearFields(page);
+            const before = await snapshot(page), helperCount = helpers.size;
+            const fieldsBefore = await fieldReads(), listsBefore = await entryReads();
+            for (const name of ['hello', 'probe']) {
+                const reply = before.packets.find(item => item.direction === 'received' && item.port === previous.port
+                    && item.data.connectionId === previous.connection && item.data.kind === 'reply'
+                    && item.data.value?.packet?.operation === name && !item.data.value.packet.error);
+                expect(reply, `Established port must have completed signed ${name}`).toBeTruthy();
+                expect(validSignature(reply.data.value)).toBe(true);
+            }
+            const hello = before.packets.find(item => item.port === previous.port && item.direction === 'sent'
+                && item.data.kind === 'request' && item.data.value?.packet?.operation === 'hello');
+            // Model an old established port whose next hello reply queues until App resumes.
+            // Use a valid, unexpired signed request so rejection cannot rely on bad credentials.
+            const packet = { ...hello.data.value.packet, id: randomUUID(), deadline: Date.now() + OPERATION_BUDGET };
+            const envelope = { packet, signature: sign(null, Buffer.from(stable(packet)), key).toString('base64') };
+            expect(validSignature(envelope)).toBe(true);
+            await adapter(app, '__kwxPortAdapter.holdHello = true');
+            await adapter(page, `__kwxPortAdapter.send(${JSON.stringify(envelope)})`);
+            await expect.poll(async () => (await snapshot(app)).heldHello).toBeGreaterThan(0);
+            const heldOld = (await snapshot(app)).heldHello;
+            if (operation === 'lookup') await startLookup(page);
+            else { await config(page); await action(page, operation); }
+            await expect.poll(async () => (await snapshot(page)).packets.slice(before.packets.length).some(item =>
+                item.direction === 'sent' && item.data.kind === 'request' && item.data.value?.packet?.operation === 'hello'
+                && item.data.value.packet.id !== packet.id)).toBe(true);
+            const current = await physicalPort(page);
+            differentPort(current, previous);
+            await closedHelper(page, helperCount);
+            await expect.poll(async () => (await snapshot(app)).heldHello).toBeGreaterThan(heldOld);
+            // Release only the old connection's queued reply while the new hello stays held.
+            expect(await adapter(app, `__kwxPortAdapter.releaseHello(false, ${JSON.stringify(previous.connection)})`)).toBe(heldOld);
+            await page.waitForTimeout(250);
+            const waiting = await snapshot(page), appWaiting = await snapshot(app);
+            const oldReplies = appWaiting.packets.filter(item => item.direction === 'sent' && item.data.kind === 'reply'
+                && item.data.value?.packet?.id === packet.id);
+            expect(oldReplies).toHaveLength(heldOld);
+            expect(oldReplies.every(item => item.data.connectionId === previous.connection
+                && !item.data.value.packet.error && validSignature(item.data.value) && item.at < packet.deadline)).toBe(true);
+            expect(appWaiting.heldHello).toBeGreaterThan(0);
+            const pending = waiting.packets.slice(before.packets.length).filter(item => item.port === current.port);
+            expect(pending.filter(item => item.direction === 'received' && item.data.kind === 'reply')).toEqual([]);
+            expect(pending.filter(item => item.direction === 'sent' && item.data.kind === 'request')
+                .every(item => item.data.value.packet.operation === 'hello')).toBe(true);
+            expect(await status(page)).not.toMatch(/Connected to the authorized|Found \d+ matching|Filled/);
+            expect(await entries(page)).not.toContain(account.title);
+            expect(await entryReads()).toBe(listsBefore); expect(await fieldReads()).toBe(fieldsBefore);
+            await emptyFields(page);
+            expect(await adapter(app, '__kwxPortAdapter.releaseHello()')).toBeGreaterThan(0);
+            if (operation === 'lookup') {
+                await matchingList(page, account, fieldsBefore);
+                await fill(page, account);
+                expect(await entryReads()).toBe(listsBefore + 1);
+            } else {
+                await untilStatus(page, /Connected to the authorized KeeWebX tab/);
+                expect(await entryReads()).toBe(listsBefore); expect(await fieldReads()).toBe(fieldsBefore);
+                await emptyFields(page);
+            }
+            expect(await physicalPort(page)).toEqual(current);
+            expect(helpers.size).toBe(helperCount + 1);
+            assertAccountAuthority((await snapshot(page)).packets);
+            await sameApp(); await noHelpers();
+            operations.push({ operation, freshPhysicalPort: true, staleRepliesIgnored: oldReplies.length, helpers: 1 });
+            previous = current;
+        }
+        expect(await documentState(page)).toEqual(website);
+        expect(await entryReads()).toBe(lists + 1); expect(await fieldReads()).toBe(reads + 1);
+        expect((await snapshot(page)).mailboxAttempts).toEqual([]);
+        expect((await snapshot(app)).mailboxAttempts).toEqual([]);
+        return { initialKeyProbeSucceeded: true, operations, originalUnlockedApp: true, repeatAuthorization: 0,
+            lookupSelectionFillSharePort: true, explicitReconnectHelpers: 1 };
+    } finally { await adapter(app, '__kwxPortAdapter.releaseHello()'); }
 }
 function signingPublicKey() {
     return createPublicKey({ format: 'der', type: 'spki', key: Buffer.concat([
@@ -950,72 +1085,10 @@ function validReadyProof(data) {
     return typeof data.proof === 'string' && Buffer.from(data.proof, 'base64').length === 64
         && verify(null, Buffer.from(payload), signingPublicKey(), Buffer.from(data.proof, 'base64'));
 }
-async function releasedPortRecovery(page, account) {
-    expect(approvedRoute.mailbox).toBe(true);
-    const website = await documentState(page), count = helpers.size;
-    const reads = await fieldReads(), lists = await entryReads();
-    await config(page); await probe(page); await closedHelper(page, count);
-    const link = await physicalPort(page), probed = await snapshot(page);
-    expect(probed.actions.at(-1)).toEqual({ action: 'probe', trusted: true });
-    for (const operation of ['hello', 'probe']) {
-        const reply = probed.packets.find(item => item.port === link.port && item.data.connectionId === link.connection
-            && item.direction === 'received' && item.data.kind === 'reply' && item.data.value?.packet?.operation === operation);
-        expect(reply?.data.value.packet).toMatchObject({ host: approvedRoute.host, operation });
-        expect(reply.data.value.packet.error).toBeUndefined();
-        expect(validSignature(reply.data.value)).toBe(true);
-    }
-    expect(await entryReads()).toBe(lists);
-    expect(await fieldReads()).toBe(reads);
-    await lookup(page, account);
-    expect(await entryReads()).toBe(lists + 1);
-    expect(await physicalPort(page)).toEqual(link);
-    const beforeClose = await snapshot(page);
-    const appBeforeClose = await snapshot(app);
-    expect(beforeClose.mailboxAttempts).toEqual([]);
-    expect(appBeforeClose.mailboxAttempts).toEqual([]);
-
-    await action(page, 'close');
-    const released = await snapshot(page);
-    const release = released.packets.slice(beforeClose.packets.length).find(item => item.direction === 'sent'
-        && item.data.kind === 'request' && item.data.value?.packet?.operation === 'release');
-    expect(released.actions.at(-1)).toEqual({ action: 'close', trusted: true });
-    expect(release).toMatchObject({ port: link.port, data: { connectionId: link.connection } });
-    expect(validSignature(release.data.value)).toBe(true);
-    const releaseId = release.data.value.packet.id;
-    const receivedRelease = async () => (await snapshot(app)).packets.slice(appBeforeClose.packets.length).find(item =>
-        item.direction === 'received' && item.data.kind === 'request' && item.data.value?.packet?.id === releaseId);
-    await expect.poll(receivedRelease, { message: 'App must receive the release before the port stops delivering requests' }).toBeTruthy();
-    const appRelease = await receivedRelease();
-    expect(appRelease.data).toEqual(release.data);
-    expect(appBeforeClose.packets.some(item => item.port === appRelease.port && item.direction === 'sent'
-        && item.data.kind === 'ready' && item.data.connectionId === link.connection && validReadyProof(item.data))).toBe(true);
-    await adapter(app, `__kwxPortAdapter.dropRequestsAfterRelease(${JSON.stringify(releaseId)})`);
-
-    await lookup(page, account);
-    expect(await entryReads()).toBe(lists + 2);
-    expect(await fieldReads()).toBe(reads);
-    expect(await page.evaluate(() => window.credentialInputEvents)).toBe(0);
-    const mailbox = () => nativeWorker.evaluate(() => globalThis.audit.filter(item =>
-        item.key.includes('keewebx-connect-mailbox-v1:') && item.value).map(item => item.value));
-    expect((await mailbox()).some(value => value.packet.body?.action === 'kwx-get-entry-fields')).toBe(false);
-    await fill(page, account);
-    expect(await entryReads()).toBe(lists + 2);
-    expect(await page.evaluate(() => window.credentialInputEvents)).toBe(2);
-
-    const recovered = await snapshot(page), appAfter = await snapshot(app);
-    const direct = recovered.packets.slice(released.packets.length).filter(item => item.data.kind === 'request' && item.direction === 'sent');
-    expect(direct.length, 'The user lookup must retry hello on the previously proven physical port').toBeGreaterThanOrEqual(2);
-    expect(direct.every(item => item.port === link.port && item.data.connectionId === link.connection
-        && item.data.value.packet.operation === 'hello' && validSignature(item.data.value))).toBe(true);
-    expect(direct[1].data.value).toEqual(direct[0].data.value);
-    const inbound = appAfter.packets.slice(appBeforeClose.packets.length).filter(item => item.port === appRelease.port
-        && item.data.connectionId === link.connection && item.data.kind === 'request');
-    expect(inbound.filter(item => item.direction === 'received').map(item => item.data)).toEqual([release.data]);
-    expect(inbound.filter(item => item.direction === 'dropped').map(item => item.data)).toEqual(direct.map(item => item.data));
-
-    const stored = await mailbox();
+function assertMailboxExchange(stored, page) {
     const requests = stored.filter(value => value.packet.type === 'request');
     const replies = stored.filter(value => value.packet.type === 'reply');
+    expect(stored.length).toBeGreaterThan(0);
     expect(stored.every(value => validSignature(value) && value.packet.host === approvedRoute.host
         && value.packet.endpoint === APP && value.packet.origin === new URL(page.url()).origin)).toBe(true);
     for (const operation of ['hello', 'kwx-get-entries', 'kwx-get-entry-fields']) {
@@ -1028,33 +1101,86 @@ async function releasedPortRecovery(page, account) {
         expect(reply.packet.error).toBeUndefined();
         if (operation !== 'hello') expect(typeof matching[0].packet.body.message).toBe('string');
     }
-    const serialized = JSON.stringify(stored);
-    for (const secret of PRIVATE_VALUES) expect(serialized).not.toContain(secret);
-    expect(await documentState(page)).toEqual(website);
-    expect(recovered.helperClose.references).toEqual(released.helperClose.references);
-    expect(helpers.size).toBe(count + 1);
-    await noHelpers(); await sameApp();
-    // A completed fallback belongs only to that operation. The next user query
-    // must establish a fresh direct port instead of retaining mailbox preference.
-    const mailboxTraffic = () => nativeWorker.evaluate(() => globalThis.audit.filter(item =>
-        item.key.includes('keewebx-connect-mailbox-v1:request:') && item.value
-        && item.value.packet.operation !== 'release').length);
-    const mailboxBefore = await mailboxTraffic(), listsAfterRecovery = await entryReads();
-    for (let query = 0; query < 3; query++) {
-        await clearFields(page); await lookup(page, account); await fill(page, account);
-        expect(await entryReads()).toBe(listsAfterRecovery + query + 1);
-        expect(helpers.size).toBe(count + 2);
-        expect(await mailboxTraffic()).toBe(mailboxBefore);
+    for (const secret of PRIVATE_VALUES) expect(JSON.stringify(stored)).not.toContain(secret);
+}
+async function releasedPortRecovery(page, account) {
+    expect(approvedRoute.mailbox).toBe(true);
+    const website = await documentState(page), count = helpers.size;
+    const reads = await fieldReads(), lists = await entryReads();
+    await config(page); await closedHelper(page, count);
+    await probe(page);
+    const probed = await snapshot(page), probePort = await physicalPort(page);
+    expect(probed.actions.at(-1)).toEqual({ action: 'probe', trusted: true });
+    for (const operation of ['hello', 'probe']) {
+        const reply = probed.packets.find(item => item.port === probePort.port && item.data.connectionId === probePort.connection
+            && item.direction === 'received' && item.data.kind === 'reply' && item.data.value?.packet?.operation === operation);
+        expect(reply?.data.value.packet).toMatchObject({ host: approvedRoute.host, operation });
+        expect(reply.data.value.packet.error).toBeUndefined();
+        expect(validSignature(reply.data.value)).toBe(true);
     }
-    await closedHelper(page, count + 1);
-    const fresh = await snapshot(page);
-    const ids = new Set(fresh.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request')
-        .map(item => item.data.connectionId));
-    expect(ids.size).toBe(2); expect(ids.has(link.connection)).toBe(true);
+    expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(reads);
+    await lookup(page, account);
+    expect(await entryReads()).toBe(lists + 1);
+    const link = await physicalPort(page);
+    differentPort(link, probePort);
+    const beforeClose = await snapshot(page), appBeforeClose = await snapshot(app);
+    expect(beforeClose.mailboxAttempts).toEqual([]); expect(appBeforeClose.mailboxAttempts).toEqual([]);
+    await action(page, 'close');
+    const released = await snapshot(page);
+    const release = released.packets.slice(beforeClose.packets.length).find(item => item.direction === 'sent'
+        && item.data.kind === 'request' && item.data.value?.packet?.operation === 'release');
+    expect(released.actions.at(-1)).toEqual({ action: 'close', trusted: true });
+    expect(release).toMatchObject({ port: link.port, data: { connectionId: link.connection } });
+    expect(validSignature(release.data.value)).toBe(true);
+    const releaseId = release.data.value.packet.id;
+    const receivedRelease = async () => (await snapshot(app)).packets.slice(appBeforeClose.packets.length).find(item =>
+        item.direction === 'received' && item.data.kind === 'request' && item.data.value?.packet?.id === releaseId);
+    await expect.poll(receivedRelease, { message: 'App must receive release before dropping requests on that port' }).toBeTruthy();
+    const appRelease = await receivedRelease();
+    expect(appRelease.data).toEqual(release.data);
+    expect(appBeforeClose.packets.some(item => item.port === appRelease.port && item.direction === 'sent'
+        && item.data.kind === 'ready' && item.data.connectionId === link.connection && validReadyProof(item.data))).toBe(true);
+    await adapter(app, `__kwxPortAdapter.dropRequestsAfterRelease(${JSON.stringify(releaseId)})`);
+    // Exercise the still-existing low-level port explicitly, independently of UI policy.
+    const oldHello = beforeClose.packets.find(item => item.port === link.port && item.direction === 'sent'
+        && item.data.value?.packet?.operation === 'hello');
+    await adapter(page, `__kwxPortAdapter.send(${JSON.stringify(oldHello.data.value)})`);
+    await expect.poll(async () => (await snapshot(app)).packets.filter(item => item.direction === 'dropped'
+        && item.port === appRelease.port && item.data.value?.packet?.id === oldHello.data.value.packet.id).length).toBe(1);
+    const beforeLookup = await snapshot(page);
+    let previous = link;
+    for (let query = 0; query < 4; query++) {
+        await clearFields(page); await lookup(page, account);
+        const current = await physicalPort(page);
+        differentPort(current, previous);
+        expect(await entryReads()).toBe(lists + query + 2);
+        expect(await fieldReads()).toBe(reads + query);
+        await emptyFields(page);
+        await fill(page, account);
+        expect(await physicalPort(page)).toEqual(current);
+        expect(helpers.size).toBe(count + query + 4);
+        previous = current;
+    }
+    const recovered = await snapshot(page), appAfter = await snapshot(app);
+    const direct = recovered.packets.slice(beforeLookup.packets.length).filter(item => item.data.kind === 'request' && item.direction === 'sent');
+    expect(direct.length).toBeGreaterThan(0);
+    expect(direct.every(item => item.port !== link.port && item.data.connectionId !== link.connection
+        && validSignature(item.data.value))).toBe(true);
+    const inbound = appAfter.packets.slice(appBeforeClose.packets.length).filter(item => item.port === appRelease.port
+        && item.data.connectionId === link.connection && item.data.kind === 'request');
+    expect(inbound.filter(item => item.direction === 'received').map(item => item.data)).toEqual([release.data]);
+    expect(inbound.filter(item => item.direction === 'dropped').map(item => item.data)).toEqual([oldHello.data]);
+    expect(recovered.mailboxAttempts).toEqual([]); expect(appAfter.mailboxAttempts).toEqual([]);
+    const mailbox = await nativeWorker.evaluate(() => globalThis.audit.filter(item =>
+        item.key.includes('keewebx-connect-mailbox-v1:') && item.value));
+    expect(mailbox).toEqual([]);
+    assertAccountAuthority(recovered.packets);
+    for (const secret of PRIVATE_VALUES) expect(JSON.stringify(direct)).not.toContain(secret);
+    expect(await documentState(page)).toEqual(website);
+    expect(await fieldReads()).toBe(reads + 4);
     await noHelpers(); await sameApp();
-    return { droppedDirectHelloAttempts: direct.length, signedMailboxLookupAndFill: true,
-        freshDirectQueriesAfterRecovery: 3, recoveryHelpers: 0, nextQueryHelpers: 1,
-        automaticFieldReads: 0, explicitFieldReads: 4, reusedOriginalApp: true };
+    return { droppedOldPortHellos: 1, freshDirectQueries: 4, helpersPerQuery: 1,
+        mailboxFallbacks: 0, automaticFieldReads: 0, explicitFieldReads: 4, reusedOriginalApp: true };
 }
 // Only references returned to the userscript are wrapped. Native events and ports
 // still cross the browser boundary; the helper's own page-world close stays native.
@@ -1492,9 +1618,10 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         }
         return pending.length;
     };
-    state.releaseHello = (dropFirst = false) => {
-        state.holdHello = false;
-        const pending = state.heldHello.splice(0);
+    state.releaseHello = (dropFirst = false, connectionId) => {
+        if (connectionId === undefined) state.holdHello = false;
+        const pending = state.heldHello.filter(item => connectionId === undefined || item.data.connectionId === connectionId);
+        state.heldHello = state.heldHello.filter(item => connectionId !== undefined && item.data.connectionId !== connectionId);
         const released = dropFirst ? pending.slice(1) : pending;
         for (const { port, data, rest } of released) {
             record(port, 'sent', data);
@@ -1843,8 +1970,15 @@ acceptance: try {
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
+    if (FOCUS_FRESH_PORT) {
+        await step('trusted lookup, Test and Reconnect replace a proven port with queued hello replies', async () => {
+            first = await newWebsite(ACCOUNTS[0]);
+            return freshPortAcceptance(first, ACCOUNTS[0]);
+        });
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'fresh-port'; break acceptance;
+    }
     if (FOCUS_RELEASED_PORT_RECOVERY) {
-        await step('a released website port that stops delivering requests recovers through the signed mailbox', async () => {
+        await step('a released port that drops requests cannot trap the next trusted lookup on that port', async () => {
             first = await newWebsite(ACCOUNTS[0]);
             return releasedPortRecovery(first, ACCOUNTS[0]);
         });
@@ -1873,14 +2007,14 @@ acceptance: try {
     if (FOCUS_LAUNCHER) {
         await step('trusted key connects without reading accounts; detection and synthetic focus remain inert', testLauncherVisibility);
         await step('unfocused key preserves opt-in settings without reading or filling credentials', testSinglePreference);
-        await step('focused key retains lookup and alternating repeated fills on existing ports', async () => {
+        await step('focused key starts alternating repeated fills on fresh operation ports', async () => {
             first = await newWebsite(ACCOUNTS[0]); second = await newWebsite(ACCOUNTS[1]);
             const count = helpers.size;
             for (let index = 0; index < 3; index++) for (const [page, account] of [[first, ACCOUNTS[0]], [second, ACCOUNTS[1]]]) {
                 await clearFields(page); await lookup(page, account); await fill(page, account);
             }
-            expect(helpers.size).toBe(count + 2); await sameApp(); await noHelpers();
-            return { fills: 6, physicalPorts: 2, temporaryPages: 2 };
+            expect(helpers.size).toBe(count + 6); await sameApp(); await noHelpers();
+            return { fills: 6, physicalPorts: 6, temporaryPages: 6 };
         });
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'launcher'; break acceptance;
     }
@@ -1990,6 +2124,8 @@ acceptance: try {
             expect(receiving.packets.filter(item => item.data.code === 'app-timeout' && item.direction === 'received')).toHaveLength(0);
             expect(receiving.packets.some(item => item.data.code === 'app-timeout' && item.direction === 'dropped')).toBe(true);
             expect(receiving.mailboxAttempts.some(item => item.operation === 'setValue')).toBe(true);
+            assertMailboxExchange(await nativeWorker.evaluate(() => globalThis.audit.filter(item =>
+                item.key.includes('keewebx-connect-mailbox-v1:') && item.value).map(item => item.value)), first);
             expect(await app.evaluate(() => document.hidden)).toBe(true);
             await sameApp();
             await config(first);
@@ -2062,7 +2198,7 @@ acceptance: try {
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'mailbox-recovery'; break acceptance;
     }
     if (FOCUS_FOREGROUND_FAILURE) {
-        await step('a real foreground GM timeout preserves the signed hello port and the next connection test reuses it', async () => {
+        await step('a foreground GM timeout preserves the pending hello; the next trusted test opens a fresh port', async () => {
             // A fresh document on the first website prepares its saved grant;
             // Test connection then needs one helper and one physical port.
             await first.reload(); await ready(first);
@@ -2104,14 +2240,15 @@ acceptance: try {
                 await app.bringToFront(); await first.bringToFront();
                 await expect.poll(async () => (await snapshot(first)).allowedReads).toBeGreaterThan(allowedReads);
                 await expect.poll(() => shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+                await config(first);
                 await probe(first);
-                expect(await physicalPort(first)).toEqual(port);
-                expect(helpers.size).toBe(count + 1);
+                differentPort(await physicalPort(first), port);
+                expect(helpers.size).toBe(count + 2);
                 expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
                 await sameApp(); await noHelpers();
                 return { managerReadTimeoutMs: 5000, heldAfterFocusMs: 5500, originalHelloDeadline: hello.deadline,
                     signedHelloAndProbeAccepted: true, physicalPortReusedAfterTimeout: true,
-                    physicalPortReusedAfterFreshPreparation: true, additionalHelpersAfterFirstProbe: 0,
+                    freshPortAfterFreshPreparation: true, additionalHelpersAfterFirstProbe: 1,
                     additionalAppNavigations: 0, additionalFieldReads: 0, additionalAccountLists: 0 };
             } finally {
                 await adapter(first, '__kwxPortAdapter.releaseRouteReads()');
@@ -2164,30 +2301,33 @@ acceptance: try {
     });
     if (FOCUS_HELLO) { report.passed = true; report.focus = 'delayed-hello'; break acceptance; }
     await step('trusted opener self-closes the helper after signed App readiness while remote close is blocked', openerSelfClose);
-    await step('Find accounts on another origin opens one temporary helper and matches only that origin', async () => {
+    await step('Find accounts on another origin opens its own helper and matches only that origin', async () => {
         second = await newWebsite(ACCOUNTS[1]);
         const count = helpers.size, reads = await fieldReads();
         // Open settings before selecting a field, so the first lookup uses Find accounts.
         await config(second); await action(second, 'accounts-tab');
-        expect(helpers.size).toBe(count + 1);
+        await closedHelper(second, count);
         await second.locator('#username').click(); await action(second, 'lookup');
-        await matchingList(second, ACCOUNTS[1], reads); await closedHelper(second, count);
+        await matchingList(second, ACCOUNTS[1], reads); await closedHelper(second, count + 1);
         await fill(second, ACCOUNTS[1]);
         const a = await physicalPort(first), b = await physicalPort(second);
         expect(a.connection).not.toBe(b.connection);
     });
-    await step('key connects a fresh website and later Test and Find accounts reuse its port', async () => {
+    await step('key connects a fresh website and later Test and Find accounts each open a fresh port', async () => {
         const website = await newWebsite(ACCOUNTS[0]), count = helpers.size;
         const lists = await entryReads(), reads = await fieldReads();
         try {
             await action(website, 'toggle');
             await untilStatus(website, /Connected to the authorized KeeWebX tab/);
+            await closedHelper(website, count);
+            const keyPort = await physicalPort(website);
             expect(await entryReads()).toBe(lists); expect(await fieldReads()).toBe(reads);
             await config(website); expect(helpers.size).toBe(count + 1);
-            await probe(website); await closedHelper(website, count);
+            await probe(website); await closedHelper(website, count + 1);
             const port = await physicalPort(website);
+            differentPort(port, keyPort);
             await lookup(website, ACCOUNTS[0]); await fill(website, ACCOUNTS[0]);
-            expect(await physicalPort(website)).toEqual(port); expect(helpers.size).toBe(count + 1);
+            differentPort(await physicalPort(website), port); expect(helpers.size).toBe(count + 3);
         } finally { await archive(website); await website.close(); }
     });
     await step('after three successful fills, inner and outer reply loss recovers with one logical request per operation', async () => {
@@ -2206,7 +2346,7 @@ acceptance: try {
         return { recoveries };
     });
     await step('trusted key connects without reading accounts; detection and synthetic focus remain inert', testLauncherVisibility);
-    await step('24 alternating lookup and fill cycles recover periodic losses and UI cancellation on both physical ports', async () => {
+    await step('24 alternating lookup and fill cycles recover losses and cancellation with fresh operation ports', async () => {
         const count = helpers.size, ports = [await physicalPort(first), await physicalPort(second)];
         const reads = await fieldReads();
         let canceledRecoveries = 0;
@@ -2217,13 +2357,16 @@ acceptance: try {
                 mode % 2 ? 'kwx-get-entry-fields' : 'kwx-get-entries');
             else { await clearFields(page); await lookup(page, account); await fill(page, account); }
             await config(page); await probe(page); await action(page, 'close');
-            expect(await physicalPort(page)).toEqual(ports[site]); await sameApp(); await noHelpers();
+            const current = await physicalPort(page);
+            differentPort(current, ports[site]); ports[site] = current;
+            await sameApp(); await noHelpers();
         }
         await first.waitForTimeout(350);
         expect(await fieldReads()).toBe(reads + 24 + canceledRecoveries);
-        expect(helpers.size).toBe(count);
+        // Each cycle includes lookup/fill, the key reopening settings, and Test.
+        expect(helpers.size).toBe(count + 72 + canceledRecoveries);
         return { alternatingFills: 24, periodicDrops: 20, canceledRecoveries, logicalFieldRequests: 24 + canceledRecoveries,
-            persistentPhysicalPorts: 2, idleHelpers: 0, aggregateLookupOrFillBudget: OPERATION_BUDGET };
+            freshPhysicalPorts: 72 + canceledRecoveries, idleHelpers: 0, aggregateLookupOrFillBudget: OPERATION_BUDGET };
     });
     await step('real field fills succeed with all app GM reads blocked while website foreground reads work', async () => {
         const count = helpers.size;
@@ -2238,7 +2381,7 @@ acceptance: try {
             expect(after.blockGM).toBe(true);
             expect(after.allowedReads).toBe(before.allowedReads);
             expect(after.mailboxAttempts).toEqual([]);
-            expect(helpers.size).toBe(count); await sameApp(); await noHelpers();
+            expect(helpers.size).toBe(count + 2); await sameApp(); await noHelpers();
             return { appReadsAttemptedWhileBlocked: after.blockedReads - before.blockedReads, filledOrigins: 2 };
         } finally {
             if (!BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = false');
@@ -2247,7 +2390,7 @@ acceptance: try {
     await step('a correctly signed forged site origin cannot use a port bound to another website', async () => {
         const before = await fieldReads(), count = helpers.size;
         const document = await snapshot(first);
-        const hello = document.packets.find(item => item.direction === 'sent' && item.data.value?.packet?.operation === 'hello');
+        const hello = document.packets.findLast(item => item.direction === 'sent' && item.data.value?.packet?.operation === 'hello');
         expect(hello).toBeTruthy();
         const packet = { ...hello.data.value.packet, id: randomUUID(), origin: new URL(ACCOUNTS[1].url).origin, deadline: Date.now() + 1500 };
         const identity = (await settings()).get(IDENTITY_KEY);
@@ -2301,11 +2444,13 @@ acceptance: try {
         await clearFields(first); const reads = await fieldReads(); await startLookup(first);
         await untilStatus(first, /locked.*unlock/i, 10000);
         await emptyFields(first); expect(await fieldReads()).toBe(reads);
-        await sameApp({ unlocked: false }); expect(helpers.size).toBe(count);
+        await sameApp({ unlocked: false }); expect(helpers.size).toBe(count + 1);
+        const lockedPort = await physicalPort(first);
+        differentPort(lockedPort, port);
         await app.bringToFront(); await app.locator('#password').fill(DB_PASSWORD); await app.locator('#unlock').click();
         await expect(app.locator('.entry-row').first()).toBeVisible(); await untilStatus(app, /Authorized/);
         await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
-        expect(await physicalPort(first)).toEqual(port); expect(helpers.size).toBe(count); await sameApp(); await noHelpers();
+        differentPort(await physicalPort(first), lockedPort); expect(helpers.size).toBe(count + 2); await sameApp(); await noHelpers();
     });
     await step('passkey unlock restores Connect when the DOM restoration observer misses unlock', async () => {
         await app.bringToFront();
@@ -2339,8 +2484,8 @@ acceptance: try {
             await expect(app.locator('.entry-row').first()).toBeVisible();
             await untilStatus(app, /Authorized/);
             await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
-            expect(await physicalPort(first)).toEqual(port);
-            expect(helpers.size).toBe(count);
+            differentPort(await physicalPort(first), port);
+            expect(helpers.size).toBe(count + 1);
             await sameApp(); await noHelpers();
         } finally { await adapter(app, '__kwxPortAdapter.suppressRestoration = false'); }
     });
@@ -2392,8 +2537,9 @@ acceptance: try {
             expect(context.pages()).toHaveLength(2); await sameApp();
             expect(await app.evaluate(() => document.hidden)).toBe(true);
             const count = helpers.size;
-            first = await newWebsite(account); await config(first); await probe(first);
-            await closedHelper(first, count); await lookup(first, account); await fill(first, account);
+            first = await newWebsite(account); await config(first); await closedHelper(first, count);
+            await probe(first); await closedHelper(first, count + 1); await lookup(first, account); await fill(first, account);
+            expect(helpers.size).toBe(count + 3);
             expect(context.pages()).toHaveLength(3); await sameApp(); await noHelpers();
             expect(await app.evaluate(() => document.hidden)).toBe(true);
         }
