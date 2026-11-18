@@ -47,12 +47,13 @@ async function fixture(failInitial = false, wireReceipt = false, authenticatedRe
     replace('setInterval', (callback: () => void, ms: number) => schedule(callback, ms, ms));
     replace('clearTimeout', (id: number) => timers.delete(id));
     replace('clearInterval', (id: number) => timers.delete(id));
-    const sent: any[] = [];
+    const sent: any[] = [], frames: any[] = [];
     class Port {
         onmessage?: (event: { data: any }) => void;
         closed = false;
         start() {} close() { this.closed = true; }
         postMessage(data: any) {
+            frames.push(structuredClone(data));
             if (data.kind === 'request') {
                 if (failSend) throw new Error('Injected send failure');
                 sent.push(structuredClone(data.value));
@@ -70,7 +71,11 @@ async function fixture(failInitial = false, wireReceipt = false, authenticatedRe
     port!.onmessage!({ data: { ...outer, kind: 'ready', ...(authenticatedReady ? { proof: signPortReady(outer, keys.secretKey) } : {}) } });
     await flush();
     return {
-        endpoint, sent, timers, outcome, port: port!, fail() { failSend = true; },
+        endpoint, sent, frames, timers, outcome, port: port!, fail() { failSend = true; },
+        readyReplacement() {
+            const ready = { ...outer, connectionId: link.connectionId, kind: 'ready' };
+            port!.onmessage!({ data: { ...ready, proof: signPortReady(ready, keys.secretKey) } });
+        },
         jump(ms: number) { now += ms; },
         tick(ms: number) {
             const until = now + ms;
@@ -192,14 +197,32 @@ test('an exhausted connection budget closes ready-only transport after a single 
     expect(rpc.pending.size).toBe(0); expect(f.timers.size).toBe(0);
 });
 
-test.each([undefined, 'KeeWebX is locked.'])('a verified fresh RPC response permits physical-port reuse (%s)', async error => {
+test.each([undefined, 'KeeWebX is locked.'])('disposing a verified operation closes its port and clears transient state (%s)', async error => {
     const f = await fixture(false, false, true), generation = link.generation;
     f.reply(error);
     const outcome = await f.outcome;
     if (error) expect(outcome.message).toBe(error); else expect(outcome).toBeUndefined();
     rpc.dispose();
-    expect(f.port.closed).toBe(false); expect(link.generation).toBe(generation);
+    expect(f.port.closed).toBe(true); expect(link.generation).toBe(generation + 1);
+    expect(f.frames.at(-1)).toMatchObject({ kind: 'close' });
+    expect(rpc.scope).toBeUndefined(); expect(rpc.keys).toBeUndefined(); expect(rpc.route).toBeUndefined();
+    expect(rpc.direct).toBeUndefined(); expect(rpc.expiresAt).toBe(0);
     expect(f.timers.size).toBe(0);
+    const count = f.frames.length;
+    rpc.dispose(); f.tick(60000);
+    expect(f.frames).toHaveLength(count);
+});
+
+test('disposing an old operation cannot release or close a replacement port', async () => {
+    const f = await fixture(false, false, true);
+    f.reply(); expect(await f.outcome).toBeUndefined();
+    openDirect(f.endpoint, true);
+    f.readyReplacement(); await flush();
+    const generation = link.generation, replacement = link.connectionId, count = f.frames.length;
+    rpc.dispose();
+    expect(link.generation).toBe(generation); expect(link.connectionId).toBe(replacement);
+    expect(f.frames).toHaveLength(count);
+    expect(rpc.scope).toBeUndefined(); expect(rpc.direct).toBeUndefined();
 });
 
 test('direct wire requests are sent once and never acquire a retry interval', async () => {

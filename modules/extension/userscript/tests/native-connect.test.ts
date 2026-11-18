@@ -613,6 +613,101 @@ async function directSession() {
     const p = packet(); await directSend(envelope(p));
     return { ...p, operation: 'wire', id: crypto.randomUUID(), scope: replies.at(-1).value.packet.body.scope, body: { action: 'kwx-features' } };
 }
+
+function attachedHostPort() {
+    const marker = 'keewebx-connect-port-v1', connectionId = crypto.randomUUID();
+    const messages: any[] = [];
+    const port = {
+        closed: false,
+        onmessage: undefined as undefined | ((event: { data: any }) => void),
+        postMessage(value: any) { messages.push(structuredClone(value)); },
+        start() {},
+        close() { this.closed = true; }
+    };
+    receiverMessage({ data: { marker, kind: 'attach-port', endpoint: endpoint.href,
+        appBoot: storage.get(routeKey).host, connectionId, siteOrigin: 'https://login.example.org' },
+        source: { scriptURL: new URL('connect-port/worker.js', endpoint).href }, ports: [port] } as unknown as MessageEvent);
+    expect(messages[0]?.kind).toBe('ready');
+    const dispatch = (value: any) => port.onmessage!({ data: { marker, connectionId, ...value } });
+    const request = (p: any) => dispatch({ kind: 'request', value: envelope(p) });
+    const response = (id: string) => messages.find(value => value.kind === 'reply' && value.value.packet.id === id)?.value.packet;
+    return { port, messages, connectionId, dispatch, request, response,
+        async hello() {
+            const p = packet(); request(p);
+            await until(() => !!response(p.id));
+            expect(response(p.id).error).toBeUndefined();
+            return { ...p, scope: response(p.id).body.scope };
+        }
+    };
+}
+
+test('an expired release remains rejected, but a later physical close removes its App session', async () => {
+    await directHost();
+    const peer = attachedHostPort(), hello = await peer.hello(), grant = structuredClone(storage.get(routeKey));
+    const now = Date.now, events: any[] = [], windowPosts: any[] = [];
+    const stop = watchTransport(event => events.push(event));
+    replace('window', { postMessage(value: any) { windowPosts.push(value); } });
+    const release = { ...hello, id: crypto.randomUUID(), operation: 'release', deadline: now() + 3000 };
+    const deliveredAt = release.deadline + 1000;
+    Date.now = () => deliveredAt;
+    try {
+        peer.request(release);
+        await until(() => events.some(event => event.traceId === release.id && event.detail === 'expired'));
+        expect(peer.response(release.id)).toBeUndefined();
+        expect(host.diagnostics()).toMatchObject({ hasSession: true, ports: 1 });
+
+        peer.dispatch({ kind: 'close' });
+        expect(peer.port.closed).toBe(true);
+        expect(host.diagnostics()).toMatchObject({ hasSession: false, ports: 0, live: true, selected: true });
+        expect(windowPosts.filter(value => value.kwConnect === 'disconnected')).toHaveLength(1);
+        expect(storage.get(routeKey)).toEqual(grant);
+
+        const replacement = attachedHostPort(), fresh = await replacement.hello();
+        const probe = { ...fresh, id: crypto.randomUUID(), operation: 'probe', deadline: Date.now() + 5000 };
+        replacement.request(probe); await until(() => !!replacement.response(probe.id));
+        expect(replacement.response(probe.id).error).toBeUndefined();
+        expect(host.diagnostics()).toMatchObject({ hasSession: true, ports: 1 });
+    } finally { Date.now = now; stop(); }
+});
+
+test('closing an old physical port cannot cancel another website session', async () => {
+    await directHost();
+    const old = attachedHostPort(); await old.hello();
+    const active = attachedHostPort(), hello = await active.hello();
+    const windowPosts: any[] = [];
+    replace('window', { postMessage(value: any) { windowPosts.push(value); } });
+
+    old.dispatch({ kind: 'close' });
+    old.dispatch({ kind: 'close' });
+    expect(old.port.closed).toBe(true); expect(active.port.closed).toBe(false);
+    expect(host.diagnostics()).toMatchObject({ hasSession: true, ports: 1 });
+    expect(windowPosts).toEqual([]);
+
+    const wire = { ...hello, id: crypto.randomUUID(), operation: 'wire', body: { action: 'kwx-features' } };
+    active.request(wire); await until(() => !!active.response(wire.id));
+    expect(active.response(wire.id)).toMatchObject({ body: { action: 'test-wire' } });
+    expect(reads).toBe(1);
+});
+
+test('closing a port during an App request suppresses its eventual encrypted reply', async () => {
+    await directHost();
+    const peer = attachedHostPort(), hello = await peer.hello(), gate = deferred<any>();
+    AppBridge.prototype.request = async function() { reads++; lastBridge = this; return gate.promise; };
+    const wire = { ...hello, id: crypto.randomUUID(), operation: 'wire', body: { action: 'kwx-get-entry-fields' } };
+    peer.request(wire); await until(() => reads === 1);
+    peer.dispatch({ kind: 'close' });
+    expect(host.diagnostics()).toMatchObject({ hasSession: false, ports: 0 });
+    await expect(requestImpl.call(lastBridge, { action: 'kwx-features' })).rejects.toThrow('closed');
+
+    gate.resolve({ action: 'kwx-get-entry-fields', message: 'encrypted-fixture' });
+    for (let turn = 0; turn < 20; turn++) await Promise.resolve();
+    expect(peer.response(wire.id)).toBeUndefined();
+    expect(peer.messages.filter(value => value.kind === 'reply')).toHaveLength(1);
+    // A queued request on the departed endpoint cannot create another App read.
+    peer.request({ ...wire, id: crypto.randomUUID() });
+    await Promise.resolve(); expect(reads).toBe(1);
+});
+
 test('the direct receiver registers without touching the WebStorage getter', async () => {
     await directHost();
     let storageReads = 0;

@@ -239,3 +239,44 @@ test('an active attachment pins handler origin and physical connection id to the
     expect(port.messages.at(-1)).toEqual({ marker, kind: 'reply', connectionId, appBoot: state.host,
         endpoint: endpoint.href, siteOrigin, value: { result: 'synthetic' } });
 });
+
+test('a close message can only remove the physical port it arrived on', () => {
+    const firstId = crypto.randomUUID(), secondId = crypto.randomUUID();
+    const first = receive({ kind: 'attach-port', connectionId: firstId, siteOrigin });
+    const second = receive({ kind: 'attach-port', connectionId: secondId, siteOrigin });
+    first.dispatch({ marker, kind: 'close', connectionId: secondId });
+    expect(first.closed).toBe(false); expect(second.closed).toBe(false);
+    expect(receiver.portCount).toBe(2); expect(released).toEqual([]);
+
+    first.dispatch({ marker, kind: 'close', connectionId: firstId });
+    first.dispatch({ marker, kind: 'close', connectionId: firstId });
+    expect(first.closed).toBe(true); expect(second.closed).toBe(false);
+    expect(receiver.portCount).toBe(1); expect(released).toEqual([firstId]);
+    second.dispatch({ marker, kind: 'request', connectionId: secondId, value: { validRequest: true } });
+    expect(requests).toHaveLength(1); expect(requests[0].id).toBe(secondId);
+});
+
+test.each(['closed', 'replaced'])('a late handler reply cannot publish through a %s physical port', reason => {
+    const connectionId = crypto.randomUUID();
+    const previous = receive({ kind: 'attach-port', connectionId, siteOrigin });
+    previous.dispatch({ marker, kind: 'request', connectionId, value: { validRequest: true } });
+    expect(requests).toHaveLength(1);
+    let replacement: FakeMessagePort | undefined;
+    if (reason === 'closed') previous.dispatch({ marker, kind: 'close', connectionId });
+    else replacement = receive({ kind: 'attach-port', connectionId, siteOrigin });
+    const sentBeforeReply = previous.messages.length;
+
+    requests[0].reply({ encryptedFields: 'late-fixture' });
+    expect(previous.messages).toHaveLength(sentBeforeReply);
+    expect(previous.closed).toBe(true);
+    expect(released).toEqual([connectionId]);
+    if (replacement) {
+        previous.dispatch({ marker, kind: 'close', connectionId });
+        expect(replacement.closed).toBe(false); expect(receiver.portCount).toBe(1);
+        expect(released).toEqual([connectionId]);
+        expect(replacement.messages.map(value => value.kind)).toEqual(['ready']);
+        replacement.dispatch({ marker, kind: 'request', connectionId, value: { freshRequest: true } });
+        requests[1].reply({ freshReply: true });
+        expect(replacement.messages.at(-1)).toMatchObject({ kind: 'reply', value: { freshReply: true } });
+    } else expect(receiver.portCount).toBe(0);
+});

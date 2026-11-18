@@ -718,19 +718,30 @@ export class NativeRpc {
     dispose(): void {
         if (!this.live) return;
         this.live = false; removeEventListener('message', this.receive); this.unsubscribeDirect?.();
+        this.unsubscribeDirect = undefined;
         this.cancelSetup?.();
-        this.resetUnauthenticatedDirect('The connection attempt was canceled.');
         for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error('The operation was canceled.')); }
         this.pending.clear();
         if (this.scope && this.route && this.keys) {
             try {
                 const p: Packet = { type: 'request', host: this.route.host, endpoint: this.endpoint.href, id: uuid(), document: this.document,
                     origin: new URL(this.href).origin, operation: 'release', scope: this.scope, deadline: Date.now() + 3000 };
-                if (this.direct) this.direct.send(signed(p, this.keys));
+                if (this.direct) {
+                    // A late disposer must never send on a replacement operation's port.
+                    this.direct.assert(this.directGeneration!);
+                    this.direct.send(signed(p, this.keys));
+                }
                 else if (this.window && !this.window.closed) this.window.postMessage({ marker: MARK, value: signed(p, this.keys) }, this.endpoint.origin);
                 else if (this.route.mailbox) mailboxRelease(signed(p, this.keys));
             } catch {}
         }
+        // A signed release can expire while the App is not processing messages.
+        // Close this operation's port as well; the receiver drops its bound session
+        // when it handles close, without accepting an expired protocol request.
+        if (this.direct && this.direct.generation === this.directGeneration) this.direct.reset('The operation ended.');
+        this.direct = undefined; this.directGeneration = undefined;
+        this.scope = undefined; this.expiresAt = 0; this.authenticated = false;
+        this.keys = undefined; this.route = undefined; this.window = undefined;
     }
 }
 

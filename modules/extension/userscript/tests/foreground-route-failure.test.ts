@@ -13,8 +13,9 @@ const stable = (value: any): string => JSON.stringify(value, (_key, item) => ite
     ? Object.fromEntries(Object.keys(item).sort().filter(key => item[key] !== undefined).map(key => [key, item[key]])) : item);
 const flush = async () => { for (let turn = 0; turn < 25; turn++) await Promise.resolve(); };
 let rpc: any, link: any;
+const priorClients: any[] = [];
 afterEach(() => {
-    try { rpc?.dispose(); link?.dispose(); }
+    try { rpc?.dispose(); for (const prior of priorClients.splice(0)) prior.dispose(); link?.dispose(); }
     finally {
         rpc = link = undefined;
         for (const [name, descriptor] of originals) {
@@ -122,7 +123,9 @@ test.each(['same grant', 'changed grant', 'expired setup'])('a direct timeout re
     let connecting = f.connecting;
     if (!setup) {
         f.reply(f.hello())(); await connecting;
-        rpc.dispose();
+        // Exercise the low-level reuse fallback while its owner is still live.
+        // Disposal now closes the port instead of lending it to another RPC.
+        priorClients.push(rpc);
         expect(openDirect(f.endpoint)).toBe(true);
         rpc = new NativeRpc(f.endpoint, () => undefined);
         connecting = rpc.connect().then(() => undefined, (error: Error) => error);

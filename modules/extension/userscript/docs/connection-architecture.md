@@ -1,8 +1,8 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.21**. This describes implemented behavior, not a
+Architecture of **Connect 0.6.22**. This describes implemented behavior, not a
 guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.21.md) for changes and verification limits.
+[release notes](release-0.6.22.md) for changes and verification limits.
 
 **Runtime and components.** [build-connect.ts](../build-connect.ts) bundles
 [simple-connect.ts](../src/simple-connect.ts) as a browser IIFE with Bun, Preact and TweetNaCl.
@@ -85,15 +85,15 @@ sequenceDiagram
     User->>Site: Trusted key / Find accounts / Test connection
     opt Direct route prepared
         Site->>Site: Cancel prior operation and close its port
-        Site->>Helper: window.open; transfer MessageChannel endpoint
-        Helper->>SW: Validate opener/origin/nonce; transfer endpoint
+        Site->>Helper: window.open, transfer MessageChannel endpoint
+        Helper->>SW: Validate opener/origin/nonce, transfer endpoint
         SW->>Host: Probe matching App clients for selected boot
         Host-->>SW: Public ready/state acknowledgement
         SW->>Host: Transfer website endpoint once
         Host-->>Site: Signed ready on direct port
         Site->>Site: Verify boot, endpoint, origin, connection ID and proof
-        Site->>Helper: relay-complete; also attempt close()
-        Helper->>Helper: Self-close; manual-close message if blocked
+        Site->>Helper: relay-complete, also attempt close()
+        Helper->>Helper: Self-close, manual-close message if blocked
     end
     Site->>Host: Signed hello
     Host->>Vault: Dispose previous non-busy session bridge
@@ -101,15 +101,15 @@ sequenceDiagram
     alt Connection test
         Site->>Host: Signed probe
         Host-->>Site: Visibility and boot ID
-        Site->>Host: Best-effort release on RPC disposal
+        Site->>Host: Best-effort release and close owned port on RPC disposal
     else Account lookup
         Site->>Vault: Via signed wire: ping, change-public-keys, pair, features
         Site->>Vault: Encrypted get-entries for pinned website origin
         Vault-->>Site: Matching summaries and temporary handles
         User->>Site: Select account (or enabled single-match shortcut)
-        Site->>Vault: Recheck features; get requested user/password; recheck features
-        Site->>Site: Recheck selected App, URL and targets; fill; close panel
-        Site->>Host: Best-effort release; next operation replaces physical port
+        Site->>Vault: Recheck features, get requested user/password, recheck features
+        Site->>Site: Recheck selected App, URL and targets, fill, close panel
+        Site->>Host: Best-effort release and close owned port
     end
 ```
 
@@ -208,26 +208,28 @@ are not established by this source review.
 ```mermaid
 stateDiagram-v2
     [*] --> Prepared: load route and identity
-    Prepared --> Handoff: trusted action; new physical port
-    Handoff --> PortReady: verify signed ready; request helper close
+    Prepared --> Handoff: trusted action, new physical port
+    Handoff --> PortReady: verify signed ready, request helper close
     PortReady --> Session: signed hello creates one scope
-    Session --> PortReady: close panel / cancel / successful test or fill; release
+    Session --> Prepared: close panel / cancel / successful test or fill, release and close
     PortReady --> Handoff: next trusted action closes old port and opens helper
-    Session --> PortReady: lock invalidates scope; retained transport may remain
+    Session --> PortReady: lock invalidates scope, retained transport may remain
     Session --> InvalidScope: 120 seconds from hello / another hello displaces it
     InvalidScope --> Handoff: fresh trusted operation and port
     Handoff --> Mailbox: recoverable setup failure and grant recheck
     PortReady --> Mailbox: reused hello times out in compatibility caller
-    Mailbox --> Prepared: operation ends; next trusted query tries direct again
+    Mailbox --> Prepared: operation ends, next trusted query tries direct again
     PortReady --> Prepared: idle reclaim / force reconnect / route change
     Session --> Prepared: revocation or physical port reset
     Session --> [*]: document departure
     PortReady --> [*]: document departure
 ```
 
-Panel close cancels logical work, clears account UI and disposes its `NativeRpc`; an authenticated
-physical port may remain allocated, but the next UI operation always closes and replaces it.
-Unauthenticated setup is reset. Website pagehide resets the
+Panel close cancels logical work, clears account UI and disposes its `NativeRpc`, including its
+physical port. A generation check prevents an older operation from releasing or closing a newer
+port. Lookup retains its RPC while the account list is displayed, through selection and filling;
+it is not disposed when list retrieval returns. Successful tests and fills also dispose their RPC.
+Website pagehide resets the
 website port and field observers; a BFCache return restarts observation/preparation, not the old scope.
 Hiding the site preserves pending setup/lookup, but clears a displayed selection or an actual fill.
 App lock disposes the logical bridge; unlock can resume the grant, never that old scope.
@@ -249,10 +251,13 @@ five-minute ceiling and can be invalidated earlier. See [lifecycle controller](.
 2. **Unbounded settings calls:** startup awaits [loadEndpoint](../src/settings.ts), and saving awaits
    `saveEndpoint`, without `managerCall`'s timeout. A GM promise that never settles can stall startup
    before UI creation or leave address saving pending. Other manager operations have explicit bounds.
-3. **Expiry is not immediate disposal:** NativeHost checks session expiry before handling `release`.
-   A late release therefore rejects without disposing the expired bridge. There is no session-expiry
-   timer; replacement hello, lock, pause or port removal eventually clears it. Access remains expired,
-   but retained memory/listeners must not be described as purged at the 120-second deadline.
+3. **Expiry is not immediate disposal:** NativeHost rejects an expired signed `release`. Version
+   0.6.22 also sends a close on the operation's physical port at disposal; when processed, the
+   receiver removes that port and its matching bridge even if the signed release expired.
+   Close cannot target a different port or replacement session. Abrupt termination without
+   lifecycle events, and legacy/mailbox releases, still require eventual replacement, lock,
+   pause or idle cleanup. Access remains expired, but remote memory cannot be described as
+   immediately purged while its document is not executing.
 
 The reported 0.6.19 website trace also shows a newly authenticated direct port
 accepting seven sequential RPC replies before a later request stalls. This is
@@ -269,6 +274,14 @@ the App restoration guard now skips an already-authorized runtime and records a
 successful explicit authorization as attempted. This prevents unintended repeat
 publication after cached-page return or unrelated body mutations; it does not
 establish the cause of delayed browser dispatch.
+
+The paired 0.6.21 close/reopen trace narrows the remaining failure further. A new port completed
+six RPCs; the seventh request was sent at 13:11:57.310 and first entered the App port callback at
+13:12:51.812, a 54.502-second delay. Its retries and cancellation release were then rejected as
+expired. Authorization stayed at generation 3 during that failure. Thus fresh handoff alone did
+not fix the mid-operation stall. The trace locates the delay before the App port callback, not
+inside the vault account handler; it cannot distinguish browser document scheduling from
+userscript-world scheduling. Version 0.6.22 repairs disposal, not this unexplained dispatch delay.
 
 The local recording preference persists in manager-private GM storage as a boolean;
 events themselves remain a 300-line in-memory ring in each document. It adds no

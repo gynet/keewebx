@@ -186,13 +186,12 @@ test('two consecutive proven-port hello timeouts close the dead port', async () 
     const count = f.sent.length; f.advance(20000); await flush(); expect(f.sent).toHaveLength(count);
 });
 
-test.each(['success', 'signed error'])('a fresh matching signed reply clears the consecutive timeout count (%s)', async reply => {
+test.each(['success', 'signed error'])('a matching signed reply clears the timeout count while the port is still active (%s)', async reply => {
     const f = await fixture();
     f.advance(8000); await flush();
     f.deliver(f.envelope(undefined, reply === 'signed error' ? { error: 'KeeWebX is locked.' } : {}));
     const result = await f.outcome;
     if (reply === 'success') expect(result).toBeUndefined(); else expect(result).toBeInstanceOf(Error);
-    f.rpc.dispose();
     const next = await f.start();
     f.advance(8000); await flush();
     expect(f.port.closed).toBe(false);

@@ -6,6 +6,7 @@
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
 // KWX_WEBKIT_APP_REOPEN=1 runs only real App and website close/reopen acceptance.
 // KWX_WEBKIT_FRESH_OPERATIONS=1 focuses repeated probes, App visit/return, website reopen, and explicit reconnect.
+// KWX_WEBKIT_LIFECYCLE=1 focuses completed probes, canceled lists, and completed fills clearing both endpoints and App sessions.
 // KWX_WEBKIT_DELAY_DISCOVERY_MS=24000 also delays App delivery and mailbox scans in that focused run.
 import { webkit, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
@@ -27,7 +28,9 @@ const PASSWORD = 'Disposable-port-vault-2026!';
 const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
 const FOCUS_APP_REOPEN = process.env.KWX_WEBKIT_APP_REOPEN === '1';
 const FOCUS_FRESH_OPERATIONS = process.env.KWX_WEBKIT_FRESH_OPERATIONS === '1';
-if (FOCUS_APP_REOPEN && FOCUS_FRESH_OPERATIONS) throw new Error('Select only one WebKit focus');
+const FOCUS_LIFECYCLE = process.env.KWX_WEBKIT_LIFECYCLE === '1';
+if ([FOCUS_APP_REOPEN, FOCUS_FRESH_OPERATIONS, FOCUS_LIFECYCLE].filter(Boolean).length > 1)
+    throw new Error('Select only one WebKit focus');
 const DISCOVERY_DELAY_MS = Number(process.env.KWX_WEBKIT_DELAY_DISCOVERY_MS || 0);
 if (DISCOVERY_DELAY_MS && (!FOCUS_APP_REOPEN || !Number.isFinite(DISCOVERY_DELAY_MS)
     || DISCOVERY_DELAY_MS < 17000 || DISCOVERY_DELAY_MS > 30000))
@@ -103,6 +106,8 @@ const consent = () => app.getByRole('dialog', { name: 'Allow browser extension a
 const isHelper = url => url.startsWith(appOrigin + '/connect-port/relay.html');
 async function action(page, name) {
     await page.bringToFront();
+    if (name === 'authorize') await expect.poll(() => shadow(page, '[data-action="authorize"]', 'disabled'),
+        { timeout: 15000, message: 'Wait for initial authorization restoration to settle before starting explicit consent' }).toBe(false);
     const startsOperation = page !== app && (['lookup', 'probe', 'open'].includes(name)
         || name === 'toggle' && await shadow(page, 'section', 'hidden'));
     if (startsOperation) {
@@ -344,6 +349,9 @@ async function lookup(page, account) {
         const reads = await fieldReads();
         await startLookup(page); await matching(page, account, remaining);
         await checkOperation(page);
+        const port = await physicalPort(page);
+        expect((await snapshot(page)).closedPorts.map(item => item.port),
+            'The account list must retain its port until selection or cancellation').not.toContain(port.port);
         expect(await fieldReads()).toBe(reads);
         remaining();
     });
@@ -371,6 +379,7 @@ async function fill(page, account) {
             expect(after.logicalRequests[name], 'Selecting an account must retain its existing protocol session').toBe(traffic.logicalRequests[name]);
         await checkOperation(page);
         assertAccountAuthority((await snapshot(page)).packets);
+        await operationClosed(page, port);
         await sameApp(); await noHelpers();
         remaining();
     });
@@ -407,7 +416,9 @@ async function connectWithoutFieldFocus(page, before) {
     expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
     expect((await windowTraffic()).requests).toHaveLength(requests);
     await emptyFields(page); await closedHelper(page, before);
-    return checkOperation(page);
+    const port = await checkOperation(page);
+    await operationClosed(page, port);
+    return port;
 }
 async function preferenceCheckbox(page, expected) {
     const selector = '[data-action="auto-fill-single"]';
@@ -743,6 +754,7 @@ async function cancelWithToggle(page, account, operation) {
             } else {
                 expect(await checkOperation(page)).not.toEqual(port); expect(helpers.size).toBe(count + 1);
             }
+            await operationClosed(page, await physicalPort(page));
             await sameApp(); await noHelpers();
             remaining();
         } finally { await app.evaluate(() => __kwxFixture.releaseResponses()); }
@@ -770,6 +782,7 @@ async function cancelDroppedFill(page, account) {
         expect(await fieldReads()).toBe(reads + 1);
         expect(await physicalPort(page)).toEqual(port);
         expect(helpers.size).toBe(count);
+        await operationClosed(page, port);
         await sameApp(); await noHelpers();
     });
 }
@@ -790,7 +803,64 @@ async function testConnection(page, control = 'probe') {
     expect(sent.some(item => item.data.value?.packet?.operation === 'wire')).toBe(false);
     expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
     expect((await windowTraffic()).requests).toHaveLength(requests);
+    await operationClosed(page, await physicalPort(page));
     await sameApp();
+}
+async function operationClosed(page, port) {
+    await expect.poll(async () => (await snapshot(page)).closedPorts.some(item => item.port === port.port),
+        { timeout: 5000, message: 'A completed or canceled operation must close its physical website endpoint' }).toBe(true);
+    const sent = (await snapshot(page)).packets.filter(item => item.direction === 'sent' && item.port === port.port);
+    expect(sent.some(item => item.data.kind === 'close' && item.data.connectionId === port.connection)).toBe(true);
+    await expect.poll(async () => (await snapshot(app)).packets.some(item => item.direction === 'sent'
+        && item.data.kind === 'closed' && item.data.connectionId === port.connection && item.data.reason === 'peer-closed'),
+        { timeout: 5000, message: 'The App must handle the operation close and remove its matching port' }).toBe(true);
+    const operation = currentOperations.get(page);
+    if (operation?.connection === port.connection) operation.closed = true;
+}
+async function appConnectionState() {
+    await app.bringToFront();
+    if (await shadow(app, 'section', 'hidden')) await action(app, 'toggle');
+    const click = async selector => {
+        const point = await utility(app, `(() => {
+            const target = __kwxWebKit.roots.get(document.getElementById('keewebx-userscript-connect')).querySelector(${JSON.stringify(selector)});
+            if (!target) throw new Error('Local log control is missing');
+            target.scrollIntoView({block:'nearest'});
+            const box = target.getBoundingClientRect();
+            if (!box.width || !box.height) throw new Error('Local log control is hidden');
+            return {x:box.x+box.width/2,y:box.y+box.height/2};
+        })()`);
+        await app.mouse.click(point.x, point.y);
+    };
+    if (!await shadow(app, '.kwx-connect__local-log', 'open')) await click('.kwx-connect__local-log summary');
+    if (!await shadow(app, '.kwx-connect__local-log input', 'checked')) {
+        await click('.kwx-connect__local-log input');
+        await expect.poll(() => shadow(app, '.kwx-connect__local-log input', 'checked')).toBe(true);
+    }
+    const previous = await shadow(app, '.kwx-connect__log-text', 'value');
+    await click('.kwx-connect__local-log button');
+    await expect.poll(() => shadow(app, '.kwx-connect__log-text', 'value')).toContain('Current state ');
+    await expect.poll(() => shadow(app, '.kwx-connect__log-text', 'value')).not.toBe(previous);
+    const text = await shadow(app, '.kwx-connect__log-text', 'value');
+    return JSON.parse(text.split('\n').find(line => line.startsWith('Current state ')).slice('Current state '.length));
+}
+async function completedOperationCleanup() {
+    const snapshots = [];
+    for (const operation of ['probe', 'cancel-list', 'fill']) {
+        await clearFields(first);
+        if (operation === 'probe') await testConnection(first);
+        else {
+            await lookup(first, ACCOUNTS[0]);
+            if (operation === 'fill') await fill(first, ACCOUNTS[0]);
+            else { await action(first, 'close'); await operationClosed(first, await physicalPort(first)); }
+        }
+        const state = await appConnectionState();
+        expect(state, 'Finished operations must leave no App port or logical session while retaining authorization')
+            .toMatchObject({ locked: false, authorized: true, selected: true, live: true, ports: 0, hasSession: false });
+        snapshots.push({ operation, state });
+        await sameApp(); await noHelpers();
+    }
+    return { localEndpointClosed: true, appAcknowledgedClose: true, savedGrantRetained: true,
+        lookupSelectionFillRetainsSession: true, snapshots, nativeIOSVerified: false };
 }
 async function physicalPort(page) {
     const state = await snapshot(page), sent = state.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
@@ -1055,10 +1125,10 @@ async function step(name, fn) {
 function adapter(marker, appOrigin, blockHelperClose, allowMailbox) {
     helperCloseFault({ marker, appOrigin, blocked: blockHelperClose });
     const roots = new WeakMap(), ports = new WeakMap();
-    const state = { boot: crypto.randomUUID(), packets: [], attachments: [], holdAppReady: false, heldReady: [],
+    const state = { boot: crypto.randomUUID(), packets: [], attachments: [], closedPorts: [], holdAppReady: false, heldReady: [],
         holdOperation: null, held: [], dropNext: null, dropDiscoveryPorts: false, statuses: [], actions: [],
         holdDiscovery: false, heldDiscovery: [], discoveryDeliveries: [], mailboxWrites: [] };
-    globalThis.__kwxWebKit = { roots, snapshot: () => ({ boot: state.boot, packets: state.packets, attachments: state.attachments,
+    globalThis.__kwxWebKit = { roots, snapshot: () => ({ boot: state.boot, packets: state.packets, attachments: state.attachments, closedPorts: state.closedPorts,
         helperClose: __kwxHelperClose.snapshot(), heldReady: state.heldReady.length,
         held: state.held.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
         heldDiscovery: state.heldDiscovery.length, discoveryDeliveries: state.discoveryDeliveries, mailboxWrites: state.mailboxWrites }),
@@ -1120,6 +1190,11 @@ function adapter(marker, appOrigin, blockHelperClose, allowMailbox) {
         }
     });
     const nativePost = MessagePort.prototype.postMessage;
+    const nativeClose = MessagePort.prototype.close;
+    MessagePort.prototype.close = function (...args) {
+        if (ports.has(this)) state.closedPorts.push({ at: Date.now(), port: ports.get(this) });
+        return nativeClose.apply(this, args);
+    };
     MessagePort.prototype.postMessage = function (data, ...rest) {
         if (data?.marker === marker) {
             observe(this);
@@ -1364,6 +1439,11 @@ try {
         await step('repeated probes and reconnect use fresh ports before lookup after App visit and website reopen', freshOperationsAcceptance);
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'fresh-operations'; break acceptance;
     }
+    if (FOCUS_LIFECYCLE) {
+        first = await context.newPage(); await first.goto(ACCOUNTS[0].url); await ready(first);
+        await step('probe, canceled account list, and completed fill close their endpoints and clear the App session', completedOperationCleanup);
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'operation-lifecycle'; break acceptance;
+    }
     await step('closing repeated App authorization restores the saved grant without another consent prompt', async () => {
         await app.bringToFront();
         await app.evaluate(() => { __kwxFixture.holdAction = 'kwx-features'; });
@@ -1505,6 +1585,7 @@ try {
             const lookupPort = await physicalPort(page);
             await testConnection(page); await action(page, 'close');
             expect(await physicalPort(page)).not.toEqual(lookupPort); await sameApp(); await noHelpers();
+            if ((index + 1) % 4 === 0) console.log(`PROGRESS repeated lookup/fill cycles: ${index + 1}/24`);
         }
         expect(await fieldReads()).toBe(reads + 24 + canceledRecoveries);
         expect(helpers.size).toBe(count + 24 * 3 + canceledRecoveries);
@@ -1572,6 +1653,7 @@ try {
     });
     await step('repeated probes and reconnect use fresh ports before lookup after App visit and website reopen', freshOperationsAcceptance);
     await step('closing and reopening the App restores its saved vault and grant before a fresh website reconnects', appCloseReopenAcceptance);
+    await step('probe, canceled account list, and completed fill close their endpoints and clear the App session', completedOperationCleanup);
     expect(report.errors).toEqual([]); report.passed = true;
     }
 } catch (error) {
