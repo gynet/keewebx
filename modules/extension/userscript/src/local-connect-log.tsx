@@ -4,6 +4,7 @@ import { sanitizeData } from '../../../diagnostics/src/schema';
 import type { DiagnosticData } from '../../../diagnostics/src/types';
 import { watchTransport } from './transport-events';
 import { CONNECT_VERSION } from './version';
+import { localLogPreference } from './local-log-preference';
 
 const MAX_LINES = 300;
 
@@ -14,6 +15,17 @@ export function LocalConnectLog({ mode, snapshot }: { mode: 'app' | 'website'; s
     const lines = useRef<string[]>([]);
     const textarea = useRef<HTMLTextAreaElement>(null);
     const active = useRef(false);
+    const toggled = useRef(false);
+
+    useEffect(() => {
+        let mounted = true;
+        void localLogPreference.load().then(saved => {
+            if (!mounted || toggled.current) return;
+            active.current = saved;
+            setEnabled(saved);
+        });
+        return () => { mounted = false; active.current = false; };
+    }, []);
 
     useEffect(() => {
         if (!enabled) return;
@@ -63,12 +75,14 @@ export function LocalConnectLog({ mode, snapshot }: { mode: 'app' | 'website'; s
         <label class="kwx-connect__check-label">
             <input class="kwx-connect__checkbox" type="checkbox" checked={enabled} onChange={event => {
                 if (!event.isTrusted) return;
+                toggled.current = true;
                 active.current = event.currentTarget.checked;
                 lines.current = []; setOutput(''); setCopied(false); setEnabled(active.current);
+                void localLogPreference.save(active.current);
             }} />
             Record local connection events
         </label>
-        <p class="kwx-connect__note">This tab keeps the latest 300 events in memory until you turn logging off or reload. You can copy the log manually.</p>
+        <p class="kwx-connect__note">Your recording preference is saved for future tabs and reloads. This tab keeps the latest 300 events in memory until you turn logging off or reload. You can copy the log manually.</p>
         {enabled && <button type="button" class="kwx-connect__button" onClick={copy}>Copy connection log</button>}
         {enabled && output && <>
             <p class="kwx-connect__note" aria-live="polite">{copied ? 'Copied.' : 'You can also select and copy the text below.'}</p>

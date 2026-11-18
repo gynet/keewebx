@@ -314,7 +314,11 @@ async function start(): Promise<void> {
         finally { task.cancel(); if (operation === task) operation = undefined; if (epoch === generation) ui.busy(false); }
     };
     ui.on('lookup', lookup);
-    ui.onOpen = event => { if (isLoginField(selected)) void lookup(event); };
+    ui.onOpen = event => {
+        if (!event.isTrusted) return;
+        if (isLoginField(selected)) void lookup(event);
+        else if (isLoginField(detected) && !ui.isDisabled('probe')) void testConnection();
+    };
     const testConnection = async (recovery = false) => {
         clean(); const epoch = generation; ui.busy(true);
         let stage = 'Starting the connection test';

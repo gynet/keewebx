@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.19
+# Userscripts on iOS: KeeWebX Connect 0.6.20
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each website document gets a direct MessagePort
@@ -7,11 +7,12 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.19)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.19/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.20)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.20/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
+· [Current connection flow and diagrams](docs/connection-architecture.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.19 release notes](docs/release-0.6.19.md)
+· [0.6.20 release notes](docs/release-0.6.20.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -22,7 +23,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.19** at both ends. The App reload
+   App and the login website to load **Connect 0.6.20** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
@@ -48,6 +49,13 @@ The key appears beside a recognized visible login field. Search boxes, newslette
 fields, verification codes and new-password forms do not display it. Dynamic login
 forms are detected when they open; hiding or removing the form hides the key.
 The KeeWebX App keeps its own Connect settings entry.
+
+Tap the key to check the connection immediately. If you have not selected a login
+field, the panel runs **Test connection** automatically and displays the result.
+It reuses an available connection or opens the existing temporary handoff page
+when needed. This check does not list accounts or read credential fields.
+After selecting a login field, tapping the key keeps the existing account lookup
+behavior. Merely loading a page or detecting a form does not start a connection.
 
 In **Connection**, enable **Fill a single matching account automatically** to skip
 selection when exactly one account matches a trusted lookup. This optional switch
@@ -81,8 +89,10 @@ A delayed discovery can resume on the same temporary page. A newly authenticated
 port can retry a timed-out first handshake on the same port. If a previously working
 port stalls during a later handshake, the script closes it, checks the saved App
 grant and tries the encrypted local connection to that App. This recovery opens
-no new page. Expired responses are ignored. Credential requests retain their
-original deadlines and permission checks.
+no new page during that operation. The next trusted lookup tries direct connection
+again instead of remembering the fallback for later operations. Every lookup creates
+a new encrypted session and obtains a fresh account list. Expired responses are
+ignored; credential requests retain their original deadlines and permission checks.
 
 
 Keep the original App tab open. **Test connection** checks its signed response
@@ -145,7 +155,8 @@ short-lived local mailbox for signed packets and encrypted wire payloads.
 In Connection log, enable **Record local connection events** in each affected
 tab before reproducing a failure. **Copy connection log** includes up to 300
 in-memory events with request IDs, port lifecycle and rejection reasons.
-Turn logging off or reload to clear it. No logs are uploaded; credentials,
+The recording preference is saved for future tabs and reloads; only this boolean
+is persisted. Turn logging off or reload to clear the current tab's events. No logs are uploaded; credentials,
 field contents and website addresses are excluded.
 
 ## Verification

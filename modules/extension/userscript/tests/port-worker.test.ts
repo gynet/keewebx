@@ -34,7 +34,8 @@ class FakeWindowClient {
     }
 }
 
-function fixture(withSilentApp = false, options: { base?: string; endpoint?: string; appURL?: string; missingRelayLookup?: number; missingAppLookup?: boolean } = {}) {
+function fixture(withSilentApp = false, options: { base?: string; endpoint?: string; appURL?: string; missingRelayLookup?: number; missingAppLookup?: boolean;
+    closedRelay?: boolean; attachment?: Record<string, unknown> } = {}) {
     const base = options.base ?? 'https://keewebx.app/';
     const data = { marker, kind: 'attach', nonce: crypto.randomUUID(), appBoot: crypto.randomUUID(),
         connectionId: crypto.randomUUID(), endpoint: options.endpoint ?? endpoint, siteOrigin: 'https://login.example.org' };
@@ -45,6 +46,7 @@ function fixture(withSilentApp = false, options: { base?: string; endpoint?: str
     const relay = new FakeWindowClient(relayURL.href, 'auxiliary');
     const app = new FakeWindowClient(options.appURL ?? receiverEndpoint);
     const clients = new Map([[relay.id, relay], [app.id, app]]);
+    if (options.closedRelay) clients.delete(relay.id);
     const silent = new FakeWindowClient('https://keewebx.app/app');
     if (withSilentApp) clients.set(silent.id, silent);
     const website = new FakePort();
@@ -87,7 +89,7 @@ function fixture(withSilentApp = false, options: { base?: string; endpoint?: str
         }
     }, { filename: 'connect-port/worker.js' });
 
-    listeners.get('message')!({ data, source: relay, ports: [website], waitUntil(promise: Promise<void>) {
+    listeners.get('message')!({ data: { ...data, ...options.attachment }, source: relay, ports: [website], waitUntil(promise: Promise<void>) {
         work = promise; void promise.then(() => { settled = true; }, () => { settled = true; });
     } });
     return { data, relay, app, silent, website, timers, channels, clients, queries, browserClients, navigator, time: () => now, settled: () => settled, work: () => work!,
@@ -110,6 +112,34 @@ function mismatch(request: any, replyEndpoint = request.endpoint) {
     return { marker, kind: 'app-state', appBoot: request.appBoot, endpoint: replyEndpoint,
         state: 'address-mismatch', receiverVersion: CONNECT_VERSION };
 }
+
+test('a helper closed before the initial browser lookup reports helper-unavailable without discovery', async () => {
+    const f = fixture(false, { closedRelay: true });
+    await flush(); await f.work();
+    expect(f.website.messages).toHaveLength(1);
+    expect(f.website.messages[0]).toMatchObject({ marker, kind: 'error', code: 'helper-unavailable',
+        nonce: f.data.nonce, connectionId: f.data.connectionId });
+    expect(f.relay.posts[0].data).toEqual(f.website.messages[0]);
+    expect(f.app.posts).toEqual([]);
+    expect(f.queries.get).toEqual([f.relay.id]);
+    expect(f.queries.matchAll).toBe(1);
+    expect(f.channels).toHaveLength(0);
+    expect(f.website.closed).toBe(true); expect(f.timers.size).toBe(0);
+});
+
+test.each(['shape', 'origin'])('an invalid attachment remains invalid before browser lookup (%s)', async scenario => {
+    const attachment = scenario === 'shape' ? { unexpected: 'field' } : { siteOrigin: 'https://other.example.org' };
+    const f = fixture(false, { attachment });
+    await flush(); await f.work();
+    expect(f.website.messages).toHaveLength(1);
+    expect(f.website.messages[0]).toMatchObject({ marker, kind: 'error', code: 'invalid',
+        nonce: f.data.nonce, connectionId: f.data.connectionId });
+    expect(f.relay.posts[0].data).toEqual(f.website.messages[0]);
+    expect(f.app.posts).toEqual([]);
+    expect(f.queries.get).toEqual([]); expect(f.queries.matchAll).toBe(0);
+    expect(f.channels).toHaveLength(0);
+    expect(f.website.closed).toBe(true); expect(f.timers.size).toBe(0);
+});
 
 test('the actual worker reports address mismatch immediately through a valid relay', async () => {
     const f = fixture();
@@ -247,7 +277,7 @@ test.each(['closed', 'navigated'])('the helper is revalidated before the recover
     if (change === 'closed') f.clients.delete(f.relay.id);
     else f.relay.url = 'https://keewebx.app/other-page';
     await f.tick(8000); await f.work();
-    expect(f.website.messages.at(-1).code).toBe('invalid');
+    expect(f.website.messages.at(-1).code).toBe('helper-unavailable');
     expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
     expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
     expect(f.queries.matchAll).toBe(change === 'closed' ? 2 : 1);
@@ -554,7 +584,7 @@ test.each(['app-closed', 'app-navigated', 'app-iframe', 'app-replaced',
     };
     await flush(); await f.work();
     expect(f.website.messages[0]).toMatchObject({ kind: 'error',
-        code: scenario.startsWith('relay') ? 'invalid' : 'refreshed' });
+        code: scenario.startsWith('relay') ? 'helper-unavailable' : 'refreshed' });
     expect(f.app.posts.map(post => post.data.kind)).toEqual(['find-app']);
     expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(2);
     expect(f.queries.locks).toBe(0);

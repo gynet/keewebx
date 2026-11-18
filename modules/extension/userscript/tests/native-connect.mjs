@@ -417,8 +417,15 @@ try {
  });
  await step('native and recovery channels retain signed encrypted payloads with no plaintext credentials',async()=>{
   const audit=await nativeWorker.evaluate(()=>globalThis.audit);await settings();
-  const allowed=/^Connect\.user\.js---(?:keewebx-userscript-connect-(?:identity|settings)-v1|keewebx-native-connect-v1:selected:|keewebx-connect-mailbox-v1:(?:request|reply):)/;
-  expect(audit.length).toBeGreaterThan(0);expect(audit.every(item=>allowed.test(item.key))).toBe(true);
+  const allowed=/^Connect\.user\.js---(?:keewebx-userscript-connect-(?:identity|settings)-v1$|keewebx-native-connect-v1:selected:|keewebx-connect-mailbox-v1:(?:request|reply):|keewebx-connect-mailbox-wake-v1$)/;
+  expect(audit.length).toBeGreaterThan(0);expect([...new Set(audit.filter(item=>!allowed.test(item.key)).map(item=>item.key))]).toEqual([]);
+  const wakeHints=audit.filter(item=>item.key===PREFIX+'keewebx-connect-mailbox-wake-v1'&&item.value!==undefined);
+  expect(wakeHints.length).toBeGreaterThan(0);
+  for(const {value} of wakeHints){
+   expect(Object.keys(value).sort()).toEqual(['deadline','host','id']);
+   expect(value.host).toMatch(/^[\da-f-]{36}$/);expect(value.id).toMatch(/^[\da-f-]{36}$/);
+   expect(Number.isFinite(value.deadline)).toBe(true);
+  }
   const serialized=JSON.stringify(audit);for(const secret of PRIVATE_VALUES)expect(serialized).not.toContain(secret);
   const packets=[...await app.evaluate(()=>globalThis.__kwxNativeTest.wirePackets),...audit.filter(item=>item.key.includes('keewebx-connect-mailbox-v1:')&&item.value?.packet).map(item=>item.value)];expect(packets.length).toBeGreaterThan(30);
   const privateActions=new Set(['kwx-pair','kwx-features','kwx-get-entries','kwx-get-entry-fields']);

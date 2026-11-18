@@ -122,7 +122,7 @@ test('a failed setup cancels its own helper when cross-window close is denied', 
         nonce, connectionId: value.connectionId, endpoint: endpoint.href } });
     expect(link.authenticatedReady).toBe(false);
 });
-test.each(['app-timeout', 'worker-unavailable', 'disabled'])('the helper can report %s when the transferred port delivers no error', async code => {
+test.each(['app-timeout', 'worker-unavailable', 'helper-unavailable', 'disabled', 'invalid'])('the helper can report %s when the transferred port delivers no error', async code => {
     const connectionId = code === 'worker-unavailable' ? '' : ready().connectionId;
     const data = { marker: PORT_MARK, kind: 'error', code, message: 'Connection setup failed.', nonce: (link as any).nonce, connectionId };
     const event = { isTrusted: true, source: helper, origin: endpoint.origin, ports: [], data };
@@ -135,7 +135,7 @@ test.each(['app-timeout', 'worker-unavailable', 'disabled'])('the helper can rep
     windowMessage(event as unknown as MessageEvent);
     const error = await link.connect().catch(error => error);
     expect(error.message).toBe(data.message);
-    expect(error instanceof AppSetupTimeoutError).toBe(code !== 'disabled');
+    expect(error instanceof AppSetupTimeoutError).toBe(['app-timeout', 'worker-unavailable', 'helper-unavailable'].includes(code));
     expect(port.closed).toBe(true);
     expect(link.authenticatedReady).toBe(false);
 });

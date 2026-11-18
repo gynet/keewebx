@@ -3,6 +3,8 @@
 // KWX_BUN selects Bun; KWX_WEBKIT_OUTPUT selects the disposable artifact directory.
 // KWX_BLOCK_HELPER_CLOSE=1 blocks only userscript-held helper.close() calls.
 // KWX_LEGACY_WORKER=/tmp/worker-0.6.3.js exercises the first-connection worker upgrade.
+// KWX_WEBKIT_APP_REOPEN=1 runs only real App and website close/reopen acceptance.
+// KWX_WEBKIT_DELAY_DISCOVERY_MS=24000 also delays App delivery and mailbox scans in that focused run.
 import { webkit, expect } from '@playwright/test';
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
@@ -18,6 +20,11 @@ const VERSION = readFileSync(join(ROOT, 'modules/extension/userscript/src/versio
 const OUT = resolve(process.env.KWX_WEBKIT_OUTPUT || mkdtempSync(join(tmpdir(), 'keewebx-port-webkit-')));
 const PASSWORD = 'Disposable-port-vault-2026!';
 const BLOCK_HELPER_CLOSE = process.env.KWX_BLOCK_HELPER_CLOSE === '1';
+const FOCUS_APP_REOPEN = process.env.KWX_WEBKIT_APP_REOPEN === '1';
+const DISCOVERY_DELAY_MS = Number(process.env.KWX_WEBKIT_DELAY_DISCOVERY_MS || 0);
+if (DISCOVERY_DELAY_MS && (!FOCUS_APP_REOPEN || !Number.isFinite(DISCOVERY_DELAY_MS)
+    || DISCOVERY_DELAY_MS < 17000 || DISCOVERY_DELAY_MS > 30000))
+    throw new Error('Delayed discovery requires the App reopen focus and a delay between 17000 and 30000 ms');
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
 const OPERATION_BUDGET = 30000;
@@ -50,7 +57,7 @@ const CASES = [
     'toggle key closes and cancels pending fill before late encrypted replies',
     'site A reload rebuilds transport to the original App',
     'trusted opener self-closes the helper after signed App readiness while remote close is blocked',
-    'launcher follows recognized login fields and settings before focus opens without network traffic',
+    'unfocused key tests connection without account reads; later lookup reuses its port and cancellation survives form changes',
     'native opt-in persists across reload and fills a single match; opt-out restores manual selection',
     'opt-in keeps multiple matches as a choice and narrow panels fit normal and keyboard viewports',
     'after both websites close a fresh site finds the original App despite dropped discovery-port replies'
@@ -66,6 +73,7 @@ const report = { browser: 'webkit', headless: true, nativeIOSVerified: false, re
 const values = new Map(), helpers = new Map(), sockets = new Set(), requests = new Map();
 let browser, context, server, app, first, second, appOrigin, appURL, routeKey, approved, originalApp;
 let appNavigations = 0;
+let expectedAppNavigations = 1, expectedConsentCount = 1;
 let preferenceHelperCount = 0;
 mkdirSync(OUT, { recursive: true });
 
@@ -110,16 +118,123 @@ async function ready(page, { loginFields = true } = {}) {
 }
 async function sameApp() {
     expect(await app.evaluate(() => ({ href: location.href, timeOrigin: performance.timeOrigin }))).toEqual(originalApp);
-    expect(appNavigations).toBe(1);
+    expect(appNavigations).toBe(expectedAppNavigations);
     expect(context.pages().filter(page => page !== upgradePage && page.url().startsWith(appOrigin) && !isHelper(page.url()))).toEqual([app]);
     await expect(app.locator('.vault')).toBeVisible();
     await expect(consent()).toHaveCount(0);
-    expect(await app.evaluate(() => __kwxFixture.consentCount)).toBe(1);
+    expect(await app.evaluate(() => __kwxFixture.consentCount)).toBe(expectedConsentCount);
     expect(values.get(routeKey)).toEqual(approved);
 }
 async function noHelpers() {
     await expect.poll(() => context.pages().filter(page => isHelper(page.url())).length, { timeout: 10000 }).toBe(0);
     expect([...helpers.values()].every(helper => helper.closedAt !== null && helper.automaticClosure)).toBe(true);
+}
+async function restoreSavedApp(previousRoute) {
+    await ready(app);
+    await expect(app.locator('html')).toHaveAttribute('data-app-instance', 'primary');
+    await expect(app.locator('.vault-row')).toHaveCount(1);
+    await app.locator('.vault-row').click();
+    const fallback = app.getByRole('button', { name: 'Use password', exact: true });
+    if (await fallback.isVisible()) await fallback.click();
+    await app.locator('#password').fill(PASSWORD); await app.locator('#unlock').click();
+    await expect(app.locator('.entry-row').first()).toBeVisible();
+    await expect.poll(() => status(app), { timeout: 15000 }).toContain('Authorized');
+    await expect.poll(() => values.get(routeKey)?.host).not.toBe(previousRoute.host);
+    approved = structuredClone(values.get(routeKey));
+    expect(approved.publicKey).toBe(previousRoute.publicKey);
+    expect(approved).toMatchObject({ endpoint: appURL, messagePort: 1, readyProof: 1, wireReceipt: 1 });
+    const traffic = await windowTraffic();
+    for (const name of ['ping', 'change-public-keys', 'kwx-pair', 'kwx-features'])
+        expect(traffic.requests.some(request => request.data.action === name), 'Restore must execute real ' + name).toBe(true);
+    expect((await snapshot(app)).actions.some(item => item.action === 'authorize')).toBe(false);
+    originalApp = await app.evaluate(() => ({ href: location.href, timeOrigin: performance.timeOrigin }));
+    expectedConsentCount = 0;
+    await sameApp();
+}
+async function reopenAppThenWebsite() {
+    await expect(app.locator('#sync-state')).toHaveText('Up to date');
+    const previousRoute = structuredClone(approved), previousApp = structuredClone(originalApp);
+    const previousSite = await first.evaluate(() => ({ href: location.href, timeOrigin: performance.timeOrigin }));
+    await noHelpers();
+    await app.bringToFront(); await app.close();
+    app = await context.newPage(); expectedAppNavigations++;
+    await app.goto(appURL); await restoreSavedApp(previousRoute);
+    expect(originalApp.timeOrigin).not.toBe(previousApp.timeOrigin);
+    expect(approved.owner).not.toBe(previousRoute.owner);
+    // Match the reported ordering: restore the App first, then replace the website.
+    await first.close();
+    const count = helpers.size;
+    first = await context.newPage(); await first.goto(ACCOUNTS[0].url); await ready(first);
+    expect(await first.evaluate(() => performance.timeOrigin)).not.toBe(previousSite.timeOrigin);
+    expect(helpers.size).toBe(count); await emptyFields(first);
+    return count;
+}
+async function appCloseReopenAcceptance() {
+    const count = await reopenAppThenWebsite();
+    const lists = await entryReads(), reads = await fieldReads();
+    await lookup(first, ACCOUNTS[0]); await closedHelper(first, count); await fill(first, ACCOUNTS[0]);
+    const port = await physicalPort(first);
+    for (let cycle = 0; cycle < 2; cycle++) {
+        await testConnection(first);
+        await clearFields(first); await lookup(first, ACCOUNTS[0]); await fill(first, ACCOUNTS[0]);
+        expect(await physicalPort(first)).toEqual(port); expect(helpers.size).toBe(count + 1);
+    }
+    // Reopening the panel with its previously focused login field also runs lookup.
+    expect(await entryReads()).toBe(lists + 5); expect(await fieldReads()).toBe(reads + 3);
+    const receiving = await snapshot(app), handoffs = receiving.attachments.filter(item => item.data.kind === 'attach-port');
+    expect(handoffs).toHaveLength(1);
+    expect(handoffs.every(item => item.trusted && item.worker === appOrigin + '/connect-port/worker.js'
+        && item.data.appBoot === approved.host && item.data.endpoint === appURL)).toBe(true);
+    const outgoing = (await snapshot(first)).packets.filter(item => item.direction === 'sent' && item.data.kind === 'request');
+    expect(outgoing.length).toBeGreaterThan(0);
+    expect(outgoing.every(item => item.data.value.packet.host === approved.host)).toBe(true);
+    await sameApp(); await noHelpers();
+    return { realAppClosed: true, persistedVaultReopened: true, savedGrantRestored: true, additionalConsentDialogs: 0,
+        changedAppHost: true, changedAppOwner: true, websiteReopenedAfterUnlock: true,
+        successfulFills: 3, repeatedConnectionTests: 2, helpersOpened: 1, physicalPortReused: true,
+        appNavigations, faultInjected: false };
+}
+async function delayedReopenedAppAcceptance() {
+    const count = await reopenAppThenWebsite();
+    expect(approved.mailbox).toBe(true);
+    const lists = await entryReads(), reads = await fieldReads(), started = Date.now();
+    await utility(app, '__kwxWebKit.holdDiscoveryDelivery(true)');
+    try {
+        await startLookup(first);
+        await expect.poll(async () => (await snapshot(app)).heldDiscovery,
+            { timeout: 10000 }).toBeGreaterThan(0);
+        // This defers the real event callback, preserving its trusted source and ports.
+        // App mailbox scans also see no requests until the simulated resume.
+        await first.waitForTimeout(DISCOVERY_DELAY_MS);
+        const waiting = await snapshot(first);
+        report.delayedReopenedApp = { requestedDelayMs: DISCOVERY_DELAY_MS,
+            statusBeforeResume: await status(first), websiteHiddenBeforeResume: await first.evaluate(() => document.hidden),
+            websiteMailboxWritesBeforeResume: waiting.mailboxWrites,
+            appHeldDiscoveries: (await snapshot(app)).heldDiscovery };
+        expect(waiting.packets.some(item => item.direction === 'received' && item.data.kind === 'ready')).toBe(false);
+        expect(waiting.mailboxWrites.some(item => item.type === 'request' && item.operation === 'hello')).toBe(true);
+        expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
+        await emptyFields(first);
+        report.delayedReopenedApp.releasedDiscoveryCallbacks = await utility(app, '__kwxWebKit.releaseDiscoveryDelivery()');
+        await app.bringToFront();
+        await first.bringToFront();
+        await matching(first, ACCOUNTS[0], () => 20000); await fill(first, ACCOUNTS[0]);
+        const appState = await snapshot(app), siteState = await snapshot(first);
+        const hello = siteState.mailboxWrites.find(item => item.type === 'request' && item.operation === 'hello');
+        expect(appState.mailboxWrites.some(item => item.type === 'reply' && item.id === hello.id)).toBe(true);
+        expect(await fieldReads()).toBe(reads + 1); expect(await entryReads()).toBe(lists + 1);
+        expect(helpers.size).toBe(count + 1); await noHelpers(); await sameApp();
+        const elapsedMs = Date.now() - started;
+        expect(elapsedMs).toBeLessThan(DISCOVERY_DELAY_MS + 30000);
+        const detail = { elapsedMs, requestedDelayMs: DISCOVERY_DELAY_MS, mailboxRecovered: true,
+            successfulFills: 1, additionalConsentDialogs: 0, appDeliveries: appState.discoveryDeliveries,
+            appMailboxWrites: appState.mailboxWrites, websiteMailboxWrites: siteState.mailboxWrites,
+            manualAppVisitModeled: true, nativeSuspensionModeled: false };
+        Object.assign(report.delayedReopenedApp, detail);
+        return detail;
+    } finally {
+        await utility(app, '__kwxWebKit.releaseDiscoveryDelivery()');
+    }
 }
 async function emptyFields(page) {
     await expect(page.locator('#username')).toHaveValue('');
@@ -203,6 +318,27 @@ async function preferenceSettings(page) {
     }
     await action(page, 'config-tab');
 }
+async function connectWithoutFieldFocus(page, before) {
+    const reads = await fieldReads(), lists = await entryReads(), requests = (await windowTraffic()).requests.length;
+    expect(await page.evaluate(() => ['username', 'login-password'].includes(document.activeElement?.id))).toBe(false);
+    await page.waitForTimeout(250);
+    expect(helpers.size).toBe(before);
+    expect((await snapshot(page)).packets).toEqual([]);
+    expect((await windowTraffic()).requests).toHaveLength(requests);
+    await action(page, 'toggle');
+    await expect.poll(() => status(page), { timeout: OPERATION_BUDGET }).toContain('Connected to the authorized KeeWebX tab');
+    const observed = await snapshot(page);
+    expect(observed.actions).toContainEqual({ action: 'toggle', trusted: true });
+    const operations = observed.packets.filter(item => item.direction === 'sent' && item.data.kind === 'request')
+        .map(item => item.data.value?.packet?.operation);
+    expect(operations).toContain('hello');
+    expect(operations).toContain('probe');
+    expect(operations).not.toContain('wire');
+    expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
+    expect((await windowTraffic()).requests).toHaveLength(requests);
+    await emptyFields(page); await closedHelper(page, before);
+    return physicalPort(page);
+}
 async function preferenceCheckbox(page, expected) {
     const selector = '[data-action="auto-fill-single"]';
     await expect.poll(() => shadow(page, selector, 'disabled')).toBe(false);
@@ -247,16 +383,46 @@ async function testLauncherVisibility() {
         await page.locator('#fixture-login').evaluate(form => { form.hidden = false; });
         await expect.poll(() => shadow(page, '[data-action="toggle"]', 'hidden')).toBe(false);
         expect(await page.evaluate(() => document.activeElement?.id)).toBe('search');
+        const port = await connectWithoutFieldFocus(page, count);
         await preferenceSettings(page); await preferenceCheckbox(page, false);
-        await page.waitForTimeout(250);
-        expect(helpers.size).toBe(count);
+        expect(helpers.size).toBe(count + 1);
         expect((await windowTraffic()).requests).toHaveLength(requests);
-        expect((await snapshot(page)).packets).toEqual([]);
+        const reads = await fieldReads(), lists = await entryReads();
+        await action(page, 'accounts-tab'); await action(page, 'lookup');
+        await expect.poll(() => status(page), { timeout: OPERATION_BUDGET }).toContain('Found 2 matching account');
+        expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists + 1);
+        expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count + 1);
+        await emptyFields(page);
+        await action(page, 'close');
+        // The earlier lookup used detected fields, so the key still has no selected field.
+        await utility(app, '__kwxWebKit.hold("probe")');
+        try {
+            await action(page, 'toggle');
+            await expect.poll(async () => (await snapshot(app)).held, { timeout: OPERATION_BUDGET }).toBeGreaterThan(0);
+            await action(page, 'toggle');
+            expect(await shadow(page, 'section', 'hidden')).toBe(true);
+            const stopped = await status(page);
+            await utility(app, '__kwxWebKit.release()');
+            await page.waitForTimeout(1700);
+            expect(await status(page)).toBe(stopped);
+            expect(await shadow(page, 'section', 'hidden')).toBe(true);
+            expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists + 1);
+            await emptyFields(page);
+        } finally { await utility(app, '__kwxWebKit.release()'); }
+        await action(page, 'toggle');
+        await expect.poll(() => status(page), { timeout: OPERATION_BUDGET }).toContain('Connected to the authorized KeeWebX tab');
+        expect(await physicalPort(page)).toEqual(port); expect(helpers.size).toBe(count + 1);
         await action(page, 'close');
         await page.locator('#fixture-login').evaluate(form => { form.hidden = true; });
         await expect.poll(() => shadow(page, '[data-action="toggle"]', 'hidden')).toBe(true);
+        const packetsAtHide = (await snapshot(page)).packets.length;
+        await page.waitForTimeout(250);
+        expect((await snapshot(page)).packets).toHaveLength(packetsAtHide);
+        expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists + 1);
         await sameApp(); await noHelpers();
-        return { hiddenWithoutLogin: true, followsFormVisibility: true, settingsBeforeLoginFocusRequests: 0, defaultAutoFillSingle: false };
+        return { hiddenWithoutLogin: true, followsFormVisibility: true, requestsBeforeTrustedKey: 0,
+            keyOpensVerifiedHelper: true, keyAccountRequests: 0, lookupReusesPort: true,
+            canceledKeyProbeStaysStopped: true, formHideAddsRequests: 0, defaultAutoFillSingle: false };
     } finally { await page.close(); }
 }
 async function testSinglePreference() {
@@ -264,12 +430,14 @@ async function testSinglePreference() {
     try {
         await page.goto(account.url); await ready(page); await emptyFields(page);
         const requests = (await windowTraffic()).requests.length;
+        await connectWithoutFieldFocus(page, count);
         await preferenceSettings(page); await preferenceCheckbox(page, false);
         await setAutoFillSingle(page, true);
         await page.reload(); await ready(page);
+        const port = await connectWithoutFieldFocus(page, count + 1);
         await preferenceSettings(page); await preferenceCheckbox(page, true);
         await page.waitForTimeout(250);
-        expect(helpers.size).toBe(count);
+        expect(helpers.size).toBe(count + 2);
         expect((await windowTraffic()).requests).toHaveLength(requests);
         await emptyFields(page); await action(page, 'close');
         const reads = await fieldReads(), lists = await entryReads(), offset = (await snapshot(page)).actions.length;
@@ -286,16 +454,17 @@ async function testSinglePreference() {
         expect(clicks.filter(item => item.action.startsWith('entry-'))).toEqual([]);
         assertAccountAuthority(observed.packets);
         expect(await shadow(page, 'section')).not.toContain(account.password);
-        await closedHelper(page, count);
+        expect(await physicalPort(page)).toEqual(port);
+        await closedHelper(page, count + 1);
         await page.reload(); await ready(page);
         await setAutoFillSingle(page, false);
         await clearFields(page); await lookup(page, account); await emptyFields(page);
-        await closedHelper(page, count + 1);
+        await closedHelper(page, count + 2);
         await fill(page, account);
-        expect(helpers.size).toBe(count + 2);
+        expect(helpers.size).toBe(count + 3);
         await sameApp(); await noHelpers();
         return { persistedInPrivateGM: true, automaticAccountClicks: 0, automaticFieldRequests: 1,
-            automaticListRequests: 1, submissions: 0, optOutRestoresManualChoice: true };
+            automaticListRequests: 1, unfocusedKeyDoesNotAutoFill: true, submissions: 0, optOutRestoresManualChoice: true };
     } finally { await page.close(); }
 }
 function panelGeometry(panel) {
@@ -356,7 +525,8 @@ async function testChoicePreference() {
         await fill(page, selected);
         await page.reload(); await ready(page);
         await setAutoFillSingle(page, false);
-        expect(helpers.size).toBe(count + 1);
+        await closedHelper(page, count + 1);
+        expect(helpers.size).toBe(count + 2);
         await sameApp(); await noHelpers();
         return { matchingAccounts: 2, automaticFieldRequests: 0, manualSelectionStillFills: true,
             preferenceRestored: false, captures, keyboardViewport: 'resized desktop viewport' };
@@ -768,14 +938,23 @@ async function step(name, fn) {
 }
 
 // Wrappers live only in the utility world; explicit one-shot drops model lost traffic.
-function adapter(marker, appOrigin, blockHelperClose) {
+function adapter(marker, appOrigin, blockHelperClose, allowMailbox) {
     helperCloseFault({ marker, appOrigin, blocked: blockHelperClose });
     const roots = new WeakMap(), ports = new WeakMap();
     const state = { boot: crypto.randomUUID(), packets: [], attachments: [], holdAppReady: false, heldReady: [],
-        holdHello: false, held: [], dropNext: null, dropDiscoveryPorts: false, statuses: [], actions: [] };
+        holdOperation: null, held: [], dropNext: null, dropDiscoveryPorts: false, statuses: [], actions: [],
+        holdDiscovery: false, heldDiscovery: [], discoveryDeliveries: [], mailboxWrites: [] };
     globalThis.__kwxWebKit = { roots, snapshot: () => ({ boot: state.boot, packets: state.packets, attachments: state.attachments,
         helperClose: __kwxHelperClose.snapshot(), heldReady: state.heldReady.length,
-        held: state.held.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions }),
+        held: state.held.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
+        heldDiscovery: state.heldDiscovery.length, discoveryDeliveries: state.discoveryDeliveries, mailboxWrites: state.mailboxWrites }),
+        holdDiscoveryDelivery: enabled => { state.holdDiscovery = enabled; },
+        releaseDiscoveryDelivery: () => {
+            state.holdDiscovery = false;
+            const pending = state.heldDiscovery.splice(0);
+            for (const deliver of pending) deliver();
+            return pending.length;
+        },
         dropDiscoveryPorts: enabled => { state.dropDiscoveryPorts = enabled; },
         holdReady: () => { state.holdAppReady = true; }, releaseReady: () => {
             state.holdAppReady = false;
@@ -788,8 +967,8 @@ function adapter(marker, appOrigin, blockHelperClose) {
                 || !['kwx-get-entries', 'kwx-get-entry-fields'].includes(action)) throw new Error('Invalid or already armed one-shot wire drop');
             state.dropNext = { kind, action };
         },
-        hold: () => { state.holdHello = true; }, release: (dropFirst = false) => {
-            state.holdHello = false;
+        hold: (operation = 'hello') => { state.holdOperation = operation; }, release: (dropFirst = false) => {
+            state.holdOperation = null;
             const pending = state.held.splice(0);
             const released = dropFirst ? pending.slice(1) : pending;
             for (const [port, data, rest] of released) { record(port, 'sent', data); nativePost.call(port, data, ...rest); }
@@ -836,7 +1015,7 @@ function adapter(marker, appOrigin, blockHelperClose) {
             if (state.holdAppReady && location.origin === appOrigin && data.kind === 'ready') {
                 state.heldReady.push([this, data, rest]); record(this, 'held', data); return;
             }
-            if (state.holdHello && data.kind === 'reply' && data.value?.packet?.operation === 'hello') { state.held.push([this, data, rest]); return; }
+            if (state.holdOperation && data.kind === 'reply' && data.value?.packet?.operation === state.holdOperation) { state.held.push([this, data, rest]); return; }
             if (state.dropNext?.kind === data.kind && data.value?.packet?.operation === 'wire'
                 && data.value.packet.body?.action === state.dropNext.action) {
                 state.dropNext = null;
@@ -852,6 +1031,32 @@ function adapter(marker, appOrigin, blockHelperClose) {
         for (const port of event.ports) observe(port);
         state.attachments.push({ trusted: event.isTrusted, worker: event.source?.scriptURL, data: structuredClone(event.data) });
     });
+    if (allowMailbox && location.origin === appOrigin) {
+        const container = navigator.serviceWorker, add = container.addEventListener.bind(container), remove = container.removeEventListener.bind(container);
+        const listeners = new Map();
+        container.addEventListener = (type, listener, ...rest) => {
+            if (type !== 'message' || !listener) return add(type, listener, ...rest);
+            if (!listeners.has(listener)) listeners.set(listener, event => {
+                const receivedAt = Date.now();
+                const deliver = () => {
+                    if (!listeners.has(listener)) return;
+                    if (event.data?.marker === marker && ['find-app', 'attach-port'].includes(event.data.kind))
+                        state.discoveryDeliveries.push({ kind: event.data.kind, traceId: event.data.traceId,
+                            receivedAt, deliveredAt: Date.now(), trusted: event.isTrusted, portCount: event.ports.length });
+                    if (typeof listener === 'function') listener.call(container, event); else listener.handleEvent(event);
+                };
+                if (state.holdDiscovery && event.data?.marker === marker && ['find-app', 'attach-port'].includes(event.data.kind))
+                    state.heldDiscovery.push(deliver);
+                else deliver();
+            });
+            return add(type, listeners.get(listener), ...rest);
+        };
+        container.removeEventListener = (type, listener, ...rest) => {
+            const wrapped = type === 'message' ? listeners.get(listener) : undefined;
+            if (wrapped) listeners.delete(listener);
+            return remove(type, wrapped || listener, ...rest);
+        };
+    }
     const call = (action, key, value) => new Promise((resolve, reject) => {
         const id = crypto.randomUUID();
         document.addEventListener('kwx-gm-' + id, event => {
@@ -860,8 +1065,16 @@ function adapter(marker, appOrigin, blockHelperClose) {
         document.dispatchEvent(new CustomEvent('kwx-gm-request', { detail: JSON.stringify({ id, action, key, value }) }));
     });
     return { info: { scriptHandler: 'Userscripts', script: { filename: 'Connect.user.js' } },
-        getValue: async (key, fallback) => (await call('get', key)) ?? fallback,
-        setValue: (key, value) => call('set', key, value), deleteValue: key => call('delete', key),
+        ...(allowMailbox ? { listValues: () => state.holdDiscovery ? Promise.resolve([]) : call('list', '') } : {}),
+        getValue: async (key, fallback) => state.holdDiscovery && key === 'keewebx-connect-mailbox-wake-v1'
+            ? fallback : (await call('get', key)) ?? fallback,
+        setValue: (key, value) => {
+            if (key.startsWith('keewebx-connect-mailbox-v1:') && value?.packet) {
+                const { id, type, operation, host, deadline } = value.packet;
+                state.mailboxWrites.push({ at: Date.now(), id, type, operation, host, deadline });
+            }
+            return call('set', key, value);
+        }, deleteValue: key => call('delete', key),
         getTab: async () => structuredClone(tab), saveTab: async value => { tab = structuredClone(value); } };
 }
 
@@ -920,7 +1133,8 @@ try {
     });
     await context.addInitScript(observeHelper, { marker: PORT_MARK });
     await context.exposeBinding('kwxFixtureGM', (_source, action, key, value) => {
-        if (key.startsWith('keewebx-connect-mailbox-v1:')) throw new Error('Unexpected legacy mailbox access');
+        if (action === 'list') return [...values.keys()];
+        if (key.startsWith('keewebx-connect-mailbox-v1:') && !DISCOVERY_DELAY_MS) throw new Error('Unexpected legacy mailbox access');
         if (action === 'set') values.set(key, structuredClone(value));
         else if (action === 'delete') values.delete(key);
         else return structuredClone(values.get(key));
@@ -989,7 +1203,7 @@ try {
         page.on('pageerror', error => report.errors.push(redact(error.message)));
         page.on('domcontentloaded', () => {
             if (![appOrigin, ...WEBSITE_ORIGINS].includes(new URL(page.url()).origin) || isHelper(page.url())) return;
-            void utility(page, `(() => { ${helperCloseFault.toString()} const GM = (${adapter.toString()})(${JSON.stringify(PORT_MARK)}, ${JSON.stringify(appOrigin)}, ${BLOCK_HELPER_CLOSE}); ${bundle}\n})();`)
+            void utility(page, `(() => { ${helperCloseFault.toString()} const GM = (${adapter.toString()})(${JSON.stringify(PORT_MARK)}, ${JSON.stringify(appOrigin)}, ${BLOCK_HELPER_CLOSE}, ${Boolean(DISCOVERY_DELAY_MS)}); ${bundle}\n})();`)
                 .catch(error => report.errors.push(redact(error.stack)));
         });
     });
@@ -1000,6 +1214,7 @@ try {
         document.querySelector('form').addEventListener('submit',event=>{event.preventDefault();window.formSubmits++});
         for(const input of document.querySelectorAll('input'))input.addEventListener('input',()=>{if(input.value)window.credentialInputEvents++});</script>` }));
 
+    acceptance: {
     await step(CASES[0], async () => {
         app = await context.newPage(); await app.goto(appURL); await ready(app);
         await app.locator('#open-file-input, #kdbx-file-input').first().setInputFiles(fixture);
@@ -1020,6 +1235,16 @@ try {
         originalApp = await app.evaluate(() => ({ href: location.href, timeOrigin: performance.timeOrigin }));
         await sameApp(); await noHelpers();
     });
+    if (FOCUS_APP_REOPEN) {
+        await step('the first website establishes and fills before the App is closed', async () => {
+            first = await context.newPage(); await first.goto(ACCOUNTS[0].url); await ready(first);
+            const count = helpers.size;
+            await lookup(first, ACCOUNTS[0]); await closedHelper(first, count); await fill(first, ACCOUNTS[0]);
+        });
+        await step('closing and reopening the App restores its saved vault and grant before a fresh website reconnects', appCloseReopenAcceptance);
+        if (DISCOVERY_DELAY_MS) await step('a reopened App resumes delayed discovery and the same website request through the signed mailbox', delayedReopenedAppAcceptance);
+        expect(report.errors).toEqual([]); report.passed = true; report.focus = 'app-close-reopen'; break acceptance;
+    }
     await step('closing repeated App authorization restores the saved grant without another consent prompt', async () => {
         await app.bringToFront();
         await app.evaluate(() => { __kwxFixture.holdAction = 'kwx-features'; });
@@ -1177,7 +1402,7 @@ try {
     await step(CASES[12], testSinglePreference);
     await step(CASES[13], testChoicePreference);
     preferenceHelperCount = helpers.size - beforePreferences;
-    expect(preferenceHelperCount).toBe(3);
+    expect(preferenceHelperCount).toBe(6);
     await step(CASES[14], async () => {
         await noHelpers(); await first.close(); await second.close(); first = second = undefined;
         expect(context.pages()).toEqual([app]); await sameApp();
@@ -1217,7 +1442,9 @@ try {
             workerRequestsViaHTTPS: requests.get('/connect-port/worker.js'), legacyMailboxUsed: false,
             logicalAppRequestsByAction: windowMessages.logicalRequests, physicalWindowPostsByAction: windowMessages.postAttempts };
     });
+    await step('closing and reopening the App restores its saved vault and grant before a fresh website reconnects', appCloseReopenAcceptance);
     expect(report.errors).toEqual([]); report.passed = true;
+    }
 } catch (error) {
     report.passed = false; report.failure = redact(error.stack || error); console.error('FAIL ' + report.failure);
     process.exitCode = 1;

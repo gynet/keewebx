@@ -271,7 +271,7 @@ jobs:
           bun test modules/extension/userscript/tests/site-return-path.test.ts modules/extension/userscript/tests/retired-support.test.ts
           bun test modules/extension/userscript/tests/runtime-owner.test.ts modules/extension/userscript/tests/receiver-ownership.test.ts modules/extension/userscript/tests/route-preparation.test.ts modules/extension/userscript/tests/foreground-route-failure.test.ts
           bun test modules/extension/userscript/tests/app-instance-worker.test.ts
-          bun test modules/extension/userscript/tests/app-authorization-cancel.test.ts
+          bun test modules/extension/userscript/tests/app-authorization-cancel.test.ts modules/extension/userscript/tests/local-connect-log.test.ts
           bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
           node --check modules/extension/userscript/keewebx-connect.user.js

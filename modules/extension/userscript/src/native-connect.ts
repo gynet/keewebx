@@ -48,8 +48,7 @@ const valid = (p: Packet) => isId(p.host) && isId(p.id) && isId(p.document) && /
     Number.isFinite(p.deadline) && p.deadline > Date.now() && p.deadline <= Date.now() + 66000 &&
     ['hello', 'wire', 'probe', 'focus', 'release'].includes(p.operation);
 
-const directClients = new Map<string, { link: SitePortLink; route?: Route; keys?: Keys; revision: number;
-    mailboxUntil?: { host: string; revision?: number; expires: number } }>();
+const directClients = new Map<string, { link: SitePortLink; route?: Route; keys?: Keys; revision: number }>();
 function directClient(endpoint: URL) {
     let client = directClients.get(endpoint.href);
     if (!client) {
@@ -93,18 +92,10 @@ export function watchApprovedRoute(endpoint: URL, onChange: () => void): () => v
     });
 }
 export function directCredentials(endpoint: URL): Keys | undefined { return directClient(endpoint).keys; }
-function preferMailbox(client: ReturnType<typeof directClient>): boolean {
-    const { route, mailboxUntil } = client;
-    return !!route?.mailbox && !!mailboxUntil && mailboxUntil.host === route.host &&
-        mailboxUntil.revision === route.authorizationRevision && Date.now() < mailboxUntil.expires;
-}
-
 /** Must be called synchronously from a trusted tap, before awaiting anything. */
 export function openDirect(endpoint: URL, force = false): boolean {
     const client = directClient(endpoint);
     if (client.route?.messagePort !== 1 || !client.keys) return false;
-    if (force) client.mailboxUntil = undefined;
-    else if (preferMailbox(client)) return true;
     client.link.open(force); return true;
 }
 
@@ -530,23 +521,20 @@ export class NativeRpc {
         let useMailbox = false;
         if (prepared.route?.messagePort === 1 && prepared.keys) {
             this.route = prepared.route; this.keys = prepared.keys; this.window = undefined;
-            useMailbox = preferMailbox(prepared);
-            if (!useMailbox) {
-                this.direct = prepared.link;
-                this.unsubscribeDirect = this.direct.subscribe(this.accept, reason => {
-                    for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error(reason)); }
-                    this.pending.clear();
-                });
-                this.progress('Connecting directly to the original KeeWebX App');
-                this.directGeneration = this.direct.generation;
-                try { await this.direct.connect(); }
-                catch (error) {
-                    if (!(error instanceof AppSetupTimeoutError) || !this.route.mailbox || Date.now() >= deadline) throw error;
-                    this.leaveDirect();
-                    useMailbox = true;
-                }
-                this.assertCurrent();
+            this.direct = prepared.link;
+            this.unsubscribeDirect = this.direct.subscribe(this.accept, reason => {
+                for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error(reason)); }
+                this.pending.clear();
+            });
+            this.progress('Connecting directly to the original KeeWebX App');
+            this.directGeneration = this.direct.generation;
+            try { await this.direct.connect(); }
+            catch (error) {
+                if (!(error instanceof AppSetupTimeoutError) || !this.route.mailbox || Date.now() >= deadline) throw error;
+                this.leaveDirect();
+                useMailbox = true;
             }
+            this.assertCurrent();
         } else { this.keys = await managerCall(() => identity()); this.route = await approvedRoute(this.endpoint); this.assertCurrent(); }
         if (!this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
@@ -602,10 +590,7 @@ export class NativeRpc {
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
-        if (useMailbox) {
-            if (onAppVisit) await this.waitForWebsiteReturn(deadline);
-            prepared.mailboxUntil = { host: route.host, revision: route.authorizationRevision, expires: Date.now() + 120000 };
-        }
+        if (useMailbox && onAppVisit) await this.waitForWebsiteReturn(deadline);
     }
     private leaveDirect(reset = false): void {
         this.unsubscribeDirect?.(); this.unsubscribeDirect = undefined;

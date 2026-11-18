@@ -301,7 +301,7 @@ async function attach(event) {
         // Re-read the browser-owned client so a navigated relay cannot authorize a handoff.
         const relay = await findRelay(event.source.id, data);
         if (!relay) {
-            fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
+            fail(event, 'helper-unavailable', 'The connection helper changed or closed. Return to the website and retry.');
             return;
         }
         const endpoint = new URL(data.endpoint);
@@ -322,7 +322,7 @@ async function attach(event) {
             // Keep the website endpoint here; only public probes get new ports.
             const refreshed = await recoveryClients(event.source.id, data, endpoint, discoveryDeadline);
             if (refreshed?.invalid) {
-                fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
+                fail(event, 'helper-unavailable', 'The connection helper changed or closed. Return to the website and retry.');
                 return;
             }
             if (refreshed) {
@@ -354,7 +354,7 @@ async function attach(event) {
             findRelay(event.source.id, data), findWindowClient(matches[0].client.id, true, (client) => isApp(client, endpoint))
         ]);
         if (!currentRelay) {
-            fail(event, 'invalid', 'The connection helper changed or closed. Return to the website and retry.');
+            fail(event, 'helper-unavailable', 'The connection helper changed or closed. Return to the website and retry.');
             return;
         }
         if (!app) {

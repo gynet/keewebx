@@ -131,7 +131,7 @@ export class SitePortLink {
         const startupFailure = data.code === 'worker-unavailable' || data.code === 'timeout';
         if (data.nonce !== this.nonce || (this.id !== data.connectionId && !(startupFailure && data.connectionId === '')) ||
             typeof data.code !== 'string' || typeof data.message !== 'string' || data.message.length > 2048) return false;
-        const recoverable = startupFailure || data.code === 'app-timeout';
+        const recoverable = startupFailure || data.code === 'app-timeout' || data.code === 'helper-unavailable';
         transportEvent({ event: 'relay-error', portId: this.id, reason: data.code === 'app-timeout' || data.code === 'timeout' ? 'timeout' : 'unavailable' });
         if (data.code === 'app-timeout') recordPortEvent('discovery-timeout', data);
         this.failSetup(recoverable ? new AppSetupTimeoutError(data.message) : new Error(data.message));
