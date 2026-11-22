@@ -4,7 +4,12 @@ import { AppSettingsModel } from 'models/app-settings-model';
 const IdleTracker = {
     actionTime: Date.now(),
     init(): void {
-        setInterval(this.checkIdle.bind(this), 1000 * 60);
+        const check = () => this.checkIdle();
+        setInterval(check, 1000 * 60);
+        window.addEventListener('focus', check);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') check();
+        });
     },
     checkIdle(): void {
         const idleMinutes = (Date.now() - this.actionTime) / 1000 / 60;
@@ -19,6 +24,6 @@ const IdleTracker = {
     }
 };
 
-Events.on('power-monitor-resume', () => IdleTracker.checkIdle);
+Events.on('power-monitor-resume', () => IdleTracker.checkIdle());
 
 export { IdleTracker };
