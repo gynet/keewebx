@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { entryMatchesWebsite, matchesWebsiteUrl, validWebsiteOrigin } from '../src/comp/extension/website-matching';
+import { allowsAutofillScheme, entryMatchesWebsite, matchesWebsiteUrl, validWebsiteOrigin } from '../src/comp/extension/website-matching';
 
 describe('validWebsiteOrigin', () => {
     test.each([
@@ -169,5 +169,15 @@ describe('entryMatchesWebsite', () => {
         for (const origin of ['http://example.com', 'https://example.com/', 'https://user@example.com', 'invalid']) {
             expect(entryMatchesWebsite(entry, origin)).toBe(false);
         }
+    });
+});
+
+describe('allowsAutofillScheme', () => {
+    test('requires the selected HTTP origin to be present explicitly', () => {
+        const entry = { getAllUrls: () => ['https://example.test', 'example.test', 'http://example.test:8080/login'] };
+        expect(allowsAutofillScheme(entry, 'https://example.test/login')).toBe(true);
+        expect(allowsAutofillScheme(entry, 'http://example.test/login')).toBe(false);
+        expect(allowsAutofillScheme(entry, 'http://example.test:8080/form')).toBe(true);
+        expect(allowsAutofillScheme(entry, 'http://other.example.test:8080/form')).toBe(false);
     });
 });

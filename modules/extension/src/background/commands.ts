@@ -97,6 +97,8 @@ async function runCommand(args: CommandArgs): Promise<void> {
         return;
     }
 
+    // A separately hosted vault may predate the explicit HTTP matching policy.
+    if (new URL(args.url).protocol !== 'https:') return;
     await backend.connect();
     if (backend.state !== BackendConnectionState.Connected) {
         void chrome.runtime.openOptionsPage();
@@ -160,14 +162,14 @@ async function getValuesFromVault(
         entryId = suggested[0].id;
     }
     if (options.username || options.password) {
-        const login = await vaultRequest<{ user: string; password: string }>('credentials', { id: entryId });
+        const login = await vaultRequest<{ user: string; password: string }>('credentials', { id: entryId, fillUrl: args.url });
         return {
             text: options.username ? login.user : login.password,
             password: options.username && options.password ? login.password : undefined
         };
     }
     if (options.otp) {
-        return { text: (await vaultRequest<{ text: string }>('field', { id: entryId, field: 'otp' })).text };
+        return { text: (await vaultRequest<{ text: string }>('field', { id: entryId, field: 'otp', fillUrl: args.url })).text };
     }
     return undefined;
 }

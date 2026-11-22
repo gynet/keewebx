@@ -1,3 +1,4 @@
+import { allowsAutofillScheme } from 'comp/extension/website-matching';
 /**
  * What an interface asks of the vault: open and unlock vaults, list and
  * search entries, read fields, lock, and the security settings. Used by
@@ -195,11 +196,14 @@ const handlers: Record<string, (req: VaultRequest) => unknown> = {
 
     async field(req) {
         IdleTracker.regUserAction();
-        return { text: await entryFieldText(findEntry(req.id), req.field) };
+        const entry = findEntry(req.id);
+        if (req.fillUrl && !allowsAutofillScheme(entry, String(req.fillUrl))) throw new Error('Insecure autofill destination');
+        return { text: await entryFieldText(entry, req.field) };
     },
 
     async credentials(req) {
         const entry = findEntry(req.id);
+        if (req.fillUrl && !allowsAutofillScheme(entry, String(req.fillUrl))) throw new Error('Insecure autofill destination');
         return { user: await entryFieldText(entry, 'user'), password: await entryFieldText(entry, 'password') };
     },
 

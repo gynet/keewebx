@@ -20,7 +20,7 @@ import type { ProtocolAccess } from './protocol-access';
 import type { ProtocolUi, SaveGroupChoice } from './protocol-ui';
 import type { Logger } from 'util/logger';
 import { entryFieldText, listEntries, listWebsiteEntries, summarizeEntry } from 'comp/extension/entry-list';
-import { entryMatchesWebsite, validWebsiteOrigin } from './website-matching';
+import { allowsAutofillScheme, entryMatchesWebsite, validWebsiteOrigin } from './website-matching';
 
 // === Public types shared with browser-extension-connector ===
 
@@ -741,6 +741,7 @@ async function findEntry(
         entry = await promptWithTimeout(request, (signal) => ui.selectEntry({ filter, topMessage }, signal));
     }
 
+    if (!allowsAutofillScheme(entry, String(payload.url))) throw makeError(Errors.noMatches);
     assertEntry(request, entry);
     client.stats.passwordsRead++;
     Events.emit('browser-extension-sessions-changed');
