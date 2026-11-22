@@ -51,7 +51,7 @@ export function summarizeEntry(entry: EntryModel): EntrySummary {
 export function listEntries(
     appModel: EntryListModel,
     files: unknown,
-    options: { url?: string; query?: string }
+    options: { url?: string; query?: string; exactHost?: boolean }
 ): { suggested: EntryModel[]; items: EntryModel[] } {
     const query = (options.query || '').trim();
     let suggested: EntryModel[] = [];
@@ -62,6 +62,7 @@ export function listEntries(
             files,
             {}
         );
+        filter.subdomains = !options.exactHost;
         suggested = [...(filter.getEntries() as unknown as EntryModel[])];
     }
     const shown = new Set(suggested.map((e) => e.id));

@@ -151,7 +151,7 @@ async function getValuesFromVault(
     if (!entryId) {
         const status = await vaultRequest<{ open: boolean }>('status');
         const suggested = status.open
-            ? (await vaultRequest<{ suggested: { id: string }[] }>('list', { url: args.url })).suggested
+            ? (await vaultRequest<{ suggested: { id: string }[] }>('list', { url: args.url, exactHost: true })).suggested
             : [];
         if (suggested.length !== 1 || options.other) {
             await chrome.action.openPopup().catch(() => {});

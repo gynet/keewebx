@@ -82,7 +82,8 @@ function list(req: VaultRequest) {
     const model = app();
     const { suggested, items } = listEntries(model, model.files, {
         url: req.url ? String(req.url) : undefined,
-        query: String(req.query || '')
+        query: String(req.query || ''),
+        exactHost: req.exactHost === true
     });
     return { suggested: suggested.map(entrySummary), items: items.map(entrySummary) };
 }

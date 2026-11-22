@@ -9,7 +9,7 @@ export function validWebsiteOrigin(value: unknown): string | undefined {
     }
 }
 
-function storedWebsiteUrl(value: string): URL | undefined {
+export function storedWebsiteUrl(value: string): URL | undefined {
     // URL parsing otherwise silently removes controls and repairs backslashes.
     if (typeof value !== 'string' || /[\u0000-\u001f\u007f\\]/.test(value)) return undefined;
     const trimmed = value.trim();

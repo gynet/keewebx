@@ -1,7 +1,7 @@
 import { SearchResultCollection } from 'collections/search-result-collection';
 import { Ranking } from 'util/data/ranking';
 
-const urlPartsRegex = /^(\w+:\/\/)?(?:(?:www|wwws|secure)\.)?([^\/]+)\/?(.*)/;
+import { storedWebsiteUrl } from 'comp/extension/website-matching';
 
 interface WindowInfo {
     title?: string;
@@ -75,42 +75,26 @@ class SelectEntryFilter {
         }
 
         if (this.useUrl && this.url) {
-            const searchUrlLower = this.url.toLowerCase();
-            const searchUrlParts = urlPartsRegex.exec(searchUrlLower);
+            const destination = storedWebsiteUrl(this.url);
+            if (!destination) return 0;
+            for (const value of entry.getAllUrls()) {
+                const stored = storedWebsiteUrl(value);
+                if (!stored || stored.port !== destination.port) continue;
+                const exact = stored.hostname === destination.hostname;
+                const subdomain = this.subdomains && destination.hostname.endsWith('.' + stored.hostname);
+                if (!exact && !subdomain) continue;
 
-            for (const url of entry.getAllUrls()) {
-                const entryUrlParts = urlPartsRegex.exec(url.toLowerCase());
-                if (entryUrlParts && searchUrlParts) {
-                    const [, scheme, domain, path] = entryUrlParts;
-                    const [, searchScheme, searchDomain, searchPath] = searchUrlParts;
-                    if (
-                        domain === searchDomain ||
-                        (this.subdomains && searchDomain.indexOf('.' + domain) > 0)
-                    ) {
-                        if (domain === searchDomain) {
-                            urlRank += 20;
-                        } else {
-                            urlRank += 10;
-                        }
-                        if (path === searchPath) {
-                            urlRank += 10;
-                        } else if (path && searchPath) {
-                            if (path.lastIndexOf(searchPath, 0) === 0) {
-                                urlRank += 5;
-                            } else if (searchPath.lastIndexOf(path, 0) === 0) {
-                                urlRank += 3;
-                            }
-                        }
-                        if (scheme === searchScheme) {
-                            urlRank += 1;
-                        }
-                    }
+                urlRank += exact ? 20 : 10;
+                const path = stored.pathname;
+                const searchPath = destination.pathname;
+                if (path === searchPath) {
+                    urlRank += 10;
+                } else if (path.startsWith(searchPath)) {
+                    urlRank += 5;
+                } else if (searchPath.startsWith(path)) {
+                    urlRank += 3;
                 }
-            }
-
-            if (entry.searchText.includes(searchUrlLower)) {
-                // the url is in some field; include it
-                urlRank += 5;
+                if (stored.protocol === destination.protocol) urlRank += 1;
             }
         }
 
