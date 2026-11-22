@@ -96,9 +96,8 @@ class Otp {
         let timeLeft: number | undefined;
         if (this.type === 'totp') {
             const now = Date.now();
-            const epoch = Math.round(now / 1000);
-            valueForHashing = Math.floor(epoch / this.period);
             const msPeriod = this.period * 1000;
+            valueForHashing = Math.floor(now / msPeriod);
             timeLeft = msPeriod - (now % msPeriod);
         } else {
             valueForHashing = this.counter ?? 0;
