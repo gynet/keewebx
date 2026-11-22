@@ -1084,7 +1084,7 @@ describe('ProtocolImpl — explicit UI decisions', () => {
             .toThrow('Protocol UI is required');
     });
 
-    test('legacy consent and entry selection receive the shared filter without wire changes', async () => {
+    test('legacy sessions require fresh consent even when a shared approval exists', async () => {
         let chosen: EntryModel;
         const connect = mock(async (input: Parameters<ProtocolUi['connect']>[0]) => {
             expect(input).toMatchObject({ offerList: false, askGet: 'multiple', allFiles: true });
@@ -1097,13 +1097,15 @@ describe('ProtocolImpl — explicit UI decisions', () => {
         });
         const f = fixture({ connect, selectEntry });
         chosen = f.entry as unknown as EntryModel;
+        const previousApproval = { allFiles: true, askGet: 'multiple' };
+        RuntimeDataModel.extensionConnectConfig = previousApproval;
         const client = await handshake();
         const result = await call(client, 'get-logins', { url: f.entry.url });
         expect(result.ok).toMatchObject({ success: 'true', hash: KEEWEB_HASH, count: 1,
             entries: [{ group: 'Vault', login: 'user', password: 'secret', skipAutoSubmit: 'false' }] });
         expect(connect).toHaveBeenCalledTimes(1);
         expect(selectEntry).toHaveBeenCalledTimes(1);
-        expect(RuntimeDataModel.extensionConnectConfig).toEqual(approved);
+        expect(RuntimeDataModel.extensionConnectConfig).toEqual(previousApproval);
     });
 
     test('one exact match with askGet=multiple keeps the no-picker path', async () => {
