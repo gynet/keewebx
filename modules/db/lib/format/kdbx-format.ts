@@ -1,4 +1,5 @@
-import { gzipSync, gunzipSync } from 'fflate';
+import { gzipSync } from 'fflate';
+import { gunzipBounded } from '../utils/bounded-gunzip';
 import { Kdbx } from './kdbx';
 import { CipherId, CompressionAlgorithm, ErrorCodes } from '../defs/consts';
 import { KdbxError } from '../errors/kdbx-error';
@@ -68,7 +69,7 @@ export class KdbxFormat {
                             return this.decryptData(data, keys.cipherKey).then((data) => {
                                 zeroBuffer(keys.cipherKey);
                                 if (this.kdbx.header.compression === CompressionAlgorithm.GZip) {
-                                    data = arrayToBuffer(gunzipSync(new Uint8Array(data)));
+                                    data = arrayToBuffer(gunzipBounded(new Uint8Array(data)));
                                 }
                                 stm = new BinaryStream(arrayToBuffer(data));
                                 this.kdbx.header.readInnerHeader(stm, this.ctx);
