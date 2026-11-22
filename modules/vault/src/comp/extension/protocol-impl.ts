@@ -506,19 +506,13 @@ async function checkContentRequestPermissions(
         return;
     }
 
-    // A paired extension keeps what the user approved for its identity key.
-    // Other clients share one approval, as before pairing existed: MV3
-    // service workers restart often and come back with a new clientId.
+    // Existing shared settings only seed the prompt. Authorization is
+    // persisted per verified identity and otherwise lasts for this session.
     const shared = runtimeData.extensionConnectConfig as ClientPermissions | undefined;
-    const pairing = client.identity ? getPairings()[client.identity] : undefined;
-    const stored = client.identity ? pairing?.permissions : shared;
-    // A paired client may fill with an approval given before pairing existed,
-    // but listing always needs its own.
-    const config = stored ?? (client.identity && !pairing?.revoked && !options.list ? shared : undefined);
-
+    const config = client.identity ? getPairings()[client.identity]?.permissions : undefined;
     if (config && (!options.list || config.canList)) {
         client.permissions = clonePermissions(config);
-        client.permissionSource = client.identity && pairing?.permissions ? 'identity' : 'legacy';
+        client.permissionSource = 'identity';
         Events.emit('browser-extension-sessions-changed');
         return;
     }
@@ -540,7 +534,7 @@ async function checkContentRequestPermissions(
     try {
         approved = { ...await promptWithTimeout(request, (signal) => ui.connect({
             extensionName: getHumanReadableExtensionName(client),
-            identityVerified: true,
+            identityVerified: !!client.identity,
             files,
             allFiles: (config ?? shared)?.allFiles ?? true,
             askGet: (config ?? shared)?.askGet ?? 'multiple',
@@ -560,8 +554,6 @@ async function checkContentRequestPermissions(
             created: getPairings()[client.identity]?.created ?? new Date().toISOString(),
             permissions: approved
         });
-    } else {
-        runtimeData.extensionConnectConfig = approved;
     }
     client.permissions = approved;
     Events.emit('browser-extension-sessions-changed');
