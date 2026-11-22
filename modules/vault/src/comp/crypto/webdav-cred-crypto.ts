@@ -1,24 +1,7 @@
-/**
- * AES-256-GCM encryption for WebDAV credentials (#57).
- *
- * Replaces the insecure XOR obfuscation with proper authenticated
- * encryption. The key is derived via HKDF-SHA256 from the master
- * password hash + fileId, so the stored ciphertext is only
- * recoverable by someone who knows the master password.
- *
- * Design mirrors `comp/passkey/passkey-prf.ts` (pure crypto layer,
- * no UI, no model imports). Callers decide where to persist the
- * ciphertext.
- *
- * Wire format: "aesgcm:" + base64(iv[12] + ciphertext + tag[16])
- * The "aesgcm:" prefix distinguishes new-format from legacy XOR
- * (which is base64 without prefix).
- *
- * HKDF info string is a wire-format constant. NEVER change it after
- * initial deployment -- doing so would break all existing encrypted
- * credentials.
- */
+import { BinaryStream, ByteUtils, Credentials, KeyEncryptorKdf, VarDictionary } from 'kdbxweb';
 
+// Legacy ciphertext is only read to migrate existing connections. New
+// ciphertext uses the KDBX KDF output and a separate HKDF context.
 /** AES-GCM initialization vector length in bytes. */
 const AES_GCM_IV_BYTES = 12;
 
@@ -30,6 +13,8 @@ const HKDF_INFO = 'keewebx-webdav-cred-v1';
 
 /** Prefix for AES-GCM encrypted values in storage. */
 export const AESGCM_PREFIX = 'aesgcm:';
+export const KDF_AESGCM_PREFIX = 'aesgcm-v2:';
+const KDF_HKDF_INFO = 'keewebx-webdav-cred-v2';
 
 /**
  * Derive an AES-256-GCM key from a password hash + fileId.
@@ -41,7 +26,8 @@ export const AESGCM_PREFIX = 'aesgcm:';
  */
 export async function deriveWebDavKey(
     passwordHash: Uint8Array,
-    fileId: string
+    fileId: string,
+    info = HKDF_INFO
 ): Promise<CryptoKey> {
     const encoder = new TextEncoder();
     const baseKey = await crypto.subtle.importKey(
@@ -56,7 +42,7 @@ export async function deriveWebDavKey(
             name: 'HKDF',
             hash: 'SHA-256',
             salt: encoder.encode(fileId) as unknown as ArrayBuffer,
-            info: encoder.encode(HKDF_INFO) as unknown as ArrayBuffer
+            info: encoder.encode(info) as unknown as ArrayBuffer
         },
         baseKey,
         { name: 'AES-GCM', length: 256 },
@@ -77,22 +63,24 @@ export async function deriveWebDavKey(
 export async function encryptWebDavPassword(
     password: string,
     passwordHash: Uint8Array,
-    fileId: string
+    fileId: string,
+    info = HKDF_INFO
 ): Promise<string | null> {
     if (typeof crypto === 'undefined' || !crypto.subtle) {
         return null;
     }
-    const key = await deriveWebDavKey(passwordHash, fileId);
+    const key = await deriveWebDavKey(passwordHash, fileId, info);
     const iv = new Uint8Array(AES_GCM_IV_BYTES);
     crypto.getRandomValues(iv);
     const plaintext = new TextEncoder().encode(password);
-    const ciphertext = new Uint8Array(
-        await crypto.subtle.encrypt(
-            { name: 'AES-GCM', iv: iv as unknown as ArrayBuffer },
-            key,
-            plaintext as unknown as ArrayBuffer
-        )
-    );
+    let ciphertext: Uint8Array;
+    try {
+        ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv as unknown as ArrayBuffer }, key, plaintext as unknown as ArrayBuffer
+        ));
+    } finally {
+        plaintext.fill(0);
+    }
     // Concatenate iv + ciphertext (which includes the 16-byte GCM tag)
     const combined = new Uint8Array(iv.byteLength + ciphertext.byteLength);
     combined.set(iv, 0);
@@ -112,7 +100,8 @@ export async function encryptWebDavPassword(
 export async function decryptWebDavPassword(
     encrypted: string,
     passwordHash: Uint8Array,
-    fileId: string
+    fileId: string,
+    info = HKDF_INFO
 ): Promise<string | null> {
     if (typeof crypto === 'undefined' || !crypto.subtle) {
         return null;
@@ -128,15 +117,68 @@ export async function decryptWebDavPassword(
         }
         const iv = combined.subarray(0, AES_GCM_IV_BYTES);
         const ciphertext = combined.subarray(AES_GCM_IV_BYTES);
-        const key = await deriveWebDavKey(passwordHash, fileId);
+        const key = await deriveWebDavKey(passwordHash, fileId, info);
         const plaintext = await crypto.subtle.decrypt(
             { name: 'AES-GCM', iv: iv as unknown as ArrayBuffer },
             key,
             ciphertext as unknown as ArrayBuffer
         );
-        return new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
+        try {
+            return new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
+        } finally {
+            ByteUtils.zeroBuffer(plaintext);
+        }
     } catch {
         // Decryption failure (wrong password, corrupted data, etc.)
+        return null;
+    }
+}
+
+async function withTransformedKey<T>(
+    credentials: Credentials, parameters: VarDictionary, use: (key: Uint8Array) => Promise<T>
+): Promise<T> {
+    await credentials.ready;
+    if (!credentials.passwordHash && !credentials.keyFileHash) throw new Error('Missing vault credentials');
+    const composite = await credentials.getHash();
+    let key: ArrayBuffer | undefined;
+    try {
+        key = await KeyEncryptorKdf.encrypt(composite, parameters);
+        return await use(new Uint8Array(key));
+    } finally {
+        ByteUtils.zeroBuffer(composite);
+        if (key) ByteUtils.zeroBuffer(key);
+    }
+}
+
+export async function encryptWebDavPasswordWithKdf(
+    password: string, credentials: Credentials, parameters: VarDictionary, fileId: string
+): Promise<{ encpass: string; encpassKdf: string } | undefined> {
+    if (!globalThis.crypto?.subtle) return undefined;
+    const stream = new BinaryStream();
+    // Keep the exact KDBX KDF settings so the connection can be unlocked
+    // before downloading the database, even when offline caching is disabled.
+    parameters.write(stream);
+    const encpassKdf = bytesToBase64(new Uint8Array(stream.getWrittenBytes()));
+    const snapshot = VarDictionary.read(new BinaryStream(stream.getWrittenBytes()));
+    const encrypted = await withTransformedKey(credentials, snapshot, key =>
+        encryptWebDavPassword(password, key, fileId, KDF_HKDF_INFO));
+    return encrypted ? {
+        encpass: KDF_AESGCM_PREFIX + encrypted.slice(AESGCM_PREFIX.length),
+        encpassKdf
+    } : undefined;
+}
+
+export async function decryptWebDavPasswordWithKdf(
+    encrypted: string, credentials: Credentials, encodedParameters: string, fileId: string
+): Promise<string | null> {
+    if (!globalThis.crypto?.subtle || !encrypted.startsWith(KDF_AESGCM_PREFIX) || encodedParameters.length > 2048) {
+        return null;
+    }
+    try {
+        const parameters = VarDictionary.read(new BinaryStream(ByteUtils.arrayToBuffer(base64ToBytes(encodedParameters))));
+        return await withTransformedKey(credentials, parameters, key =>
+            decryptWebDavPassword(encrypted.slice(KDF_AESGCM_PREFIX.length), key, fileId, KDF_HKDF_INFO));
+    } catch {
         return null;
     }
 }

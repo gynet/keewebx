@@ -101,7 +101,7 @@ describe('encryptWebDavPassword + decryptWebDavPassword', () => {
         // Corrupt the ciphertext by flipping a character in the base64 body
         const prefix = AESGCM_PREFIX;
         const b64 = encrypted!.slice(prefix.length);
-        const corrupted = prefix + 'X' + b64.slice(1);
+        const corrupted = prefix + (b64.startsWith('X') ? 'Y' : 'X') + b64.slice(1);
         const decrypted = await decryptWebDavPassword(corrupted, hash, fileId);
         expect(decrypted).toBeNull();
     });

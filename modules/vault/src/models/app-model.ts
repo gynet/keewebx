@@ -93,8 +93,7 @@ interface StorageProvider {
     ): Promise<Record<string, unknown>>;
     fileOptsToStoreOpts?(
         opts: Record<string, unknown>,
-        file: FileModel,
-        passwordHash?: Uint8Array
+        file: FileModel
     ): Record<string, unknown> | Promise<Record<string, unknown>>;
     storeOptsToFileOpts?(
         opts: Record<string, unknown>,
@@ -1211,10 +1210,7 @@ class AppModel {
         const opts = file.opts;
         const storage = getStorageProvider(file.storage);
         if (storage?.fileOptsToStoreOpts && opts) {
-            const passwordHash = this._getPasswordHash(file);
-            return Promise.resolve(
-                storage.fileOptsToStoreOpts(opts, file, passwordHash ?? undefined)
-            );
+            return Promise.resolve(storage.fileOptsToStoreOpts(opts, file));
         }
         return Promise.resolve(null);
     }
@@ -1227,7 +1223,7 @@ class AppModel {
                 storage.storeOptsToFileOpts(opts, file, passwordHash ?? undefined)
             ).then((fileOpts) => {
                 file.opts = fileOpts;
-            });
+            }).finally(() => passwordHash?.fill(0));
         }
         return Promise.resolve();
     }
@@ -1434,9 +1430,7 @@ class AppModel {
                     callback?.(error);
                 };
                 const current = () => canContinue() && file.db === syncDb && !destination.signal.aborted;
-                const hash = this._getPasswordHash(file);
-                Storage.webdav.fileOptsToStoreOpts(opts ?? {}, file, hash ?? undefined).then((storedOpts) => {
-                    if (hash) kdbxweb.ByteUtils.zeroBuffer(hash);
+                Storage.webdav.fileOptsToStoreOpts(opts ?? {}, file).then((storedOpts) => {
                     if (!current()) { fail('Save destination request expired'); return; }
                     getVerifiedData((data, error) => {
                         if (error || !data) { fail(error || 'No file data'); return; }
@@ -1468,7 +1462,7 @@ class AppModel {
                             });
                         });
                     });
-                }, (error) => { if (hash) kdbxweb.ByteUtils.zeroBuffer(hash); fail(error); });
+                }, fail);
                 return;
             }
             if (!storageName || !storageProvider) {
