@@ -380,7 +380,7 @@ class SettingsGeneralView extends View {
     }
 
     changeRememberKeyFiles(e: any): void {
-        const rememberKeyFiles = e.target.value || false;
+        const rememberKeyFiles = e.target.value === 'path' ? 'path' : false;
         settings.rememberKeyFiles = rememberKeyFiles;
         this.appModel.clearStoredKeyFiles();
     }

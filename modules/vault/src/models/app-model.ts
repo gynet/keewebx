@@ -889,9 +889,7 @@ class AppModel {
         const access = getSessionAccess(this);
         const epoch = params.sessionEpoch ?? access.epoch;
         const opts = params.opts;
-        const keyFile = params.keyFileData ?? (this.settings.rememberKeyFiles === 'data' && fileInfo?.keyFileHash
-            ? FileModel.createKeyFileWithHash(fileInfo.keyFileHash) : undefined);
-        Promise.resolve().then(() => storage.prepareOpenOpts!(opts, params.password ?? null, keyFile)).then(prepared => {
+        Promise.resolve().then(() => storage.prepareOpenOpts!(opts, params.password ?? null, params.keyFileData)).then(prepared => {
             access.assertOpen(epoch);
             if (params.canOpen && !params.canOpen()) throw new Error('Open canceled');
             // Plaintext connection credentials belong to this request, never the recent record.
@@ -990,9 +988,7 @@ class AppModel {
         const fileStorage = getStorageProvider('file');
         if (!params.keyFileData && fileInfo && fileInfo.keyFileName) {
             params.keyFileName = fileInfo.keyFileName;
-            if (this.settings.rememberKeyFiles === 'data' && fileInfo.keyFileHash) {
-                params.keyFileData = FileModel.createKeyFileWithHash(fileInfo.keyFileHash);
-            } else if (this.settings.rememberKeyFiles === 'path' && fileInfo.keyFilePath) {
+            if (this.settings.rememberKeyFiles === 'path' && fileInfo.keyFilePath) {
                 params.keyFilePath = fileInfo.keyFilePath;
                 if (fileStorage?.enabled) {
                     needLoadKeyFile = true;
@@ -1174,18 +1170,11 @@ class AppModel {
                 fileInfo.passkeyWrappedKey = existingFileInfo.passkeyWrappedKey;
                 fileInfo.passkeyCreatedDate = existingFileInfo.passkeyCreatedDate;
             }
-            switch (this.settings.rememberKeyFiles) {
-                case 'data':
-                    fileInfo.set({
-                        keyFileName: file.keyFileName || null,
-                        keyFileHash: file.getKeyFileHash()
-                    });
-                    break;
-                case 'path':
-                    fileInfo.set({
-                        keyFileName: file.keyFileName || null,
-                        keyFilePath: file.keyFilePath || null
-                    });
+            if (file.keyFileName) {
+                fileInfo.keyFileName = file.keyFileName;
+            }
+            if (this.settings.rememberKeyFiles === 'path') {
+                fileInfo.keyFilePath = file.keyFilePath || null;
             }
             if (
                 this.settings.deviceOwnerAuth === 'file' &&
@@ -1389,12 +1378,8 @@ class AppModel {
                         syncDate: file.syncDate,
                         chalResp: file.chalResp
                     });
-                    if (this.settings.rememberKeyFiles === 'data') {
-                        resolvedFileInfo.set({
-                            keyFileName: file.keyFileName || null,
-                            keyFileHash: file.getKeyFileHash()
-                        });
-                    }
+                    resolvedFileInfo.keyFileName = file.keyFileName || null;
+                    resolvedFileInfo.keyFileHash = null;
                     if (!this.fileInfos.get(resolvedFileInfo.id)) {
                         this.fileInfos.unshift(resolvedFileInfo);
                     }

@@ -8,9 +8,16 @@ class FileInfoCollection extends Collection<FileInfoModel> {
     load(): Promise<void> {
         return SettingsStore.load('file-info').then((data: unknown) => {
             if (Array.isArray(data)) {
+                let migrated = false;
                 for (const item of data as Array<Partial<FileInfoProperties>>) {
+                    if (item?.keyFileHash) {
+                        item.keyFileHash = null;
+                        item.keyFileName ||= 'Key file';
+                        migrated = true;
+                    }
                     this.push(new FileInfoModel(item));
                 }
+                if (migrated) return SettingsStore.save('file-info', this);
             }
         });
     }

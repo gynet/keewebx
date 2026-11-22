@@ -131,17 +131,16 @@ export function GeneralPreferences({ model }: { model: AppModel }) {
             {message && <p class="general-preferences__help" role="status">{message}</p>}
             <label class="cardlist__row" for="setting-remember-key-files">
                 <span>{t('Remember key files')}</span>
-                <select id="setting-remember-key-files" class="plain-select" value={remember === 'data' ? 'data' : remember === 'path' ? 'path' : 'none'} disabled={busy}
-                    onChange={(event) => change(() => {
-                        AppSettingsModel.set({ rememberKeyFiles: event.currentTarget.value === 'data' ? 'data' : false });
+                <select id="setting-remember-key-files" class="plain-select" value={remember === 'path' ? 'path' : 'none'} disabled={busy}
+                    onChange={() => change(() => {
+                        AppSettingsModel.set({ rememberKeyFiles: false });
                         model.clearStoredKeyFiles();
                     })}>
                     {remember === 'path' && <option value="path" disabled>{t('Path (unavailable)')}</option>}
                     <option value="none">{t('Do not remember')}</option>
-                    <option value="data">{t('Remember data')}</option>
                 </select>
             </label>
-            <p class="general-preferences__help">{t('Changing this clears remembered key files for all recent vaults. Remember data stores key material in this browser so you do not need to select the key file again.')}
+            <p class="general-preferences__help">{t('Select your key file each time you open a vault that requires one.')}
                 {remember === 'path' && <> {t('Your existing path preference is unchanged. Browsers cannot reopen key files by path; choose an option above.')}</>}</p>
             <label class="cardlist__row" for="setting-markdown">
                 <span>{t('Render Markdown in notes')}</span>
