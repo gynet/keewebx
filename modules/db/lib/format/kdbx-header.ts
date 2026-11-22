@@ -59,11 +59,11 @@ const HeaderConst = {
     FlagBinaryProtected: 0x01,
     InnerHeaderBinaryFieldId: 0x03,
 
-    DefaultKdfAlgo: KdfId.Argon2d,
+    DefaultKdfAlgo: KdfId.Argon2id,
     DefaultKdfSaltLength: 32,
-    DefaultKdfParallelism: 1,
-    DefaultKdfIterations: 2,
-    DefaultKdfMemory: 1024 * 1024,
+    DefaultKdfParallelism: 2,
+    DefaultKdfIterations: 3,
+    DefaultKdfMemory: 64 * 1024 * 1024,
     DefaultKdfVersion: 0x13,
 
     EndOfHeader: 0x0d0ad0a
