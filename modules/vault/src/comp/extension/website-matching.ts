@@ -55,3 +55,15 @@ export function entryMatchesWebsite(entry: { getAllUrls(): string[] }, origin: s
     if (!validWebsiteOrigin(origin)) return false;
     return entry.getAllUrls().some((value) => matchesWebsiteUrl(value, origin));
 }
+
+/** An HTTP fill requires an explicitly saved HTTP address for that origin. */
+export function allowsAutofillScheme(entry: { getAllUrls(): string[] }, address: string): boolean {
+    let destination: URL;
+    try { destination = new URL(address); } catch { return false; }
+    if (destination.protocol === 'https:') return true;
+    if (destination.protocol !== 'http:') return false;
+    return entry.getAllUrls().some(value => {
+        const stored = storedWebsiteUrl(value);
+        return stored?.protocol === 'http:' && stored.origin === destination.origin;
+    });
+}

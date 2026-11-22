@@ -1,5 +1,6 @@
 import { SearchResultCollection } from 'collections/search-result-collection';
 import { Ranking } from 'util/data/ranking';
+import { allowsAutofillScheme } from 'comp/extension/website-matching';
 
 const urlPartsRegex = /^(\w+:\/\/)?(?:(?:www|wwws|secure)\.)?([^\/]+)\/?(.*)/;
 
@@ -52,6 +53,7 @@ class SelectEntryFilter {
         };
         let entries: [EntryLike, number][] = this.appModel
             .getEntriesByFilter(filter, this.files)
+            .filter(entry => !this.useUrl || !this.url || allowsAutofillScheme(entry, this.url))
             .map((e): [EntryLike, number] => [e, this._getEntryRank(e)]);
         if (this.useUrl || this.useTitle) {
             entries = entries.filter((e) => e[1]);
