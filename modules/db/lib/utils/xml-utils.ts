@@ -1,4 +1,4 @@
-import { gunzipSync } from 'fflate';
+import { gunzipBounded } from './bounded-gunzip';
 import { KdbxError } from '../errors/kdbx-error';
 import { ErrorCodes } from '../defs/consts';
 import * as XmlNames from '../defs/xml-names';
@@ -8,6 +8,10 @@ import { KdbxUuid } from '../format/kdbx-uuid';
 import { ProtectedValue } from '../crypto/protected-value';
 import { ProtectSaltGenerator } from '../crypto/protect-salt-generator';
 import { KdbxBinaries, KdbxBinaryOrRef } from '../format/kdbx-binaries';
+
+const MaxXmlCharacters = 128 * 1024 * 1024;
+const MaxXmlDepth = 256;
+const XmlDeclarations = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!\s*(?:DOCTYPE|ENTITY)\b/gi;
 
 const DateRegex = /\.\d\d\d/;
 const EpochSeconds = 62135596800;
@@ -55,6 +59,14 @@ function createXMLSerializer(): XMLSerializer {
 }
 
 export function parse(xml: string): Document {
+    if (xml.length > MaxXmlCharacters) {
+        throw new KdbxError(ErrorCodes.Unsupported, 'XML exceeds size limit');
+    }
+    for (const [declaration] of xml.matchAll(XmlDeclarations)) {
+        if (/^<!\s*(?:DOCTYPE|ENTITY)\b/i.test(declaration)) {
+            throw new KdbxError(ErrorCodes.Unsupported, 'XML document type declarations are unsupported');
+        }
+    }
     const parser = createDOMParser();
 
     let doc;
@@ -69,7 +81,10 @@ export function parse(xml: string): Document {
     if (!doc.documentElement) {
         throw new KdbxError(ErrorCodes.FileCorrupt, 'bad xml');
     }
-    const parserError = doc.getElementsByTagName('parsererror')[0];
+    let parserError: Element | undefined;
+    traverse(doc.documentElement, (element) => {
+        if (element.tagName === 'parsererror') parserError = element;
+    });
     if (parserError) {
         throw new KdbxError(ErrorCodes.FileCorrupt, `bad xml: ${parserError.textContent}`);
     }
@@ -308,7 +323,7 @@ export function getProtectedBinary(node: Node): KdbxBinaryOrRef | undefined {
     const compressed = strToBoolean((<Element>node).getAttribute(XmlNames.Attr.Compressed));
     let bytes = base64ToBytes(text);
     if (compressed) {
-        bytes = gunzipSync(bytes);
+        bytes = gunzipBounded(bytes);
     }
     return arrayToBuffer(bytes);
 }
@@ -325,11 +340,16 @@ export function setProtectedBinary(node: Node, binary: KdbxBinaryOrRef): void {
 }
 
 export function traverse(node: Node, callback: (node: Element) => void): void {
-    callback(<Element>node);
-    for (let i = 0, cn = node.childNodes, len = cn.length; i < len; i++) {
-        const childNode = <Element>cn[i];
-        if (childNode.tagName) {
-            traverse(childNode, callback);
+    const pending: { node: Element; depth: number }[] = [{ node: <Element>node, depth: 1 }];
+    while (pending.length) {
+        const { node: current, depth } = pending.pop()!;
+        if (depth > MaxXmlDepth) {
+            throw new KdbxError(ErrorCodes.Unsupported, 'XML nesting exceeds depth limit');
+        }
+        callback(current);
+        for (let i = current.childNodes.length - 1; i >= 0; i--) {
+            const child = <Element>current.childNodes[i];
+            if (child.tagName) pending.push({ node: child, depth: depth + 1 });
         }
     }
 }

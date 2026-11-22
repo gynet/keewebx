@@ -29,8 +29,7 @@ describe('XmlUtils', () => {
         if (isNode) {
             test('uses the global DOMParser if possible', () => {
                 const doc = {
-                    documentElement: 'hello',
-                    getElementsByTagName: () => []
+                    documentElement: { tagName: 'root', childNodes: [] }
                 };
                 try {
                     // @ts-ignore
