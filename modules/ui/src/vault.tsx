@@ -1188,7 +1188,7 @@ function Attachments({ model, entry }: { model: AppModel; entry: EntryModel }) {
             if (!file.active || file.getEntry(entry.id) !== entry || !entry.attachments.includes(attachment)) throw new Error('Attachment expired');
             const data = attachmentBytes(attachment);
             url = URL.createObjectURL(new Blob([new Uint8Array(data).buffer], {
-                type: attachment.mimeType ?? 'application/octet-stream'
+                type: 'application/octet-stream'
             }));
             link.href = url;
             link.download = attachment.title ?? t('Attachment');
