@@ -26,6 +26,16 @@ On `file://`, the app reads its assets directly from the extracted directory. It
 
 Browser storage is not a backup. Keep an encrypted KDBX copy outside the browser before clearing site data or moving to a different origin. Remote storage and browser extensions require separate configuration.
 
+### Verifying a tagged release
+
+For releases built from a tag push, verify the archive's GitHub artifact attestation before extracting it:
+
+```sh
+gh attestation verify keewebx-new-vX.Y.Z.zip --repo gynet/keewebx
+```
+
+The release workflows also attest the extension packages and standalone userscript. Use the downloaded filename in the same command. Manually dispatched rebuilds do not publish new attestations.
+
 Automated release smoke checks open the packaged demo in New and Classic over localhost HTTP, nested hosting paths, and `file://`. The combined bundle retains its 26 startup checks. Standalone checks also cover prior interface preferences, hidden unavailable switches, installed service workers, offline reloads, missing assets, script errors, and content security policy violations. Both ZIP and TAR are extracted and checked before release.
 
 Source: https://github.com/gynet/keewebx
