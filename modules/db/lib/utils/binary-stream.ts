@@ -1,3 +1,6 @@
+import { ErrorCodes } from '../defs/consts';
+import { KdbxError } from '../errors/kdbx-error';
+
 export class BinaryStream {
     private _arrayBuffer: ArrayBuffer;
     private _dataView: DataView;
@@ -20,7 +23,7 @@ export class BinaryStream {
     }
 
     readBytes(size: number): ArrayBuffer {
-        const buffer = this._arrayBuffer.slice(this._pos, this._pos + size);
+        const buffer = this.readBytesNoAdvance(this._pos, this._pos + size);
         this._pos += size;
         return buffer;
     }
@@ -31,6 +34,10 @@ export class BinaryStream {
     }
 
     readBytesNoAdvance(startPos: number, endPos: number): ArrayBuffer {
+        if (!Number.isSafeInteger(startPos) || !Number.isSafeInteger(endPos) ||
+            startPos < 0 || endPos < startPos || endPos > this._arrayBuffer.byteLength) {
+            throw new KdbxError(ErrorCodes.FileCorrupt, 'invalid binary read bounds');
+        }
         return this._arrayBuffer.slice(startPos, endPos);
     }
 
