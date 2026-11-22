@@ -19,6 +19,9 @@ class RequestDeadlineError extends Error {}
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
 const routeKey = (endpoint: URL) => `${MARK}:selected:${endpoint.href}`;
 type Keys = { publicKey: Uint8Array; secretKey: Uint8Array };
+// The route advertises a userscript-managed key via GM storage. A ready proof
+// authenticates the receiving runtime against that key on this install; it is
+// not a publisher signature for the KeeWebX deployment.
 type Route = { host: string; owner: string; endpoint: string; publicKey: string; mailbox?: boolean; messagePort?: number; readyProof?: number; wireReceipt?: number; authorizationRevision?: number };
 type Packet = { type: 'request' | 'reply'; host: string; endpoint: string; id: string; document: string; origin: string;
     operation: 'hello' | 'wire' | 'probe' | 'focus' | 'release'; deadline: number; scope?: string; body?: any; error?: string };
