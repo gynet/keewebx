@@ -10,13 +10,14 @@
             content="
                             default-src 'self';
                             font-src data:;
-                            script-src 'self' 'unsafe-eval';
+                            script-src 'self' 'wasm-unsafe-eval';
                             style-src 'self' 'unsafe-inline' blob:;
-                            connect-src 'self' ws: https:;
+                            connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:*;
                             child-src 'self' blob:;
                             worker-src 'self' blob:;
                             img-src 'self' data: blob:;
                             object-src 'none';
+                            base-uri 'self';
                             form-action 'none';
             "
         />
