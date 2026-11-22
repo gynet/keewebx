@@ -282,7 +282,7 @@ if (classicEntry) location.replace(classicEntry);
 else {
     const root = document.getElementById('root')!;
     let started: Promise<AppModel> | undefined;
-    let checked: Promise<'continue' | 'reloading'> | undefined;
+    let checked: Promise<'continue'> | undefined;
     const startup = new AbortController();
     let instance: AppInstance | undefined;
     let returnWorker: ReturnType<typeof prepareInstanceReturn> | undefined;
@@ -301,12 +301,12 @@ else {
                     onClose={() => {}} onReturn={() => {}} onRetry={() => {}} /></>, root);
                 checked = checkStartupUpdate({ container: navigator.serviceWorker,
                     scriptURL: new URL('service-worker.js', document.baseURI).href,
-                    reload: () => location.reload(), canReload: () => !started && (!instance || instance.primary),
+                    isCurrent: () => !started && (!instance || instance.primary),
                     onRegistration: registration => { ServiceWorkerClient.registration = registration; }, signal: startup.signal });
             } else checked = Promise.resolve('continue');
         }
-        void checked.then(async result => {
-            if (result === 'reloading' || startup.signal.aborted || instance && !instance.primary) return;
+        void checked.then(async () => {
+            if (startup.signal.aborted || instance && !instance.primary) return;
             started ??= startVault();
             const model = await started;
             if (startup.signal.aborted || instance && !instance.primary) return;

@@ -29,6 +29,7 @@ export interface ShellDeps {
     caches: CacheStorage;
     fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
     scope: string;
+    integrity?: Record<string, string>;
 }
 
 function scopePrefix(scope: string): string {
@@ -56,8 +57,21 @@ function assetUrls(scope: string): string[] {
     return SHELL_ASSETS.map((asset) => new URL(asset, scope).href);
 }
 
+async function fetchShellAsset(deps: ShellDeps, request: Request): Promise<Response> {
+    const key = new URL(stripQuery(request.url)).pathname.slice(new URL(deps.scope).pathname.length);
+    const integrity = deps.integrity?.[key];
+    const response = await deps.fetch(request);
+    if (integrity) {
+        const bytes = await response.clone().arrayBuffer();
+        const digest = new Uint8Array(await crypto.subtle.digest('SHA-384', bytes));
+        const actual = 'sha384-' + btoa(String.fromCharCode(...digest));
+        if (!response.ok || actual !== integrity) throw new Error(`Shell integrity check failed for ${key}`);
+    }
+    return response;
+}
+
 async function fetchFresh(deps: ShellDeps, url: string): Promise<Response> {
-    return deps.fetch(new Request(url, { cache: 'reload' }));
+    return fetchShellAsset(deps, new Request(url, { cache: 'reload' }));
 }
 
 // Navigation requests use manual redirects. A followed network response cannot
@@ -87,11 +101,11 @@ async function cachedResponse(deps: ShellDeps, version: string, request: Request
     exact.hash = '';
     const key = stripQuery(request.url);
     const cached = await cache.match(exact.href) || await cache.match(key);
-    if (!cached) return deps.fetch(request);
+    if (!cached) return fetchShellAsset(deps, request);
     if (!cached.redirected) return cached;
     // Repair entries left by workers that cached a followed redirect unchanged.
     try { return await storeResponse(deps, cache, key, cached); }
-    catch { return deps.fetch(request); }
+    catch { return fetchShellAsset(deps, request); }
 }
 
 // Precaches the static assets and refreshes every app page the previous

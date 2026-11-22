@@ -340,41 +340,11 @@ const cases = {
         result.seed = { url: page.url(), controller: await controllerVersion(page), waitingVersion: 2 };
         await page.goto(local.appUrl);
         await normalUnlock(page);
-        await stable(page, baseline ? 1 : 2);
-        await capture(page, result, dir, baseline ? 'before-unlock-with-stale-worker' : 'after-update-normal-unlock');
-        const [first, second] = result.documents;
-        expect(first.controllerAtStart).toBe(local.origin + '/service-worker.js');
-        const premature = first.events.filter(event => ['app-element', 'model-storage-read', 'connect-state'].includes(event.kind));
-        if (baseline) {
-            expect(premature.some(event => event.kind === 'model-storage-read')).toBe(true);
-            expect(premature.some(event => event.selector === '#open-file-input')).toBe(true);
-            expect(result.controller.version).toBe(1);
-            expect(result.workerAudit.some(event => event.version === 2 && event.kind === 'skip-waiting')).toBe(false);
-            expect(await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration('/'))?.waiting)).toBe(true);
-            result.reproduced = 'Model and file input start under v1 while native root worker v2 remains waiting.';
-        } else {
-            expect(premature, 'First document must not start model, unlock or file inputs').toEqual([]);
-            expect(first.events.some(event => event.kind === 'checking-status')).toBe(true);
-            expect(first.events.filter(event => event.kind === 'startup-state').map(event => event.state)).toEqual(['checking']);
-            const changeIndex = first.events.findIndex(event => event.kind === 'controllerchange');
-            const hideIndex = first.events.findIndex(event => event.kind === 'pagehide');
-            expect(changeIndex, 'Worker takes control before the old document exits').toBeGreaterThanOrEqual(0);
-            expect(hideIndex).toBeGreaterThan(changeIndex);
-            expect(first.events[changeIndex].at).toBeLessThanOrEqual(first.events[hideIndex].at);
-            documentReplacement(first, second);
-            // Some WebKit builds expose no PerformanceNavigationTiming entry.
-            // Keep the reload type assertion wherever that entry is available.
-            if (second.navigation !== undefined) expect(second.navigation).toBe('reload');
-            expect(second.controllerAtStart).toBe(local.origin + '/service-worker.js');
-            result.reloadEvidence = second.navigation === undefined
-                ? 'controllerchange -> pagehide -> new document and timeOrigin (navigation timing unavailable)'
-                : 'navigation timing: reload; controllerchange -> pagehide -> new document and timeOrigin';
-            expect(result.controller).toEqual({ version: 2, scope: local.origin + '/' });
-            expect(result.workerAudit.filter(event => event.version === 2 && event.kind === 'skip-waiting')).toHaveLength(1);
-            expect(result.workerAudit.filter(event => event.version === 2 && event.kind === 'activated')).toHaveLength(1);
-            expect(second.events.filter(event => event.kind === 'model-storage-read').map(event => event.key)).toEqual(expect.arrayContaining(['runtimeData', 'fileInfo']));
-            expect(second.events.filter(event => event.kind === 'startup-state').map(event => event.state)).toEqual(['checking', 'ready']);
-        }
+        await stable(page, 1);
+        await capture(page, result, dir, 'update-awaiting-consent');
+        expect(result.controller.version).toBe(1);
+        expect(result.workerAudit.filter(event => event.kind === 'skip-waiting')).toEqual([]);
+        await expect(page.locator('#apply-app-update')).toBeEnabled();
         await usable(page);
         result.demo = 'Opened through the normal UI without manual locking.';
     },
@@ -410,10 +380,11 @@ const cases = {
         local.state.version = 2;
         await page.goto(local.appUrl);
         await normalUnlock(page);
-        await stable(page, 2);
-        await capture(page, result, dir, 'network-update-before-unlock');
-        expect(result.documents[0].events.filter(event => ['app-element', 'model-storage-read', 'connect-state'].includes(event.kind))).toEqual([]);
-        expect(result.controller.version).toBe(2);
+        await stable(page, 1);
+        await capture(page, result, dir, 'network-update-awaiting-consent');
+        expect(result.controller.version).toBe(1);
+        expect(result.workerAudit.filter(event => event.kind === 'skip-waiting')).toEqual([]);
+        await expect(page.locator('#apply-app-update')).toBeEnabled();
         await usable(page);
     },
 
@@ -502,9 +473,8 @@ const cases = {
         await stable(page, 1);
         await capture(page, result, dir, 'unresponsive-worker-normal-unlock');
         result.unlockElapsedMs = bounded(result.documents[0]);
-        expect(result.unlockElapsedMs).toBeGreaterThanOrEqual(2200);
         expect(result.controller.version).toBe(1);
-        expect(result.workerAudit.filter(event => event.version === 2 && event.kind === 'skip-waiting' && event.ignored)).toHaveLength(1);
+        expect(result.workerAudit.filter(event => event.kind === 'skip-waiting')).toEqual([]);
         await usable(page);
     },
 
@@ -514,7 +484,7 @@ const cases = {
         await normalUnlock(page);
         await expect(page.locator('#apply-app-update')).toBeEnabled();
         await page.locator('#apply-app-update').click();
-        await expect.poll(async () => (await workerAudit(page)).filter(event => event.kind === 'skip-waiting')).toHaveLength(2);
+        await expect.poll(async () => (await workerAudit(page)).filter(event => event.kind === 'skip-waiting')).toHaveLength(1);
         await usable(page);
         await expect(page.getByRole('complementary', { name: 'App update', exact: true })).toHaveCount(0);
         // Complete the earlier request after the user has opened a vault.
@@ -529,7 +499,8 @@ const cases = {
         const first = await seed(context, local, true);
         await first.goto(local.appUrl);
         await normalUnlock(first);
-        expect(await documents(first)).toHaveLength(2);
+        await first.locator('#apply-app-update').click();
+        await expect.poll(async () => (await documents(first)).length).toBe(2);
         expect((await controllerVersion(first)).version).toBe(2);
         await usable(first);
         const second = await context.newPage();

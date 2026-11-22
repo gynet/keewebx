@@ -13,7 +13,7 @@ function fixture() {
         postMessage(data: unknown) { this.posts.push(data); }
     }
     const old = new Worker(), waiting = new Worker();
-    let reloads = 0, updates = 0, registrations = 0, allowed = true;
+    let updates = 0, registrations = 0, allowed = true;
     const registration = Object.assign(new EventTarget(), { scope: 'https://keewebx.app/',
         active: old as Worker | null, waiting: null as Worker | null, installing: null as Worker | null,
         update: async () => { updates++; } });
@@ -24,33 +24,34 @@ function fixture() {
             return registration as unknown as ServiceWorkerRegistration;
         } });
     const options = { container: container as unknown as ServiceWorkerContainer, scriptURL,
-        reload: () => { reloads++; }, canReload: () => allowed, timeoutMs: 2500 };
+        isCurrent: () => allowed, timeoutMs: 2500 };
     const activate = () => {
         registration.active = waiting; registration.waiting = registration.installing = null;
         waiting.state = 'activated'; container.controller = waiting;
         container.dispatchEvent(new Event('controllerchange'));
     };
     return { Worker, old, waiting, registration, container, options, activate,
-        reloads: () => reloads, updates: () => updates, registrations: () => registrations,
+        updates: () => updates, registrations: () => registrations,
         deny: () => { allowed = false; } };
 }
 
-test('a waiting version is activated and reloaded before a vault may start', async () => {
+test('a waiting worker is passed to the update UI without forced activation', async () => {
     const f = fixture(); f.registration.waiting = f.waiting;
-    const checking = checkStartupUpdate(f.options); await settle();
-    expect(f.waiting.posts).toEqual([{ type: 'skip-waiting' }]); expect(f.reloads()).toBe(0);
-    f.activate(); expect(await checking).toBe('reloading'); expect(f.reloads()).toBe(1);
-    f.activate(); expect(f.reloads()).toBe(1);
+    const onRegistration = jest.fn();
+    expect(await checkStartupUpdate({ ...f.options, onRegistration })).toBe('continue');
+    expect(onRegistration).toHaveBeenCalledWith(f.registration);
+    expect(f.waiting.posts).toEqual([]);
+    expect(f.updates()).toBe(0);
 });
 
 test('every controlled startup checks the network when no update is pending', async () => {
     const f = fixture(); expect(await checkStartupUpdate(f.options)).toBe('continue');
-    expect(f.updates()).toBe(1); expect(f.reloads()).toBe(0);
+    expect(f.updates()).toBe(1);
 });
 
 test('a first visit starts without waiting for its offline precache or reloading', async () => {
     const f = fixture(); f.container.controller = null; f.registration.active = null; f.registration.installing = f.waiting;
-    expect(await checkStartupUpdate(f.options)).toBe('continue'); expect(f.reloads()).toBe(0); expect(f.updates()).toBe(0);
+    expect(await checkStartupUpdate(f.options)).toBe('continue'); expect(f.updates()).toBe(0);
 });
 
 test('a download that finishes after the startup budget cannot reload a running vault', async () => {
@@ -58,15 +59,15 @@ test('a download that finishes after the startup budget cannot reload a running 
     const checking = checkStartupUpdate(f.options); await settle(); jest.advanceTimersByTime(2500);
     expect(await checking).toBe('continue'); f.registration.installing = null; f.registration.waiting = f.waiting;
     f.waiting.state = 'installed'; f.waiting.dispatchEvent(new Event('statechange')); f.activate();
-    expect(f.waiting.posts).toEqual([]); expect(f.reloads()).toBe(0);
+    expect(f.waiting.posts).toEqual([]);
 });
 
 test('offline and hung version checks continue within the same startup budget', async () => {
     const offline = fixture(); offline.registration.update = async () => { throw new Error('Offline'); };
-    expect(await checkStartupUpdate(offline.options)).toBe('continue'); expect(offline.reloads()).toBe(0);
+    expect(await checkStartupUpdate(offline.options)).toBe('continue');
     jest.useFakeTimers(); const hung = fixture(); hung.registration.update = () => new Promise(() => {});
     const checking = checkStartupUpdate(hung.options); await settle(); jest.advanceTimersByTime(2500);
-    expect(await checking).toBe('continue'); expect(hung.reloads()).toBe(0);
+    expect(await checking).toBe('continue');
 });
 
 test('abort while reading registrations prevents a late worker registration or reload', async () => {
@@ -75,13 +76,7 @@ test('abort while reading registrations prevents a late worker registration or r
     f.container.getRegistration = () => new Promise(yes => { resolve = yes; });
     const checking = checkStartupUpdate({ ...f.options, signal: controller.signal });
     controller.abort(); expect(await checking).toBe('continue'); resolve(undefined); await settle();
-    expect(f.registrations()).toBe(0); expect(f.reloads()).toBe(0);
-});
-
-test('a new active vault or lost App ownership prevents reloading after activation', async () => {
-    const f = fixture(); f.registration.waiting = f.waiting;
-    const checking = checkStartupUpdate(f.options); await settle(); f.deny(); f.activate();
-    expect(await checking).toBe('continue'); expect(f.reloads()).toBe(0);
+    expect(f.registrations()).toBe(0);
 });
 
 test('expiry before a queued state event cannot activate a new worker', async () => {
@@ -103,30 +98,8 @@ test('an update discovered by the startup network check finishes before continui
     await settle(); expect(continued).toBe(false);
     f.registration.installing = null; f.registration.waiting = f.waiting;
     f.waiting.state = 'installed'; f.waiting.dispatchEvent(new Event('statechange'));
-    expect(f.waiting.posts).toEqual([{ type: 'skip-waiting' }]); expect(continued).toBe(false);
-    f.activate(); expect(await checking).toBe('reloading'); expect(f.reloads()).toBe(1);
-});
-
-test('an unrelated controller change does not reload before the requested worker takes control', async () => {
-    const f = fixture(); f.registration.waiting = f.waiting;
-    const checking = checkStartupUpdate(f.options); await settle();
-    f.container.controller = new f.Worker(); f.container.dispatchEvent(new Event('controllerchange'));
-    expect(f.reloads()).toBe(0);
-    f.activate(); expect(await checking).toBe('reloading'); expect(f.reloads()).toBe(1);
-});
-
-test('a requested activation that completes after timeout cannot reload', async () => {
-    jest.useFakeTimers(); const f = fixture(); f.registration.waiting = f.waiting;
-    const checking = checkStartupUpdate(f.options); await settle();
-    expect(f.waiting.posts).toHaveLength(1);
-    jest.advanceTimersByTime(2500); expect(await checking).toBe('continue');
-    f.activate(); expect(f.reloads()).toBe(0);
-});
-
-test('aborting an activation removes its reload permission', async () => {
-    const f = fixture(), controller = new AbortController(); f.registration.waiting = f.waiting;
-    const checking = checkStartupUpdate({ ...f.options, signal: controller.signal }); await settle();
-    controller.abort(); expect(await checking).toBe('continue'); f.activate(); expect(f.reloads()).toBe(0);
+    expect(await checking).toBe('continue');
+    expect(f.waiting.posts).toEqual([]);
 });
 
 test('an unsafe caller cannot begin or resume registration work', async () => {
@@ -153,7 +126,7 @@ test('direct startup checks in local HTML never access service workers', async (
     Object.defineProperty(globalThis, 'location', { configurable: true, value: { protocol: 'file:' } });
     try {
         const options = { get container(): ServiceWorkerContainer { throw new Error('Local HTML accessed service workers'); },
-            scriptURL, reload: () => { throw new Error('Local HTML reloaded'); }, canReload: () => true };
+            scriptURL, isCurrent: () => true };
         expect(await checkStartupUpdate(options)).toBe('continue');
     } finally {
         if (original) Object.defineProperty(globalThis, 'location', original);
