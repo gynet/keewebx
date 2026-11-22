@@ -1,4 +1,4 @@
-import { findLoginInput, getNextFormPasswordInput, setInputText } from './form-fill';
+import { findLoginInput, getNextFormPasswordInput, isFillableInput, setInputText } from './form-fill';
 import {
     ContentScriptMessage,
     ContentScriptMessageAutoFill,
@@ -11,7 +11,7 @@ declare global {
     }
 }
 
-if (!window.kwAutofillInstalled) {
+if (window === window.top && !window.kwAutofillInstalled) {
     window.kwAutofillInstalled = true;
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -38,8 +38,9 @@ if (!window.kwAutofillInstalled) {
         }
 
         function getNextAutoFillCommand(wholeForm: boolean) {
-            let input = <HTMLInputElement>document.activeElement;
-            if (wholeForm && input?.tagName === 'INPUT' && input.type === 'password') {
+            const active = document.activeElement;
+            let input = isFillableInput(active) ? active : undefined;
+            if (wholeForm && input?.type === 'password') {
                 // A login picked in the popup fills the form from its username.
                 const login = findLoginInput();
                 if (login && login !== input && login.form === input.form) {
@@ -47,7 +48,7 @@ if (!window.kwAutofillInstalled) {
                     input = login;
                 }
             }
-            if (input?.tagName !== 'INPUT') {
+            if (!input) {
                 const found = findLoginInput();
                 if (!found) {
                     return;
@@ -73,30 +74,21 @@ if (!window.kwAutofillInstalled) {
         function autoFill(arg: ContentScriptMessageAutoFill) {
             const { text, password, submit } = arg;
 
-            let input = <HTMLInputElement | undefined>document.activeElement;
-            if (!input) {
-                return;
-            }
-
-            if (!text) {
-                return;
-            }
-
-            setInputText(input, text);
+            const input = document.activeElement;
+            if (!text || !isFillableInput(input)) return;
 
             const form = input.form;
+            const passwordInput = password ? getNextFormPasswordInput(input) : undefined;
+            if (password && !passwordInput) return;
 
-            if (password) {
-                input = getNextFormPasswordInput(input);
-                if (!input) {
-                    return;
-                }
-
-                input.focus();
-                setInputText(input, password);
+            setInputText(input, text);
+            if (password && passwordInput) {
+                if (!passwordInput.isConnected || !isFillableInput(passwordInput) ||
+                    getNextFormPasswordInput(input) !== passwordInput) return;
+                setInputText(passwordInput, password);
             }
 
-            if (form && submit) {
+            if (form && submit && input.form === form && isFillableInput(input)) {
                 submitForm(form);
             }
         }
