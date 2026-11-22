@@ -3,25 +3,20 @@
  * Copyright 2013 Tom Frost
  */
 
-// removed node.js deps, making it available to load in browser
-
 interface PhoneticOptions {
     length?: number;
-    seed?: string | number;
     phoneticSimplicity?: number;
     compoundSimplicity?: number;
 }
 
 interface ResolvedOptions {
     length: number;
-    seed: string | number;
     phoneticSimplicity: number;
     compoundSimplicity: number;
 }
 
 interface WordObj {
     word: string;
-    numeric: number;
     lastSkippedPre: boolean;
     lastSkippedPost: boolean;
     opts: ResolvedOptions;
@@ -168,10 +163,9 @@ const REPLACEMENTS: Record<string, string> = {
  * Adds a single syllable to the word contained in the wordObj.
  */
 function addSyllable(wordObj: WordObj): void {
-    const deriv = getDerivative(wordObj.numeric);
-    const compound = deriv % wordObj.opts.compoundSimplicity === 0;
+    const compound = randomBelow(wordObj.opts.compoundSimplicity) === 0;
     const first = wordObj.word === '';
-    const preOnFirst = deriv % 6 > 0;
+    const preOnFirst = first && randomBelow(6) > 0;
     if ((first && preOnFirst) || wordObj.lastSkippedPost || compound) {
         wordObj.word += getNextPhonetic(PHONETIC_PRE, PHONETIC_PRE_SIMPLE_LENGTH, wordObj);
         wordObj.lastSkippedPre = false;
@@ -192,66 +186,36 @@ function addSyllable(wordObj: WordObj): void {
     }
 }
 
-/**
- * Gets a derivative of a number by repeatedly dividing it by 7 and adding the
- * remainders together.
- */
-function getDerivative(num: number): number {
-    let derivative = 1;
-    while (num) {
-        derivative += num % 7;
-        num = Math.floor(num / 7);
+/** Draw a uniform index by rejecting the tail of the 32-bit range. */
+export function randomBelow(limit: number): number {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 2 ** 32) {
+        throw new RangeError('Invalid random index limit');
     }
-    return derivative;
+    const bound = 2 ** 32 - (2 ** 32 % limit);
+    const sample = new Uint32Array(1);
+    do {
+        crypto.getRandomValues(sample);
+    } while (sample[0] >= bound);
+    return sample[0] % limit;
 }
 
-/**
- * Combines the option defaults with the provided overrides.
- */
-function getOptions(overrides?: PhoneticOptions): ResolvedOptions {
-    overrides = overrides || {};
-    const options: ResolvedOptions = {
-        length: overrides.length || 16,
-        seed: overrides.seed || Math.random(),
-        phoneticSimplicity: overrides.phoneticSimplicity
-            ? Math.max(overrides.phoneticSimplicity, 1)
-            : 5,
-        compoundSimplicity: overrides.compoundSimplicity
-            ? Math.max(overrides.compoundSimplicity, 1)
-            : 5
+function getOptions(options: PhoneticOptions): ResolvedOptions {
+    return {
+        length: options.length ?? 16,
+        phoneticSimplicity: Math.max(1, Math.trunc(options.phoneticSimplicity ?? 5)),
+        compoundSimplicity: Math.max(1, Math.trunc(options.compoundSimplicity ?? 5))
     };
-    return options;
 }
 
-/**
- * Gets the next pseudo-random phonetic from a given phonetic set.
- */
+/** Draw a new independent phonetic for each component of the syllable. */
 function getNextPhonetic(
     phoneticSet: readonly string[],
     simpleCap: number,
     wordObj: WordObj,
     forceSimple?: boolean
 ): string {
-    const deriv = getDerivative(wordObj.numeric);
-    const simple = (wordObj.numeric + deriv) % wordObj.opts.phoneticSimplicity > 0;
-    const cap = simple || forceSimple ? simpleCap : phoneticSet.length;
-    const phonetic = phoneticSet[wordObj.numeric % cap];
-    wordObj.numeric = getNumericHash(wordObj.numeric + wordObj.word);
-    return phonetic;
-}
-
-/**
- * Generates a numeric hash based on the input data.
- */
-function getNumericHash(data: string | number): number {
-    let numeric = 0;
-    const str = data + '-Phonetic';
-    for (let i = 0, len = str.length; i < len; i++) {
-        const chr = str.charCodeAt(i);
-        numeric = (numeric << 5) - numeric + chr;
-        numeric >>>= 0;
-    }
-    return numeric;
+    const simple = forceSimple || randomBelow(wordObj.opts.phoneticSimplicity) > 0;
+    return phoneticSet[randomBelow(simple ? simpleCap : phoneticSet.length)];
 }
 
 /**
@@ -270,11 +234,11 @@ function postProcess(wordObj: WordObj): string {
 /**
  * Generates a new word based on the given options.
  */
-function generate(options?: PhoneticOptions): string {
+function generate(options: PhoneticOptions = {}): string {
     const resolved = getOptions(options);
-    const length = resolved.length;
+    const length = Math.trunc(resolved.length);
+    if (!Number.isFinite(length) || length <= 0) return '';
     const wordObj: WordObj = {
-        numeric: getNumericHash(resolved.seed),
         lastSkippedPost: false,
         lastSkippedPre: false,
         word: '',

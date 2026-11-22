@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { phonetic } from 'util/generators/phonetic';
+import { phonetic, randomBelow } from 'util/generators/phonetic';
 import { shuffle } from 'util/fn';
 
 interface PasswordGeneratorOptions {
@@ -110,7 +110,7 @@ const PasswordGenerator = {
         let i: number;
         if (opts.upper) {
             for (i = 0; i < pass.length; i += 8) {
-                upper.push(Math.floor(Math.random() * opts.length));
+                upper.push(randomBelow(pass.length));
             }
         }
         for (i = 0; i < pass.length; i++) {
