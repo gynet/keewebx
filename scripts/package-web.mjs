@@ -16,7 +16,7 @@ const required = ['index.html', 'classic.html', 'classic/index.html', 'next.html
     'manifest-classic.json', 'manifest-new.json', 'LICENSE', 'THIRD-PARTY-LICENSES.md'];
 for (const file of required) assert(readFileSync(path.join(dist, file)).length, `Missing/empty ${file}`);
 
-// Recompile each standalone worker from the current source, retaining the
+// Recompile each packaged worker from the current source, retaining the
 // shared cache logic while limiting precaching to assets in that package.
 const require = createRequire(path.resolve('modules/ui-classic/webpack.config.js'));
 const webpack = require('webpack');
@@ -31,13 +31,14 @@ for (const file of shellAssets) assert(existsSync(path.join(dist, file)), `Missi
 
 async function buildWorker(stage, ui, excluded) {
     const generated = path.join(output, 'staging', `.shell-cache-${ui}.ts`);
-    const source = workerSource.replace(shellDeclaration,
-        `export const SHELL_ASSETS = ${JSON.stringify(shellAssets.filter(file => !excluded.has(file)))};`)
-        .replace("export const CACHE_PREFIX = 'keewebx-shell-';",
+    let source = workerSource.replace(shellDeclaration,
+        `export const SHELL_ASSETS = ${JSON.stringify(shellAssets.filter(file => !excluded.has(file)))};`);
+    if (ui !== 'combined') {
+        // Keep a standalone deployment separate from the combined cache.
+        source = source.replace("export const CACHE_PREFIX = 'keewebx-shell-';",
             `export const CACHE_PREFIX = 'keewebx-shell-${ui}-';`);
-    // Separate cache namespaces also avoid refreshing removed UI pages when
-    // replacing a combined deployment with a standalone package at one origin.
-    assert(source.includes(`keewebx-shell-${ui}-`), 'Cannot isolate the package worker cache');
+        assert(source.includes(`keewebx-shell-${ui}-`), 'Cannot isolate the package worker cache');
+    }
     writeFileSync(generated, source);
     const config = require('./webpack.config.js')({}, { mode: 'production' });
     config.entry = { 'service-worker': config.entry['service-worker'] };
@@ -48,6 +49,9 @@ async function buildWorker(stage, ui, excluded) {
         onlyCompileBundledFiles: true, compilerOptions: { noEmit: false }
     } } }];
     config.plugins = config.plugins.filter(plugin => plugin instanceof webpack.DefinePlugin || plugin instanceof webpack.BannerPlugin);
+    const integrity = Object.fromEntries(shellAssets.filter(file => !excluded.has(file) && /\.(js|css)$/.test(file))
+        .map(file => [file, 'sha384-' + createHash('sha384').update(readFileSync(path.join(stage, file))).digest('base64')]));
+    config.plugins.push(new webpack.DefinePlugin({ __KEEWEBX_SHELL_INTEGRITY__: JSON.stringify(integrity) }));
     config.plugins.push(new webpack.NormalModuleReplacementPlugin(/^\.\/shell-cache$/, resource => {
         resource.request = generated;
     }));
@@ -74,10 +78,10 @@ for (const ui of ['new', 'classic', 'combined']) {
     mkdirSync(stage, { recursive: true });
     cpSync(dist, stage, { recursive: true });
     cpSync('docs/self-host.md', path.join(stage, 'DEPLOY.md'));
+    const excluded = new Set(ui === 'new'
+        ? ['classic.html', 'classic/index.html', 'manifest-classic.json', 'js/app.js', 'css/app.css']
+        : ui === 'classic' ? ['next.html', 'manifest-new.json', 'js/next.js', 'css/next.css'] : []);
     if (ui !== 'combined') {
-        const excluded = new Set(ui === 'new'
-            ? ['classic.html', 'classic/index.html', 'manifest-classic.json', 'js/app.js', 'css/app.css']
-            : ['next.html', 'manifest-new.json', 'js/next.js', 'css/next.css']);
         for (const file of [...excluded]) {
             if (/\.(js|css)$/.test(file)) for (const suffix of ['.map', '.LICENSE.txt']) excluded.add(file + suffix);
         }
@@ -95,8 +99,8 @@ for (const ui of ['new', 'classic', 'combined']) {
             assert(html.includes('<head'), `Missing head in ${file}`);
             writeFileSync(htmlPath, html.replace(/(<head[^>]*>)/, `$1<meta name="kw-interface" content="${ui}">`));
         }
-        await buildWorker(stage, ui, excluded);
     }
+    await buildWorker(stage, ui, excluded);
     writeFileSync(path.join(stage, 'WEB-PACKAGE.json'), JSON.stringify({
         schemaVersion: 1, interface: ui, entry: 'index.html', deprecated: ui === 'classic'
     }, null, 2) + '\n');

@@ -2,6 +2,7 @@ import { activate, cachePage, handleFetch, install, ShellDeps } from './shell-ca
 
 declare const self: ServiceWorkerGlobalScope;
 declare const __KEEWEBX_BUILD_SHA_SHORT__: string;
+declare const __KEEWEBX_SHELL_INTEGRITY__: Record<string, string>;
 
 // Each build gets its own cache; the old one is removed once the new
 // worker takes over.
@@ -13,7 +14,8 @@ function deps(): ShellDeps {
     return {
         caches: self.caches,
         fetch: (input, init) => self.fetch(input, init),
-        scope: self.registration.scope
+        scope: self.registration.scope,
+        integrity: typeof __KEEWEBX_SHELL_INTEGRITY__ === 'undefined' ? undefined : __KEEWEBX_SHELL_INTEGRITY__
     };
 }
 

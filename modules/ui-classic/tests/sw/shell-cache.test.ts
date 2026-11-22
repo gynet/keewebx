@@ -98,6 +98,13 @@ describe('install', () => {
         expect(fetched.every((f) => f.cache === 'reload')).toBe(true);
     });
 
+    it('rejects an integrity failure before keeping the new build cache', async () => {
+        const { caches, deps } = setup();
+        deps.integrity = { 'js/app.js': 'sha384-incorrect' };
+        await expect(install(deps, 'unverified')).rejects.toThrow('Shell integrity check failed for js/app.js');
+        expect(await caches.keys()).not.toContain(cacheName('unverified', SCOPE));
+    });
+
     it('refreshes pages cached by the previous version from the network', async () => {
         const { caches, deps } = setup();
         const old = await caches.open(cacheName('v1', SCOPE));
