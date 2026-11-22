@@ -16,7 +16,6 @@
     "activeTab",
     "contextMenus",
     "storage",
-    "webNavigation",
     "scripting"
   ],
   "optional_host_permissions": [
