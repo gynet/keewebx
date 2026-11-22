@@ -15,7 +15,7 @@ Production dependencies bundled into the KeeWebX app and browser extension. Each
 | [hash-wasm](https://github.com/Daninet/hash-wasm) | 4.12.0 | MIT | vault | Copyright (c) 2020 Dani Biró |
 | [jquery](https://github.com/jquery/jquery) | 3.6.0 | MIT | ui-classic | Copyright OpenJS Foundation and other contributors, https://openjsf.org/ |
 | [jsqrcode](https://antelle@github.com/antelle/jsqrcode) | 0.1.3 | Apache-2.0 | ui-classic, ui | "Licensor" shall mean the copyright owner or entity authorized by |
-| [marked](git://github.com/markedjs/marked) | 2.1.3 | MIT | ui-classic, ui-kit | Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/) |
+| [marked](git://github.com/markedjs/marked) | 18.2.1 | MIT | ui-classic, ui-kit | Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/) |
 | [morphdom](https://github.com/patrick-steele-idem/morphdom) | 2.7.8 | MIT | ui-classic | Copyright (c) Patrick Steele-Idem <pnidem@gmail.com> (psteeleidem.com) |
 | [normalize.css](necolas/normalize.css) | 8.0.1 | MIT | ui-classic | Copyright © Nicolas Gallagher and Jonathan Neal |
 | [pikaday](https://github.com/Pikaday/Pikaday) | 1.8.2 | (0BSD OR MIT) | ui-classic | Copyright (c) 2014 David Bushell BSD & MIT license |

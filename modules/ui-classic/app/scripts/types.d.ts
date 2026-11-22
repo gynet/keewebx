@@ -72,25 +72,6 @@ declare module 'jsqrcode' {
     export default QrCode;
 }
 
-// marked@2.x — Markdown renderer. We pin v2 (#6 legacy deps). The
-// upstream package didn't ship .d.ts at this version. We declare a
-// minimal surface covering the call sites in util/formatting/md-to-html.
-declare module 'marked' {
-    interface MarkedOptions {
-        renderer?: Renderer;
-        breaks?: boolean;
-    }
-    class Renderer {
-        link(href: string, title: string, text: string): string;
-    }
-    interface MarkedFn {
-        (md: string, options?: MarkedOptions): string;
-        Renderer: typeof Renderer;
-    }
-    const marked: MarkedFn;
-    export default marked;
-}
-
 // dompurify@2.x — HTML sanitiser. The package ships .d.ts at v3 but
 // we're pinned to v2 (#6 legacy deps), so we declare the minimal call
 // surface used by md-to-html locally.

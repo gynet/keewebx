@@ -1,5 +1,5 @@
 import dompurify from 'dompurify';
-import marked from 'marked';
+import { marked, Renderer, type Tokens } from 'marked';
 
 const whiteSpaceRegex = /<\/?p>|<br>|\r|\n/g;
 
@@ -8,10 +8,10 @@ interface MdConvertResult {
     html?: string;
 }
 
-class MdRenderer extends marked.Renderer {
-    link(href: string, title: string, text: string): string {
+class MdRenderer extends Renderer {
+    link(token: Tokens.Link): string {
         return super
-            .link(href, title, text)
+            .link(token)
             .replace('<a ', '<a target="_blank" rel="noreferrer noopener" ');
     }
 }
@@ -22,7 +22,7 @@ const MdToHtml = {
             return '';
         }
         const renderer = new MdRenderer();
-        const html: string = marked(md, { renderer, breaks: true });
+        const html: string = marked.parse(md, { renderer, breaks: true, async: false });
         const htmlWithoutLineBreaks = html.replace(whiteSpaceRegex, '');
         const mdWithoutLineBreaks = md.replace(whiteSpaceRegex, '');
         if (htmlWithoutLineBreaks === mdWithoutLineBreaks) {
