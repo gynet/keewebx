@@ -1462,7 +1462,7 @@ class AppModel {
                             });
                         });
                     });
-                }, (error) => { if (hash) kdbxweb.ByteUtils.zeroBuffer(hash); fail(error); });
+                }, fail);
                 return;
             }
             if (!storageName || !storageProvider) {
