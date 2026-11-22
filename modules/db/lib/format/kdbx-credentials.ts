@@ -102,17 +102,30 @@ export class KdbxCredentials {
             }
 
             switch (keyFileVersion) {
-                case 1:
-                    this.keyFileHash = ProtectedValue.fromBinary(base64ToBytes(dataEl.textContent));
+                case 1: {
+                    const encoded = dataEl.textContent.replace(/\s+/g, '');
+                    if (!/^[A-Za-z0-9+/]{43}=$/.test(encoded)) {
+                        return Promise.reject(new KdbxError(ErrorCodes.FileCorrupt, 'bad key file data'));
+                    }
+                    const bytes = base64ToBytes(encoded);
+                    if (bytes.byteLength !== 32 || bytesToBase64(bytes) !== encoded) {
+                        return Promise.reject(new KdbxError(ErrorCodes.FileCorrupt, 'bad key file data'));
+                    }
+                    this.keyFileHash = ProtectedValue.fromBinary(bytes);
                     break;
+                }
                 case 2: {
-                    const keyFileData = hexToBytes(dataEl.textContent.replace(/\s+/g, ''));
-                    const keyFileDataHash = dataEl.getAttribute('Hash');
+                    const hex = dataEl.textContent.replace(/\s+/g, '');
+                    const keyFileDataHash = dataEl.getAttribute('Hash') || '';
+                    if (!/^[0-9a-f]{64}$/i.test(hex) || !/^[0-9a-f]{8}$/i.test(keyFileDataHash)) {
+                        return Promise.reject(new KdbxError(ErrorCodes.FileCorrupt, 'bad key file data'));
+                    }
+                    const keyFileData = hexToBytes(hex);
                     return CryptoEngine.sha256(keyFileData).then((computedHash) => {
                         const computedHashStr = bytesToHex(
                             new Uint8Array(computedHash).subarray(0, 4)
                         ).toUpperCase();
-                        if (computedHashStr !== keyFileDataHash) {
+                        if (computedHashStr !== keyFileDataHash.toUpperCase()) {
                             throw new KdbxError(
                                 ErrorCodes.FileCorrupt,
                                 'key file data hash mismatch'
