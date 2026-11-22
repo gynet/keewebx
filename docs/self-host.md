@@ -26,6 +26,32 @@ On `file://`, the app reads its assets directly from the extracted directory. It
 
 Browser storage is not a backup. Keep an encrypted KDBX copy outside the browser before clearing site data or moving to a different origin. Remote storage and browser extensions require separate configuration.
 
+### HTTPS response headers
+
+For a dedicated KeeWebX origin, configure the HTTPS host with these response headers.
+The example assumes the service worker lives at the site root.
+
+```caddyfile
+vault.example.com {
+    root * /srv/keewebx
+    header {
+        Content-Security-Policy "frame-ancestors 'none'"
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+    }
+    @worker path /service-worker.js
+    header @worker Cache-Control "no-cache"
+    file_server
+}
+```
+
+Apply the same headers in nginx using `add_header ... always`. Put the worker
+cache policy on its actual URL, including the deployment prefix if applicable,
+and repeat the common headers in that location if it defines its own
+`add_header` directives. Use HSTS when the origin is intended to stay HTTPS-only.
+`frame-ancestors` must be an HTTP response header and blocks iframe embedding.
+
 Automated release smoke checks open the packaged demo in New and Classic over localhost HTTP, nested hosting paths, and `file://`. The combined bundle retains its 26 startup checks. Standalone checks also cover prior interface preferences, hidden unavailable switches, installed service workers, offline reloads, missing assets, script errors, and content security policy violations. Both ZIP and TAR are extracted and checked before release.
 
 Source: https://github.com/gynet/keewebx
