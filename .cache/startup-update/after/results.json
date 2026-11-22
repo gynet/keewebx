@@ -1,0 +1,39 @@
+{
+  "mode": "acceptance",
+  "sourceOrigin": "http://127.0.0.1:39232",
+  "appPath": "/next.html",
+  "capturedAt": "2026-11-22T15:15:25.369Z",
+  "sha256": {
+    "/next.html": "8f354815103ea6e87545869dffc67439862a881a172c873b0e68285248d9269a",
+    "/js/next.js": "e504de12ea057e7b2b918a1c40bf36166342833a7ec7e55746ee8d9cea3836aa",
+    "/css/next.css": "e8ebfeb12cde59492f1a01b85f203f967a2a6c5ec90a1c120e2de14457aa1fee",
+    "/manifest-new.json": "ef07d5e4a766000c6ee0a85c95cba1c33a4a4e33c46dc9a0f19c89728ecc3ae9",
+    "/icons/favicon-32x32.png": "bc035d634f425d6aace70a26d17831c5264ef4459803b1a597aff8d9d3114971",
+    "/icons/apple-touch-icon.png": "14bca62967ef7ed89fe1dcb041fdb5d80c4ca6a91917ec866d0c064618a01cd9",
+    "/connect-port/worker.js": "87ff36efd446b6b1afa6e84ca86a429423775d81fb4ecb61ebf4603187812bda",
+    "/service-worker.js": "b30155136eaa0f9e5fa28fac173d95ac9adeb4bb5a110db4e44c9859806ddac2"
+  },
+  "limitations": [
+    "Root service workers are controlled fixtures; HTML, JavaScript, CSS and Connect worker are unmodified built assets.",
+    "Model startup is observed through native runtimeData/fileInfo reads; DOM insertion is recorded even for hidden file inputs.",
+    "Desktop WebKit coverage, when selected, does not establish native iOS behavior."
+  ],
+  "results": [
+    {
+      "browser": "chromium",
+      "case": "browser-launch-or-fixture",
+      "status": "failed",
+      "error": "browserType.launch: Executable doesn't exist at /tmp/keewebx-browsers/chromium-1217/chrome-linux64/chrome\n╔════════════════════════════════════════════════════════════╗\n║ Looks like Playwright was just installed or updated.       ║\n║ Please run the following command to download new browsers: ║\n║                                                            ║\n║     npx playwright install                                 ║\n║                                                            ║\n║ <3 Playwright Team                                         ║\n╚════════════════════════════════════════════════════════════╝\n    at /workspace/scratch/940570ddf159/keewebx/modules/ui/tests/startup-update-browser.mjs:567:43"
+    }
+  ],
+  "finalSha256": {
+    "/next.html": "8f354815103ea6e87545869dffc67439862a881a172c873b0e68285248d9269a",
+    "/js/next.js": "e504de12ea057e7b2b918a1c40bf36166342833a7ec7e55746ee8d9cea3836aa",
+    "/css/next.css": "e8ebfeb12cde59492f1a01b85f203f967a2a6c5ec90a1c120e2de14457aa1fee",
+    "/manifest-new.json": "ef07d5e4a766000c6ee0a85c95cba1c33a4a4e33c46dc9a0f19c89728ecc3ae9",
+    "/icons/favicon-32x32.png": "bc035d634f425d6aace70a26d17831c5264ef4459803b1a597aff8d9d3114971",
+    "/icons/apple-touch-icon.png": "14bca62967ef7ed89fe1dcb041fdb5d80c4ca6a91917ec866d0c064618a01cd9",
+    "/connect-port/worker.js": "87ff36efd446b6b1afa6e84ca86a429423775d81fb4ecb61ebf4603187812bda",
+    "/service-worker.js": "b30155136eaa0f9e5fa28fac173d95ac9adeb4bb5a110db4e44c9859806ddac2"
+  }
+}

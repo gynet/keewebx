@@ -92,8 +92,8 @@ class AppSettingsModel extends Model {
     }
 
     upgrade(data: Record<string, unknown>): void {
-        if (data.rememberKeyFiles === true) {
-            data.rememberKeyFiles = 'data';
+        if (data.rememberKeyFiles === true || data.rememberKeyFiles === 'data') {
+            data.rememberKeyFiles = false;
         }
         if (data.locale === 'en') {
             data.locale = 'en-US';

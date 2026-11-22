@@ -150,8 +150,7 @@ export async function unlockWithLocalPasskey(
     if (!info || !hasLocalPasskey(info)) throw new Error('No complete passkey registration. Use your password.');
     if (info.chalResp) throw new Error('This vault requires additional factors. Open it in Classic.');
     if (model.files.get(id)) throw new Error('This vault is already open.');
-    if ((info.keyFileName || info.keyFileHash) && !keyFile &&
-        !(model.settings.rememberKeyFiles === 'data' && info.keyFileHash)) {
+    if ((info.keyFileName || info.keyFileHash) && !keyFile) {
         throw new Error('Select the key file first. A passkey replaces only the master password.');
     }
     let guard = capture(model, info, current);

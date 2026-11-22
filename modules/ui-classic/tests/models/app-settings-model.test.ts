@@ -76,10 +76,12 @@ describe('AppSettingsModel', () => {
         expect(data.theme).toBe('light');
     });
 
-    test('upgrade() converts boolean rememberKeyFiles to "data"', () => {
-        const data: Record<string, unknown> = { rememberKeyFiles: true };
-        AppSettingsModel.upgrade(data);
-        expect(data.rememberKeyFiles).toBe('data');
+    test('upgrade() disables the legacy rememberKeyFiles mode', () => {
+        for (const legacy of [true, 'data']) {
+            const data: Record<string, unknown> = { rememberKeyFiles: legacy };
+            AppSettingsModel.upgrade(data);
+            expect(data.rememberKeyFiles).toBe(false);
+        }
     });
 
     test('save() only persists non-default values', () => {
