@@ -62,16 +62,15 @@ export function parse(xml: string): Document {
     xml = xml.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
     try {
         doc = parser.parseFromString(xml, 'application/xml');
-    } catch (e) {
-        const errMsg = e instanceof Error ? e.message : String(e);
-        throw new KdbxError(ErrorCodes.FileCorrupt, `bad xml: ${errMsg}`);
+    } catch {
+        throw new KdbxError(ErrorCodes.FileCorrupt, 'bad xml');
     }
     if (!doc.documentElement) {
         throw new KdbxError(ErrorCodes.FileCorrupt, 'bad xml');
     }
     const parserError = doc.getElementsByTagName('parsererror')[0];
     if (parserError) {
-        throw new KdbxError(ErrorCodes.FileCorrupt, `bad xml: ${parserError.textContent}`);
+        throw new KdbxError(ErrorCodes.FileCorrupt, 'bad xml');
     }
     return doc;
 }
