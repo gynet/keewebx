@@ -22,10 +22,13 @@ on:
         required: false
 
 permissions:
-  contents: write   # required to create/upload GitHub Releases
+  contents: read
 
 jobs:
   build-and-package:
+    outputs:
+      artifact: keewebx-web-${{ steps.version.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
     # Skip extension-specific tags (`v*-extension`). Those are handled by
     # release-extension.yml which builds Chrome/Firefox/Edge packages from
     # modules/extension/. GitHub Actions tag filters don't support
@@ -35,8 +38,9 @@ jobs:
     if: ${{ !endsWith(inputs.release_tag || github.ref_name, '-extension') }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           # Need full history so we can resolve the previous tag and
           # diff commit messages between $PREV_TAG..$NEW_TAG for the
           # release notes "What's new" section.
@@ -55,8 +59,8 @@ jobs:
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: oven-sh/setup-bun@v2.2.0
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
 
@@ -156,18 +160,6 @@ jobs:
             node "$SMOKE" "unpacked/tar/${BASE}" > "artifacts/smoke-${UI}-tar.json"
           done
 
-      - name: Upload as workflow artifact (always)
-        uses: actions/upload-artifact@v7
-        with:
-          name: keewebx-web-${{ steps.version.outputs.version }}
-          path: |
-            artifacts/*.zip
-            artifacts/*.tar.gz
-            artifacts/*.sha256
-            artifacts/smoke-*.json
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Compose release notes body (tag push only)
         # Build a friendlier release body than softprops's default
         # "**Full Changelog**: ...compare/..." one-liner. Sections:
@@ -239,22 +231,54 @@ jobs:
             if [ -n "${PREV_TAG}" ]; then
               echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${NEW_TAG}"
             fi
-          } > release-body.md
+          } > artifacts/release-body.md
 
           echo "::group::Composed release body"
-          cat release-body.md
+          cat artifacts/release-body.md
           echo "::endgroup::"
 
-      - name: Attach to GitHub Release (tag push only)
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
-        uses: softprops/action-gh-release@v3
+      - name: Upload as workflow artifact (always)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          tag_name: ${{ steps.version.outputs.version }}
+          name: keewebx-web-${{ steps.version.outputs.version }}
+          path: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.sha256
+            artifacts/smoke-*.json
+            artifacts/release-body.md
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build-and-package
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.build-and-package.outputs.artifact }}
+          path: artifacts
+      # Tag-push runs tie the attestation source to the packaged revision.
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        if: github.event_name == 'push' && github.repository == 'gynet/keewebx'
+        with:
+          subject-path: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+      - name: Attach to GitHub Release (tag push only)
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
+        with:
+          tag_name: ${{ needs.build-and-package.outputs.version }}
           files: |
             artifacts/*.zip
             artifacts/*.tar.gz
             artifacts/*.sha256
-          body_path: release-body.md
+          body_path: artifacts/release-body.md
           # generate_release_notes intentionally omitted: we build the
           # body ourselves above. Leaving it on would append softprops's
           # auto-summary AFTER our body, doubling content.
