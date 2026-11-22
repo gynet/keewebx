@@ -91,6 +91,7 @@ module.exports = (env, argv) => {
                 baron: `baron/baron${devMode ? '' : '.min'}.js`,
                 qrcode: `jsqrcode/dist/qrcode${devMode ? '' : '.min'}.js`,
                 argon2: 'hash-wasm/dist/argon2.umd.min.js',
+                dompurify: `dompurify/dist/purify${devMode ? '' : '.min'}.js`,
                 tweetnacl: `tweetnacl/nacl${devMode ? '' : '.min'}.js`,
                 hbs: 'handlebars/runtime.js',
                 'fontawesome.woff2':

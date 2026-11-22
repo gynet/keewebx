@@ -72,6 +72,19 @@ declare module 'jsqrcode' {
     export default QrCode;
 }
 
+// dompurify@2.x — HTML sanitiser. The package ships .d.ts at v3 but
+// we're pinned to v2 (#6 legacy deps), so we declare the minimal call
+// surface used by md-to-html locally.
+declare module 'dompurify' {
+    interface SanitizeOptions {
+        ADD_ATTR?: string[];
+    }
+    const dompurify: {
+        sanitize(input: string, options?: SanitizeOptions): string;
+    };
+    export default dompurify;
+}
+
 // Handlebars templates loaded via webpack handlebars-loader.
 // Each `import tpl from 'templates/...hbs'` yields a compiled
 // template function that accepts template data + options and
