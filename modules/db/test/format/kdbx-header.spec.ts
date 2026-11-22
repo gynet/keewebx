@@ -62,15 +62,15 @@ describe('KdbxHeader', () => {
         expect(ByteUtils.bytesToHex(newHeader.encryptionIV!)).toBe('0500000005000000');
         expect(newHeader.kdfParameters!.length).toBe(6);
         expect(ByteUtils.bytesToBase64(newHeader.kdfParameters!.get('$UUID') as ArrayBuffer)).toBe(
-            Consts.KdfId.Argon2
+            Consts.KdfId.Argon2id
         );
         expect(ByteUtils.bytesToHex(newHeader.kdfParameters!.get('S') as ArrayBuffer)).toBe(
             '06000000060000000600000006000000'
         );
-        expect(newHeader.kdfParameters!.get('P')).toBe(1);
+        expect(newHeader.kdfParameters!.get('P')).toBe(2);
         expect(newHeader.kdfParameters!.get('V')).toBe(0x13);
-        expect((newHeader.kdfParameters!.get('I') as Int64).value).toBe(2);
-        expect((newHeader.kdfParameters!.get('M') as Int64).value).toBe(1024 * 1024);
+        expect((newHeader.kdfParameters!.get('I') as Int64).value).toBe(3);
+        expect((newHeader.kdfParameters!.get('M') as Int64).value).toBe(64 * 1024 * 1024);
         expect(newHeader.publicCustomData!.length).toBe(1);
         expect(newHeader.publicCustomData!.get('custom')).toBe('val');
         expect(newKdbx.binaries.getAll()).toEqual([]);
