@@ -1,6 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
 import { phonetic } from 'util/generators/phonetic';
-import { shuffle } from 'util/fn';
 
 interface PasswordGeneratorOptions {
     length: number;
@@ -43,9 +42,18 @@ const DefaultCharRangesByPattern: Record<string, string> = {
     '0': CharRanges.ambiguous
 };
 
+function randomIndex(limit: number): number {
+    const sample = new Uint32Array(1);
+    const bound = 2 ** 32 - (2 ** 32 % limit);
+    do {
+        crypto.getRandomValues(sample);
+    } while (sample[0] >= bound);
+    return sample[0] % limit;
+}
+
 const PasswordGenerator = {
     generate(opts: PasswordGeneratorOptions): string {
-        if (!opts || typeof opts.length !== 'number' || opts.length < 0) {
+        if (!opts || !Number.isSafeInteger(opts.length) || opts.length < 0) {
             return '';
         }
         if (opts.name === 'Pronounceable') {
@@ -74,27 +82,27 @@ const PasswordGenerator = {
             }
         }
 
-        const rangeIxRandomBytes = kdbxweb.CryptoEngine.random(countDefaultChars);
-        const rangeCharRandomBytes = kdbxweb.CryptoEngine.random(countDefaultChars);
         const defaultRangeGeneratedChars: string[] = [];
         for (let i = 0; i < countDefaultChars; i++) {
-            const rangeIx = i < ranges.length ? i : rangeIxRandomBytes[i] % ranges.length;
+            const rangeIx = i < ranges.length ? i : randomIndex(ranges.length);
             const range = ranges[rangeIx];
-            const char = range[rangeCharRandomBytes[i] % range.length];
+            const char = range[randomIndex(range.length)];
             defaultRangeGeneratedChars.push(char);
         }
-        shuffle(defaultRangeGeneratedChars);
+        for (let i = defaultRangeGeneratedChars.length - 1; i > 0; i--) {
+            const j = randomIndex(i + 1);
+            [defaultRangeGeneratedChars[i], defaultRangeGeneratedChars[j]] =
+                [defaultRangeGeneratedChars[j], defaultRangeGeneratedChars[i]];
+        }
 
-        const randomBytes = kdbxweb.CryptoEngine.random(opts.length);
         const chars: string[] = [];
         for (let i = 0; i < opts.length; i++) {
-            const rand = Math.round(Math.random() * 1000) + randomBytes[i];
             const patternChar = pattern[i % pattern.length];
             if (patternChar === 'X') {
                 chars.push(defaultRangeGeneratedChars.pop()!);
             } else {
                 const range = rangesByPatternChar[patternChar];
-                const char = range ? range[rand % range.length] : patternChar;
+                const char = range ? range[randomIndex(range.length)] : patternChar;
                 chars.push(char);
             }
         }
