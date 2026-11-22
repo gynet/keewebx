@@ -1328,12 +1328,9 @@ class AppModel {
         ) {
             path = storageProvider.getPathForName(file.name);
         }
-        const optionsForLogging: SyncOptions = { ...syncOptions };
-        if (optionsForLogging.opts && optionsForLogging.opts.password) {
-            optionsForLogging.opts = { ...optionsForLogging.opts };
-            optionsForLogging.opts.password = '***';
-        }
-        logger.info('Sync started', storageName, path, optionsForLogging);
+        logger.info('Sync started', storageName, {
+            saveAs: !!syncOptions.saveAs
+        });
         const existingFileInfo = this.getFileInfo(file);
         if (syncOptions.saveAs && (file.storage || file.demo || !existingFileInfo ||
             !this.settings.canSaveTo || !this.settings.webdav || !Storage.webdav.enabled ||
