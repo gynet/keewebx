@@ -26,6 +26,6 @@
     "base64-loader": "^1.0.0",
     "string-replace-loader": "^3.3.0",
     "typescript": "^5.7.2",
-    "webpack-dev-server": "^4.15.2"
+    "webpack-dev-server": "^5.2.7"
   }
 }
