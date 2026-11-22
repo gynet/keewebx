@@ -9,13 +9,13 @@ Production dependencies bundled into the KeeWebX app and browser extension. Each
 | [@phosphor-icons/core](https://github.com/phosphor-icons/core) | 2.1.1 | MIT | ui-kit (New UI and extension) | Copyright (c) 2023 Phosphor Icons |
 | [@xmldom/xmldom](git://github.com/xmldom/xmldom) | 0.8.13 | MIT | db | Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors |
 | [baron](https://github.com/Diokuz/baron) | 3.0.3 | MIT (per the upstream repository; the npm package declares none) | ui-classic |  |
-| [dompurify](git://github.com/cure53/DOMPurify) | 2.5.9 | (MPL-2.0 OR Apache-2.0) | ui-classic, ui-kit | Copyright 2025 Dr.-Ing. Mario Heiderich, Cure53 |
+| [dompurify](git://github.com/cure53/DOMPurify) | 3.5.0 | (MPL-2.0 OR Apache-2.0) | ui-classic, ui-kit | Copyright 2025 Dr.-Ing. Mario Heiderich, Cure53 |
 | [fflate](https://github.com/101arrowz/fflate) | 0.7.4 | MIT | db | Copyright (c) 2020 Arjun Barrett |
 | [handlebars](https://github.com/handlebars-lang/handlebars.js) | 4.7.9 | MIT | ui-classic | Copyright (C) 2011-2019 by Yehuda Katz |
 | [hash-wasm](https://github.com/Daninet/hash-wasm) | 4.12.0 | MIT | vault | Copyright (c) 2020 Dani Biró |
-| [jquery](https://github.com/jquery/jquery) | 3.6.0 | MIT | ui-classic | Copyright OpenJS Foundation and other contributors, https://openjsf.org/ |
+| [jquery](https://github.com/jquery/jquery) | 3.7.1 | MIT | ui-classic | Copyright OpenJS Foundation and other contributors, https://openjsf.org/ |
 | [jsqrcode](https://antelle@github.com/antelle/jsqrcode) | 0.1.3 | Apache-2.0 | ui-classic, ui | "Licensor" shall mean the copyright owner or entity authorized by |
-| [marked](git://github.com/markedjs/marked) | 2.1.3 | MIT | ui-classic, ui-kit | Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/) |
+| [marked](git://github.com/markedjs/marked) | 18.2.1 | MIT | ui-classic, ui-kit | Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/) |
 | [morphdom](https://github.com/patrick-steele-idem/morphdom) | 2.7.8 | MIT | ui-classic | Copyright (c) Patrick Steele-Idem <pnidem@gmail.com> (psteeleidem.com) |
 | [normalize.css](necolas/normalize.css) | 8.0.1 | MIT | ui-classic | Copyright © Nicolas Gallagher and Jonathan Neal |
 | [pikaday](https://github.com/Pikaday/Pikaday) | 1.8.2 | (0BSD OR MIT) | ui-classic | Copyright (c) 2014 David Bushell BSD & MIT license |
