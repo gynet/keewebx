@@ -94,15 +94,15 @@ export class SitePortLink {
             if (mismatch) { recordPortEvent('port-rejected', data, mismatch); return; }
             if (data.kind === 'ready' && !this.ready) {
                 const authenticated = verifyPortReady(data as PortIdentity, data.proof, this.route!.publicKey);
-                if (!authenticated && (this.route?.readyProof === 1 || data.proof !== undefined)) {
+                if (!authenticated) {
                     recordPortEvent('port-rejected', data, 'bad-signature');
                     this.reset('The App port signature could not be verified. Reconnect to your original App.'); return;
                 }
-                recordPortEvent('port-ready', data, authenticated ? 'matched' : 'legacy');
-                this.ready = true; this.verifiedReady = authenticated; this.lastSeen = Date.now(); clearTimeout(this.timer);
+                recordPortEvent('port-ready', data, 'matched');
+                this.ready = true; this.verifiedReady = true; this.lastSeen = Date.now(); clearTimeout(this.timer);
                 // Release the foreground helper in this event, as in the Lab.
                 // RPC session creation still uses the existing signed hello.
-                if (authenticated) this.confirm();
+                this.confirm();
                 this.resolve?.(); this.resolve = this.reject = undefined;
             } else if (data.kind === 'reply' && this.ready) {
                 this.lastSeen = Date.now(); for (const listener of this.listeners) listener(data.value);
