@@ -54,7 +54,7 @@ const GeneratorPresets = {
             {
                 name: 'Pronounceable',
                 title: Locale.genPresetPronounceable,
-                length: 10,
+                length: 24,
                 lower: true,
                 upper: true
             },
