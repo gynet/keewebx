@@ -35,44 +35,42 @@ function getBlockHmac(
     });
 }
 
-export function decrypt(data: ArrayBuffer, key: ArrayBuffer): Promise<ArrayBuffer> {
+export async function decrypt(data: ArrayBuffer, key: ArrayBuffer): Promise<ArrayBuffer> {
     const stm = new BinaryStream(data);
-    return Promise.resolve().then(() => {
-        const buffers: ArrayBuffer[] = [];
-        let blockIndex = 0,
-            blockLength = 0,
-            blockHash: ArrayBuffer,
-            totalLength = 0;
+    const buffers: ArrayBuffer[] = [];
+    let totalLength = 0;
 
-        const next = (): Promise<ArrayBuffer> => {
-            blockHash = stm.readBytes(32);
-            blockLength = stm.getUint32(true);
-            if (blockLength > 0) {
-                totalLength += blockLength;
-                const blockData = stm.readBytes(blockLength);
-                return getBlockHmac(key, blockIndex, blockLength, blockData).then(
-                    (calculatedBlockHash) => {
-                        if (!arrayBufferEquals(calculatedBlockHash, blockHash)) {
-                            throw new KdbxError(ErrorCodes.FileCorrupt, 'invalid hash block');
-                        } else {
-                            buffers.push(blockData);
-                            blockIndex++;
-                            return next();
-                        }
-                    }
-                );
-            } else {
-                const ret = new Uint8Array(totalLength);
-                let offset = 0;
-                for (let i = 0; i < buffers.length; i++) {
-                    ret.set(new Uint8Array(buffers[i]), offset);
-                    offset += buffers[i].byteLength;
-                }
-                return Promise.resolve(ret.buffer);
+    for (let blockIndex = 0; ; blockIndex++) {
+        if (stm.byteLength - stm.pos < 36) {
+            throw new KdbxError(ErrorCodes.FileCorrupt, 'incomplete HMAC block header');
+        }
+        const hash = stm.readBytes(32);
+        const length = stm.getUint32(true);
+        if (length > stm.byteLength - stm.pos) {
+            throw new KdbxError(ErrorCodes.FileCorrupt, 'incomplete HMAC block');
+        }
+        const block = stm.readBytes(length);
+        const expected = await getBlockHmac(key, blockIndex, length, block);
+        if (!arrayBufferEquals(expected, hash)) {
+            throw new KdbxError(ErrorCodes.FileCorrupt, 'invalid hash block');
+        }
+        if (length === 0) {
+            if (stm.pos !== stm.byteLength) {
+                throw new KdbxError(ErrorCodes.FileCorrupt, 'unexpected data after final HMAC block');
             }
-        };
-        return next();
-    });
+            break;
+        }
+        buffers.push(block);
+        totalLength += length;
+    }
+
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const block of buffers) {
+        result.set(new Uint8Array(block), offset);
+        offset += block.byteLength;
+    }
+    return result.buffer;
 }
 
 export function encrypt(data: ArrayBuffer, key: ArrayBuffer): Promise<ArrayBuffer> {
