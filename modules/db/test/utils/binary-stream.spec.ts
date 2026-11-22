@@ -116,8 +116,8 @@ describe('BinaryStream', () => {
         for (let i = 0; i < 100; i++) {
             stm.getUint8();
         }
-        bytes = stm.readBytes(5);
-        expect(bytes.byteLength).toBe(0);
+        expect(() => stm.readBytes(5)).toThrow('FileCorrupt');
+        expect(stm.pos).toBe(100);
     });
 
     test('returns position', () => {

@@ -325,11 +325,16 @@ export class KdbxHeader {
     }
 
     private readField(stm: BinaryStream, fields: HeaderField[], ctx: KdbxContext) {
+        if (stm.byteLength - stm.pos < (this.versionMajor >= 4 ? 5 : 3)) {
+            throw new KdbxError(ErrorCodes.FileCorrupt, 'incomplete header field');
+        }
         const headerId = stm.getUint8();
-        const size = this.readFieldSize(stm);
-        const bytes = size > 0 ? stm.readBytes(size) : new ArrayBuffer(0);
-
         const headerField = fields[headerId];
+        if (!headerField) {
+            throw new KdbxError(ErrorCodes.FileCorrupt, 'unknown header field');
+        }
+        const size = this.readFieldSize(stm);
+        const bytes = stm.readBytes(size);
         switch (headerField.name) {
             case 'EndOfHeader':
             case 'Comment':
