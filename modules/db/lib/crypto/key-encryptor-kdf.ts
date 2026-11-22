@@ -7,6 +7,12 @@ import { bytesToBase64, zeroBuffer } from '../utils/byte-utils';
 import { Argon2Type } from './crypto-engine';
 import { Int64 } from '../utils/int64';
 
+const MaxArgonMemoryKiB = 1024 * 1024;
+const MaxArgonIterations = 10_000;
+const MaxArgonParallelism = 64;
+const MaxArgonWorkKiB = 64 * 1024 * 1024;
+const MaxAesRounds = 1_000_000_000;
+
 export function encrypt(key: ArrayBuffer, kdfParams: VarDictionary): Promise<ArrayBuffer> {
     const uuid = kdfParams.get('$UUID');
     if (!uuid || !(uuid instanceof ArrayBuffer)) {
@@ -50,6 +56,12 @@ function encryptArgon2(
         return Promise.reject(new KdbxError(ErrorCodes.FileCorrupt, 'bad argon2 memory'));
     }
 
+    const memoryKiB = memory / 1024;
+    if (memoryKiB > MaxArgonMemoryKiB || iterations > MaxArgonIterations ||
+        parallelism > MaxArgonParallelism || memoryKiB * iterations > MaxArgonWorkKiB) {
+        return Promise.reject(new KdbxError(ErrorCodes.Unsupported, 'Argon2 parameters exceed resource limits'));
+    }
+
     const version = kdfParams.get('V');
     if (version !== 0x13 && version !== 0x10) {
         return Promise.reject(new KdbxError(ErrorCodes.FileCorrupt, 'bad argon2 version'));
@@ -68,7 +80,7 @@ function encryptArgon2(
     return CryptoEngine.argon2(
         key,
         salt,
-        memory / 1024,
+        memoryKiB,
         iterations,
         32,
         parallelism,
@@ -88,6 +100,10 @@ function encryptAes(key: ArrayBuffer, kdfParams: VarDictionary) {
         return Promise.reject(new KdbxError(ErrorCodes.FileCorrupt, 'bad aes rounds'));
     }
 
+    if (rounds > MaxAesRounds) {
+        return Promise.reject(new KdbxError(ErrorCodes.Unsupported, 'AES KDF rounds exceed resource limits'));
+    }
+
     return KeyEncryptorAes.encrypt(new Uint8Array(key), new Uint8Array(salt), rounds).then(
         (key) => {
             return CryptoEngine.sha256(key).then((hash) => {
@@ -102,7 +118,7 @@ function toNumber(number: VarDictionaryAnyValue): number | undefined {
     if (typeof number === 'number') {
         return number;
     } else if (number instanceof Int64) {
-        return number.value;
+        return number.hi <= 0x1fffff ? number.value : Number.POSITIVE_INFINITY;
     }
     return undefined;
 }
