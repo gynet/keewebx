@@ -93,7 +93,7 @@ function fixture(withSilentApp = false, options: { base?: string; endpoint?: str
         work = promise; void promise.then(() => { settled = true; }, () => { settled = true; });
     } });
     return { data, relay, app, silent, website, timers, channels, clients, queries, browserClients, navigator, time: () => now, settled: () => settled, work: () => work!,
-        control(value: unknown, from = app) { listeners.get('message')!({ data: value, source: from, ports: [] }); },
+        control(value: unknown, from = app, ports: FakePort[] = []) { listeners.get('message')!({ data: value, source: from, ports }); },
         async tick(ms: number) {
             const until = now + ms;
             for (;;) {
@@ -112,6 +112,27 @@ function mismatch(request: any, replyEndpoint = request.endpoint) {
     return { marker, kind: 'app-state', appBoot: request.appBoot, endpoint: replyEndpoint,
         state: 'address-mismatch', receiverVersion: CONNECT_VERSION };
 }
+
+test.each([undefined, 'handoff-owner-v1'])('relay capability negotiation preserves the requested protocol (%s)', async protocol => {
+    const f = fixture(); acknowledge(f); await flush(); await f.work();
+    f.control({ marker, kind: 'probe-relay', nonce: f.data.nonce, endpoint, siteOrigin: f.data.siteOrigin,
+        ...(protocol ? { protocol } : {}) }, f.relay);
+    expect(f.relay.posts).toEqual([{ data: { marker, kind: 'relay-capabilities', nonce: f.data.nonce,
+        endpoint, protocol: protocol ?? 'self-close-v1' }, ports: [] }]);
+});
+
+test.each(['unknown', 'explicit-legacy', 'extra-key', 'wrong-origin', 'wrong-source', 'port'])
+('relay capability negotiation rejects invalid probes (%s)', async scenario => {
+    const f = fixture(); acknowledge(f); await flush(); await f.work();
+    const data = { marker, kind: 'probe-relay', nonce: f.data.nonce, endpoint, siteOrigin: f.data.siteOrigin,
+        protocol: scenario === 'unknown' ? 'future-protocol' : scenario === 'explicit-legacy' ? 'self-close-v1' : 'handoff-owner-v1',
+        ...(scenario === 'extra-key' ? { extra: 'value' } : {}) };
+    if (scenario === 'wrong-origin') data.siteOrigin = 'https://attacker.example';
+    const appPosts = f.app.posts.length;
+    f.control(data, scenario === 'wrong-source' ? f.app : f.relay, scenario === 'port' ? [new FakePort()] : []);
+    expect(f.relay.posts).toEqual([]);
+    expect(f.app.posts).toHaveLength(appPosts);
+});
 
 test('a helper closed before the initial browser lookup reports helper-unavailable without discovery', async () => {
     const f = fixture(false, { closedRelay: true });
@@ -241,7 +262,7 @@ test.each([10000, 12000])('an App resumed at %i ms reuses the original attachmen
     expect(f.settled()).toBe(false);
     expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
     expect(f.queries.matchAll).toBe(2);
-    expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(2);
+    expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(1);
     await f.tick(resumeMs - 8000);
     for (const { request, port } of pending) port.postMessage({ marker, kind: 'app-ready',
         appBoot: request.appBoot, endpoint: request.endpoint, state: 'enabled', receiverVersion: CONNECT_VERSION });
@@ -272,17 +293,41 @@ test.each(['disabled', 'address-mismatch'])('selected %s fails immediately even 
     expect(f.timers.size).toBe(0);
 });
 
-test.each(['closed', 'navigated'])('the helper is revalidated before the recovery round (%s)', async change => {
-    const f = fixture(); await flush();
-    if (change === 'closed') f.clients.delete(f.relay.id);
-    else f.relay.url = 'https://keewebx.app/other-page';
-    await f.tick(8000); await f.work();
-    expect(f.website.messages.at(-1).code).toBe('helper-unavailable');
-    expect(f.app.posts.filter(post => post.data.kind === 'find-app')).toHaveLength(4);
-    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
-    expect(f.queries.matchAll).toBe(change === 'closed' ? 2 : 1);
-    expect(f.timers.size).toBe(0);
-});
+for (const change of ['closed', 'navigated', 'iframe']) {
+    test.each(['after first probe', 'before recovery', 'during second round'])(
+        `an accepted attachment survives a ${change} helper (%s)`, async phase => {
+            const f = fixture(); await flush();
+            // Discovery proves the initial event and live helper lookup were accepted.
+            expect(f.app.posts[0].data.kind).toBe('find-app');
+            if (phase === 'during second round') await f.tick(8000);
+            if (change === 'closed') f.clients.delete(f.relay.id);
+            else if (change === 'iframe') {
+                const nested = new FakeWindowClient(f.relay.url, 'nested'); nested.id = f.relay.id;
+                f.clients.set(f.relay.id, nested);
+            } else f.relay.url = 'https://keewebx.app/other-page';
+            if (phase === 'before recovery') {
+                acknowledge(f); await f.tick(8000);
+            } else {
+                const probe = f.app.posts.at(-1)!;
+                probe.ports[0].postMessage({ marker, kind: 'app-ready', appBoot: probe.data.appBoot,
+                    endpoint: probe.data.endpoint, state: 'enabled' });
+                await flush();
+            }
+            await f.work();
+            const handoffs = f.app.posts.filter(post => post.data.kind === 'attach-port');
+            expect(handoffs).toHaveLength(1);
+            expect(handoffs[0].ports).toEqual([f.website]);
+            expect(handoffs[0].data).toMatchObject({ appBoot: f.data.appBoot, connectionId: f.data.connectionId,
+                endpoint: f.data.endpoint, siteOrigin: f.data.siteOrigin });
+            expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(1);
+            expect(f.website.messages).toEqual([]); expect(f.website.closed).toBe(false);
+            expect(f.channels.every(channel => channel.port1.closed && channel.port2.closed)).toBe(true);
+            expect(f.timers.size).toBe(0);
+            await f.tick(16000);
+            expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+        }
+    );
+}
 
 test('recovery enumerates current App clients instead of probing a client that navigated away', async () => {
     const f = fixture(); await flush();
@@ -300,28 +345,14 @@ test('recovery enumerates current App clients instead of probing a client that n
     expect(f.timers.size).toBe(0);
 });
 
-test.each(['initial lookup', 'recovery lookup', 'handoff lookup'])(
-    'a live helper survives a missing client lookup during %s', async phase => {
-        const missingLookup = phase === 'initial lookup' ? 1 : 2;
-        const f = fixture(false, { missingRelayLookup: missingLookup });
-        acknowledge(f);
-        if (phase === 'recovery lookup') {
-            const answer = f.app.onPost!;
-            const recoveryTime = f.time() + 8000;
-            f.app.onPost = (request, ports) => {
-                if (f.time() >= recoveryTime) answer(request, ports);
-            };
-            await flush();
-            await f.tick(8000);
-        }
-        await flush();
-        await f.work();
-        expect(f.queries.missingRelay).toBe(1);
-        expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
-        expect(f.website.messages).toEqual([]);
-        expect(f.website.closed).toBe(false);
-    }
-);
+test('a live helper survives a missing initial client lookup', async () => {
+    const f = fixture(false, { missingRelayLookup: 1 });
+    acknowledge(f); await flush(); await f.work();
+    expect(f.queries.missingRelay).toBe(1);
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(1);
+    expect(f.website.messages).toEqual([]);
+    expect(f.website.closed).toBe(false);
+});
 
 test('discovery retries remain bounded by two eight-second rounds and close every temporary port', async () => {
     const f = fixture(); await flush(); await f.tick(8000);
@@ -351,10 +382,10 @@ test('an unrelated refreshed App cannot replace the selected App timeout after b
 
 test('a delayed browser lookup shortens round two to the remaining sixteen-second budget', async () => {
     const f = fixture(); await flush();
-    const get = f.browserClients.get;
+    const matchAll = f.browserClients.matchAll;
     let resume!: () => void;
     const waiting = new Promise<void>(resolve => { resume = resolve; });
-    f.browserClients.get = async id => { if (id === f.relay.id) await waiting; return get(id); };
+    f.browserClients.matchAll = async () => { await waiting; return matchAll(); };
     await f.tick(8000);
     expect(f.queries.matchAll).toBe(1);
     await f.tick(6000); resume(); await flush();
@@ -369,10 +400,10 @@ test('a delayed browser lookup shortens round two to the remaining sixteen-secon
 
 test('a stalled recovery lookup cannot extend discovery or start late probes', async () => {
     const f = fixture(); await flush();
-    const get = f.browserClients.get;
+    const matchAll = f.browserClients.matchAll;
     let resume!: () => void;
     const waiting = new Promise<void>(resolve => { resume = resolve; });
-    f.browserClients.get = async id => { if (id === f.relay.id) await waiting; return get(id); };
+    f.browserClients.matchAll = async () => { await waiting; return matchAll(); };
     await f.tick(15999); expect(f.settled()).toBe(false);
     await f.tick(1); await f.work();
     expect(f.website.messages.at(-1).code).toBe('app-timeout');
@@ -566,15 +597,14 @@ test('the same selected App survives a missing client lookup after discovery', a
     expect(f.website.messages).toEqual([]);
 });
 
-test.each(['app-closed', 'app-navigated', 'app-iframe', 'app-replaced',
-    'relay-closed', 'relay-navigated', 'relay-iframe'])
-('handoff revalidates browser clients after selected-boot discovery (%s)', async scenario => {
-    const f = fixture(false, { missingAppLookup: scenario.startsWith('app') });
+test.each(['app-closed', 'app-navigated', 'app-iframe', 'app-replaced'])
+('handoff revalidates the App client after selected-boot discovery (%s)', async scenario => {
+    const f = fixture(false, { missingAppLookup: true });
     f.app.onPost = (request, ports) => {
         if (request.kind !== 'find-app') return;
         ports[0].postMessage({ marker, kind: 'app-ready', appBoot: request.appBoot,
             endpoint: request.endpoint, state: 'enabled' });
-        const target = scenario.startsWith('relay') ? f.relay : f.app;
+        const target = f.app;
         if (scenario.endsWith('closed')) f.clients.delete(target.id);
         else if (scenario.endsWith('iframe')) {
             const nested = new FakeWindowClient(target.url, 'nested'); nested.id = target.id;
@@ -583,10 +613,9 @@ test.each(['app-closed', 'app-navigated', 'app-iframe', 'app-replaced',
         else target.url = 'https://keewebx.app/other/app';
     };
     await flush(); await f.work();
-    expect(f.website.messages[0]).toMatchObject({ kind: 'error',
-        code: scenario.startsWith('relay') ? 'helper-unavailable' : 'refreshed' });
+    expect(f.website.messages[0]).toMatchObject({ kind: 'error', code: 'refreshed' });
     expect(f.app.posts.map(post => post.data.kind)).toEqual(['find-app']);
-    expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(2);
+    expect(f.queries.get.filter(id => id === f.relay.id)).toHaveLength(1);
     expect(f.queries.locks).toBe(0);
     expect(f.website.closed).toBe(true); expect(f.timers.size).toBe(0);
 });

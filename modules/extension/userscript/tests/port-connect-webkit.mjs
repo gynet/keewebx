@@ -1001,8 +1001,7 @@ function legacyWorkerBody() {
 }
 async function installLegacyWorker(origin) {
     if (!LEGACY_WORKER) return;
-    expect(LEGACY_WORKER).not.toContain('relay-capabilities');
-    expect(LEGACY_WORKER).not.toContain('handoff-complete');
+    expect(LEGACY_WORKER).not.toContain('handoff-owner-v1');
     upgradePage = await context.newPage();
     await upgradePage.goto(origin + '/connect-port/upgrade-fixture.html');
     await upgradePage.evaluate(async () => {
@@ -1021,7 +1020,7 @@ async function finishLegacyWorker() {
     expect(legacyMessages.some(item => item.trusted && item.sourceMatches && item.data.operation === 'probe-relay')).toBe(true);
     expect(legacyMessages.some(item => item.data.operation === 'attach')).toBe(false);
     expect((report.helperMessages || []).some(item => item.trusted && item.sourceMatches
-        && item.data.kind === 'relay-capabilities' && item.data.protocol === 'self-close-v1')).toBe(true);
+        && item.data.kind === 'relay-capabilities' && item.data.protocol === 'handoff-owner-v1')).toBe(true);
     report.workerUpgrade = { historicalWorkerSha256: createHash('sha256').update(LEGACY_WORKER).digest('hex'),
         legacyControllerProbed: true, attachedToLegacyWorker: false, firstConnectionSucceeded: true };
     await upgradePage.close(); upgradePage = undefined;

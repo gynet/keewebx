@@ -3,6 +3,7 @@ import { sign } from 'tweetnacl';
 import { toBase64 } from '../../src/background/utils';
 import { signPortReady, verifyPortReady } from '../src/port-auth';
 import { AppSetupTimeoutError, PORT_MARK, SitePortLink } from '../src/direct-ports';
+import { watchTransport } from '../src/transport-events';
 
 const endpoint = new URL('https://keewebx.app/app');
 const identity = () => ({ appBoot: crypto.randomUUID(), connectionId: crypto.randomUUID(), endpoint: endpoint.href, siteOrigin: 'https://login.example.org' });
@@ -122,7 +123,7 @@ test('a failed setup cancels its own helper when cross-window close is denied', 
         nonce, connectionId: value.connectionId, endpoint: endpoint.href } });
     expect(link.authenticatedReady).toBe(false);
 });
-test.each(['app-timeout', 'worker-unavailable', 'helper-unavailable', 'disabled', 'invalid'])('the helper can report %s when the transferred port delivers no error', async code => {
+test.each(['app-timeout', 'worker-unavailable', 'helper-unavailable', 'noapp', 'refreshed', 'disabled', 'invalid'])('the helper can report %s when the transferred port delivers no error', async code => {
     const connectionId = code === 'worker-unavailable' ? '' : ready().connectionId;
     const data = { marker: PORT_MARK, kind: 'error', code, message: 'Connection setup failed.', nonce: (link as any).nonce, connectionId };
     const event = { isTrusted: true, source: helper, origin: endpoint.origin, ports: [], data };
@@ -138,6 +139,22 @@ test.each(['app-timeout', 'worker-unavailable', 'helper-unavailable', 'disabled'
     expect(error instanceof AppSetupTimeoutError).toBe(['app-timeout', 'worker-unavailable', 'helper-unavailable'].includes(code));
     expect(port.closed).toBe(true);
     expect(link.authenticatedReady).toBe(false);
+});
+test.each(['noapp', 'refreshed', 'helper-unavailable', 'app-timeout', 'private-error-with-account-data'])
+('local failure events preserve only an allowlisted relay code (%s)', async code => {
+    const events: unknown[] = [];
+    const stop = watchTransport(event => { if (event.event === 'relay-error') events.push(event); });
+    try {
+        const connectionId = ready().connectionId;
+        windowMessage({ isTrusted: true, source: helper, origin: endpoint.origin, ports: [], data: {
+            marker: PORT_MARK, kind: 'error', code, message: 'Never include this arbitrary message in the log.',
+            nonce: (link as any).nonce, connectionId
+        } } as unknown as MessageEvent);
+        await link.connect().catch(() => {});
+        expect(events).toEqual([{ event: 'relay-error', portId: connectionId,
+            reason: code === 'app-timeout' ? 'timeout' : 'unavailable',
+            ...(code.startsWith('private-') ? {} : { relayCode: code }) }]);
+    } finally { stop(); }
 });
 test('a helper error cannot disrupt an authenticated port', async () => {
     const connected = link.connect(), value = ready();

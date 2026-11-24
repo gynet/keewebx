@@ -1,8 +1,8 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.24**. This describes implemented behavior, not a
+Architecture of **Connect 0.6.25**. This describes implemented behavior, not a
 guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.24.md) for changes and verification limits. The
+[release notes](release-0.6.25.md) for changes and verification limits. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
 
@@ -89,6 +89,8 @@ sequenceDiagram
         Site->>Site: Cancel prior operation and close its port
         Site->>Helper: window.open, transfer MessageChannel endpoint
         Helper->>SW: Validate opener/origin/nonce, transfer endpoint
+        SW->>SW: Validate live helper once and own transferred endpoint
+        Note over Helper,SW: Later helper closure does not cancel the accepted endpoint
         SW->>Host: Probe matching App clients for selected boot
         Host-->>SW: Public ready/state acknowledgement
         SW->>Host: Transfer website endpoint once
@@ -243,13 +245,15 @@ five-minute ceiling and can be invalidated earlier. See [lifecycle controller](.
 
 **Review findings and unresolved evidence.**
 
-1. **Reported close/reopen failure; scoped fix:** with the helper-classification fix, failed `findRelay`
-   checks in [worker `attach`](../../../ui/connect-port/worker.js#L288), initially, before recovery or
-   before handoff, return `helper-unavailable`. [SitePortLink.relayError](../src/direct-ports.ts#L130)
-   classifies this as recoverable; existing [checkMailbox](../src/native-connect.ts#L617) must revalidate
-   the selected host, public key and authorization revision before fallback. Invalid attachment shape
-   or origin remains fatal `invalid`; no failed helper receives a handoff. This permits existing bounded
-   recovery, without establishing why browser helper lookup failed or guaranteeing App resumption.
+1. **Helper ownership after acceptance:** the worker validates the browser-owned helper
+   client and its website origin before accepting the transferred endpoint. After that point,
+   helper closure or navigation no longer invalidates discovery or final handoff. The selected
+   App is still looked up again before transfer, and boot, endpoint, origin, signature and deadline
+   checks remain required. Initial helper lookup failure still returns `helper-unavailable`;
+   malformed attachment shape or origin returns `invalid`. The new helper requires
+   `handoff-owner-v1` from the current controller before transferring its endpoint; a legacy
+   five-field probe still receives `self-close-v1`. New local logs retain the allowlisted
+   `relayCode` rather than collapsing all these cases into `unavailable`.
 2. **Unbounded settings calls:** startup awaits [loadEndpoint](../src/settings.ts), and saving awaits
    `saveEndpoint`, without `managerCall`'s timeout. A GM promise that never settles can stall startup
    before UI creation or leave address saving pending. Other manager operations have explicit bounds.

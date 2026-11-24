@@ -48,7 +48,7 @@ try {
                     window.workerReady = false;
                     navigator.serviceWorker?.addEventListener('message', event => {
                         if (event.isTrusted && event.source === navigator.serviceWorker.controller &&
-                            event.data?.kind === 'relay-capabilities' && event.data.protocol === 'self-close-v1') window.workerReady = true;
+                            event.data?.kind === 'relay-capabilities' && event.data.protocol === 'handoff-owner-v1') window.workerReady = true;
                     });
                 });
                 const website = await context.newPage();

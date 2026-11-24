@@ -22,10 +22,17 @@ function fixture(closeAllowed = true, oldControllerInitially = false) {
             this.posts.push({ data, ports });
             if (data.kind === 'probe-relay') queueMicrotask(() => {
                 for (const callback of workerListeners.get('message') ?? []) callback({ isTrusted: true, source: worker, ports: [],
-                    data: { marker, kind: 'relay-capabilities', nonce, endpoint, protocol: 'self-close-v1' } });
+                    data: { marker, kind: 'relay-capabilities', nonce, endpoint, protocol: 'handoff-owner-v1' } });
             });
         } };
-    const oldWorker = { ...worker, posts: [] as any[], postMessage(data: unknown, ports: unknown[] = []) { this.posts.push({ data, ports }); } };
+    const oldWorker = { ...worker, posts: [] as any[], postMessage(data: any, ports: unknown[] = []) {
+        this.posts.push({ data, ports });
+        // Even an old capability reply from the current controller cannot satisfy the new requirement.
+        if (data.kind === 'probe-relay') queueMicrotask(() => {
+            for (const callback of workerListeners.get('message') ?? []) callback({ isTrusted: true, source: oldWorker, ports: [],
+                data: { marker, kind: 'relay-capabilities', nonce, endpoint, protocol: 'self-close-v1' } });
+        });
+    } };
     const serviceWorker = { controller: oldControllerInitially ? oldWorker : worker,
         addEventListener(name: string, callback: (event: any) => unknown) { workerListeners.set(name, [...workerListeners.get(name) ?? [], callback]); },
         removeEventListener() {}, async register() { return { scope: 'https://keewebx.app/connect-port/' }; }, ready: Promise.resolve() };

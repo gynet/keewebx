@@ -140,8 +140,10 @@
                 }
                 if (current && current.scriptURL === workerURL && current.state === 'activated') {
                     // An old activated controller can have this same script URL.
-                    // Require the self-close capability before transferring a port.
-                    try { current.postMessage({ marker: MARK, kind: 'probe-relay', nonce, endpoint, siteOrigin: site }); } catch {}
+                    // Require a worker that owns an accepted handoff independently
+                    // of this helper's later lifetime, including after browser restart.
+                    try { current.postMessage({ marker: MARK, kind: 'probe-relay', nonce, endpoint,
+                        siteOrigin: site, protocol: 'handoff-owner-v1' }); } catch {}
                 }
             }
 
@@ -151,7 +153,7 @@
                     current.scriptURL === workerURL && current.state === 'activated' &&
                     messageWithKeys(data, ['marker', 'kind', 'nonce', 'endpoint', 'protocol']) &&
                     data.marker === MARK && data.kind === 'relay-capabilities' && data.nonce === nonce &&
-                    data.endpoint === endpoint && data.protocol === 'self-close-v1') finish(null, current);
+                    data.endpoint === endpoint && data.protocol === 'handoff-owner-v1') finish(null, current);
             }
 
             navigator.serviceWorker.addEventListener('controllerchange', check);

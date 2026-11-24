@@ -27,6 +27,8 @@ const enums = {
         'mailbox-signal', 'mailbox-signal-read', 'mailbox-read-failed', 'mailbox-request', 'mailbox-reply',
         'port-message', 'port-posted', 'port-closed', 'page-focus', 'page-blur', 'page-show', 'page-hide', 'page-interaction'],
     reason: ['timeout', 'locked', 'canceled', 'unavailable', 'changed', 'other'],
+    relayCode: ['invalid', 'busy', 'worker-unavailable', 'relay-closed', 'helper-unavailable',
+        'noapp', 'address', 'disabled', 'refreshed', 'unreachable', 'app-timeout', 'timeout', 'expired', 'inactive'],
     detail: [
         'wrong-source', 'wrong-address', 'wrong-host', 'wrong-origin', 'wrong-generation',
         'wrong-port', 'wrong-shape', 'bad-signature', 'no-pending', 'expired', 'closed',

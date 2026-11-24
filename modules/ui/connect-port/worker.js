@@ -267,16 +267,14 @@ function findRelay(id, data) {
     return findWindowClient(id, false, (client) => validRelay(client, data));
 }
 
-async function recoveryClients(sourceId, data, endpoint, deadline) {
+async function recoveryClients(sourceId, endpoint, deadline) {
     let timer;
     try {
         // Browser-owned lookups must also fit inside the discovery budget.
         return await Promise.race([
             (async () => {
-                const relay = await findRelay(sourceId, data);
-                if (!relay) return { invalid: true };
                 const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-                return { candidates: clients.filter((client) => client.id !== relay.id && isApp(client, endpoint)).slice(0, MAX_CANDIDATES) };
+                return { candidates: clients.filter((client) => client.id !== sourceId && isApp(client, endpoint)).slice(0, MAX_CANDIDATES) };
             })(),
             new Promise((resolve) => { timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now())); })
         ]);
@@ -298,7 +296,8 @@ async function attach(event) {
     try {
         const data = event.data;
         const handoffDeadline = Date.now() + 25000;
-        // Re-read the browser-owned client so a navigated relay cannot authorize a handoff.
+        // Validate the live helper once to bind the transferred port to its origin.
+        // After acceptance the worker owns the port; helper lifetime is independent.
         const relay = await findRelay(event.source.id, data);
         if (!relay) {
             fail(event, 'helper-unavailable', 'The connection helper changed or closed. Return to the website and retry.');
@@ -320,11 +319,7 @@ async function attach(event) {
             probes.some((result) => ['timeout', 'unreachable'].includes(result.state))) {
             // iOS can queue every probe until the App resumes after round one.
             // Keep the website endpoint here; only public probes get new ports.
-            const refreshed = await recoveryClients(event.source.id, data, endpoint, discoveryDeadline);
-            if (refreshed?.invalid) {
-                fail(event, 'helper-unavailable', 'The connection helper changed or closed. Return to the website and retry.');
-                return;
-            }
+            const refreshed = await recoveryClients(relay.id, endpoint, discoveryDeadline);
             if (refreshed) {
                 if (!refreshed.candidates.length) {
                     fail(event, 'noapp', 'No KeeWebX app tab was found. Keep your original app open in the same browser profile and browsing mode, then retry.');
@@ -350,13 +345,7 @@ async function attach(event) {
             }
             return;
         }
-        const [currentRelay, app] = await Promise.all([
-            findRelay(event.source.id, data), findWindowClient(matches[0].client.id, true, (client) => isApp(client, endpoint))
-        ]);
-        if (!currentRelay) {
-            fail(event, 'helper-unavailable', 'The connection helper changed or closed. Return to the website and retry.');
-            return;
-        }
+        const app = await findWindowClient(matches[0].client.id, true, (client) => isApp(client, endpoint));
         if (!app) {
             fail(event, 'refreshed', 'The KeeWebX app tab changed or closed. Select it again for Connect, then retry from the website.');
             return;
@@ -371,8 +360,8 @@ async function attach(event) {
             siteOrigin: data.siteOrigin,
             handoffDeadline
         }, [event.ports[0]]);
-        // Transfer is not acceptance. Keep the helper alive until the website
-        // verifies the App's signed ready receipt and asks its opener to close.
+        // Transfer is not acceptance. A surviving helper closes when the website
+        // verifies the App's signed ready receipt and confirms completion.
     } catch {
         fail(event, 'unreachable', 'The app could not receive the connection. Return to the website and retry.');
     } finally {
@@ -391,11 +380,15 @@ self.addEventListener('message', (event) => {
         return;
     }
     if (data?.kind === 'probe-relay') {
-        if (event.ports.length || !smallMessage(data) || Object.keys(data).length !== 5 || data.marker !== MARK ||
+        // Old helpers request self-close support implicitly. New helpers require
+        // ownership after acceptance, so an old worker must not satisfy their probe.
+        if (event.ports.length || !smallMessage(data) ||
+            !(Object.keys(data).length === 5 && data.protocol === undefined ||
+                Object.keys(data).length === 6 && data.protocol === 'handoff-owner-v1') || data.marker !== MARK ||
             !UUID.test(data.nonce) || !validOrigin(data.siteOrigin) || !validEndpoint(data.endpoint) ||
             !outerWindow(event.source) || !validRelay(event.source, data)) return;
         event.source.postMessage({ marker: MARK, kind: 'relay-capabilities', nonce: data.nonce,
-            endpoint: data.endpoint, protocol: 'self-close-v1' });
+            endpoint: data.endpoint, protocol: data.protocol ?? 'self-close-v1' });
         return;
     }
     event.waitUntil(attach(event));

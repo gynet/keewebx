@@ -298,6 +298,7 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:8097/next.html > /dev/null
           KW_E2E_APP_ORIGIN=http://127.0.0.1:8097 KW_SINGLE_APP_OUTPUT=.cache/single-app node modules/ui/tests/app-instance-browser.mjs --browser=chromium
           KWX_RELAY_BROWSERS=chromium KWX_RELAY_LIFECYCLE_OUTPUT=.cache/userscript-relay-lifecycle node modules/extension/userscript/tests/relay-lifecycle.mjs
+          KWX_HELPER_BROWSERS=chromium KWX_HELPER_OUTPUT=.cache/userscript-helper-lifetime node modules/extension/userscript/tests/helper-lifetime.mjs
           mkdir -p .cache/userscript-connect
           LOGIN_FIELD_RESULTS=.cache/userscript-connect/login-fields.json node modules/extension/userscript/tests/login-fields.mjs chromium
           CONNECT_COMPONENT_RESULTS=.cache/userscript-connect/components.json node modules/ui-kit/tests/connect.mjs chromium
@@ -308,6 +309,7 @@ jobs:
           KWX_FOCUS_LIFECYCLE=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-lifecycle node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_REPLAY_OVERLAP=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-replay-overlap node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_APP_REFRESH=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-app-refresh node modules/extension/userscript/tests/port-connect.mjs
+          KWX_FOCUS_BROWSER_RESTART=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-browser-restart node modules/extension/userscript/tests/port-connect.mjs
           FOCUS_FOREGROUND_FAILURE=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-foreground-route node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_MAILBOX_RECOVERY=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-mailbox-recovery node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_RELEASED_PORT_RECOVERY=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-released-port-recovery node modules/extension/userscript/tests/port-connect.mjs
@@ -333,6 +335,8 @@ jobs:
             .cache/userscript-relay-lifecycle/
             .cache/userscript-port/
             .cache/userscript-app-refresh/
+            .cache/userscript-browser-restart/
+            .cache/userscript-helper-lifetime/
             .cache/userscript-foreground-route/
             .cache/userscript-mailbox-recovery/
             .cache/userscript-port-blocked/
@@ -495,6 +499,7 @@ jobs:
           CONNECT_COMPONENT_RESULTS=.cache/messageport-webkit/components.json run_check components modules/ui-kit/tests/connect.mjs webkit || failed=1
           CONNECT_DRAG_RESULTS=.cache/messageport-webkit/drag.json run_check drag modules/extension/userscript/tests/connect-drag.mjs webkit || failed=1
           KWX_RELAY_BROWSERS=webkit KWX_RELAY_LIFECYCLE_OUTPUT=.cache/messageport-webkit/lifecycle run_check lifecycle modules/extension/userscript/tests/relay-lifecycle.mjs || failed=1
+          KWX_HELPER_BROWSERS=webkit KWX_HELPER_OUTPUT=.cache/messageport-webkit/helper-lifetime run_check helper-lifetime modules/extension/userscript/tests/helper-lifetime.mjs || failed=1
           KWX_BLOCK_HELPER_CLOSE=1 KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/production run_check production modules/extension/userscript/tests/port-connect-webkit.mjs || failed=1
           KWX_WEBKIT_LIFECYCLE=1 KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/operation-lifecycle run_check operation-lifecycle modules/extension/userscript/tests/port-connect-webkit.mjs || failed=1
           exit "$failed"

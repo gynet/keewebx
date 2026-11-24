@@ -42,6 +42,9 @@ export interface DiagnosticData {
         | 'relay-opened' | 'relay-ready' | 'relay-error'
         | 'port-message' | 'port-posted' | 'port-closed' | 'page-focus' | 'page-blur' | 'page-show' | 'page-hide' | 'page-interaction';
     reason?: 'timeout' | 'locked' | 'canceled' | 'unavailable' | 'changed' | 'other';
+    /** Public routing error codes only; never copy an error message or URL. */
+    relayCode?: 'invalid' | 'busy' | 'worker-unavailable' | 'relay-closed' | 'helper-unavailable'
+        | 'noapp' | 'address' | 'disabled' | 'refreshed' | 'unreachable' | 'app-timeout' | 'timeout' | 'expired' | 'inactive';
     detail?: 'wrong-source' | 'wrong-address' | 'wrong-host' | 'wrong-origin' | 'wrong-generation'
         | 'wrong-port' | 'wrong-shape' | 'bad-signature' | 'no-pending' | 'expired' | 'closed'
         | 'not-selected' | 'duplicate-runtime' | 'legacy' | 'matched' | 'inactive' | 'missing-key' | 'handler-error' | 'decode-error';
