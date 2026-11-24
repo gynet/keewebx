@@ -1,5 +1,9 @@
 import { expect, test } from 'bun:test';
-import { AppInstance, appInstanceLock, type AppInstanceState } from '../src/app-instance';
+import type { AppInstanceState } from '../src/app-instance';
+
+// Run the same behavioral regressions against a saved source for negative controls.
+const { AppInstance, appInstanceLock }: typeof import('../src/app-instance') =
+    await import(process.env.KWX_APP_INSTANCE_SOURCE ?? '../src/app-instance');
 
 async function settle() { for (let n = 0; n < 30; n++) await Promise.resolve(); }
 
@@ -33,6 +37,55 @@ function page(locks: Pick<LockManager, 'request'>) {
     const instance = new AppInstance('test', locks, value => states.push(value));
     instance.start();
     return { instance, states };
+}
+
+/** The browser can release a held lock before delivering its rejected promise. */
+function suspendingManager() {
+    type Request = {
+        name: string; options: LockOptions; callback: LockGrantedCallback;
+        resolve(): void; reject(error: unknown): void;
+    };
+    const resources = new Map<string, { held?: Request; queue: Request[] }>();
+    const calls: Request[] = [];
+    const resource = (name: string) => {
+        if (!resources.has(name)) resources.set(name, { queue: [] });
+        return resources.get(name)!;
+    };
+    const drain = (name: string) => {
+        const state = resource(name);
+        if (state.held) return;
+        const request = state.queue.shift();
+        if (!request) return;
+        if (request.options.signal?.aborted) { drain(name); return; }
+        state.held = request;
+        void Promise.resolve(request.callback({ name, mode: 'exclusive' } as Lock)).then(() => {
+            // A suspended callback may settle after another context owns the lock.
+            if (state.held === request) { state.held = undefined; drain(name); }
+            request.resolve();
+        }, request.reject);
+    };
+    const locks = { request: (name: string, options: LockOptions, callback: LockGrantedCallback) =>
+        new Promise<void>((resolve, reject) => {
+            const request = { name, options, callback, resolve, reject };
+            calls.push(request);
+            expect(options.steal).not.toBe(true);
+            const state = resource(name);
+            options.signal?.addEventListener('abort', () => reject(new DOMException('Canceled', 'AbortError')), { once: true });
+            if (options.ifAvailable && (state.held || state.queue.length)) {
+                void Promise.resolve(callback(null)).then(resolve, reject); return;
+            }
+            state.queue.push(request); drain(name);
+        }) } as Pick<LockManager, 'request'>;
+    return {
+        locks, calls,
+        held: (name = 'test') => !!resource(name).held,
+        lose(name = 'test') {
+            const state = resource(name), request = state.held!;
+            expect(request).toBeDefined();
+            state.held = undefined; drain(name);
+            return (error: unknown = new DOMException('Browsing context suspended', 'AbortError')) => request.reject(error);
+        }
+    };
 }
 
 test('simultaneous pages have one primary; closing it promotes only the first waiting page', async () => {
@@ -99,6 +152,100 @@ test('lock service errors fail closed and allow an explicit retry', async () => 
     } } as Pick<LockManager, 'request'>;
     const p = page(locks); await settle(); expect(p.instance.state).toBe('error');
     p.instance.start(); await settle(); expect(p.instance.state).toBe('primary');
+    p.instance.stop(); await settle();
+});
+
+test('suspension rejection after foreground reacquires once without another lifecycle event', async () => {
+    const browser = suspendingManager(), p = page(browser.locks);
+    await settle();
+    p.instance.attachClient('original-client'); await settle();
+    const reject = browser.lose();
+    p.instance.pageHide(true);
+    p.instance.start(); p.instance.visibility(true);
+    reject(); await settle();
+    expect(p.instance.primary).toBe(true);
+    expect(p.states).toEqual(['checking', 'primary', 'checking', 'primary']);
+    expect(browser.calls.filter(call => call.name === 'test')).toHaveLength(2);
+    expect(browser.held('test:client:original-client')).toBe(false);
+    p.instance.stop(); await settle();
+    expect(browser.held()).toBe(false);
+});
+
+test('hidden suspension loss waits for return and reacquires through the browser', async () => {
+    const browser = suspendingManager(), p = page(browser.locks);
+    await settle(); p.instance.visibility(false);
+    browser.lose()(); await settle();
+    expect(p.instance.primary).toBe(false);
+    expect(browser.calls).toHaveLength(1);
+    p.instance.visibility(true); await settle();
+    expect(p.instance.primary).toBe(true);
+    expect(browser.calls).toHaveLength(2);
+    p.instance.stop(); await settle();
+});
+
+test('visible suspension recovery is bounded even when the replacement lock is also lost', async () => {
+    const browser = suspendingManager(), p = page(browser.locks);
+    await settle(); browser.lose()(); await settle();
+    expect(p.instance.primary).toBe(true);
+    p.instance.start(); p.instance.visibility(true); p.instance.visibility(true);
+    browser.lose()(); await settle();
+    expect(p.instance.state).toBe('error');
+    expect(p.instance.primary).toBe(false);
+    expect(browser.calls).toHaveLength(2);
+    await settle(); expect(browser.calls).toHaveLength(2);
+    p.instance.visibility(false); p.instance.visibility(true); await settle();
+    expect(p.instance.primary).toBe(true);
+    browser.lose()(); await settle();
+    expect(p.instance.primary).toBe(true);
+    expect(browser.calls).toHaveLength(4);
+    p.instance.stop(); await settle();
+});
+
+test('an AbortError before any lock is held does not automatically retry', async () => {
+    let requests = 0;
+    const locks = { request: () => {
+        requests++;
+        return Promise.reject(new DOMException('Browsing context suspended', 'AbortError'));
+    } } as Pick<LockManager, 'request'>;
+    const p = page(locks); await settle();
+    expect(p.instance.state).toBe('error');
+    expect(p.instance.primary).toBe(false);
+    expect(requests).toBe(1);
+    p.instance.stop();
+});
+
+test('generic held-lock failure does not automatically retry', async () => {
+    const browser = suspendingManager(), p = page(browser.locks);
+    await settle(); browser.lose()(new Error('Lock service unavailable')); await settle();
+    expect(p.instance.state).toBe('error');
+    expect(p.instance.primary).toBe(false);
+    expect(browser.calls).toHaveLength(1);
+    p.instance.start(); await settle(); expect(p.instance.primary).toBe(true);
+    p.instance.stop(); await settle();
+});
+
+test('suspension recovery queues behind another owner without stealing its lock', async () => {
+    const browser = suspendingManager(), first = page(browser.locks), next = page(browser.locks);
+    await settle(); const reject = browser.lose(); await settle();
+    expect(next.instance.primary).toBe(true);
+    reject(); await settle();
+    expect(first.instance.primary).toBe(false);
+    expect(first.instance.state).toBe('secondary');
+    expect(next.instance.primary).toBe(true);
+    next.instance.stop(); await settle();
+    expect(first.instance.primary).toBe(true);
+    first.instance.stop(); await settle();
+});
+
+test('a stopped attempt cannot reacquire on a late suspension rejection', async () => {
+    const browser = suspendingManager(), p = page(browser.locks);
+    await settle(); const reject = browser.lose();
+    p.instance.stop(); p.instance.start(); await settle();
+    const states = [...p.states];
+    reject(); await settle();
+    expect(p.states).toEqual(states);
+    expect(p.instance.primary).toBe(true);
+    expect(browser.calls).toHaveLength(2);
     p.instance.stop(); await settle();
 });
 

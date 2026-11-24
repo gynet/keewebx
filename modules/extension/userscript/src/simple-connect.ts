@@ -40,6 +40,7 @@ async function start(): Promise<void> {
         let generation = 0, authorizing = false, authorizationExplicit = false, attempted = false, revoked = false, authorized = false, restoreRequested = false;
         ui.connectionSnapshot = () => ({ ...host.diagnostics(), authorized, authorizing });
         let appUnlocked: boolean | undefined;
+        let resumePending = false;
         const authorize = async (explicit: boolean) => {
             if (authorizing) return;
             authorizing = true; authorizationExplicit = explicit; ui.action('authorize', { disabled: true });
@@ -83,7 +84,7 @@ async function start(): Promise<void> {
         ui.on('authorize', event => { if (event.isTrusted) void authorize(true); });
         ui.on('revoke', event => {
             if (!event.isTrusted) return;
-            revoked = true; authorized = false; restoreRequested = false; generation++; authorizing = false; bridge.reset(); ui.action('authorize', { disabled: false });
+            revoked = true; authorized = false; restoreRequested = false; resumePending = false; generation++; authorizing = false; bridge.reset(); ui.action('authorize', { disabled: false });
             const epoch = generation;
             void host.revoke().then(() => {
                 if (epoch === generation) ui.state(State.ReadyToConnect, 'Disconnected. Authorize this tab once to enable all websites again.');
@@ -103,6 +104,13 @@ async function start(): Promise<void> {
             if (resumeAuthorized) queueMicrotask(retryRestore);
         };
         const restored = () => {
+            if (resumePending) {
+                const role = document.documentElement.dataset.appInstance;
+                if (role !== undefined && role !== 'primary') return;
+                resumePending = false;
+                if (!revoked) host.resume();
+                attempted = false;
+            }
             const unlocked = appUnlocked ?? !!document.querySelector('.vault');
             if (!unlocked) {
                 host.lock();
@@ -120,6 +128,10 @@ async function start(): Promise<void> {
         };
         watchAppLockState(unlocked => { appUnlocked = unlocked; restored(); });
         new MutationObserver(restored).observe(document.body, { childList: true, subtree: true });
+        // A cached pageshow can precede asynchronous App lock reacquisition.
+        // Resume the existing grant once ownership returns, without republishing.
+        new MutationObserver(() => { if (resumePending) restored(); }).observe(document.documentElement,
+            { attributes: true, attributeFilter: ['data-app-instance'] });
         restored();
         // A transient startup failure must not permanently consume restoration.
         // Retry on an actual app return without prompting or changing the vault.
@@ -133,10 +145,10 @@ async function start(): Promise<void> {
         addEventListener('visibilitychange', retryRestore);
         if (new URL(location.href).searchParams.has('kwx-connect')) ui.show('config');
         addEventListener('pagehide', event => {
-            generation++; authorizing = false; bridge.reset();
+            resumePending = false; generation++; authorizing = false; bridge.reset();
             if (event.persisted) host.pause(); else void host.revoke(false).catch(() => {});
         });
-        addEventListener('pageshow', event => { if (event.persisted) { host.resume(); attempted = false; restored(); } });
+        addEventListener('pageshow', event => { if (event.persisted) { resumePending = true; restored(); } });
         return;
     }
 

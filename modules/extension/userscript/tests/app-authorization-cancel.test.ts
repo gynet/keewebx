@@ -120,6 +120,7 @@ async function fixture(canList = true, holdStartupAction?: string) {
     let host!: InstanceType<typeof NativeHost>;
     let ui!: UI;
     let changed!: () => void;
+    let roleChanged = () => {};
     let lockState!: (unlocked: boolean) => void;
     const keys = sign.keyPair();
     class CapturedHost extends NativeHost {
@@ -156,8 +157,12 @@ async function fixture(canList = true, holdStartupAction?: string) {
         State, message: (error: Error) => error.message,
         watchAppLockState: (listener: (unlocked: boolean) => void) => { lockState = listener; },
         MutationObserver: class {
-            constructor(listener: () => void) { changed = listener; }
-            observe() {}
+            constructor(private listener: () => void) {}
+            observe(target: unknown, options: MutationObserverInit) {
+                if (target === document.body) changed = this.listener;
+                else if (target === document.documentElement && options.attributes &&
+                    options.attributeFilter?.includes('data-app-instance')) roleChanged = this.listener;
+            }
         }
     };
     await new AsyncFunction(...Object.keys(dependencies), appStartup)(...Object.values(dependencies));
@@ -209,6 +214,7 @@ async function fixture(canList = true, holdStartupAction?: string) {
         lateReply() { expect(held).toBeDefined(); respond(held!); held = undefined; },
         pageHide(persisted: boolean) { emit('pagehide', { persisted }); },
         pageShow(persisted: boolean) { emit('pageshow', { persisted }); },
+        appRole(role: string) { document.documentElement.dataset.appInstance = role; roleChanged(); },
         bodyMutation() { changed(); },
         foreground() { emit('focus'); emit('visibilitychange'); ui.onOpen(); changed(); }
     };
@@ -271,6 +277,48 @@ test('cached page returns resume signed RPC without republishing the authorized 
         await f.cycle();
     }
     expect(f.permissionRequests()).toBe(0);
+});
+
+test.each(['checking', 'error', 'secondary'])
+('cached pageshow before primary resumes on role change from %s without another user event', async role => {
+    const f = await fixture();
+    const original = f.storage.get(routeKey), requests = f.protocolRequests();
+    f.pageHide(true);
+    const authorization = f.host.diagnostics().authorization;
+    f.appRole(role); f.pageShow(true); await settle();
+    expect(f.ui.connectionSnapshot()).toMatchObject({ authorized: true, live: false });
+    f.appRole('primary'); await settle();
+    expect(f.host.diagnostics()).toMatchObject({ live: true, selected: true, locked: false, authorization });
+    expect(f.publications()).toBe(1);
+    expect(f.protocolRequests()).toBe(requests);
+    expect(f.storage.get(routeKey)).toEqual(original);
+    expect(f.permissionRequests()).toBe(0);
+    await f.cycle();
+    f.appRole('primary'); f.foreground(); await settle();
+    expect(f.host.diagnostics().authorization).toBe(authorization);
+    expect(f.publications()).toBe(1);
+    expect(f.protocolRequests()).toBe(requests);
+});
+
+test.each(['disconnect', 'pagehide'])
+('%s cancels receiver resumption waiting for primary ownership', async action => {
+    const f = await fixture();
+    f.pageHide(true); f.appRole('checking'); f.pageShow(true); await settle();
+    if (action === 'disconnect') f.ui.actions.get('revoke')!({ isTrusted: true });
+    else f.pageHide(false);
+    await settle();
+    f.appRole('primary'); await settle();
+    expect(f.host.diagnostics().live).toBe(false);
+    expect(f.publications()).toBe(1);
+});
+
+test('a role change while the page is still cached cannot resume its receiver', async () => {
+    const f = await fixture();
+    f.pageHide(true); f.appRole('checking'); f.appRole('primary'); await settle();
+    expect(f.host.diagnostics().live).toBe(false);
+    f.pageShow(true); await settle();
+    expect(f.host.diagnostics().live).toBe(true);
+    expect(f.publications()).toBe(1);
 });
 
 test('body mutations do not repeat explicit authorization after disconnect, lock and unlock', async () => {

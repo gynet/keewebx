@@ -1,8 +1,8 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.23**. This describes implemented behavior, not a
+Architecture of **Connect 0.6.24**. This describes implemented behavior, not a
 guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.23.md) for changes and verification limits. The
+[release notes](release-0.6.24.md) for changes and verification limits. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
 
@@ -296,3 +296,17 @@ credential read is replayed and no deadline is extended.
 The local recording preference persists in manager-private GM storage as a boolean;
 events themselves remain a 300-line in-memory ring in each document. It adds no
 remote upload, credentials, website addresses or persisted event history.
+
+## Suspension recovery in 0.6.24
+
+Receiver authorization and current execution are separate states. A cached page
+return can occur before the App has reacquired primary ownership. The receiver
+keeps one pending-resume flag and observes the App role attribute, then resumes
+its existing grant after ownership is established. A departure or explicit
+disconnect cancels that pending work.
+
+A late `AbortError` from a previously held Web Lock permits one normal foreground
+reacquisition. Generic acquisition errors and hidden Apps do not retry in a loop.
+Browser arbitration still decides which App is primary. This fixes two controlled
+lifecycle reproductions; it does not prove the cause of native iOS callback delays.
+See [0.6.24 evidence and flow](release-0.6.24.md).

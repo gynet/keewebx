@@ -1,4 +1,4 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.23
+# Userscripts on iOS: KeeWebX Connect 0.6.24
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. Each trusted lookup or connection test gets a fresh direct MessagePort
@@ -7,13 +7,13 @@ then verifies the App signature and completes the encrypted protocol handshake.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.23)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.23/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.24)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.24/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [Current connection flow and diagrams](docs/connection-architecture.md)
 · [Technical analysis and failure timelines](docs/technical-analysis-0.6.21.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.23 release notes](docs/release-0.6.23.md)
+· [0.6.24 release notes](docs/release-0.6.24.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -24,7 +24,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.23** at both ends. The App reload
+   App and the login website to load **Connect 0.6.24** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
@@ -110,6 +110,7 @@ continues after return. Closing the panel cancels the request.
 | Website is hidden | Delivery depends on browser scheduling; a past reply is not proof of current liveness |
 | Website refreshes, navigates or closes | Its old port is released; a new document needs a new handoff |
 | App refreshes or closes | All old ports stop; reconnect to the selected App |
+| A cached App returns before primary ownership is ready | Its approved receiver resumes after ownership is established |
 | Database locks | Credential operations stop; the transport can remain connected |
 | Connect is revoked or the selected App changes | Old connections and in-flight operations are invalidated |
 | Port is idle for ten minutes | It is reclaimed; the next trusted action rebuilds it |

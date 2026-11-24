@@ -12,6 +12,8 @@ export class AppInstance {
     private release?: () => void;
     private lifetime?: Promise<void>;
     private current: AppInstanceState = 'checking';
+    private visible = typeof document === 'undefined' || !document.hidden;
+    private recoveryAvailable = true;
 
     constructor(readonly name: string, private locks: Pick<LockManager, 'request'>,
         private changed: (state: AppInstanceState) => void) {}
@@ -20,6 +22,11 @@ export class AppInstance {
     get primary(): boolean { return this.current === 'primary' && !!this.controller && !this.controller.signal.aborted && !!this.release; }
 
     start(): void {
+        this.updateVisibility(typeof document === 'undefined' || !document.hidden);
+        this.acquire();
+    }
+
+    private acquire(): void {
         if (this.controller) return;
         const attempt = ++this.attempt;
         const controller = this.controller = new AbortController();
@@ -31,11 +38,18 @@ export class AppInstance {
             this.change('primary');
             await lifetime;
         };
-        const failed = () => {
+        const failed = (error: unknown) => {
             if (!current()) return;
-            this.controller = undefined;
-            this.release = undefined;
-            this.change('error');
+            // WebKit may release a held lock on suspension and deliver its
+            // AbortError after the foreground events. Retry once per visible
+            // episode, through normal browser arbitration; never steal a lock.
+            const recover = this.current === 'primary' && this.visible && this.recoveryAvailable &&
+                error instanceof Error && error.name === 'AbortError';
+            this.stop();
+            if (recover) {
+                this.recoveryAvailable = false;
+                this.acquire();
+            } else this.change('error');
         };
         // Web Locks forbids combining ifAvailable with an AbortSignal. The
         // immediate attempt is fenced by its epoch; only the queued wait aborts.
@@ -52,17 +66,19 @@ export class AppInstance {
     }
 
     pageHide(persisted: boolean): void {
-        // A cached primary retains its lock. Hidden/paused documents must not
-        // be mistaken for closed Apps. Secondary cached pages own no model.
+        this.updateVisibility(false);
+        // Keep ownership if the browser preserves it. If suspension releases
+        // the lock, its rejection fences this attempt before any reacquisition.
         if (persisted && this.current === 'primary') return;
         this.stop();
     }
 
     visibility(visible: boolean): void {
+        this.updateVisibility(visible);
         // Background duplicates should not take over while the original tab
         // reloads. A primary keeps ownership regardless of visibility.
         if (this.current === 'primary') return;
-        if (visible) this.start(); else this.stop();
+        if (visible) this.acquire(); else this.stop();
     }
 
     attachClient(clientId: string): void {
@@ -81,6 +97,11 @@ export class AppInstance {
         this.controller?.abort(); this.controller = undefined;
         this.release?.(); this.release = undefined;
         this.lifetime = undefined;
+    }
+
+    private updateVisibility(visible: boolean): void {
+        if (visible && !this.visible) this.recoveryAvailable = true;
+        this.visible = visible;
     }
 
     private change(state: AppInstanceState): void {
