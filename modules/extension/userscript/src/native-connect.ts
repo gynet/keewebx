@@ -9,6 +9,7 @@ import { identity } from './identity';
 import { isId, object, SESSION_TTL, uuid } from './native-rpc';
 import { SiteLink, SETUP_MARK } from './site-link';
 import { ConnectMailbox, mailboxRequest, mailboxRelease } from './connect-mailbox';
+import { MailboxRecovery, sameRecoveryRoute, type RecoveryAttempt } from './mailbox-recovery';
 import { transportEvent } from './transport-events';
 import type { DiagnosticData } from '../../../diagnostics/src';
 
@@ -48,14 +49,15 @@ const valid = (p: Packet) => isId(p.host) && isId(p.id) && isId(p.document) && /
     Number.isFinite(p.deadline) && p.deadline > Date.now() && p.deadline <= Date.now() + 66000 &&
     ['hello', 'wire', 'probe', 'focus', 'release'].includes(p.operation);
 
-const directClients = new Map<string, { link: SitePortLink; route?: Route; keys?: Keys; revision: number }>();
+const directClients = new Map<string, { link: SitePortLink; route?: Route; keys?: Keys; revision: number;
+    recovery: MailboxRecovery; attempt?: RecoveryAttempt }>();
 function directClient(endpoint: URL) {
     let client = directClients.get(endpoint.href);
     if (!client) {
-        client = { link: new SitePortLink(endpoint), revision: 0 }; directClients.set(endpoint.href, client);
+        client = { link: new SitePortLink(endpoint), revision: 0, recovery: new MailboxRecovery() }; directClients.set(endpoint.href, client);
         const current = client;
-        current.link.onGrantEnded = () => { current.revision++; current.route = undefined; current.keys = undefined; };
-        addEventListener('pagehide', () => { current.link.reset(); current.revision++; });
+        current.link.onGrantEnded = () => { current.recovery.clear(); current.revision++; current.route = undefined; current.keys = undefined; };
+        addEventListener('pagehide', () => { current.recovery.clear(); current.link.reset(); current.revision++; });
     }
     return client;
 }
@@ -69,8 +71,9 @@ export async function prepareDirect(endpoint: URL): Promise<void> {
         // New reads, grant invalidations and document departure still fence it.
         if (client.revision !== revision) return;
         if (!route || route.publicKey !== (keys ? toBase64(keys.publicKey) : route.publicKey)) {
-            client.link.reset('The saved Connect authorization changed.'); client.route = undefined; client.keys = undefined; return;
+            client.recovery.clear(); client.link.reset('The saved Connect authorization changed.'); client.route = undefined; client.keys = undefined; return;
         }
+        client.recovery.refresh(route, location.href);
         if (client.route && client.route.host !== route.host) client.link.reset('The selected KeeWebX App changed.');
         client.route = route; client.keys = keys;
         if (route.messagePort === 1) client.link.configure(route);
@@ -79,6 +82,7 @@ export async function prepareDirect(endpoint: URL): Promise<void> {
             // Block new setup after a failed read. Existing RPCs retain their
             // grant snapshots and can still accept replies on the proven port.
             client.route = undefined; client.keys = undefined;
+            client.recovery.clear();
         }
         throw error;
     }
@@ -93,9 +97,17 @@ export function watchApprovedRoute(endpoint: URL, onChange: () => void): () => v
 }
 export function directCredentials(endpoint: URL): Keys | undefined { return directClient(endpoint).keys; }
 /** Must be called synchronously from a trusted tap, before awaiting anything. */
-export function openDirect(endpoint: URL, force = false): boolean {
+export function openDirect(endpoint: URL, force = false, retryDirect = false): boolean {
     const client = directClient(endpoint);
     if (client.route?.messagePort !== 1 || !client.keys) return false;
+    client.attempt = client.recovery.begin(client.route, location.href, retryDirect);
+    if (client.attempt.mailbox) {
+        // Start a fresh signed session on the recently verified recovery path.
+        // Do not discard it for another discovery that has just failed.
+        client.link.reset('Starting a fresh connection over the verified recovery path.');
+        transportEvent({ event: 'mailbox-preferred' });
+        return true;
+    }
     client.link.open(force); return true;
 }
 
@@ -506,6 +518,8 @@ export class NativeRpc {
     private direct?: SitePortLink;
     private directGeneration?: number;
     private authenticated = false;
+    private recoveryAttempt?: RecoveryAttempt;
+    private mailboxReplyAt = 0;
     private unsubscribeDirect?: () => void;
     private cancelSetup?: () => void;
     private pending = new Map<string, { packet: Packet; resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>; stop?: () => void }>();
@@ -518,11 +532,12 @@ export class NativeRpc {
     async assertSelected(): Promise<void> {
         this.assertCurrent();
         const current = await approvedRoute(this.endpoint); this.assertCurrent();
-        if (!this.route || current?.host !== this.route.host || current.publicKey !== this.route.publicKey) throw new Error('The selected app changed. Find accounts again.');
+        if (!this.route || !current || !sameRecoveryRoute(current, this.route)) throw new Error('The selected app changed. Find accounts again.');
     }
     async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number): Promise<void> {
         try { await this.connectAttempt(deadline, onAppVisit); }
         catch (error) {
+            this.failRecovery();
             this.resetUnauthenticatedDirect('The connection attempt failed.');
             throw error;
         }
@@ -532,21 +547,25 @@ export class NativeRpc {
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
         const prepared = directClient(this.endpoint);
+        this.recoveryAttempt = prepared.attempt;
         let useMailbox = false;
         if (prepared.route?.messagePort === 1 && prepared.keys) {
             this.route = prepared.route; this.keys = prepared.keys; this.window = undefined;
-            this.direct = prepared.link;
-            this.unsubscribeDirect = this.direct.subscribe(this.accept, reason => {
-                for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error(reason)); }
-                this.pending.clear();
-            });
-            this.progress('Connecting directly to the original KeeWebX App');
-            this.directGeneration = this.direct.generation;
-            try { await this.direct.connect(); }
-            catch (error) {
-                if (!(error instanceof AppSetupTimeoutError) || !this.route.mailbox || Date.now() >= deadline) throw error;
-                this.leaveDirect();
-                useMailbox = true;
+            useMailbox = this.recoveryAttempt?.mailbox === true && prepared.recovery.current(this.recoveryAttempt);
+            if (!useMailbox) {
+                this.direct = prepared.link;
+                this.unsubscribeDirect = this.direct.subscribe(this.accept, reason => {
+                    for (const item of this.pending.values()) { clearTimeout(item.timer); item.stop?.(); item.reject(new Error(reason)); }
+                    this.pending.clear();
+                });
+                this.progress('Connecting directly to the original KeeWebX App');
+                this.directGeneration = this.direct.generation;
+                try { await this.direct.connect(); }
+                catch (error) {
+                    if (!(error instanceof AppSetupTimeoutError) || !this.route.mailbox || Date.now() >= deadline) throw error;
+                    this.leaveDirect();
+                    useMailbox = true;
+                }
             }
             this.assertCurrent();
         } else { this.keys = await managerCall(() => identity()); this.route = await approvedRoute(this.endpoint); this.assertCurrent(); }
@@ -554,7 +573,7 @@ export class NativeRpc {
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
         const route = this.route;
         const startMailbox = async () => {
-            if (onAppVisit) deadline = onAppVisit(APP_VISIT_BUDGET_MS);
+            if (onAppVisit && !this.recoveryAttempt?.mailbox) deadline = onAppVisit(APP_VISIT_BUDGET_MS);
             await this.checkMailbox(route);
         };
         if (useMailbox) await startMailbox();
@@ -586,7 +605,8 @@ export class NativeRpc {
         if (!useMailbox) this.progress('Contacting the selected app');
         const recoverReusedPort = this.route.mailbox && this.direct?.hasVerifiedReply;
         let result: any;
-        const hello = (timeout = 8000) => this.call('hello', undefined, useMailbox && onAppVisit ? APP_VISIT_BUDGET_MS : timeout, deadline);
+        const hello = (timeout = 8000) => this.call('hello', undefined,
+            useMailbox && onAppVisit && !this.recoveryAttempt?.mailbox ? APP_VISIT_BUDGET_MS : timeout, deadline);
         try { result = await hello(recoverReusedPort ? REUSED_PORT_HELLO_MS : 8000); }
         catch (error) {
             if (!(error instanceof RequestDeadlineError) || Date.now() >= deadline) throw error;
@@ -604,8 +624,14 @@ export class NativeRpc {
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
+        this.rememberRecovery();
         if (useMailbox && onAppVisit) await this.waitForWebsiteReturn(deadline);
     }
+    private rememberRecovery(): void {
+        if (!this.live || this.direct || this.window || !this.scope || !this.route || !this.mailboxReplyAt) return;
+        directClient(this.endpoint).recovery.verified(this.recoveryAttempt, this.route, this.href, this.mailboxReplyAt);
+    }
+    private failRecovery(): void { directClient(this.endpoint).recovery.failed(this.recoveryAttempt); }
     private leaveDirect(reset = false): void {
         this.unsubscribeDirect?.(); this.unsubscribeDirect = undefined;
         if (reset && this.direct && this.direct.generation === this.directGeneration) {
@@ -616,10 +642,10 @@ export class NativeRpc {
     private async checkMailbox(route: Route): Promise<void> {
         this.assertCurrent();
         transportEvent({ event: 'mailbox-start' });
-        this.progress('Waiting for your original KeeWebX tab. If needed, visit that tab, then return here');
+        this.progress(this.recoveryAttempt?.mailbox ? 'Connecting to the authorized KeeWebX App'
+            : 'Waiting for your original KeeWebX tab. If needed, visit that tab, then return here');
         const selected = await approvedRoute(this.endpoint); this.assertCurrent();
-        if (!selected?.mailbox || selected.host !== route.host || selected.publicKey !== route.publicKey ||
-            selected.authorizationRevision !== route.authorizationRevision) {
+        if (!selected?.mailbox || !sameRecoveryRoute(selected, route)) {
             throw new Error('The selected KeeWebX App changed. Find accounts again.');
         }
     }
@@ -669,11 +695,16 @@ export class NativeRpc {
             }
             transportEvent({ ...trace, event: 'rpc-accepted', pending: this.pending.size });
             if (p.error) throw new Error(p.error);
+            if (!this.direct && !this.window) { this.mailboxReplyAt = Date.now(); this.rememberRecovery(); }
             pending.resolve(p.body);
         }
         catch (error) { pending.reject(error instanceof Error ? error : new Error('Invalid reply.')); }
     };
     async call(operation: Packet['operation'], body?: any, timeout = 15000, deadline = Infinity): Promise<any> {
+        try { return await this.request(operation, body, timeout, deadline); }
+        catch (error) { this.failRecovery(); throw error; }
+    }
+    private async request(operation: Packet['operation'], body?: any, timeout = 15000, deadline = Infinity): Promise<any> {
         // Foreground field selection calls assertSelected explicitly before and
         // after fetching fields, including detection of an older App selection.
         if (!this.direct) await this.assertSelected();
@@ -731,6 +762,7 @@ export class NativeRpc {
     }
     dispose(): void {
         if (!this.live) return;
+        if (this.pending.size || !this.scope) this.failRecovery();
         this.live = false; removeEventListener('message', this.receive); this.unsubscribeDirect?.();
         this.unsubscribeDirect = undefined;
         this.cancelSetup?.();

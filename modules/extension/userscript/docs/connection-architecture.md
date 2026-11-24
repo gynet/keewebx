@@ -1,8 +1,8 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.25**. This describes implemented behavior, not a
+Architecture of **Connect 0.6.26**. This describes implemented behavior, not a
 guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.25.md) for changes and verification limits. The
+[release notes](release-0.6.26.md) for changes and verification limits. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
 
@@ -72,8 +72,10 @@ The auto-test is a **trusted key action**, not periodic preconnect, page-load wo
 `prepareDirect()` reads route/identity ahead of time; UI connection actions are disabled while preparation
 is pending. `openDirect()` runs synchronously in the trusted action before any `await`, preserving the
 popup activation opportunity. The UI passes `force=true` for every new lookup or test:
-the old port is closed and a new helper opens, even after a successful probe.
-Lookup, account selection and fill share the new port within that one operation.
+the old port is closed. Normally a new helper opens. A mailbox reply verified
+within 30 seconds on the same document and exact grant selects a fresh mailbox
+session instead. Explicit Reconnect clears that preference and opens a helper.
+Lookup, account selection and fill share their transport within one operation.
 Browser popup permission and document scheduling can still prevent setup.
 
 ```mermaid
@@ -85,7 +87,7 @@ sequenceDiagram
     participant Host as App receiver / NativeHost
     participant Vault as AppBridge / vault protocol
     User->>Site: Trusted key / Find accounts / Test connection
-    opt Direct route prepared
+    opt Direct route prepared and no recent verified mailbox preference
         Site->>Site: Cancel prior operation and close its port
         Site->>Helper: window.open, transfer MessageChannel endpoint
         Helper->>SW: Validate opener/origin/nonce, transfer endpoint
@@ -176,13 +178,17 @@ preserve old ports/scopes. Missing manager tab APIs limit owner continuity outsi
 | GM tab data | App owner and legacy website routing ID, via optional `getTab/saveTab`; not a MessagePort or unlock state. |
 | App-origin localStorage | Public active-host marker and explicit-disconnect restore block; launcher position. Vault identity approvals/permissions persist separately in namespaced `runtimeData`, through [RuntimeDataModel](../../../vault/src/models/runtime-data-model.ts) and [SettingsStore](../../../vault/src/comp/settings/settings-store.ts). |
 | GM mailbox | Temporary signed envelopes, including encrypted account wire payloads, plus a public wake hint. Deletion is best effort; deadlines enforce validity even if records remain. |
-| Website memory | Cached route/keys, physical link and generation, pending RPCs, scope, ephemeral box keys, summaries, target references, operation deadline. Fallback choice is limited to the current operation. |
+| Website memory | Cached route/keys, physical link and generation, pending RPCs, scope, ephemeral box keys, summaries, target references, operation deadline. A verified mailbox transport preference lasts at most 30 seconds from its last verified reply; no session or account data is retained by that preference. |
 | App memory | Boot ID, active grant/keys, up to 32 physical ports, one session/bridge, replay IDs/receipts, ephemeral crypto and entry handles. The unlocked vault model is owned by the App. |
 | Helper/worker memory | Temporary discovery channels, pending probes and transfer bookkeeping; the worker retains no established website-port registry after transfer. Browser SW registration can persist. |
 
 **Fallback and bounded retries.** [NativeRpc.connectAttempt](../src/native-connect.ts#L525) chooses
-the newly opened direct link for each UI operation. It does not remember a mailbox
-preference across operations. There is no universal
+a fresh logical session for each UI operation. A document-local
+[MailboxRecovery](../src/mailbox-recovery.ts) retains only the exact grant, current
+page URL and receipt time after a verified mailbox reply. For 30 seconds, the next
+operation can use a new mailbox hello without repeating discovery. Epoch fencing
+prevents a late completion from changing a newer operation’s preference. Failure,
+expiry, route change, page departure and explicit Reconnect clear it. There is no universal
 “retry everything” loop and no automatic creation of a replacement vault tab.
 
 | Trigger | Implemented response |
@@ -191,7 +197,8 @@ preference across operations. There is no universal
 | Classified setup timeout or helper-unavailable failure, with mailbox capability | Try GM mailbox after verifying the saved host, public key and authorization revision. Structurally invalid requests and authorization denial remain fatal. |
 | First `hello` timeout on a newly signed-ready port | One fresh hello may use that same port while the attempt deadline allows. |
 | Low-level compatibility caller reuses a previously working port and `hello` times out | After a 3-second hello budget, discard the direct link, recheck the grant and try mailbox. The current UI starts fresh ports and does not take this reuse path. |
-| Mailbox recovery with UI callback | Allow a separate 60-second visit/return phase; wait for website visibility before continuing. Lookup then restores its 30-second operation budget. |
+| Initial mailbox fallback with UI callback | Allow the existing separate 60-second visit/return phase; wait for website visibility before continuing. Lookup then restores its 30-second operation budget. |
+| Recently verified mailbox route | Fresh signed hello with the ordinary 8-second budget; no renewed 60-second recovery wait. All grant fields and the operation generation must still match. |
 | Older route without direct capability | Existing connector window uses `postMessage` plus same-origin BroadcastChannel; absent/unusable window can use advertised mailbox. This legacy connector remains open while carrying traffic. |
 
 Direct hello and receipt-capable wire requests resend the **identical signed envelope** every 750 ms
@@ -212,7 +219,8 @@ are not established by this source review.
 ```mermaid
 stateDiagram-v2
     [*] --> Prepared: load route and identity
-    Prepared --> Handoff: trusted action, new physical port
+    Prepared --> Handoff: trusted action, no recent verified mailbox route
+    Prepared --> Mailbox: trusted action, recent verified exact route
     Handoff --> PortReady: verify signed ready, request helper close
     PortReady --> Session: signed hello creates one scope
     Session --> Prepared: close panel / cancel / successful test or fill, release and close
@@ -222,7 +230,7 @@ stateDiagram-v2
     InvalidScope --> Handoff: fresh trusted operation and port
     Handoff --> Mailbox: recoverable setup failure and grant recheck
     PortReady --> Mailbox: reused hello times out in compatibility caller
-    Mailbox --> Prepared: operation ends, next trusted query tries direct again
+    Mailbox --> Prepared: dispose session, retain only recent verified route preference
     PortReady --> Prepared: idle reclaim / force reconnect / route change
     Session --> Prepared: revocation or physical port reset
     Session --> [*]: document departure
@@ -298,8 +306,14 @@ separate transient promise and cannot clear the next request's busy flag. No
 credential read is replayed and no deadline is extended.
 
 The local recording preference persists in manager-private GM storage as a boolean;
-events themselves remain a 300-line in-memory ring in each document. It adds no
-remote upload, credentials, website addresses or persisted event history.
+userscript events remain a 300-line in-memory ring in each document. The New App
+adds an opt-in 100-event passive page-world ring. Export correlates its public
+trace IDs with the userscript callback-entry timestamp (`dispatchAt`) and data-read
+duration (`elapsedMs`). It never touches transferred endpoints or calls
+`startMessages()`. A nonce-bound same-window snapshot exports only allowlisted
+metadata, and a promised clipboard Blob preserves the trusted click on Safari.
+Disabling recording clears the observer ring. There is no remote upload,
+credential data, website address or persisted event history.
 
 ## Suspension recovery in 0.6.24
 
@@ -314,3 +328,16 @@ reacquisition. Generic acquisition errors and hidden Apps do not retry in a loop
 Browser arbitration still decides which App is primary. This fixes two controlled
 lifecycle reproductions; it does not prove the cause of native iOS callback delays.
 See [0.6.24 evidence and flow](release-0.6.24.md).
+
+## Verified recovery in 0.6.26
+
+The supplied 0.6.25 trace shows a mailbox probe succeeding at 06:34:28.515,
+followed by a new helper at 06:34:32.334. The working recovery choice was lost
+between two trusted operations. The 30-second, exact-grant preference fixes this
+reproduced loop without retaining a session or claiming background liveness.
+
+The first discovery delay is separate: the App callback ran at 06:34:26.451,
+after the worker’s 06:34:12 timeout. Its underlying cause is not established.
+Passive logging now separates page-world receipt from userscript-world entry
+without changing dispatch or authentication. See the
+[0.6.26 evidence, component diagram and sequence](release-0.6.26.md).

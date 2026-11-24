@@ -40,12 +40,14 @@ import { AppInstanceNotice } from './app-instance-notice';
 import { identifyInstance, prepareInstanceReturn, returnToInstance } from './app-instance-return';
 import { checkStartupUpdate } from './startup-update';
 import { RuntimeInfo } from 'const/runtime-info';
+import { startConnectReceiverObserver } from './connect-receiver-observer';
 
 declare const __KW_NEW_EXTENSION__: boolean;
 declare const __KEEWEBX_BUILD_SHA__: string;
 declare const __KEEWEBX_BUILD_SHA_SHORT__: string;
 declare const __KEEWEBX_BUILD_TIME__: string;
 Object.assign(window, { __KEEWEBX_BUILD_SHA__, __KEEWEBX_BUILD_SHA_SHORT__, __KEEWEBX_BUILD_TIME__ });
+try { startConnectReceiverObserver(); } catch { /* Optional local logging must not block App startup. */ }
 
 function App({ model }: { model: AppModel }) {
     const version = useVaultVersion(model);

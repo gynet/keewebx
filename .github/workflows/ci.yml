@@ -272,6 +272,7 @@ jobs:
           bun test modules/extension/userscript/tests/runtime-owner.test.ts modules/extension/userscript/tests/receiver-ownership.test.ts modules/extension/userscript/tests/route-preparation.test.ts modules/extension/userscript/tests/foreground-route-failure.test.ts
           bun test modules/extension/userscript/tests/app-instance-worker.test.ts
           bun test modules/extension/userscript/tests/app-authorization-cancel.test.ts modules/extension/userscript/tests/local-connect-log.test.ts
+          bun test modules/extension/userscript/tests/mailbox-recovery.test.ts modules/extension/userscript/tests/app-receiver-log.test.ts modules/ui/tests/connect-receiver-observer.test.ts
           bun test modules/extension/userscript/tests/operation.test.ts modules/extension/userscript/tests/reply-receipt.test.ts modules/extension/userscript/tests/app-bridge-receipt.test.ts modules/extension/userscript/tests/native-hello-retry.test.ts modules/extension/userscript/tests/port-auth.test.ts modules/extension/userscript/tests/port-worker.test.ts modules/extension/userscript/tests/relay-close.test.ts modules/extension/userscript/tests/direct-ports.test.ts modules/extension/userscript/tests/native-connect.test.ts modules/extension/userscript/tests/connect-mailbox.test.ts modules/extension/userscript/tests/connector-return.test.ts modules/vault/tests/website-matching.test.ts
           modules/extension/node_modules/.bin/tsc --project modules/extension/userscript/tsconfig.json
           node --check modules/extension/userscript/keewebx-connect.user.js
@@ -312,6 +313,7 @@ jobs:
           KWX_FOCUS_BROWSER_RESTART=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-browser-restart node modules/extension/userscript/tests/port-connect.mjs
           FOCUS_FOREGROUND_FAILURE=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-foreground-route node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_MAILBOX_RECOVERY=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-mailbox-recovery node modules/extension/userscript/tests/port-connect.mjs
+          KWX_FOCUS_RECOVERED_MAILBOX=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-recovered-mailbox node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_RELEASED_PORT_RECOVERY=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-released-port-recovery node modules/extension/userscript/tests/port-connect.mjs
           KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port-blocked node modules/extension/userscript/tests/port-connect.mjs
           FORM_GUARD_RESULTS=.cache/userscript-connect/form-guards.json node modules/extension/userscript/tests/form-guards.mjs chromium
@@ -339,6 +341,7 @@ jobs:
             .cache/userscript-helper-lifetime/
             .cache/userscript-foreground-route/
             .cache/userscript-mailbox-recovery/
+            .cache/userscript-recovered-mailbox/
             .cache/userscript-port-blocked/
             .cache/single-app/
           retention-days: 7

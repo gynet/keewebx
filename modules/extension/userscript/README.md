@@ -1,19 +1,20 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.25
+# Userscripts on iOS: KeeWebX Connect 0.6.26
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
-login fields on other websites. Each trusted lookup or connection test gets a fresh direct MessagePort
-to the same original App. A temporary connection page closes itself after the website verifies App readiness. The website
-then verifies the App signature and completes the encrypted protocol handshake.
+login fields on other websites. Each trusted lookup or connection test creates a fresh authenticated session
+to the same original App. Normally a temporary page transfers a direct MessagePort
+and closes after verified App readiness. A recently verified mailbox recovery can
+serve the next operation without reopening that page.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.25)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.25/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.26)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.26/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [Current connection flow and diagrams](docs/connection-architecture.md)
 · [Technical analysis and failure timelines](docs/technical-analysis-0.6.21.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.25 release notes](docs/release-0.6.25.md)
+· [0.6.26 release notes](docs/release-0.6.26.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -24,7 +25,7 @@ Forms are never submitted automatically.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
 2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.25** at both ends. The App reload
+   App and the login website to load **Connect 0.6.26** at both ends. The App reload
    replaces old receiver listeners; it does not open another App tab.
    Existing database entries, signing identity and stored App address are retained.
 3. Unlock the original App. An existing grant resumes in the sole main New App
@@ -33,11 +34,12 @@ Forms are never submitted automatically.
    account listing in the native permission dialog. Explicit disconnect still
    requires authorization again.
 4. On a login website, focus a username/password field, tap the key, and select
-   a matching account. Each new lookup or connection test opens a small
+   a matching account. Normally each new lookup or connection test opens a small
    connection page, finds the original App, and automatically closes the page
    after handing off the port. The website verifies the App signature before
-   using its connection. One lookup, account selection and fill share that port;
-   the next lookup replaces it. App authorization is retained.
+   using its connection. After successful mailbox recovery, the next operation
+   can start a fresh session on that route without another helper. App
+   authorization is retained.
 
 ## Everyday use
 
@@ -54,8 +56,9 @@ The KeeWebX App keeps its own Connect settings entry.
 
 Tap the key to check the connection immediately. If you have not selected a login
 field, the panel runs **Test connection** automatically and displays the result.
-It opens a temporary handoff page and replaces any previous physical port.
-The page closes after signed App readiness is verified. This check does not
+It replaces any previous physical port and normally opens a temporary handoff
+page, which closes after signed App readiness is verified. A recently verified
+mailbox recovery avoids that extra page. This check does not
 list accounts or read credential fields.
 After selecting a login field, tapping the key keeps the existing account lookup
 behavior. Merely loading a page or detecting a form does not start a connection.
@@ -91,9 +94,12 @@ Remote diagnostics and support-command polling were removed in 0.6.11.
 A delayed discovery can resume on the same temporary page. A newly authenticated
 port can retry a timed-out first handshake within that operation. Classified setup
 failures can use the existing encrypted local mailbox after checking the saved App
-grant. Each subsequent trusted lookup or test starts a new physical handoff; it
-does not inherit an old port or a preference for mailbox recovery. Every lookup
-also creates a new encrypted session and obtains a fresh account list. Expired
+grant. A successful, authenticated mailbox reply retains only a document-local
+transport preference for 30 seconds. The next trusted operation on that exact
+grant uses a new signed hello and session without repeating discovery. Failure,
+expiry, navigation, route change or explicit Reconnect clears the preference.
+No port, account data or session is reused across operations. Every lookup
+creates new encryption keys and obtains a fresh account list. Expired
 responses are ignored; credential deadlines and permission checks are unchanged.
 
 
@@ -106,7 +112,7 @@ continues after return. Closing the panel cancels the request.
 | Event | Result |
 |---|---|
 | Temporary page closes or handoff worker stops | Established direct ports continue |
-| A new lookup or test starts | Previous port is closed; a temporary page hands off a new port |
+| A new lookup or test starts | New authenticated session; normally a new handoff, or a recently verified mailbox route |
 | Website is hidden | Delivery depends on browser scheduling; a past reply is not proof of current liveness |
 | Website refreshes, navigates or closes | Its old port is released; a new document needs a new handoff |
 | App refreshes or closes | All old ports stop; reconnect to the selected App |
@@ -161,7 +167,10 @@ tab before reproducing a failure. **Copy connection log** includes up to 300
 in-memory events with request IDs, port lifecycle and rejection reasons.
 The recording preference is saved for future tabs and reloads; only this boolean
 is persisted. Turn logging off or reload to clear the current tab's events. No logs are uploaded; credentials,
-field contents and website addresses are excluded.
+field contents and website addresses are excluded. In the updated New App, the
+export also includes up to 100 passive page-receiver events. Their timestamps
+can be compared with userscript callback entry to locate delayed discovery.
+This observer never consumes, starts, closes or replies on connection ports.
 
 ## Verification
 

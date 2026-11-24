@@ -159,7 +159,11 @@ test('discovery echoes a valid trace and records only bounded ownership metadata
     try {
         const port = receive({ kind: 'find-app', traceId, privateValue: 'Do not record this value' });
         expect(port.messages[0].traceId).toBe(traceId);
-        expect(events).toContainEqual({ event: 'discovery-received', traceId, portId: undefined, detail: undefined, runtimeCount: 1 });
+        const received = events.find(value => value.event === 'discovery-received');
+        expect(received).toMatchObject({ event: 'discovery-received', traceId, portId: undefined, runtimeCount: 1 });
+        expect(received.dispatchAt).toBeLessThanOrEqual(Date.now());
+        expect(received.dispatchAt).toBeGreaterThan(0);
+        expect(received.elapsedMs).toBeGreaterThanOrEqual(0);
         expect(events).toContainEqual({ event: 'discovery-sent', traceId, portId: undefined, detail: 'matched', runtimeCount: 1 });
         expect(JSON.stringify(events)).not.toContain(endpoint.href);
         expect(JSON.stringify(events)).not.toContain('Do not record this value');

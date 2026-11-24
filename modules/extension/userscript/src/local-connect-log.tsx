@@ -5,6 +5,7 @@ import type { DiagnosticData } from '../../../diagnostics/src/types';
 import { watchTransport } from './transport-events';
 import { CONNECT_VERSION } from './version';
 import { localLogPreference } from './local-log-preference';
+import { appLogRecording, readMainReceiverLog } from './app-receiver-log';
 
 const MAX_LINES = 300;
 
@@ -26,6 +27,12 @@ export function LocalConnectLog({ mode, snapshot }: { mode: 'app' | 'website'; s
         });
         return () => { mounted = false; active.current = false; };
     }, []);
+
+    useEffect(() => {
+        if (mode !== 'app') return;
+        appLogRecording(enabled);
+        return () => appLogRecording(false);
+    }, [enabled, mode]);
 
     useEffect(() => {
         if (!enabled) return;
@@ -58,15 +65,26 @@ export function LocalConnectLog({ mode, snapshot }: { mode: 'app' | 'website'; s
 
     const copy = async (event: MouseEvent) => {
         if (!event.isTrusted || !active.current) return;
-        const text = [`KeeWebX Connect ${CONNECT_VERSION} · ${mode} · local log`,
+        const base = [`KeeWebX Connect ${CONNECT_VERSION} · ${mode} · local log`,
             `Current state ${JSON.stringify(sanitizeData({ ...snapshot(), visible: !document.hidden }))}`,
             ...lines.current].join('\n');
-        setOutput(text); setCopied(false);
+        const text = mode === 'app' ? readMainReceiverLog().then(lines => base + '\n\nApp page receiver (local only)\n' +
+            (lines.length ? lines.join('\n') : 'No observer records available.')) : Promise.resolve(base);
+        setOutput(base); setCopied(false);
         try {
-            await navigator.clipboard.writeText(text);
+            // Safari requires clipboard.write during the trusted click. The blob
+            // promise may wait for the passive App snapshot without losing activation.
+            const copying = mode === 'app' && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
+                ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then(value => new Blob([value], { type: 'text/plain' })) })])
+                : navigator.clipboard.writeText(mode === 'app' ? await text : base);
+            const copied = copying.then(() => true, () => false);
+            const value = await text;
+            if (active.current) setOutput(value);
+            if (!await copied) throw new Error('Clipboard unavailable');
             if (active.current) setCopied(true);
         } catch {
-            if (active.current) requestAnimationFrame(() => textarea.current?.select());
+            const value = await text;
+            if (active.current) { setOutput(value); requestAnimationFrame(() => textarea.current?.select()); }
         }
     };
 

@@ -340,7 +340,7 @@ async function start(): Promise<void> {
         addEventListener('pageshow', progress); addEventListener('focus', progress);
         progress();
         try {
-            const direct = openDirect(endpoint, true);
+            const direct = openDirect(endpoint, true, recovery);
             if (recovery && !direct) {
                 if (!clientId) throw new Error('Connection settings are not ready. Reopen the panel and retry.');
                 connector = openConnector(endpoint, clientId, connector);

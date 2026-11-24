@@ -24,7 +24,7 @@ const enums = {
         'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable',
         'discovery-received', 'discovery-sent', 'discovery-rejected', 'port-received', 'port-rejected',
         'rpc-sent', 'rpc-received', 'rpc-accepted', 'rpc-rejected', 'runtime-duplicate', 'relay-opened', 'relay-ready', 'relay-error', 'mailbox-start', 'mailbox-notified',
-        'mailbox-signal', 'mailbox-signal-read', 'mailbox-read-failed', 'mailbox-request', 'mailbox-reply',
+        'mailbox-signal', 'mailbox-signal-read', 'mailbox-read-failed', 'mailbox-request', 'mailbox-reply', 'mailbox-preferred',
         'port-message', 'port-posted', 'port-closed', 'page-focus', 'page-blur', 'page-show', 'page-hide', 'page-interaction'],
     reason: ['timeout', 'locked', 'canceled', 'unavailable', 'changed', 'other'],
     relayCode: ['invalid', 'busy', 'worker-unavailable', 'relay-closed', 'helper-unavailable',
@@ -75,9 +75,9 @@ export function sanitizeData(value: unknown): DiagnosticData {
         const item = field(record, key);
         if (typeof item === 'string' && item.length === 36 && UUID.test(item)) result[key] = item;
     }
-    for (const key of ['elapsedMs', 'pending', 'ports', 'authorization', 'runtimeCount'] as const) {
+    for (const key of ['elapsedMs', 'pending', 'ports', 'authorization', 'runtimeCount', 'dispatchAt'] as const) {
         const item = field(record, key);
-        const maximum = key === 'elapsedMs' ? SESSION_MS : key === 'runtimeCount' ? 32 : 10_000;
+        const maximum = key === 'dispatchAt' ? 8.64e15 : key === 'elapsedMs' ? SESSION_MS : key === 'runtimeCount' ? 32 : 10_000;
         if (typeof item === 'number' && Number.isFinite(item) && item >= 0 && item <= maximum
             && (key === 'elapsedMs' || Number.isInteger(item))) result[key] = item;
     }

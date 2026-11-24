@@ -4,6 +4,7 @@ import { Fragment, h } from 'preact';
 import { sanitizeData } from '../../../diagnostics/src/schema';
 import { localLogPreference } from '../src/local-log-preference';
 import { transportEvent, watchTransport } from '../src/transport-events';
+import { appLogRecording, readMainReceiverLog } from '../src/app-receiver-log';
 
 const KEY = 'keewebx-userscript-local-log-enabled-v1';
 const AUTOFILL_KEY = 'keewebx-userscript-connect-preferences-v1';
@@ -67,7 +68,8 @@ function mount(mode: 'app' | 'website' = 'website') {
             }
         }
     };
-    const dependencies = { ...hooks, h, Fragment, sanitizeData, watchTransport, localLogPreference, CONNECT_VERSION: 'test' };
+    const dependencies = { ...hooks, h, Fragment, sanitizeData, watchTransport, localLogPreference,
+        appLogRecording, readMainReceiverLog, CONNECT_VERSION: 'test' };
     const Component = new Function(...Object.keys(dependencies), compiled + '\nreturn LocalConnectLog;')(...Object.values(dependencies));
     const snapshot = () => ({ state: 'Connected' });
     const render = () => {
@@ -121,6 +123,20 @@ test('an App choice is restored in a new website document', async () => {
     const app = mount('app'); await app.settle(); app.toggle(true); await app.settle(); app.unmount();
     const website = mount('website'); await website.settle();
     expect(website.enabled()).toBe(true);
+});
+
+test('App export reserves the clipboard write synchronously with a promised text blob', async () => {
+    let writes = 0, item: any;
+    const finished = deferred<void>();
+    replace('ClipboardItem', class { constructor(public values: Record<string, Promise<Blob>>) {} });
+    replace('navigator', { clipboard: { write(items: any[]) { writes++; item = items[0]; return finished.promise; } } });
+    const log = mount('app'); await log.settle(); log.toggle(true); await log.settle();
+    const copying = log.copy();
+    expect(writes).toBe(1);
+    expect(item.values['text/plain']).toBeInstanceOf(Promise);
+    const text = await (await item.values['text/plain']).text();
+    expect(text).toContain('App page receiver (local only)');
+    finished.resolve(); await copying;
 });
 
 test.each([undefined, null, 'true', 1, { enabled: true }])('only an explicit stored boolean enables logging (%j)', async stored => {

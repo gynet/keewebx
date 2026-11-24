@@ -248,11 +248,13 @@ class AppReceiverCoordinator {
         };
     }
     private receive = (event: MessageEvent) => {
+        const dispatchAt = Date.now(), started = performance.now();
         const data = event.data;
         if (!object(data) || data.marker !== PORT_MARK || !['find-app', 'attach-port'].includes(data.kind)) return;
         const received = data.kind === 'find-app' ? 'discovery-received' : 'port-received';
         const rejected = data.kind === 'find-app' ? 'discovery-rejected' : 'port-rejected';
-        recordPortEvent(received, data, undefined, this.size);
+        transportEvent({ event: received, traceId: protocolId(data.traceId), portId: protocolId(data.connectionId),
+            runtimeCount: this.size, dispatchAt, elapsedMs: Math.max(0, performance.now() - started) });
         let workerURL: string | undefined;
         try { workerURL = (event.source as ServiceWorker | null)?.scriptURL; } catch {}
         const candidates = [...this.receivers].filter(receiver => receiver.workerURL === workerURL);

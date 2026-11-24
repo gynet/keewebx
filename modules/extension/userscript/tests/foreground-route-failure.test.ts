@@ -104,6 +104,9 @@ async function fixture({ mailbox = false, ready = true, allowAppVisit = false } 
         },
         revoke() { port!.onmessage!({ data: { ...outer, kind: 'closed', reason: 'authorization-ended' } }); },
         async tick(ms: number) {
+            // Settle already queued manager reads before advancing the clock.
+            // Otherwise their next poll is scheduled after the requested tick.
+            await flush();
             const until = now + ms;
             for (;;) {
                 const entry = [...timers].sort((a, b) => a[1].due - b[1].due)[0];

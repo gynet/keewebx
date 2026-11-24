@@ -13,6 +13,7 @@
 // FOCUS_FOREGROUND_FAILURE=1 checks a foreground GM timeout during signed hello.
 // FASTFOCUS_REVOKE=1 checks attached/fresh document revocation after startup and reinjection.
 // KWX_FOCUS_MAILBOX_RECOVERY=1 drops App discovery and the port's error to verify local recovery.
+// KWX_FOCUS_RECOVERED_MAILBOX=1 checks fresh mailbox sessions after recovery, Reconnect and App lifecycle.
 // KWX_FOCUS_RELEASED_PORT_RECOVERY=1 checks fresh operations after a completed port is physically closed.
 // KWX_FOCUS_FRESH_PORT=1 checks stale signed replies from a canceled operation against its replacement.
 // KWX_FOCUS_LIFECYCLE=1 covers operation disposal, delayed cleanup and replacement connections.
@@ -48,6 +49,7 @@ const FOCUS_BROWSER_RESTART = process.env.KWX_FOCUS_BROWSER_RESTART === '1';
 const FOCUS_FOREGROUND_FAILURE = process.env.FOCUS_FOREGROUND_FAILURE === '1';
 const FOCUS_REVOKE = process.env.FASTFOCUS_REVOKE === '1';
 const FOCUS_MAILBOX_RECOVERY = process.env.KWX_FOCUS_MAILBOX_RECOVERY === '1';
+const FOCUS_RECOVERED_MAILBOX = process.env.KWX_FOCUS_RECOVERED_MAILBOX === '1';
 const FOCUS_RELEASED_PORT_RECOVERY = process.env.KWX_FOCUS_RELEASED_PORT_RECOVERY === '1';
 const FOCUS_FRESH_PORT = process.env.KWX_FOCUS_FRESH_PORT === '1';
 const FOCUS_LIFECYCLE = process.env.KWX_FOCUS_LIFECYCLE === '1';
@@ -1095,15 +1097,17 @@ async function probe(page) {
     await freshOperation(page, before, count);
 }
 async function freshOperation(page, before, count) {
-    expect(helpers.size, 'A trusted operation must open exactly one helper').toBe(count + 1);
     const after = await snapshot(page), delta = after.packets.slice(before.packets.length);
     const requests = delta.filter(item => item.direction === 'sent' && item.data.kind === 'request'
         && item.data.value?.packet?.operation !== 'release');
-    // A failed handoff may use the signed mailbox for this operation only.
+    // Initial recovery attempts a helper; a recent proof can skip it. The
+    // recovered-mailbox focus separately asserts the exact preference sequence.
     if (!requests.length && FOCUS_MAILBOX_RECOVERY) {
+        expect([count, count + 1]).toContain(helpers.size);
         expect(after.mailboxAttempts.length).toBeGreaterThan(before.mailboxAttempts.length);
         await noHelpers(); return;
     }
+    expect(helpers.size, 'A trusted direct operation must open exactly one helper').toBe(count + 1);
     expect(requests.length).toBeGreaterThan(0);
     expect(new Set(requests.map(item => item.port)).size).toBe(1);
     expect(new Set(requests.map(item => item.data.connectionId)).size).toBe(1);
@@ -1392,13 +1396,13 @@ function validReadyProof(data) {
     return typeof data.proof === 'string' && Buffer.from(data.proof, 'base64').length === 64
         && verify(null, Buffer.from(payload), signingPublicKey(), Buffer.from(data.proof, 'base64'));
 }
-function assertMailboxExchange(stored, page) {
+function assertMailboxExchange(stored, page, operations = ['hello', 'kwx-get-entries', 'kwx-get-entry-fields']) {
     const requests = stored.filter(value => value.packet.type === 'request');
     const replies = stored.filter(value => value.packet.type === 'reply');
     expect(stored.length).toBeGreaterThan(0);
     expect(stored.every(value => validSignature(value) && value.packet.host === approvedRoute.host
         && value.packet.endpoint === APP && value.packet.origin === new URL(page.url()).origin)).toBe(true);
-    for (const operation of ['hello', 'kwx-get-entries', 'kwx-get-entry-fields']) {
+    for (const operation of operations) {
         const matching = requests.filter(value => (value.packet.body?.action ?? value.packet.operation) === operation);
         expect(matching, 'Exactly one signed mailbox request for ' + operation).toHaveLength(1);
         const { id, deadline, document, scope } = matching[0].packet;
@@ -1406,9 +1410,155 @@ function assertMailboxExchange(stored, page) {
         expect(reply?.packet).toMatchObject({ deadline, document, operation: matching[0].packet.operation });
         expect(reply.packet.scope).toBe(scope);
         expect(reply.packet.error).toBeUndefined();
-        if (operation !== 'hello') expect(typeof matching[0].packet.body.message).toBe('string');
+        if (matching[0].packet.operation === 'wire') expect(typeof matching[0].packet.body.message).toBe('string');
     }
     for (const secret of PRIVATE_VALUES) expect(JSON.stringify(stored)).not.toContain(secret);
+}
+// Observe only genuine manager writes; never seed a route, grant, proof or session.
+const mailboxAudit = () => nativeWorker.evaluate(() => globalThis.audit.filter(item =>
+    item.key.includes('keewebx-connect-mailbox-v1:') && item.value?.packet).map(item => item.value));
+
+async function recoveredMailboxAcceptance() {
+    // Exact tuple/TTL boundaries and an old RPC failing after a newer proof are
+    // deterministic unit cases. Here exercise real trusted UI + App/KDBX traffic.
+    const account = ACCOUNTS[0], sessions = new Set(), rpcDocuments = new Set();
+    let lastSuccess = 0;
+    first = await newWebsite(account);
+    const website = await documentState(first);
+    const discovery = async () => (await snapshot(app)).attachments.filter(item => item.data.kind === 'find-app').length;
+    const runMailbox = async (kind, { recovering = false, select = false } = {}) => bounded(
+        'Recovered mailbox ' + kind, async remaining => {
+            const before = await snapshot(first), count = helpers.size, discoveries = await discovery();
+            const offset = (await mailboxAudit()).length, reads = await fieldReads();
+            if (!recovering) expect(Date.now() - lastSuccess, 'Trusted retry is inside the 30 second preference window').toBeLessThan(30000);
+            if (kind === 'probe') await action(first, 'probe');
+            else await startLookup(first);
+            // Assert at the trusted tap as well as after completion: a redundant
+            // helper must fail promptly, even if its own mailbox fallback works.
+            if (!recovering) expect(helpers.size, 'Recovered mailbox must not open another direct helper').toBe(count);
+            if (kind === 'probe') await untilStatus(first, /Connected to the authorized KeeWebX tab/, remaining());
+            else {
+                await matchingList(first, account, reads, remaining);
+                if (select) await fill(first, account);
+            }
+            await noHelpers();
+            expect(helpers.size, 'Only the initial recovery may open a direct helper').toBe(count + (recovering ? 1 : 0));
+            const after = await snapshot(first);
+            expect(after.actions.slice(before.actions.length).some(item => item.trusted
+                && (kind === 'probe' ? item.action === 'probe' : ['toggle', 'lookup'].includes(item.action)))).toBe(true);
+            expect(after.packets.slice(before.packets.length).filter(item => item.direction === 'sent'
+                && item.data.kind === 'request' && item.data.value?.packet?.operation !== 'release')).toEqual([]);
+            if (recovering) {
+                expect(await discovery()).toBeGreaterThan(discoveries);
+                expect((await snapshot(app)).packets.some(item => item.direction === 'dropped'
+                    && ['app-ready', 'app-state'].includes(item.data.kind))).toBe(true);
+            } else expect(await discovery(), 'A preferred mailbox operation must skip SW discovery').toBe(discoveries);
+            const stored = (await mailboxAudit()).slice(offset);
+            assertMailboxExchange(stored, first, kind === 'probe' ? ['hello', 'probe']
+                : ['hello', 'kwx-get-entries', ...(select ? ['kwx-get-entry-fields'] : [])]);
+            const hello = stored.find(value => value.packet.type === 'request' && value.packet.operation === 'hello').packet;
+            const reply = stored.find(value => value.packet.type === 'reply' && value.packet.id === hello.id).packet;
+            expect(reply.body.appBoot).toBe(approvedRoute.host);
+            expect(reply.body.expiresAt).toBeGreaterThan(Date.now());
+            expect(typeof reply.body.scope).toBe('string');
+            expect(sessions.has(reply.body.scope), 'Each operation must negotiate a fresh signed session').toBe(false);
+            expect(rpcDocuments.has(hello.document), 'Never reuse the completed RPC').toBe(false);
+            sessions.add(reply.body.scope); rpcDocuments.add(hello.document);
+            expect(stored.filter(value => value.packet.type === 'request' && value.packet.operation !== 'hello'
+                && value.packet.operation !== 'release').every(value => value.packet.document === hello.document
+                && value.packet.scope === reply.body.scope)).toBe(true);
+            expect(await documentState(first)).toEqual(website);
+            lastSuccess = Date.now();
+            remaining();
+        });
+
+    await step('without mailbox recovery trusted connection tests still use fresh direct helpers', async () => {
+        const count = helpers.size;
+        await config(first);
+        await closedHelper(first, count);
+        await probe(first);
+        expect(await mailboxAudit()).toEqual([]);
+        await sameApp();
+        return { defaultDirectHelpers: 2, mailboxRequests: 0 };
+    });
+    await step('lost SW discovery recovers a connection test through a signed mailbox hello and probe', async () => {
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
+        await runMailbox('probe', { recovering: true });
+        await sameApp();
+        return { discoveryUnavailable: true, realSignedHelloAndProbe: true, helpers: 1 };
+    });
+    await step('the same website repeats Find accounts and fill with fresh mailbox sessions and no helper or discovery', async () => {
+        const reads = await fieldReads(), lists = await entryReads();
+        for (let repeat = 0; repeat < 2; repeat++) {
+            await clearFields(first);
+            await runMailbox('lookup', { select: true });
+        }
+        expect(await fieldReads()).toBe(reads + 2); expect(await entryReads()).toBe(lists + 2);
+        await sameApp();
+        return { repeatedFills: 2, freshSignedSessions: sessions.size,
+            extraHelpers: 0, extraDiscovery: 0, submissions: 0 };
+    });
+    await step('explicit Reconnect overrides recovery and opens a new direct helper', async () => {
+        // Filling hides the panel. Reopen through a real lookup before Reconnect.
+        await clearFields(first); await runMailbox('lookup'); await config(first);
+        await runMailbox('probe');
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = false');
+        const before = await snapshot(first), count = helpers.size, discoveries = await discovery();
+        const offset = (await mailboxAudit()).length;
+        await action(first, 'open'); await untilStatus(first, /Connected to the authorized KeeWebX tab/);
+        expect((await snapshot(first)).actions.at(-1)).toEqual({ action: 'open', trusted: true });
+        await freshOperation(first, before, count);
+        expect(await discovery()).toBeGreaterThan(discoveries);
+        expect((await mailboxAudit()).slice(offset).filter(value => value.packet.type === 'request'
+            && value.packet.operation !== 'release')).toEqual([]);
+        // Successful direct Reconnect must also clear the previous preference.
+        await probe(first); await sameApp();
+        return { preferredTests: 1, reconnectHelpers: 1, nextTestDirect: true, reusedPorts: 0 };
+    });
+    await step('App restart replaces the route and cannot reuse a website recovery proof', async () => {
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
+        await runMailbox('probe', { recovering: true });
+        await expect(app.locator('#sync-state')).toHaveText('Up to date');
+        const route = structuredClone(approvedRoute), identity = (await settings()).get(IDENTITY_KEY);
+        await app.bringToFront(); await archive(app); await app.reload(); expectedAppNavigationRequests++;
+        await restoreSavedApp(route);
+        expect((await settings()).get(IDENTITY_KEY)).toEqual(identity);
+        await first.bringToFront();
+        await expect.poll(() => shadowValue(first, '[data-action="probe"]', 'disabled')).toBe(false);
+        const before = await snapshot(first), count = helpers.size, offset = (await mailboxAudit()).length;
+        await probe(first);
+        const requests = (await snapshot(first)).packets.slice(before.packets.length).filter(item =>
+            item.direction === 'sent' && item.data.kind === 'request');
+        expect(requests.every(item => item.data.value.packet.host === approvedRoute.host)).toBe(true);
+        expect(helpers.size).toBe(count + 1);
+        expect((await mailboxAudit()).slice(offset)).toEqual([]);
+        expect(await documentState(first)).toEqual(website);
+        await sameApp();
+        return { newAppBoot: true, originalWebsite: true, newDirectHelper: true,
+            realGrantRestore: true, injectedGrants: 0, additionalConsentDialogs: 0 };
+    });
+    await step('revocation invalidates a recovered mailbox route before another trusted lookup', async () => {
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
+        await runMailbox('probe', { recovering: true });
+        const reads = await fieldReads(), lists = await entryReads();
+        if (await shadowValue(app, 'section', 'hidden')) await action(app, 'toggle');
+        await action(app, 'config-tab'); await action(app, 'revoke'); await untilStatus(app, /Disconnected/);
+        await expect.poll(async () => (await settings()).has(ROUTE_KEY)).toBe(false);
+        await first.bringToFront();
+        await expect.poll(() => shadowValue(first, '[data-action="lookup"]', 'disabled')).toBe(false);
+        const count = helpers.size, offset = (await mailboxAudit()).length;
+        await startLookup(first);
+        await untilStatus(first, /Authorize Connect once in your existing KeeWebX tab/);
+        await expect.poll(() => shadowValue(first, '[data-action="lookup"]', 'disabled')).toBe(false);
+        await emptyFields(first);
+        expect(await entries(first)).not.toContain(account.title);
+        expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
+        expect(helpers.size).toBe(count);
+        expect((await mailboxAudit()).slice(offset).filter(value => value.packet.type === 'request'
+            && value.packet.operation !== 'release')).toEqual([]);
+        await noHelpers(); await sameApp({ authorized: false });
+        return { staleProofUsed: false, accountRequests: 0, credentialRequests: 0, helpers: 0 };
+    });
 }
 async function releasedPortRecovery(page, account) {
     expect(approvedRoute.mailbox).toBe(true);
@@ -2170,7 +2320,7 @@ async function setup(bundle, appBundle = bundle) {
     }`;
     writeFileSync(join(extension, 'content.js'), `(() => {
         ${helperCloseFault.toString()}
-        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE, allowMailbox: FOCUS_MAILBOX_RECOVERY || FOCUS_RELEASED_PORT_RECOVERY, browserRestart: FOCUS_BROWSER_RESTART })});
+        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE, allowMailbox: FOCUS_MAILBOX_RECOVERY || FOCUS_RECOVERED_MAILBOX || FOCUS_RELEASED_PORT_RECOVERY, browserRestart: FOCUS_BROWSER_RESTART })});
         // Retain this exact source and its lexical GM adapter in the original isolated world.
         // Only CDP can reach the hook; it accepts no source or privileged arguments.
         const runInstaller = () => {
@@ -2313,7 +2463,7 @@ acceptance: try {
         bytes: Buffer.byteLength(appBundle), sha256: createHash('sha256').update(appBundle).digest('hex') };
     await step('require the current production installer and built MessagePort assets', async () => {
         if (FOCUS_REINJECT) expect(appBundle === bundle, 'Reinjection acceptance requires the same installer in both documents').toBe(true);
-        if (FOCUS_APP_REFRESH || FOCUS_BROWSER_RESTART) {
+        if (FOCUS_APP_REFRESH || FOCUS_BROWSER_RESTART || FOCUS_RECOVERED_MAILBOX) {
             expect(appBundle === bundle, 'Refresh acceptance requires the same updated installer in both documents').toBe(true);
             expect(BLOCK_APP_GM, 'Refresh restores the approved grant through the actual manager').toBe(false);
         }
@@ -2374,6 +2524,12 @@ acceptance: try {
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
+    if (FOCUS_RECOVERED_MAILBOX) {
+        report.focus = 'recovered-mailbox';
+        await recoveredMailboxAcceptance();
+        expect(report.errors).toEqual([]); report.passed = true;
+        break acceptance;
+    }
     if (FOCUS_BROWSER_RESTART) {
         report.focus = 'browser-restart';
         await browserRestartAcceptance();
@@ -2592,7 +2748,9 @@ acceptance: try {
                 await matchingList(first, ACCOUNTS[0], readsBefore);
                 await fill(first, ACCOUNTS[0]);
             } finally { await adapter(app, '__kwxPortAdapter.releaseMailboxScans()'); }
-            expect(helpers.size).toBe(before + 4);
+            // Recovered config/lookup taps skip discovery; the canceled fill
+            // invalidates that proof, so its retry needs one new helper.
+            expect(helpers.size).toBe(before + 2);
 
             await app.bringToFront(); await app.getByRole('button', { name: 'Lock', exact: true }).filter({ visible: true }).click();
             await untilStatus(app, /locked.*unlock/i);
@@ -2600,7 +2758,7 @@ acceptance: try {
             await clearFields(first); await startLookup(first);
             await untilStatus(first, /locked.*unlock/i, OPERATION_BUDGET); await emptyFields(first);
             expect(await fieldReads()).toBe(reads);
-            expect(helpers.size).toBe(before + 5);
+            expect(helpers.size, 'The fresh recovery proof reaches the locked App without another helper').toBe(before + 2);
             await sameApp({ unlocked: false });
             expect((await snapshot(app)).droppedMailboxNotifications).toBeGreaterThan(0);
 
@@ -2618,8 +2776,16 @@ acceptance: try {
                 if (await shadowValue(page, 'section', 'hidden')) await action(page, 'toggle');
                 await shadowClick(page, copy);
                 await expect.poll(() => shadowValue(page, output, 'value')).toContain(event);
+                if (page === app) await expect.poll(() => shadowValue(page, output, 'value')).toContain('"event":"main-discovery"');
                 const log = await shadowValue(page, output, 'value');
-                expect(log.split('\n').length).toBeLessThanOrEqual(302);
+                expect(log.split('\n').length).toBeLessThanOrEqual(page === app ? 404 : 302);
+                if (page === app) {
+                    const records = log.split('\n').filter(line => /^\d\d:\d\d:\d\d\.\d\d\dZ /.test(line))
+                        .map(line => JSON.parse(line.slice(line.indexOf('{'))));
+                    expect(records.filter(value => value.event === 'main-discovery').some(main =>
+                        records.some(other => other.event === 'discovery-received' && other.traceId === main.traceId
+                            && Number.isFinite(other.dispatchAt)))).toBe(true);
+                }
                 expect(log).not.toMatch(/https?:\/\//);
                 for (const secret of [DB_PASSWORD, ...ACCOUNTS.flatMap(item => [item.title, item.user, item.password])]) {
                     expect(log).not.toContain(secret);
