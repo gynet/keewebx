@@ -2784,7 +2784,9 @@ acceptance: try {
                         .map(line => JSON.parse(line.slice(line.indexOf('{'))));
                     expect(records.filter(value => value.event === 'main-discovery').some(main =>
                         records.some(other => other.event === 'discovery-received' && other.traceId === main.traceId
-                            && Number.isFinite(other.dispatchAt)))).toBe(true);
+                            && other.portId === main.portId && typeof main.portId === 'string'
+                            && Number.isFinite(main.sentAt) && main.sentAt === other.sentAt
+                            && Number.isFinite(other.dispatchAt) && other.dispatchAt >= main.sentAt))).toBe(true);
                 }
                 expect(log).not.toMatch(/https?:\/\//);
                 for (const secret of [DB_PASSWORD, ...ACCOUNTS.flatMap(item => [item.title, item.user, item.password])]) {
@@ -2795,7 +2797,7 @@ acceptance: try {
             }
             expect([...assetRequests.keys()].some(path => path.includes('connect-diagnostics'))).toBe(false);
             return { fallbackFilled: true, helperForwardedSetupError: true, resumedAfterAppVisit: true, mailboxNotificationsSuppressed: true, canceledFillIgnored: true, retryArrivedDuringStaleScan: true,
-                lockedVaultDenied: true, reusedOriginalApp: true, sanitizedLocalLogsCopied: true };
+                lockedVaultDenied: true, reusedOriginalApp: true, sanitizedLocalLogsCopied: true, discoverySendTimeCorrelated: true };
         });
         expect(report.errors).toEqual([]); report.passed = true; report.focus = 'mailbox-recovery'; break acceptance;
     }

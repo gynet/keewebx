@@ -223,7 +223,12 @@ async function start(): Promise<void> {
     };
     const wireTimeout = () => Math.min(15000, operation?.remainingMs ?? 15000);
     ui.onClose = clean;
-    ui.onConfig = () => { clean(); ui.state(State.ReadyToConnect, 'Your authorized KeeWebX tab is used on every website. Test the connection here.'); };
+    ui.onConfig = () => {
+        // Inspecting connection settings must preserve pending setup and its status.
+        // Account selection still ends when leaving the accounts view.
+        if (pending) return;
+        clean(); ui.state(State.ReadyToConnect, 'Your authorized KeeWebX tab is used on every website. Test the connection here.');
+    };
     ui.on('save', async event => {
         if (!event.isTrusted) return;
         clean(); const epoch = generation;

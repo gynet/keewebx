@@ -254,7 +254,7 @@ class AppReceiverCoordinator {
         const received = data.kind === 'find-app' ? 'discovery-received' : 'port-received';
         const rejected = data.kind === 'find-app' ? 'discovery-rejected' : 'port-rejected';
         transportEvent({ event: received, traceId: protocolId(data.traceId), portId: protocolId(data.connectionId),
-            runtimeCount: this.size, dispatchAt, elapsedMs: Math.max(0, performance.now() - started) });
+            runtimeCount: this.size, dispatchAt, ...sanitizeData({ sentAt: data.sentAt }), elapsedMs: Math.max(0, performance.now() - started) });
         let workerURL: string | undefined;
         try { workerURL = (event.source as ServiceWorker | null)?.scriptURL; } catch {}
         const candidates = [...this.receivers].filter(receiver => receiver.workerURL === workerURL);

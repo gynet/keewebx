@@ -229,3 +229,15 @@ test('restored logging keeps only 300 sanitized events in memory and starts fres
     expect(copied).not.toContain('hello-replied');
     expect(writes).toEqual([[KEY, false], [KEY, true]]);
 });
+
+test('worker send time is allowlisted without admitting arbitrary timing values', () => {
+    const sentAt = Date.now();
+    expect(sanitizeData({ sentAt, dispatchAt: sentAt + 32000 })).toEqual({ sentAt, dispatchAt: sentAt + 32000 });
+    for (const value of [-1, Infinity, NaN, 1.5, 8.64e15 + 1, 'private-value']) expect(sanitizeData({ sentAt: value })).toEqual({});
+});
+
+test('local action reasons remain a fixed vocabulary, never control or account text', () => {
+    for (const action of ['panel-open', 'panel-close', 'config', 'accounts', 'escape', 'anchor-lost', 'select-account', 'preference'])
+        expect(sanitizeData({ action, label: 'private-account' })).toEqual({ action });
+    expect(sanitizeData({ action: 'private-account', control: 'private-website' })).toEqual({});
+});

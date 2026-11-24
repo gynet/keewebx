@@ -639,3 +639,19 @@ test.each(['https://keewebx.app/app?namespace=separate', 'https://keewebx.app/ot
     expect(f.app.posts.at(-1)!.data.endpoint).toBe(appURL);
     expect(f.queries.locks).toBe(0); expect(f.timers.size).toBe(0);
 });
+
+test('discovery retries retain their website connection identity and actual send time', async () => {
+    const f = fixture(); await flush();
+    const first = f.app.posts[0].data;
+    expect(first.kind).toBe('find-app');
+    expect(first.connectionId).toBe(f.data.connectionId);
+    expect(first.sentAt).toBe(f.time());
+    await f.tick(750);
+    const retry = f.app.posts[1].data;
+    expect(retry.traceId).toBe(first.traceId);
+    expect(retry.connectionId).toBe(first.connectionId);
+    expect(retry.sentAt).toBe(first.sentAt + 750);
+    await f.tick(15250); await f.work();
+    expect(f.website.messages.at(-1).code).toBe('app-timeout');
+    expect(f.app.posts.filter(post => post.data.kind === 'attach-port')).toHaveLength(0);
+});

@@ -111,7 +111,10 @@ export class ConnectUI {
     anchor(field?: HTMLInputElement): void {
         if (this.mode !== 'website') return;
         this.field = field; this.update({ launcherVisible: !!field });
-        if (!field) { if (this.view.open) this.hide(); return; }
+        if (!field) {
+            if (this.view.open) { transportEvent({ action: 'anchor-lost' }); this.hide(); }
+            return;
+        }
         this.place();
     }
 
@@ -128,20 +131,31 @@ export class ConnectUI {
                 mode: this.mode, snapshot: this.readLogSnapshot
             }),
             onAction: (action, event) => { if (event.isTrusted && !this.isDisabled(action)) {
+                // Relay-only actions have no local connection log.
+                if (action !== 'return' && action !== 'pair' && action !== 'decline') transportEvent({ action });
                 this.actions.get(action)?.(event);
             } },
-            onSelectAccount: (id, event) => { if (event.isTrusted && !this.view.busy && !this.connectionPending) this.selections.get(id)?.(event); },
+            onSelectAccount: (id, event) => { if (event.isTrusted && !this.view.busy && !this.connectionPending) {
+                transportEvent({ action: 'select-account' }); this.selections.get(id)?.(event);
+            } },
             onToggle: event => {
                 if (!event.isTrusted) return;
+                transportEvent({ action: this.view.open ? 'panel-close' : 'panel-open' });
                 if (this.view.open) this.hide(); else { this.show(); this.onOpen(event); }
             },
-            onClose: event => { if (event.isTrusted) this.hide(); },
-            onTab: (tab, event) => { if (event.isTrusted) { if (tab === 'config') this.onConfig(); this.show(tab); } },
+            onClose: event => { if (event.isTrusted) { transportEvent({ action: 'panel-close' }); this.hide(); } },
+            onTab: (tab, event) => { if (event.isTrusted) {
+                transportEvent({ action: tab }); if (tab === 'config') this.onConfig(); this.show(tab);
+            } },
             onAddressInput: (address, event) => { if (event.isTrusted) this.update({ address }); },
             onAutoFillSingleChange: (enabled, event) => {
-                if (event.isTrusted && !this.view.preferencePending) this.onAutoFillSingleChange(enabled);
+                if (event.isTrusted && !this.view.preferencePending) {
+                    transportEvent({ action: 'preference' }); this.onAutoFillSingleChange(enabled);
+                }
             },
-            onPanelKeyDown: event => { if (event.isTrusted && event.key === 'Escape') { event.stopPropagation(); this.hide(); } }
+            onPanelKeyDown: event => { if (event.isTrusted && event.key === 'Escape') {
+                event.stopPropagation(); transportEvent({ action: 'escape' }); this.hide();
+            } }
         })), this.shadow);
     }
     private readonly readLogSnapshot = () => ({ ...this.connectionSnapshot(), state: this.view.status });

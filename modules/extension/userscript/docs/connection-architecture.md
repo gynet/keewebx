@@ -1,8 +1,8 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.26**. This describes implemented behavior, not a
+Architecture of **Connect 0.6.27**. This describes implemented behavior, not a
 guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.26.md) for changes and verification limits. The
+[release notes](release-0.6.27.md) for changes and verification limits. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
 
@@ -341,3 +341,12 @@ after the worker’s 06:34:12 timeout. Its underlying cause is not established.
 Passive logging now separates page-world receipt from userscript-world entry
 without changing dispatch or authentication. See the
 [0.6.26 evidence, component diagram and sequence](release-0.6.26.md).
+
+## Inspecting pending setup in 0.6.27
+
+Opening Connection to inspect a pending test or lookup preserves that operation,
+its helper/port and its progress. Explicit cancellation and replacement still
+dispose owned resources. Local action labels distinguish these paths. Discovery
+probes also carry their connection ID and actual worker send timestamp so both App
+observers can correlate receipt without using timing as authorization evidence.
+See the [regression analysis and flow](release-0.6.27.md).

@@ -11,6 +11,7 @@ export interface ConnectReceiverRecord {
     traceId?: string;
     portId?: string;
     dataReadMs?: number;
+    sentAt?: number;
     persisted?: boolean;
 }
 
@@ -69,7 +70,10 @@ export function startConnectReceiverObserver(): () => void {
             if ((traceId !== undefined && !uuid(traceId)) || (portId !== undefined && !uuid(portId)) ||
                 (kind === 'find-app' ? !uuid(traceId) : !uuid(portId))) return;
             if (!Number.isFinite(dataReadMs) || dataReadMs < 0 || !refresh()) return;
-            record({ at, event: kind === 'find-app' ? 'main-discovery' : 'main-handoff', visible: !document.hidden,
+            const sentAt = field(data, 'sentAt');
+            const timing = typeof sentAt === 'number' && Number.isInteger(sentAt) && sentAt >= 0 && sentAt <= 8.64e15
+                ? { sentAt } : {};
+            record({ at, ...timing, event: kind === 'find-app' ? 'main-discovery' : 'main-handoff', visible: !document.hidden,
                 dataReadMs, ...(uuid(traceId) ? { traceId } : {}), ...(uuid(portId) ? { portId } : {}) });
         } catch { /* Optional observation cannot interrupt the receiver. */ }
     };

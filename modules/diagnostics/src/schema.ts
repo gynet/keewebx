@@ -18,7 +18,8 @@ const booleans = [
 const enums = {
     layer: ['userscript', 'app', 'website', 'worker'],
     state: ['Initializing', 'ReadyToConnect', 'Connecting', 'Connected', 'Error'],
-    action: ['open', 'authorize', 'revoke', 'lookup', 'probe', 'save', 'close'],
+    action: ['open', 'authorize', 'revoke', 'lookup', 'probe', 'save', 'close',
+        'panel-open', 'panel-close', 'config', 'accounts', 'escape', 'anchor-lost', 'select-account', 'preference'],
     stage: ['connect', 'access', 'lookup', 'fields', 'fill', 'test', 'authorize', 'restore'],
     event: ['receiver-ready', 'discovery', 'discovery-reply', 'discovery-timeout', 'handoff', 'port-ready', 'hello-received', 'hello-replied',
         'wire-received', 'wire-replied', 'wire-error', 'receipt', 'suppressed', 'unavailable',
@@ -75,9 +76,9 @@ export function sanitizeData(value: unknown): DiagnosticData {
         const item = field(record, key);
         if (typeof item === 'string' && item.length === 36 && UUID.test(item)) result[key] = item;
     }
-    for (const key of ['elapsedMs', 'pending', 'ports', 'authorization', 'runtimeCount', 'dispatchAt'] as const) {
+    for (const key of ['elapsedMs', 'pending', 'ports', 'authorization', 'runtimeCount', 'dispatchAt', 'sentAt'] as const) {
         const item = field(record, key);
-        const maximum = key === 'dispatchAt' ? 8.64e15 : key === 'elapsedMs' ? SESSION_MS : key === 'runtimeCount' ? 32 : 10_000;
+        const maximum = (key === 'dispatchAt' || key === 'sentAt') ? 8.64e15 : key === 'elapsedMs' ? SESSION_MS : key === 'runtimeCount' ? 32 : 10_000;
         if (typeof item === 'number' && Number.isFinite(item) && item >= 0 && item <= maximum
             && (key === 'elapsedMs' || Number.isInteger(item))) result[key] = item;
     }

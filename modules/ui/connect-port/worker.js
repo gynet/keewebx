@@ -224,7 +224,8 @@ function probe(client, appBoot, endpoint, timeout = PROBE_MS, portId) {
             channel.port1.onmessageerror = () => {};
             channel.port1.start();
             ++attempts;
-            try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint, traceId, replyViaWorker: true }, [channel.port2]); }
+            try { client.postMessage({ marker: MARK, kind: 'find-app', appBoot, endpoint, traceId,
+                connectionId: portId, sentAt: Date.now(), replyViaWorker: true }, [channel.port2]); }
             catch { if (attempts >= MAX_PROBE_ATTEMPTS) { finish('unreachable'); return; } }
             // Discovery reads public receiver state only. A fresh channel can
             // recover a lost reply after suspension without retransferring the

@@ -65,3 +65,12 @@ test('a missing old App observer cannot strand log copying or leave a listener',
     const reading = readMainReceiverLog(); f.expire();
     expect(await reading).toEqual([]); expect(f.listeners.size).toBe(0);
 });
+
+test('export preserves valid send timestamps and omits malformed timing metadata', () => {
+    const safe = record(), sentAt = safe.at - 32000;
+    const lines = mainReceiverLines([{ ...safe, sentAt }]);
+    expect(lines[0]).toContain(`"sentAt":${sentAt}`);
+    for (const sentAt of [NaN, Infinity, -1, 8.64e15 + 1, 1.5, 'private-value']) {
+        expect(mainReceiverLines([{ ...safe, sentAt }])[0]).not.toContain('sentAt');
+    }
+});

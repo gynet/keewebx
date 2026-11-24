@@ -153,3 +153,19 @@ test('ring is bounded, trusted lifecycle is sanitized and batched disable clears
     expect(f.disconnected()).toBe(true);
     expect(f.worker.listeners.get('message')?.size).toBe(0);
 });
+
+test('correlates delayed discovery with its original worker send time and website connection', () => {
+    const f = fixture(), sentAt = Date.now() - 32000;
+    f.sw({ marker: PORT, kind: 'find-app', traceId: ID, connectionId: ID, sentAt });
+    const received = f.snapshot()[1];
+    expect(received.sentAt).toBe(sentAt);
+    expect(received.at - received.sentAt!).toBeGreaterThanOrEqual(32000);
+    expect(received.traceId).toBe(ID); expect(received.portId).toBe(ID);
+    for (const value of [NaN, Infinity, -1, 8.64e15 + 1, 'private-value']) {
+        f.sw({ marker: PORT, kind: 'find-app', traceId: ID, sentAt: value });
+        expect(f.snapshot().at(-1)?.sentAt).toBeUndefined();
+    }
+    let reads = 0;
+    f.sw({ marker: PORT, kind: 'find-app', traceId: ID, get sentAt() { reads++; return 1; } });
+    expect(reads).toBe(0); expect(f.snapshot().at(-1)?.sentAt).toBeUndefined();
+});

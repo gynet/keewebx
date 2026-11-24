@@ -24,6 +24,8 @@ export function mainReceiverLines(value: unknown): string[] {
         for (const key of ['traceId', 'portId']) {
             const id = field(item, key); if (typeof id === 'string' && UUID.test(id)) safe[key] = id;
         }
+        const sentAt = field(item, 'sentAt');
+        if (typeof sentAt === 'number' && Number.isInteger(sentAt) && sentAt >= 0 && sentAt <= 8.64e15) safe.sentAt = sentAt;
         const read = field(item, 'dataReadMs'), persisted = field(item, 'persisted');
         if (typeof read === 'number' && Number.isFinite(read) && read >= 0 && read <= 3_600_000) safe.dataReadMs = read;
         if (typeof persisted === 'boolean') safe.persisted = persisted;

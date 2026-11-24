@@ -304,6 +304,7 @@ jobs:
           LOGIN_FIELD_RESULTS=.cache/userscript-connect/login-fields.json node modules/extension/userscript/tests/login-fields.mjs chromium
           CONNECT_COMPONENT_RESULTS=.cache/userscript-connect/components.json node modules/ui-kit/tests/connect.mjs chromium
           CONNECT_DRAG_RESULTS=.cache/userscript-connect/drag.json node modules/extension/userscript/tests/connect-drag.mjs chromium
+          KWX_WEBSITE_RESULTS=.cache/userscript-connect/cancellation.json node modules/extension/userscript/tests/website-cancellation.mjs chromium
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-connect node modules/extension/userscript/tests/native-connect.mjs
           KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-port node modules/extension/userscript/tests/port-connect.mjs
           KWX_FOCUS_FRESH_PORT=1 KWX_APP_SERVER=http://127.0.0.1:8097 KWX_E2E_OUTPUT_DIR=.cache/userscript-fresh-port node modules/extension/userscript/tests/port-connect.mjs
@@ -501,6 +502,7 @@ jobs:
           LOGIN_FIELD_RESULTS=.cache/messageport-webkit/login-fields.json run_check login-fields modules/extension/userscript/tests/login-fields.mjs webkit || failed=1
           CONNECT_COMPONENT_RESULTS=.cache/messageport-webkit/components.json run_check components modules/ui-kit/tests/connect.mjs webkit || failed=1
           CONNECT_DRAG_RESULTS=.cache/messageport-webkit/drag.json run_check drag modules/extension/userscript/tests/connect-drag.mjs webkit || failed=1
+          KWX_WEBSITE_RESULTS=.cache/messageport-webkit/cancellation.json run_check cancellation modules/extension/userscript/tests/website-cancellation.mjs webkit || failed=1
           KWX_RELAY_BROWSERS=webkit KWX_RELAY_LIFECYCLE_OUTPUT=.cache/messageport-webkit/lifecycle run_check lifecycle modules/extension/userscript/tests/relay-lifecycle.mjs || failed=1
           KWX_HELPER_BROWSERS=webkit KWX_HELPER_OUTPUT=.cache/messageport-webkit/helper-lifetime run_check helper-lifetime modules/extension/userscript/tests/helper-lifetime.mjs || failed=1
           KWX_BLOCK_HELPER_CLOSE=1 KWX_WEBKIT_OUTPUT=.cache/messageport-webkit/production run_check production modules/extension/userscript/tests/port-connect-webkit.mjs || failed=1

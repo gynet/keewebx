@@ -31,7 +31,8 @@ export interface DiagnosticData {
     /** Integer from 0 through 32. */
     runtimeCount?: number;
     state?: 'Initializing' | 'ReadyToConnect' | 'Connecting' | 'Connected' | 'Error';
-    action?: 'open' | 'authorize' | 'revoke' | 'lookup' | 'probe' | 'save' | 'close';
+    action?: 'open' | 'authorize' | 'revoke' | 'lookup' | 'probe' | 'save' | 'close'
+        | 'panel-open' | 'panel-close' | 'config' | 'accounts' | 'escape' | 'anchor-lost' | 'select-account' | 'preference';
     stage?: 'connect' | 'access' | 'lookup' | 'fields' | 'fill' | 'test' | 'authorize' | 'restore';
     event?: 'receiver-ready' | 'discovery' | 'discovery-reply' | 'discovery-timeout' | 'handoff' | 'port-ready' | 'hello-received'
         | 'hello-replied' | 'wire-received' | 'wire-replied' | 'wire-error' | 'receipt'
@@ -47,6 +48,8 @@ export interface DiagnosticData {
         | 'noapp' | 'address' | 'disabled' | 'refreshed' | 'unreachable' | 'app-timeout' | 'timeout' | 'expired' | 'inactive';
     /** Local receiver callback entry time, before accessing MessageEvent.data. */
     dispatchAt?: number;
+    /** Public discovery send time from the local worker, not a request deadline. */
+    sentAt?: number;
     detail?: 'wrong-source' | 'wrong-address' | 'wrong-host' | 'wrong-origin' | 'wrong-generation'
         | 'wrong-port' | 'wrong-shape' | 'bad-signature' | 'no-pending' | 'expired' | 'closed'
         | 'not-selected' | 'duplicate-runtime' | 'legacy' | 'matched' | 'inactive' | 'missing-key' | 'handler-error' | 'decode-error';
