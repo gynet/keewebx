@@ -5,6 +5,9 @@ guarantee of browser recovery or native iOS acceptance. See the
 [release notes](release-0.6.27.md) for changes and verification limits. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
+The [0.6.27 dispatch analysis](dispatch-analysis-0.6.27.md) correlates worker send
+times with both App receivers and separates confirmed delivery delay from
+unproven browser-internal causes.
 
 **Runtime and components.** [build-connect.ts](../build-connect.ts) bundles
 [simple-connect.ts](../src/simple-connect.ts) as a browser IIFE with Bun, Preact and TweetNaCl.

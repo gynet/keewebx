@@ -20,6 +20,7 @@
 // KWX_FOCUS_REPLAY_OVERLAP=1 holds a receipt replay while the original reply advances the next request.
 // KWX_FOCUS_AUTH_CANCEL=1 checks recovery after closing repeated App authorization.
 // KWX_FOCUS_LAUNCHER=1 checks trusted key connection, visibility, preferences and repeated fills.
+// KWX_FOCUS_DISPATCH_PAUSE=1 freezes the App's browser task queues before discovery, then resumes without focusing it.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
@@ -56,6 +57,7 @@ const FOCUS_LIFECYCLE = process.env.KWX_FOCUS_LIFECYCLE === '1';
 const FOCUS_REPLAY_OVERLAP = process.env.KWX_FOCUS_REPLAY_OVERLAP === '1';
 const FOCUS_AUTH_CANCEL = process.env.KWX_FOCUS_AUTH_CANCEL === '1';
 const FOCUS_LAUNCHER = process.env.KWX_FOCUS_LAUNCHER === '1';
+const FOCUS_DISPATCH_PAUSE = process.env.KWX_FOCUS_DISPATCH_PAUSE === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
@@ -2524,6 +2526,90 @@ acceptance: try {
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
+    if (FOCUS_DISPATCH_PAUSE) {
+        report.focus = 'dispatch-pause';
+        report.fault = 'Chromium CDP task-queue freeze; not a reproduction of native iOS suspension';
+        first = await newWebsite(ACCOUNTS[0]);
+        await setAutoFillSingle(first, true);
+        const session = await context.newCDPSession(app);
+        try {
+            for (const cancel of [false, true]) await step(cancel
+                ? 'canceling while App execution is paused prevents a late fill after resumption'
+                : 'fresh discovery waits for a paused App and completes after resumption without App focus', async () => {
+                await clearFields(first);
+                await first.bringToFront();
+                expect(await app.evaluate(() => document.hidden)).toBe(true);
+                const appBefore = await snapshot(app), siteBefore = await snapshot(first);
+                const count = helpers.size;
+                let receivedDuringPause = false;
+                // Observe the actual App container without delaying or replacing its handler.
+                await app.evaluate(() => {
+                    globalThis.__kwxDispatchPause = [];
+                    if (!globalThis.__kwxDispatchPauseListener) {
+                        globalThis.__kwxDispatchPauseListener = event => {
+                            if (event.data?.marker === 'keewebx-connect-port-v1' && event.data.kind === 'find-app') {
+                                __kwxDispatchPause.push({ at: Date.now(), sentAt: event.data.sentAt,
+                                    visible: !document.hidden, portId: event.data.connectionId });
+                            }
+                        };
+                        navigator.serviceWorker.addEventListener('message', __kwxDispatchPauseListener);
+                    }
+                });
+                await session.send('Page.setWebLifecycleState', { state: 'frozen' });
+                try {
+                    await startLookup(first);
+                    await expect.poll(() => helpers.size).toBe(count + 1);
+                    const helper = [...helpers.keys()].at(-1);
+                    await helper.waitForLoadState('domcontentloaded');
+                    // Allow browser-owned probes to be posted while the App cannot execute.
+                    await first.waitForTimeout(3000);
+                    const pending = await snapshot(first);
+                    receivedDuringPause = pending.packets.slice(siteBefore.packets.length)
+                        .some(item => item.direction === 'received' && item.data.kind === 'ready');
+                    expect(receivedDuringPause).toBe(false);
+                    await emptyFields(first);
+                    if (cancel) await action(first, 'close');
+                } finally {
+                    await session.send('Page.setWebLifecycleState', { state: 'active' });
+                }
+                if (cancel) {
+                    await first.waitForTimeout(500);
+                    await emptyFields(first);
+                    expect(await shadowValue(first, 'section', 'hidden')).toBe(true);
+                } else {
+                    await expect(first.locator('#login-password')).toHaveValue(ACCOUNTS[0].password, { timeout: 15000 });
+                    await expect(first.locator('#username')).toHaveValue(ACCOUNTS[0].user);
+                    expect(await first.evaluate(() => window.formSubmits)).toBe(0);
+                }
+                await noHelpers(); await sameApp();
+                expect(await app.evaluate(() => document.hidden)).toBe(true);
+                const observations = await app.evaluate(() => __kwxDispatchPause);
+                expect(observations.length).toBeGreaterThan(0);
+                expect(observations.every(item => !item.visible)).toBe(true);
+                const maximumDispatchDelayMs = Math.max(...observations.map(item => item.at - item.sentAt));
+                expect(maximumDispatchDelayMs).toBeGreaterThan(1500);
+                const attached = (await snapshot(app)).attachments.slice(appBefore.attachments.length)
+                    .filter(item => item.data.kind === 'attach-port');
+                if (!cancel) expect(attached).toHaveLength(1);
+                return { maximumDispatchDelayMs, receivedDuringPause, resumedWithoutFocus: true,
+                    appIdentityPreserved: true, canceledFillStayedEmpty: cancel, nativeIOSVerified: false };
+            });
+            await step('a new trusted lookup fills after the canceled paused operation', async () => {
+                await clearFields(first); await startLookup(first);
+                await expect(first.locator('#login-password')).toHaveValue(ACCOUNTS[0].password, { timeout: 15000 });
+                await expect(first.locator('#username')).toHaveValue(ACCOUNTS[0].user);
+                expect(await first.evaluate(() => window.formSubmits)).toBe(0);
+                await noHelpers(); await sameApp();
+                expect(await app.evaluate(() => document.hidden)).toBe(true);
+                return { canceledOperationDidNotPoisonRetry: true, resumedWithoutFocus: true };
+            });
+        } finally {
+            await session.send('Page.setWebLifecycleState', { state: 'active' }).catch(() => {});
+            await session.detach();
+        }
+        expect(report.errors).toEqual([]); report.passed = true;
+        break acceptance;
+    }
     if (FOCUS_RECOVERED_MAILBOX) {
         report.focus = 'recovered-mailbox';
         await recoveredMailboxAcceptance();
