@@ -53,10 +53,10 @@ export class ConnectUI {
             actions: actionStates(mode), accounts: [], version: `Connect ${CONNECT_VERSION}`,
             autoFillSingle: false, preferencePending: mode === 'website',
             note: mode === 'app'
-                ? 'Authorize this app once for all websites. Each website connects directly after a temporary handoff page closes.'
+                ? 'Authorize this app once for all websites.'
                 : mode === 'relay'
                     ? 'Confirm in the existing KeeWebX tab you want to use. No database is opened on this connection page.'
-                    : 'Keep your authorized KeeWebX tab open. A temporary page connects this website and closes automatically.'
+                    : 'Keep your authorized KeeWebX tab open. If a temporary connection page opens, it closes automatically after connection.'
         };
         if (mode === 'relay') this.panelStyle = { position: 'relative', inset: 'auto', width: 'min(420px,calc(100vw - 32px))', maxHeight: 'calc(100dvh - 32px)', transform: 'none' };
         if (mode === 'app') this.appDrag = new ConnectLauncherDrag(this.host, () => this.place());

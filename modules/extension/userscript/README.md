@@ -1,20 +1,20 @@
-# Userscripts on iOS: KeeWebX Connect 0.6.27
+# KeeWebX Connect 0.6.28 for iOS Safari
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
-login fields on other websites. Each trusted lookup or connection test creates a fresh authenticated session
-to the same original App. Normally a temporary page transfers a direct MessagePort
-and closes after verified App readiness. A recently verified mailbox recovery can
-serve the next operation without reopening that page.
+login fields on other websites. On iPhone and iPad with Userscripts, each lookup
+or test starts a fresh signed connection through the script manager's local
+storage when the authorized App supports it. If local delivery fails, retry to
+use a temporary page that connects to the same App and closes after handoff.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.27)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.27/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.28)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.28/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [Current connection flow and diagrams](docs/connection-architecture.md)
 · [Technical analysis and failure timelines](docs/technical-analysis-0.6.21.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.27 release notes](docs/release-0.6.27.md)
+· [0.6.28 release notes](docs/release-0.6.28.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -24,22 +24,18 @@ Forms are never submitted automatically.
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. Update the existing script, save pending database edits, and reload the original
-   App and the login website to load **Connect 0.6.27** at both ends. The App reload
-   replaces old receiver listeners; it does not open another App tab.
-   Existing database entries, signing identity and stored App address are retained.
+2. If the unlocked App already runs **Connect 0.6.27**, update the installed
+   script and reload the login website first. It can use the existing App
+   receiver. To load the new script in the App as well, save pending edits before
+   reloading that tab. For an older App receiver, update both tabs.
 3. Unlock the original App. An existing grant resumes in the sole main New App
    after a reload; its saved database permissions still apply. For first setup,
    open the Connect key panel and choose **Authorize Connect**, then approve
    account listing in the native permission dialog. Explicit disconnect still
    requires authorization again.
 4. On a login website, focus a username/password field, tap the key, and select
-   a matching account. Normally each new lookup or connection test opens a small
-   connection page, finds the original App, and automatically closes the page
-   after handing off the port. The website verifies the App signature before
-   using its connection. After successful mailbox recovery, the next operation
-   can start a fresh session on that route without another helper. App
-   authorization is retained.
+   a matching account. If the local connection fails, retry the action promptly
+   or choose **Reconnect to existing tab** in Connection to try a direct handoff.
 
 ## Everyday use
 
@@ -56,10 +52,9 @@ The KeeWebX App keeps its own Connect settings entry.
 
 Tap the key to check the connection immediately. If you have not selected a login
 field, the panel runs **Test connection** automatically and displays the result.
-It replaces any previous physical port and normally opens a temporary handoff
-page, which closes after signed App readiness is verified. A recently verified
-mailbox recovery avoids that extra page. This check does not
-list accounts or read credential fields.
+It verifies a fresh signed response from KeeWebX without listing accounts or
+reading credential fields. When a direct handoff is needed, its temporary page
+closes after the website verifies App readiness.
 After selecting a login field, tapping the key keeps the existing account lookup
 behavior. Merely loading a page or detecting a form does not start a connection.
 
@@ -91,13 +86,12 @@ connection actions wait until that read completes. A failed settings refresh
 blocks new setup while an existing signed connection can finish its request.
 Remote diagnostics and support-command polling were removed in 0.6.11.
 
-A delayed discovery can resume on the same temporary page. A newly authenticated
-port can retry a timed-out first handshake within that operation. Classified setup
-failures can use the existing encrypted local mailbox after checking the saved App
-grant. A successful, authenticated mailbox reply retains only a document-local
-transport preference for 30 seconds. The next trusted operation on that exact
-grant uses a new signed hello and session without repeating discovery. Failure,
-expiry, navigation, route change or explicit Reconnect clears the preference.
+Userscripts on iPhone and iPad can start through the encrypted local mailbox
+before opening a helper. After a local delivery failure, the next tap within 30
+seconds can try direct handoff. A verified reply can retain the working
+transport choice for that page and grant for up to 30 seconds. Navigation and
+grant changes clear that choice. On other platforms, a classified direct setup
+failure can still recover through the same local mailbox.
 No port, account data or session is reused across operations. Every lookup
 creates new encryption keys and obtains a fresh account list. Expired
 responses are ignored; credential deadlines and permission checks are unchanged.
@@ -112,9 +106,9 @@ continues after return. Closing the panel cancels the request.
 | Event | Result |
 |---|---|
 | Temporary page closes or handoff worker stops | Established direct ports continue |
-| A new lookup or test starts | New authenticated session; normally a new handoff, or a recently verified mailbox route |
+| A new lookup or test starts | Fresh authenticated session over the selected transport |
 | Website is hidden | Delivery depends on browser scheduling; a past reply is not proof of current liveness |
-| Website refreshes, navigates or closes | Its old port is released; a new document needs a new handoff |
+| Website refreshes, navigates or closes | The old operation ends and the next document starts a new connection |
 | App refreshes or closes | All old ports stop; reconnect to the selected App |
 | A cached App returns before primary ownership is ready | Its approved receiver resumes after ownership is established |
 | Database locks | Credential operations stop; the transport can remain connected |
@@ -157,8 +151,9 @@ The App uses a synchronous same-origin selection marker containing only the
 public host ID, committed under the existing Web Lock. It checks that selection
 before and after asynchronous work, without awaiting background extension
 storage. Changing the selected App or revoking access cannot publish a late
-credential response. Direct ports are the primary transport. Recovery uses a
-short-lived local mailbox for signed packets and encrypted wire payloads.
+credential response. The short-lived local mailbox carries signed packets and
+encrypted wire payloads. Both transports still require the selected App to
+process the request.
 
 ## Local connection logs
 
@@ -189,6 +184,7 @@ KEEWEBX_E2E_PORT=8085 bun e2e/serve-app.ts
 
 ```sh
 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
+KWX_FOCUS_IOS_LOCAL=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
 KWX_BLOCK_HELPER_CLOSE=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
 KWX_APP_GM_BLOCK=1 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/port-connect.mjs
 KWX_APP_SERVER=http://127.0.0.1:8085 node modules/extension/userscript/tests/native-connect.mjs

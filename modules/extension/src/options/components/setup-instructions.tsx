@@ -3,7 +3,7 @@ import { FunctionComponent } from 'preact';
 const USERSCRIPT_GUIDE =
     'https://github.com/gynet/keewebx/tree/master/modules/extension/userscript#readme';
 const USERSCRIPT_DOWNLOAD =
-    'https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.4.5/modules/extension/userscript/keewebx-connect.user.js';
+    'https://keewebx.app/connect-port/keewebx-connect.user.js';
 
 /** Keep setup help available before a connection has been established. */
 const SetupInstructions: FunctionComponent = () => (
@@ -39,7 +39,7 @@ const SetupInstructions: FunctionComponent = () => (
                 iOS Safari uses the separate KeeWebX Connect userscript with the
                 Userscripts app. These desktop extension settings do not configure it.
                 {' '}<a href={USERSCRIPT_DOWNLOAD} target="_blank" rel="noopener noreferrer">
-                    Download Connect 0.4.5
+                    Open the Connect installer
                 </a>.
             </p>
             <ol>
@@ -58,13 +58,13 @@ const SetupInstructions: FunctionComponent = () => (
                 </li>
                 <li>
                     On a login website, focus a login field, tap the key and select an
-                    account. The script fills the form without submitting it or opening
-                    another tab. No further Connect authorization is needed for each website.
+                    account. It fills the form without submitting it. Use the same KeeWebX
+                    authorization on every website.
                 </li>
                 <li>
                     For a self-hosted app, first save its HTTPS address in the script&apos;s
-                    Connection tab on a website. Open KeeWebX is an explicit setup button;
-                    normal fill uses the authorized tab.
+                    Connection tab on a website. If the local connection stalls, choose
+                    Reconnect to existing tab to try a temporary connection page.
                 </li>
             </ol>
             <p>

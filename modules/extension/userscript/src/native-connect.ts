@@ -17,6 +17,7 @@ const MARK = 'keewebx-native-connect-v1';
 const REUSED_PORT_HELLO_MS = 3000;
 const APP_VISIT_BUDGET_MS = 60000;
 class RequestDeadlineError extends Error {}
+class MailboxDeliveryError extends Error {}
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
 const routeKey = (endpoint: URL) => `${MARK}:selected:${endpoint.href}`;
 type Keys = { publicKey: Uint8Array; secretKey: Uint8Array };
@@ -25,7 +26,9 @@ type Packet = { type: 'request' | 'reply'; host: string; endpoint: string; id: s
     operation: 'hello' | 'wire' | 'probe' | 'focus' | 'release'; deadline: number; scope?: string; body?: any; error?: string };
 type Signed = { packet: Packet; signature: string };
 declare const GM: { getValue(key: string): Promise<any>; setValue(key: string, value: any): Promise<void>; deleteValue(key: string): Promise<void>;
-    getTab?(): Promise<any>; saveTab?(value: any): Promise<void> };
+    getTab?(): Promise<any>; saveTab?(value: any): Promise<void>; info?: { scriptHandler?: string } };
+const preferLocalConnection = () => GM.info?.scriptHandler === 'Userscripts' &&
+    (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : object(value)
     ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonical(value[key])])) : value;
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(canonical(value)));
@@ -100,11 +103,9 @@ export function directCredentials(endpoint: URL): Keys | undefined { return dire
 export function openDirect(endpoint: URL, force = false, retryDirect = false): boolean {
     const client = directClient(endpoint);
     if (client.route?.messagePort !== 1 || !client.keys) return false;
-    client.attempt = client.recovery.begin(client.route, location.href, retryDirect);
+    client.attempt = client.recovery.begin(client.route, location.href, retryDirect, preferLocalConnection());
     if (client.attempt.mailbox) {
-        // Start a fresh signed session on the recently verified recovery path.
-        // Do not discard it for another discovery that has just failed.
-        client.link.reset('Starting a fresh connection over the verified recovery path.');
+        client.link.reset('Starting a new local connection.');
         transportEvent({ event: 'mailbox-preferred' });
         return true;
     }
@@ -537,9 +538,8 @@ export class NativeRpc {
     async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number): Promise<void> {
         try { await this.connectAttempt(deadline, onAppVisit); }
         catch (error) {
-            this.failRecovery();
             this.resetUnauthenticatedDirect('The connection attempt failed.');
-            throw error;
+            throw this.connectionError(error);
         }
     }
     private async connectAttempt(deadline: number, onAppVisit?: (budgetMs: number) => number): Promise<void> {
@@ -624,6 +624,7 @@ export class NativeRpc {
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
+        if (this.direct && preferLocalConnection()) prepared.recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
         this.rememberRecovery();
         if (useMailbox && onAppVisit) await this.waitForWebsiteReturn(deadline);
     }
@@ -632,6 +633,15 @@ export class NativeRpc {
         directClient(this.endpoint).recovery.verified(this.recoveryAttempt, this.route, this.href, this.mailboxReplyAt);
     }
     private failRecovery(): void { directClient(this.endpoint).recovery.failed(this.recoveryAttempt); }
+    private connectionError(error: unknown): unknown {
+        this.failRecovery();
+        if (this.live && this.href === location.href && this.route && !this.direct && !this.window && this.recoveryAttempt?.mailbox && preferLocalConnection() &&
+            (error instanceof RequestDeadlineError || error instanceof MailboxDeliveryError)) {
+            directClient(this.endpoint).recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
+            return new Error('The local connection did not reply. Try again to connect directly, or visit your existing KeeWebX tab.');
+        }
+        return error;
+    }
     private leaveDirect(reset = false): void {
         this.unsubscribeDirect?.(); this.unsubscribeDirect = undefined;
         if (reset && this.direct && this.direct.generation === this.directGeneration) {
@@ -702,7 +712,7 @@ export class NativeRpc {
     };
     async call(operation: Packet['operation'], body?: any, timeout = 15000, deadline = Infinity): Promise<any> {
         try { return await this.request(operation, body, timeout, deadline); }
-        catch (error) { this.failRecovery(); throw error; }
+        catch (error) { throw operation === 'hello' ? error : this.connectionError(error); }
     }
     private async request(operation: Packet['operation'], body?: any, timeout = 15000, deadline = Infinity): Promise<any> {
         // Foreground field selection calls assertSelected explicitly before and
@@ -749,7 +759,7 @@ export class NativeRpc {
                 }
                 else if (peer) peer.postMessage({ marker: MARK, value: signed(p, keys) }, this.endpoint.origin);
                 else this.pending.get(p.id)!.stop = mailboxRequest(signed(p, keys), this.accept, error => {
-                    this.pending.get(p.id)?.stop?.(); this.pending.delete(p.id); clearTimeout(timer); reject(error);
+                    this.pending.get(p.id)?.stop?.(); this.pending.delete(p.id); clearTimeout(timer); reject(new MailboxDeliveryError(error.message));
                 });
             }
             catch (error) { clearTimeout(timer); this.pending.get(p.id)?.stop?.(); this.pending.delete(p.id); reject(error); }

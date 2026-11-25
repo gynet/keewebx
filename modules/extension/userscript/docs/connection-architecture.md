@@ -1,8 +1,8 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.27**. This describes implemented behavior, not a
-guarantee of browser recovery or native iOS acceptance. See the
-[release notes](release-0.6.27.md) for changes and verification limits. The
+Architecture of **Connect 0.6.28**. See the
+[release notes](release-0.6.28.md) for the iPhone and iPad route selection and
+verification. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
 
@@ -72,9 +72,10 @@ The auto-test is a **trusted key action**, not periodic preconnect, page-load wo
 `prepareDirect()` reads route/identity ahead of time; UI connection actions are disabled while preparation
 is pending. `openDirect()` runs synchronously in the trusted action before any `await`, preserving the
 popup activation opportunity. The UI passes `force=true` for every new lookup or test:
-the old port is closed. Normally a new helper opens. A mailbox reply verified
-within 30 seconds on the same document and exact grant selects a fresh mailbox
-session instead. Explicit Reconnect clears that preference and opens a helper.
+the old port is closed. On iPhone and iPad, Userscripts first uses the advertised
+local mailbox. A recent exact-route transport choice can override that default.
+Other platforms start with a new helper unless a recent mailbox recovery was
+verified. Explicit Reconnect opens a helper.
 Lookup, account selection and fill share their transport within one operation.
 Browser popup permission and document scheduling can still prevent setup.
 
@@ -184,15 +185,16 @@ preserve old ports/scopes. Missing manager tab APIs limit owner continuity outsi
 
 **Fallback and bounded retries.** [NativeRpc.connectAttempt](../src/native-connect.ts#L525) chooses
 a fresh logical session for each UI operation. A document-local
-[MailboxRecovery](../src/mailbox-recovery.ts) retains only the exact grant, current
-page URL and receipt time after a verified mailbox reply. For 30 seconds, the next
-operation can use a new mailbox hello without repeating discovery. Epoch fencing
-prevents a late completion from changing a newer operation’s preference. Failure,
-expiry, route change, page departure and explicit Reconnect clear it. There is no universal
-“retry everything” loop and no automatic creation of a replacement vault tab.
+[MailboxRecovery](../src/mailbox-recovery.ts) binds transport preference to the
+exact grant and current page URL for 30 seconds. A verified mailbox reply makes
+that path available for the next operation on all platforms. On iPhone and iPad,
+failure to deliver a local request selects a direct handoff on the next trusted
+action. A working direct handshake can also retain the direct preference for
+the next action. Epoch checks keep old operations from replacing a newer choice.
 
 | Trigger | Implemented response |
 | --- | --- |
+| Userscripts on iPhone or iPad with mailbox capability | Send a fresh signed hello through local storage immediately. A delivery error or timeout offers a direct handoff on the next trusted action. |
 | Discovery delay | Worker retries public probes, with up to two discovery rounds within a 16-second discovery budget; website setup has its own 25-second limit. Transfer of the website endpoint happens once. |
 | Classified setup timeout or helper-unavailable failure, with mailbox capability | Try GM mailbox after verifying the saved host, public key and authorization revision. Structurally invalid requests and authorization denial remain fatal. |
 | First `hello` timeout on a newly signed-ready port | One fresh hello may use that same port while the attempt deadline allows. |
@@ -219,8 +221,9 @@ are not established by this source review.
 ```mermaid
 stateDiagram-v2
     [*] --> Prepared: load route and identity
-    Prepared --> Handoff: trusted action, no recent verified mailbox route
-    Prepared --> Mailbox: trusted action, recent verified exact route
+    Prepared --> Handoff: direct route or explicit Reconnect
+    Prepared --> Mailbox: mobile Userscripts or recently verified mailbox
+    Mailbox --> Prepared: delivery fails, next tap can choose direct
     Handoff --> PortReady: verify signed ready, request helper close
     PortReady --> Session: signed hello creates one scope
     Session --> Prepared: close panel / cancel / successful test or fill, release and close

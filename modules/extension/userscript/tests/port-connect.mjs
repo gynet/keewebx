@@ -20,6 +20,7 @@
 // KWX_FOCUS_REPLAY_OVERLAP=1 holds a receipt replay while the original reply advances the next request.
 // KWX_FOCUS_AUTH_CANCEL=1 checks recovery after closing repeated App authorization.
 // KWX_FOCUS_LAUNCHER=1 checks trusted key connection, visibility, preferences and repeated fills.
+// KWX_FOCUS_IOS_LOCAL=1 selects the iPhone Userscripts transport with native browser ports and a GM adapter.
 // KWX_IGNORE_HTTPS_ERRORS=1 opts into broad browser TLS bypass; default is false.
 // Chromium's isolated extension world adapts GM; this does not certify an iOS manager.
 import { chromium, expect } from '@playwright/test';
@@ -56,6 +57,7 @@ const FOCUS_LIFECYCLE = process.env.KWX_FOCUS_LIFECYCLE === '1';
 const FOCUS_REPLAY_OVERLAP = process.env.KWX_FOCUS_REPLAY_OVERLAP === '1';
 const FOCUS_AUTH_CANCEL = process.env.KWX_FOCUS_AUTH_CANCEL === '1';
 const FOCUS_LAUNCHER = process.env.KWX_FOCUS_LAUNCHER === '1';
+const FOCUS_IOS_LOCAL = process.env.KWX_FOCUS_IOS_LOCAL === '1';
 const IGNORE_HTTPS_ERRORS = process.env.KWX_IGNORE_HTTPS_ERRORS === '1';
 // Optional upgrade run uses an unmodified historical worker supplied outside the repo.
 const LEGACY_WORKER = process.env.KWX_LEGACY_WORKER ? readFileSync(process.env.KWX_LEGACY_WORKER, 'utf8') : null;
@@ -1418,6 +1420,106 @@ function assertMailboxExchange(stored, page, operations = ['hello', 'kwx-get-ent
 const mailboxAudit = () => nativeWorker.evaluate(() => globalThis.audit.filter(item =>
     item.key.includes('keewebx-connect-mailbox-v1:') && item.value?.packet).map(item => item.value));
 
+async function iosLocalAcceptance() {
+    const account = ACCOUNTS[0];
+    first = await newWebsite(account);
+    const discoveryCount = async () => (await snapshot(app)).attachments.filter(item => item.data.kind === 'find-app').length;
+    const sessions = new Set();
+    const localFill = async (page, account) => {
+        const helpersBefore = helpers.size, discoveries = await discoveryCount(), offset = (await mailboxAudit()).length;
+        const before = await fieldReads();
+        await clearFields(page); await startLookup(page);
+        await matchingList(page, account, before, () => 7000);
+        await fill(page, account);
+        expect(helpers.size).toBe(helpersBefore);
+        expect(await discoveryCount()).toBe(discoveries);
+        expect(await app.evaluate(() => document.hidden)).toBe(true);
+        const stored = (await mailboxAudit()).slice(offset).filter(value => value.packet.origin === new URL(page.url()).origin);
+        assertMailboxExchange(stored, page);
+        const hello = stored.find(value => value.packet.type === 'request' && value.packet.operation === 'hello');
+        const response = stored.find(value => value.packet.type === 'reply' && value.packet.id === hello.packet.id);
+        expect(sessions.has(response.packet.body.scope)).toBe(false);
+        sessions.add(response.packet.body.scope);
+        await noHelpers(); await sameApp();
+    };
+    await step('iPhone route fills repeatedly across fresh websites while worker discovery is unavailable', async () => {
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
+        await localFill(first, account);
+        second = await newWebsite(ACCOUNTS[1]);
+        await localFill(second, ACCOUNTS[1]);
+        await first.close(); first = await newWebsite(account);
+        await localFill(first, account);
+        return { freshSessions: sessions.size, helpers: helpers.size, appStayedHidden: true };
+    });
+    await step('iPhone route fills from the restored App without another helper or consent', async () => {
+        const previousRoute = structuredClone(approvedRoute);
+        await expect(app.locator('#sync-state')).toHaveText('Up to date');
+        await app.close();
+        app = await context.newPage(); await app.goto(APP); expectedAppNavigationRequests++;
+        await restoreSavedApp(previousRoute);
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
+        await localFill(first, account);
+        return { freshAppBoot: true, additionalConsent: 0, helpers: helpers.size };
+    });
+    await step('a locked vault denies the local lookup until the original App is unlocked', async () => {
+        const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+        await app.bringToFront(); await expect(app.locator('#sync-state')).toHaveText('Up to date');
+        await app.getByRole('button', { name: 'Lock', exact: true }).click();
+        await expect(app.locator('#password')).toBeVisible();
+        await clearFields(first); await startLookup(first);
+        await untilStatus(first, /locked.*unlock/i, 10000);
+        await emptyFields(first);
+        expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
+        expect(helpers.size).toBe(count);
+        await app.bringToFront(); await app.locator('#password').fill(DB_PASSWORD); await app.locator('#unlock').click();
+        await expect(app.locator('.entry-row').first()).toBeVisible(); await untilStatus(app, /Authorized/);
+        await localFill(first, account);
+        return { lockedVaultDenied: true, unlockedVaultFilled: true, helpers: helpers.size };
+    });
+    await step('closing the panel cancels a delayed local lookup and the next lookup succeeds', async () => {
+        await clearFields(first);
+        const before = await entryReads(), offset = (await mailboxAudit()).length;
+        await adapter(app, '__kwxPortAdapter.holdMailboxScan = true');
+        try {
+            await startLookup(first);
+            await expect.poll(async () => (await mailboxAudit()).slice(offset).some(value => value.packet.operation === 'hello')).toBe(true);
+            await action(first, 'close');
+        } finally { await adapter(app, '__kwxPortAdapter.releaseMailboxScans()'); }
+        await emptyFields(first);
+        expect(await entryReads()).toBe(before);
+        await localFill(first, account);
+        return { canceledLookupStayedEmpty: true, nextLookupSucceeded: true, helpers: helpers.size };
+    });
+    await step('a local delivery failure switches the next trusted lookup to a fresh direct connection', async () => {
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = false; __kwxPortAdapter.holdMailboxScan = true');
+        const count = helpers.size, before = await fieldReads();
+        try {
+            await clearFields(first); await startLookup(first);
+            await untilStatus(first, /The local connection did not reply/, 12000);
+            await emptyFields(first);
+            await startLookup(first);
+            await matchingList(first, account, before);
+            await fill(first, account);
+            await noHelpers(); await sameApp();
+            expect(helpers.size).toBe(count + 1);
+        } finally { await adapter(app, '__kwxPortAdapter.releaseMailboxScans()'); }
+        return { directRetryHelpers: 1, originalApp: true, fieldReads: (await fieldReads()) - before };
+    });
+    await step('revocation prevents local account reads from a fresh website document', async () => {
+        const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+        if (await shadowValue(app, 'section', 'hidden')) await action(app, 'toggle');
+        await action(app, 'config-tab'); await action(app, 'revoke');
+        await untilStatus(app, /Disconnected/);
+        await expect.poll(async () => (await settings()).has(ROUTE_KEY)).toBe(false);
+        await first.reload(); await ready(first);
+        await startLookup(first); await untilStatus(first, /Authorize Connect once/);
+        await emptyFields(first);
+        expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
+        expect(helpers.size).toBe(count);
+        return { revokedGrantDenied: true, credentialReads: 0, newHelpers: 0 };
+    });
+}
+
 async function recoveredMailboxAcceptance() {
     // Exact tuple/TTL boundaries and an old RPC failing after a newer proof are
     // deterministic unit cases. Here exercise real trusted UI + App/KDBX traffic.
@@ -2320,7 +2422,7 @@ async function setup(bundle, appBundle = bundle) {
     }`;
     writeFileSync(join(extension, 'content.js'), `(() => {
         ${helperCloseFault.toString()}
-        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE, allowMailbox: FOCUS_MAILBOX_RECOVERY || FOCUS_RECOVERED_MAILBOX || FOCUS_RELEASED_PORT_RECOVERY, browserRestart: FOCUS_BROWSER_RESTART })});
+        const GM = (${installAdapter.toString()})(${JSON.stringify({ appURL: APP, prefix: PREFIX, portMarker: PORT_MARK, blockHelperClose: BLOCK_HELPER_CLOSE, allowMailbox: FOCUS_IOS_LOCAL || FOCUS_MAILBOX_RECOVERY || FOCUS_RECOVERED_MAILBOX || FOCUS_RELEASED_PORT_RECOVERY, browserRestart: FOCUS_BROWSER_RESTART })});
         // Retain this exact source and its lexical GM adapter in the original isolated world.
         // Only CDP can reach the hook; it accepts no source or privileged arguments.
         const runInstaller = () => {
@@ -2338,6 +2440,7 @@ async function setup(bundle, appBundle = bundle) {
     launchOptions = {
         channel: 'chromium', headless: true, ignoreHTTPSErrors: IGNORE_HTTPS_ERRORS, proxy: { server: proxy.server },
         viewport: { width: 1280, height: 900 },
+        ...(FOCUS_IOS_LOCAL ? { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1' } : {}),
         args: ['--no-sandbox', '--ignore-certificate-errors-spki-list=' + proxy.spki,
             '--disable-extensions-except=' + extension, '--load-extension=' + extension]
     };
@@ -2524,6 +2627,12 @@ acceptance: try {
         if (BLOCK_APP_GM) await adapter(app, '__kwxPortAdapter.blockGM = true');
         await sameApp(); await noHelpers();
     });
+    if (FOCUS_IOS_LOCAL) {
+        report.focus = 'ios-local';
+        await iosLocalAcceptance();
+        expect(report.errors).toEqual([]); report.passed = true;
+        break acceptance;
+    }
     if (FOCUS_RECOVERED_MAILBOX) {
         report.focus = 'recovered-mailbox';
         await recoveredMailboxAcceptance();
