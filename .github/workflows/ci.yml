@@ -20,8 +20,8 @@ jobs:
     env:
       KEEWEBX_NEW_EXTENSION: '1'
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2.2.0
@@ -49,8 +49,8 @@ jobs:
       matrix:
         browser: [chromium, firefox]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2.2.0
@@ -75,7 +75,7 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - run: bun run test
@@ -94,7 +94,7 @@ jobs:
     # says 0 and that tsc agrees.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - name: Build modules/db (for kdbxweb type resolution)
@@ -125,7 +125,7 @@ jobs:
   e2e-extension:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - run: cd modules/extension && bun run build-chrome
@@ -150,7 +150,7 @@ jobs:
     # nonce-aliasing bug. Runs against real github.com/login.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - name: Build modules/db (webpack dev server needs kdbxweb dist)
@@ -189,7 +189,7 @@ jobs:
     # surface as test flakiness).
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun install
       - name: Build modules/db (webpack dev server needs kdbxweb dist)
@@ -250,8 +250,8 @@ jobs:
       PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/new-interface-connect
       PLAYWRIGHT_HTML_OPEN: never
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2.2.0
@@ -365,8 +365,8 @@ jobs:
       KEEWEBX_E2E_PORT: '8112'
       PLAYWRIGHT_HTML_OPEN: never
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2.2.0
@@ -429,8 +429,8 @@ jobs:
       KEEWEBX_E2E_PORT: '8112'
       PLAYWRIGHT_HTML_OPEN: never
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2.2.0
@@ -456,8 +456,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2.2.0
