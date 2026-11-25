@@ -4,7 +4,7 @@ import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/p
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge, appReceiptsSupported, watchAppLockState } from './app-bridge';
 import { ConnectUI } from './connect-ui';
-import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials, watchApprovedRoute } from './native-connect';
+import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials, watchApprovedRoute, isIOSUserscripts } from './native-connect';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { targets, assertTargets, fill, type Targets } from './form-targets';
@@ -294,7 +294,7 @@ async function start(): Promise<void> {
             await task.run('Connecting to KeeWebX', () => rpc!.connect(task.deadline, budgetMs => {
                 waitingForApp = true;
                 return task.resetBudget(budgetMs);
-            })); guard(epoch);
+            }, { waitForLocalApp: true })); guard(epoch);
             if (waitingForApp) task.resetBudget(LOOKUP_BUDGET_MS);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request, wireTimeout()) }, runtime);
             await task.run('Connecting to KeeWebX', () => protocol.ping());
@@ -324,8 +324,11 @@ async function start(): Promise<void> {
     ui.on('lookup', lookup);
     ui.onOpen = event => {
         if (!event.isTrusted) return;
-        if (isLoginField(selected)) void lookup(event);
-        else if (isLoginField(detected) && !ui.isDisabled('probe')) void testConnection();
+        if (isLoginField(selected) || (isIOSUserscripts() && isLoginField(detected))) {
+            void lookup(event);
+        } else if (isLoginField(detected) && !ui.isDisabled('probe')) {
+            void testConnection();
+        }
     };
     const testConnection = async (recovery = false) => {
         clean(); const epoch = generation; ui.busy(true);

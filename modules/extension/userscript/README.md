@@ -1,4 +1,4 @@
-# KeeWebX Connect 0.6.28 for iOS Safari
+# KeeWebX Connect 0.6.29 for iOS Safari
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. On iPhone and iPad with Userscripts, each lookup
@@ -8,13 +8,13 @@ use a temporary page that connects to the same App and closes after handoff.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.28)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.28/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.29)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.29/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [Current connection flow and diagrams](docs/connection-architecture.md)
 · [Technical analysis and failure timelines](docs/technical-analysis-0.6.21.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.28 release notes](docs/release-0.6.28.md)
+· [0.6.29 release notes](docs/release-0.6.29.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -24,7 +24,7 @@ Forms are never submitted automatically.
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. If the unlocked App already runs **Connect 0.6.27**, update the installed
+2. If the unlocked App already runs **Connect 0.6.27 or 0.6.28**, update the installed
    script and reload the login website first. It can use the existing App
    receiver. To load the new script in the App as well, save pending edits before
    reloading that tab. For an older App receiver, update both tabs.
@@ -33,8 +33,9 @@ Forms are never submitted automatically.
    open the Connect key panel and choose **Authorize Connect**, then approve
    account listing in the native permission dialog. Explicit disconnect still
    requires authorization again.
-4. On a login website, focus a username/password field, tap the key, and select
-   a matching account. If the local connection fails, retry the action promptly
+4. Tap the key beside a login field and select a matching account. On iPhone
+   and iPad, the key starts the lookup even when the input has no focus. If the
+   local connection fails, retry the action promptly
    or choose **Reconnect to existing tab** in Connection to try a direct handoff.
 
 ## Everyday use
@@ -50,13 +51,11 @@ fields, verification codes and new-password forms do not display it. Dynamic log
 forms are detected when they open; hiding or removing the form hides the key.
 The KeeWebX App keeps its own Connect settings entry.
 
-Tap the key to check the connection immediately. If you have not selected a login
-field, the panel runs **Test connection** automatically and displays the result.
-It verifies a fresh signed response from KeeWebX without listing accounts or
-reading credential fields. When a direct handoff is needed, its temporary page
-closes after the website verifies App readiness.
-After selecting a login field, tapping the key keeps the existing account lookup
-behavior. Merely loading a page or detecting a form does not start a connection.
+In Userscripts on iPhone and iPad, tapping the key starts an account lookup for
+the selected login field or the detected field beside the key. Selecting a match
+uses the same authenticated session. On other platforms, the key starts a lookup
+after selecting a field and runs a connection test when the detected field has no
+selection. Loading a page or detecting a form does not start a connection.
 
 In **Connection**, enable **Fill a single matching account automatically** to skip
 selection when exactly one account matches a trusted lookup. This optional switch
@@ -99,9 +98,10 @@ responses are ignored; credential deadlines and permission checks are unchanged.
 
 Keep the original App tab open. **Test connection** checks its signed response
 without reading credential fields. **Reconnect to existing tab** rebuilds a port
-to that App. During local recovery, visit the existing App tab if it needs to
-resume, then return to the website within one minute. The same operation
-continues after return. Closing the panel cancels the request.
+to that App. If an iPhone or iPad lookup is still waiting for the initial App
+response after two seconds, the panel explains how to resume it. Visit the
+existing App tab once if needed, then return to the website within one minute.
+The original lookup continues after return. Closing the panel cancels the request.
 
 | Event | Result |
 |---|---|

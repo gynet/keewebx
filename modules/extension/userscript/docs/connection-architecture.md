@@ -1,7 +1,7 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.28**. See the
-[release notes](release-0.6.28.md) for the iPhone and iPad route selection and
+Architecture of **Connect 0.6.29**. See the
+[release notes](release-0.6.29.md) for the iPhone and iPad lookup flow and
 verification. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
@@ -63,7 +63,8 @@ it does not initiate a connection or read field values. The panel's trusted key 
 | Condition/action | Actual operation |
 | --- | --- |
 | Valid selected login field | Existing `lookup(event)` path, including optional single-match fill. |
-| Detected recognized login field, no valid selection, probe enabled | Existing `testConnection()` path, started by the trusted key click. |
+| Detected login field with no selection in Userscripts on iPhone or iPad | Start `lookup(event)` using that field. |
+| Detected login field with no selection on other platforms, probe enabled | Start `testConnection()`. |
 | No qualifying field, or relevant action disabled | No automatic test/lookup from panel open. |
 | Explicit Find accounts | Snapshot targets; connect; perform full encrypted account protocol. |
 | Explicit Reconnect to existing tab | Force a new direct handoff, or use the legacy connector, then test. |
@@ -77,7 +78,10 @@ local mailbox. A recent exact-route transport choice can override that default.
 Other platforms start with a new helper unless a recent mailbox recovery was
 verified. Explicit Reconnect opens a helper.
 Lookup, account selection and fill share their transport within one operation.
-Browser popup permission and document scheduling can still prevent setup.
+If the initial local handshake is slow on iPhone or iPad, the lookup shows an
+App visit hint after two seconds. The signed hello can wait up to one minute.
+Once it is accepted and the website is visible, the lookup resumes with its
+normal operation budget. Browser scheduling can still delay App execution.
 
 ```mermaid
 sequenceDiagram

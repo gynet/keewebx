@@ -16,6 +16,7 @@ import type { DiagnosticData } from '../../../diagnostics/src';
 const MARK = 'keewebx-native-connect-v1';
 const REUSED_PORT_HELLO_MS = 3000;
 const APP_VISIT_BUDGET_MS = 60000;
+const LOCAL_APP_WAIT_HINT_MS = 2000;
 class RequestDeadlineError extends Error {}
 class MailboxDeliveryError extends Error {}
 const channelName = (endpoint: URL) => `${MARK}:${endpoint.href}`;
@@ -27,7 +28,7 @@ type Packet = { type: 'request' | 'reply'; host: string; endpoint: string; id: s
 type Signed = { packet: Packet; signature: string };
 declare const GM: { getValue(key: string): Promise<any>; setValue(key: string, value: any): Promise<void>; deleteValue(key: string): Promise<void>;
     getTab?(): Promise<any>; saveTab?(value: any): Promise<void>; info?: { scriptHandler?: string } };
-const preferLocalConnection = () => GM.info?.scriptHandler === 'Userscripts' &&
+export const isIOSUserscripts = () => GM.info?.scriptHandler === 'Userscripts' &&
     (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : object(value)
     ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonical(value[key])])) : value;
@@ -103,7 +104,7 @@ export function directCredentials(endpoint: URL): Keys | undefined { return dire
 export function openDirect(endpoint: URL, force = false, retryDirect = false): boolean {
     const client = directClient(endpoint);
     if (client.route?.messagePort !== 1 || !client.keys) return false;
-    client.attempt = client.recovery.begin(client.route, location.href, retryDirect, preferLocalConnection());
+    client.attempt = client.recovery.begin(client.route, location.href, retryDirect, isIOSUserscripts());
     if (client.attempt.mailbox) {
         client.link.reset('Starting a new local connection.');
         transportEvent({ event: 'mailbox-preferred' });
@@ -535,14 +536,14 @@ export class NativeRpc {
         const current = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || !current || !sameRecoveryRoute(current, this.route)) throw new Error('The selected app changed. Find accounts again.');
     }
-    async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number): Promise<void> {
-        try { await this.connectAttempt(deadline, onAppVisit); }
+    async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number, options: { waitForLocalApp?: boolean } = {}): Promise<void> {
+        try { await this.connectAttempt(deadline, onAppVisit, options.waitForLocalApp === true); }
         catch (error) {
             this.resetUnauthenticatedDirect('The connection attempt failed.');
             throw this.connectionError(error);
         }
     }
-    private async connectAttempt(deadline: number, onAppVisit?: (budgetMs: number) => number): Promise<void> {
+    private async connectAttempt(deadline: number, onAppVisit: ((budgetMs: number) => number) | undefined, waitForLocalApp: boolean): Promise<void> {
         if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new RequestDeadlineError('The connection attempt expired. Try again.');
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
@@ -572,8 +573,10 @@ export class NativeRpc {
         if (!this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
         if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
         const route = this.route;
+        const waitOnPreferredMailbox = waitForLocalApp && isIOSUserscripts() && this.recoveryAttempt?.mailbox;
+        const allowAppVisit = onAppVisit && (!this.recoveryAttempt?.mailbox || waitOnPreferredMailbox) ? onAppVisit : undefined;
         const startMailbox = async () => {
-            if (onAppVisit && !this.recoveryAttempt?.mailbox) deadline = onAppVisit(APP_VISIT_BUDGET_MS);
+            if (allowAppVisit) deadline = allowAppVisit(APP_VISIT_BUDGET_MS);
             await this.checkMailbox(route);
         };
         if (useMailbox) await startMailbox();
@@ -605,8 +608,16 @@ export class NativeRpc {
         if (!useMailbox) this.progress('Contacting the selected app');
         const recoverReusedPort = this.route.mailbox && this.direct?.hasVerifiedReply;
         let result: any;
-        const hello = (timeout = 8000) => this.call('hello', undefined,
-            useMailbox && onAppVisit && !this.recoveryAttempt?.mailbox ? APP_VISIT_BUDGET_MS : timeout, deadline);
+        const hello = async (timeout = 8000) => {
+            const hint = useMailbox && waitOnPreferredMailbox && allowAppVisit ? setTimeout(() => {
+                if (this.live) this.progress('Waiting for KeeWebX. If needed, visit your existing KeeWebX tab once, then return to this website');
+            }, LOCAL_APP_WAIT_HINT_MS) : undefined;
+            try {
+                return await this.call('hello', undefined, useMailbox && allowAppVisit ? APP_VISIT_BUDGET_MS : timeout, deadline);
+            } finally {
+                clearTimeout(hint);
+            }
+        };
         try { result = await hello(recoverReusedPort ? REUSED_PORT_HELLO_MS : 8000); }
         catch (error) {
             if (!(error instanceof RequestDeadlineError) || Date.now() >= deadline) throw error;
@@ -624,7 +635,7 @@ export class NativeRpc {
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
-        if (this.direct && preferLocalConnection()) prepared.recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
+        if (this.direct && isIOSUserscripts()) prepared.recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
         this.rememberRecovery();
         if (useMailbox && onAppVisit) await this.waitForWebsiteReturn(deadline);
     }
@@ -635,7 +646,7 @@ export class NativeRpc {
     private failRecovery(): void { directClient(this.endpoint).recovery.failed(this.recoveryAttempt); }
     private connectionError(error: unknown): unknown {
         this.failRecovery();
-        if (this.live && this.href === location.href && this.route && !this.direct && !this.window && this.recoveryAttempt?.mailbox && preferLocalConnection() &&
+        if (this.live && this.href === location.href && this.route && !this.direct && !this.window && this.recoveryAttempt?.mailbox && isIOSUserscripts() &&
             (error instanceof RequestDeadlineError || error instanceof MailboxDeliveryError)) {
             directClient(this.endpoint).recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
             return new Error('The local connection did not reply. Try again to connect directly, or visit your existing KeeWebX tab.');
