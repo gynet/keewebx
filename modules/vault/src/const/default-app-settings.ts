@@ -94,7 +94,7 @@ const DefaultAppSettings: AppSettings = {
     menuViewWidth: null, // width of the left menu
     tagsViewHeight: null, // tags menu section height
     autoUpdate: 'install', // auto-update options: "install", "check", ""
-    clipboardSeconds: 0, // number of seconds after which the clipboard will be cleared
+    clipboardSeconds: 30, // number of seconds after which the clipboard will be cleared
     autoSave: true, // auto-save open files
     autoSaveInterval: -1, // interval between performing automatic sync, minutes, -1: on every change
     rememberKeyFiles: 'path', // remember keyfiles selected on the Open screen
