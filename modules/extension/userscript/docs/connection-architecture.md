@@ -1,7 +1,7 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.29**. See the
-[release notes](release-0.6.29.md) for the iPhone and iPad lookup flow and
+Architecture of **Connect 0.6.30**. See the
+[release notes](release-0.6.30.md) for the iPhone and iPad relay option and
 verification. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
@@ -32,7 +32,7 @@ flowchart LR
         Host["AppPortReceiver / NativeHost"]
         Bridge["AppBridge: same-window postMessage"]
         Vault["BrowserExtensionConnector / vault ProtocolImpl"]
-        Old["Legacy connect.html / BroadcastChannel"]
+        Old["connect.html / BroadcastChannel"]
         Helper -.->|transfer port| SW
         SW -.->|discover selected boot and transfer once| Host
         Host <--> Bridge
@@ -68,6 +68,7 @@ it does not initiate a connection or read field values. The panel's trusted key 
 | No qualifying field, or relevant action disabled | No automatic test/lookup from panel open. |
 | Explicit Find accounts | Snapshot targets; connect; perform full encrypted account protocol. |
 | Explicit Reconnect to existing tab | Force a new direct handoff, or use the legacy connector, then test. |
+| Find accounts via relay in iOS Userscripts | Open a temporary top-level relay for the lookup and fill. The relay broadcasts to the authorized App on the same origin. |
 
 The auto-test is a **trusted key action**, not periodic preconnect, page-load work or form-detection work.
 `prepareDirect()` reads route/identity ahead of time; UI connection actions are disabled while preparation
@@ -81,7 +82,9 @@ Lookup, account selection and fill share their transport within one operation.
 If the initial local handshake is slow on iPhone or iPad, the lookup shows an
 App visit hint after two seconds. The signed hello can wait up to one minute.
 Once it is accepted and the website is visible, the lookup resumes with its
-normal operation budget. Browser scheduling can still delay App execution.
+normal operation budget. Browser scheduling can still delay App execution. The explicit broadcast relay
+uses the same signed RPC and encrypted vault protocol. It stays open for that
+operation and is asked to close after filling, cancellation or an error.
 
 ```mermaid
 sequenceDiagram

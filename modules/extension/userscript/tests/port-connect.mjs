@@ -1492,6 +1492,43 @@ async function iosLocalAcceptance() {
         }
         return { appVisits: 1, signedHandshakes: 1, helperPages: 0 };
     });
+    await step('the iPhone relay fills even when local polling and direct discovery cannot reach the App', async () => {
+        const page = await newWebsite(account);
+        const reads = await fieldReads(), lists = await entryReads(), count = helpers.size;
+        const discoveries = await discoveryCount();
+        const offset = (await mailboxAudit()).length;
+        await adapter(app, '__kwxPortAdapter.holdMailboxScan = true');
+        try {
+            await action(page, 'toggle');
+            await expect.poll(async () => (await mailboxAudit()).slice(offset).some(value =>
+                value.packet.type === 'request' && value.packet.operation === 'hello')).toBe(true);
+            await action(page, 'config-tab');
+            const opened = context.waitForEvent('page');
+            await action(page, 'relay-lookup');
+            const relay = await opened;
+            await relay.waitForURL('**/connect.html?**');
+            await realVisibility(relay);
+            expect(new URL(relay.url()).origin).toBe(new URL(APP).origin);
+            expect(new URL(relay.url()).searchParams.get('kwx-lookup-site')).toBe(new URL(page.url()).origin);
+            await page.bringToFront();
+            await matchingList(page, account, reads, () => 9000);
+            expect(await app.evaluate(() => document.hidden)).toBe(true);
+            expect(await entryReads()).toBe(lists + 1);
+            expect(relay.isClosed()).toBe(false);
+            await fill(page, account);
+            await expect.poll(() => relay.isClosed()).toBe(true);
+            expect(await app.evaluate(() => document.hidden)).toBe(true);
+            expect(helpers.size).toBe(count);
+            expect(await discoveryCount()).toBe(discoveries);
+            const requests = (await mailboxAudit()).slice(offset).filter(value => value.packet.type === 'request');
+            expect(requests.map(value => value.packet.operation)).toEqual(['hello']);
+            await sameApp();
+        } finally {
+            await adapter(app, '__kwxPortAdapter.releaseMailboxScans()');
+            await page.close();
+        }
+        return { sameOriginRelay: true, appStayedHidden: true, relayClosedAfterFill: true, localHandshakeBlocked: true };
+    });
     await step('iPhone route fills from the restored App without another helper or consent', async () => {
         const previousRoute = structuredClone(approvedRoute);
         await expect(app.locator('#sync-state')).toHaveText('Up to date');
@@ -1509,13 +1546,21 @@ async function iosLocalAcceptance() {
         await expect(app.locator('#password')).toBeVisible();
         await clearFields(first); await startLookup(first);
         await untilStatus(first, /locked.*unlock/i, 10000);
+        await action(first, 'config-tab');
+        const opened = context.waitForEvent('page');
+        await action(first, 'relay-lookup');
+        const relay = await opened;
+        await relay.waitForURL('**/connect.html?**');
+        await first.bringToFront();
+        await untilStatus(first, /locked.*unlock/i, 10000);
+        await expect.poll(() => relay.isClosed()).toBe(true);
         await emptyFields(first);
         expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
         expect(helpers.size).toBe(count);
         await app.bringToFront(); await app.locator('#password').fill(DB_PASSWORD); await app.locator('#unlock').click();
         await expect(app.locator('.entry-row').first()).toBeVisible(); await untilStatus(app, /Authorized/);
         await localFill(first, account);
-        return { lockedVaultDenied: true, unlockedVaultFilled: true, helpers: helpers.size };
+        return { lockedVaultDenied: true, lockedVaultRelayDenied: true, unlockedVaultFilled: true, helpers: helpers.size };
     });
     await step('closing the panel cancels a delayed local lookup and the next lookup succeeds', async () => {
         await clearFields(first);

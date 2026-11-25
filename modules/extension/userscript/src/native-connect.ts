@@ -412,7 +412,7 @@ export class NativeHost {
     }
 }
 
-const peers = new Map<Window, { origin: string; routingId: string }>();
+const peers = new Map<Window, { origin: string; routingId: string; endpoint: string }>();
 let client: { endpoint: URL; id: string; recovered(peer: Window): void } | undefined;
 
 /** A browser-tab identity survives navigation to a different website. */
@@ -438,16 +438,15 @@ addEventListener('message', event => {
     // This public routing proof recovers only a window; signed RPC still authorizes data.
     if (client && event.origin === client.endpoint.origin && event.data?.marker === SETUP_MARK &&
         event.data.kind === 'ready' && event.data.routingId === client.id && event.data.endpoint === client.endpoint.href) {
-        peers.set(peer, { origin: event.origin, routingId: client.id });
+        peers.set(peer, { origin: event.origin, routingId: client.id, endpoint: client.endpoint.href });
         client.recovered(peer);
     }
     const binding = peers.get(peer);
-    if (!binding || binding.origin !== event.origin || event.data?.routingId !== binding.routingId) return;
-    if (client && event.data?.marker === MARK && event.data.kind === 'return-to-website' &&
-        event.origin === client.endpoint.origin && binding.routingId === client.id &&
-        event.data.endpoint === client.endpoint.href && event.data.websiteOrigin === location.origin && isId(event.data.nonce)) {
+    if (!binding || binding.origin !== event.origin || event.data?.routingId !== binding.routingId || event.data.endpoint !== binding.endpoint) return;
+    if (event.data.marker === MARK && event.data.kind === 'return-to-website' &&
+        event.data.websiteOrigin === location.origin && isId(event.data.nonce)) {
         cancelWebsiteReturn?.();
-        const nonce = event.data.nonce, websiteOrigin = location.origin, endpoint = client.endpoint.href;
+        const nonce = event.data.nonce, websiteOrigin = location.origin, endpoint = binding.endpoint;
         const deadline = Date.now() + 1800;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let stableTimer: ReturnType<typeof setTimeout> | undefined, focusedAt: number | undefined;
@@ -464,7 +463,7 @@ addEventListener('message', event => {
         };
         const check = () => {
             if (Date.now() >= deadline || peers.get(peer) !== binding || location.origin !== websiteOrigin ||
-                !client || client.id !== binding.routingId || client.endpoint.href !== endpoint || peer.closed) { stop(); return; }
+                client?.endpoint.href !== endpoint || peer.closed) { stop(); return; }
             if (document.visibilityState !== 'visible' || !document.hasFocus()) { resetFocus(); return; }
             // A click can briefly focus the website before the helper regains focus.
             // Require a continuous settling period before reporting a successful return.
@@ -500,11 +499,32 @@ export function openConnector(endpoint: URL, id: string, existing?: Window): Win
         try { if (peer.location.href === 'about:blank') peer.location.href = url.href; }
         catch { /* An existing cross-origin connection page keeps its document. */ }
     }
-    peers.set(peer, { origin: endpoint.origin, routingId: id });
+    peers.set(peer, { origin: endpoint.origin, routingId: id, endpoint: endpoint.href });
     // Retain the reference even when a focus or setup hint cannot be delivered.
     try { peer.postMessage({ marker: SETUP_MARK, kind: 'reconnect', routingId: id, endpoint: endpoint.href }, endpoint.origin); } catch {}
     try { peer.focus(); } catch {}
     return peer;
+}
+
+/** A dedicated helper belongs to one website lookup and never navigates an App. */
+export function openLookupRelay(endpoint: URL): { peer: Window; close(): void } {
+    const routingId = uuid();
+    const url = new URL('connect.html', endpoint);
+    url.searchParams.set('kwx-native', '1');
+    url.searchParams.set('kwx-client', routingId);
+    url.searchParams.set('kwx-lookup-site', location.origin);
+    const peer = window.open(url.href, '_blank');
+    if (!peer) throw new Error('Allow the temporary connection page to open, then retry.');
+    peers.set(peer, { origin: endpoint.origin, routingId, endpoint: endpoint.href });
+    return {
+        peer,
+        close: () => {
+            try {
+                peer.postMessage({ marker: MARK, kind: 'close-lookup-relay', routingId, endpoint: endpoint.href }, endpoint.origin);
+            } catch { /* The helper may already be closed. */ }
+            peers.delete(peer);
+        },
+    };
 }
 
 /** Prefer an existing native link; recover lost window associations through the signed mailbox. */
@@ -536,21 +556,25 @@ export class NativeRpc {
         const current = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || !current || !sameRecoveryRoute(current, this.route)) throw new Error('The selected app changed. Find accounts again.');
     }
-    async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number, options: { waitForLocalApp?: boolean } = {}): Promise<void> {
-        try { await this.connectAttempt(deadline, onAppVisit, options.waitForLocalApp === true); }
+    async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number, options: { waitForLocalApp?: boolean; useLookupRelay?: boolean } = {}): Promise<void> {
+        try { await this.connectAttempt(deadline, onAppVisit, options); }
         catch (error) {
             this.resetUnauthenticatedDirect('The connection attempt failed.');
             throw this.connectionError(error);
         }
     }
-    private async connectAttempt(deadline: number, onAppVisit: ((budgetMs: number) => number) | undefined, waitForLocalApp: boolean): Promise<void> {
+    private async connectAttempt(deadline: number, onAppVisit: ((budgetMs: number) => number) | undefined, { waitForLocalApp, useLookupRelay }: { waitForLocalApp?: boolean; useLookupRelay?: boolean }): Promise<void> {
         if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new RequestDeadlineError('The connection attempt expired. Try again.');
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
         const prepared = directClient(this.endpoint);
-        this.recoveryAttempt = prepared.attempt;
+        this.recoveryAttempt = useLookupRelay ? undefined : prepared.attempt;
         let useMailbox = false;
-        if (prepared.route?.messagePort === 1 && prepared.keys) {
+        if (useLookupRelay) {
+            if (!this.window) throw new Error('The temporary connection page closed. Try Find accounts via relay again.');
+            this.route = prepared.route;
+            this.keys = prepared.keys;
+        } else if (prepared.route?.messagePort === 1 && prepared.keys) {
             this.route = prepared.route; this.keys = prepared.keys; this.window = undefined;
             useMailbox = this.recoveryAttempt?.mailbox === true && prepared.recovery.current(this.recoveryAttempt);
             if (!useMailbox) {
@@ -570,8 +594,8 @@ export class NativeRpc {
             }
             this.assertCurrent();
         } else { this.keys = await managerCall(() => identity()); this.route = await approvedRoute(this.endpoint); this.assertCurrent(); }
-        if (!this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
-        if (!this.route || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
+        if (!useLookupRelay && !this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
+        if (!this.route || !this.keys || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
         const route = this.route;
         const waitOnPreferredMailbox = waitForLocalApp && isIOSUserscripts() && this.recoveryAttempt?.mailbox;
         const allowAppVisit = onAppVisit && (!this.recoveryAttempt?.mailbox || waitOnPreferredMailbox) ? onAppVisit : undefined;
@@ -602,10 +626,11 @@ export class NativeRpc {
             // A closed or obsolete optional connector is a transport failure.
             // Clear it before checking document cancellation and trying recovery.
             this.window = undefined;
-            this.assertCurrent(); if (!this.route.mailbox) throw error;
+            this.assertCurrent(); if (useLookupRelay || !this.route.mailbox) throw error;
         }
         if (!this.direct && !this.window && !this.route.mailbox) throw new Error('Update Connect in your existing KeeWebX app tab, or open its connection page once.');
-        if (!useMailbox) this.progress('Contacting the selected app');
+        if (useLookupRelay) this.progress('Contacting your existing KeeWebX tab via the temporary page');
+        else if (!useMailbox) this.progress('Contacting the selected app');
         const recoverReusedPort = this.route.mailbox && this.direct?.hasVerifiedReply;
         let result: any;
         const hello = async (timeout = 8000) => {
@@ -637,7 +662,7 @@ export class NativeRpc {
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
         if (this.direct && isIOSUserscripts()) prepared.recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
         this.rememberRecovery();
-        if (useMailbox && onAppVisit) await this.waitForWebsiteReturn(deadline);
+        if ((useMailbox && onAppVisit) || useLookupRelay) await this.waitForWebsiteReturn(deadline);
     }
     private rememberRecovery(): void {
         if (!this.live || this.direct || this.window || !this.scope || !this.route || !this.mailboxReplyAt) return;
@@ -814,13 +839,15 @@ export class NativeRpc {
 
 /** A small visible relay. It cannot decrypt the Connect wire payloads. */
 export function startConnector(endpoint: URL): void {
-    const routingId = new URL(location.href).searchParams.get('kwx-client');
+    const params = new URL(location.href).searchParams;
+    const routingId = params.get('kwx-client');
+    const lookupSite = params.get('kwx-lookup-site');
     if (!isId(routingId)) {
         document.querySelector('#connect-helper-loading [role="status"]')!.textContent = 'This connection page is from an older version. Close it and choose Connect to KeeWebX once on your website.';
         return;
     }
     // Set the name after arrival: cross-site navigation may clear window.name.
-    window.name = connectorName(endpoint, routingId);
+    if (!lookupSite) window.name = connectorName(endpoint, routingId);
     document.getElementById('connect-helper-loading')?.remove();
     const panel = document.createElement('main');
     panel.style.cssText = 'max-width:420px;margin:12vh auto;padding:24px;font:16px/1.6 system-ui;color:CanvasText;background:Canvas;border-radius:20px';
@@ -837,7 +864,7 @@ export function startConnector(endpoint: URL): void {
     void approvedRoute(endpoint, true).then(selected => {
         // A missing route is a first-use situation. An unresponsive authorized
         // route must never be treated as permission to open a replacement vault.
-        if (!selected && window.opener) {
+        if (!lookupSite && !selected && window.opener) {
             app.hidden = false;
             note.textContent = 'No app is authorized. Authorize Connect in an existing KeeWebX tab first. Open a new tab only if you do not already have one.';
         }
@@ -850,6 +877,15 @@ export function startConnector(endpoint: URL): void {
         return;
     }
     const channel = new BroadcastChannel(channelName(endpoint));
+    const opener = window.opener;
+    if (lookupSite) {
+        addEventListener('message', event => {
+            if (event.isTrusted && event.source === opener && event.origin === lookupSite &&
+                event.data?.marker === MARK && event.data.kind === 'close-lookup-relay' &&
+                event.data.routingId === routingId && event.data.endpoint === endpoint.href) window.close();
+        });
+        note.textContent = 'Return to the website to choose an account. Keep this page open until filling finishes.';
+    }
     let peer: Window | undefined, origin: string | undefined, active = true;
     let returning: { peer: Window; origin: string; nonce: string; deadline: number; timer?: ReturnType<typeof setTimeout> } | undefined;
     const stopReturn = () => {
@@ -865,6 +901,7 @@ export function startConnector(endpoint: URL): void {
     const pending = new Map<string, Packet>();
     const link = new SiteLink(window.opener, (window, site) => {
         if (peer !== window || origin !== site) { pending.clear(); if (returning) finishReturn(false); }
+        if (lookupSite && (window !== opener || site !== lookupSite)) return;
         peer = window; origin = site; back.disabled = false;
         status.textContent = `Connection page ready for ${site}. Checking your existing KeeWebX tab…`;
         peer.postMessage({ marker: MARK, kind: 'ready', routingId, endpoint: endpoint.href }, site);
