@@ -104,7 +104,7 @@ export function directCredentials(endpoint: URL): Keys | undefined { return dire
 export function openDirect(endpoint: URL, force = false, retryDirect = false): boolean {
     const client = directClient(endpoint);
     if (client.route?.messagePort !== 1 || !client.keys) return false;
-    client.attempt = client.recovery.begin(client.route, location.href, retryDirect, isIOSUserscripts());
+    client.attempt = client.recovery.begin(client.route, location.href, retryDirect);
     if (client.attempt.mailbox) {
         client.link.reset('Starting a new local connection.');
         transportEvent({ event: 'mailbox-preferred' });
@@ -556,14 +556,14 @@ export class NativeRpc {
         const current = await approvedRoute(this.endpoint); this.assertCurrent();
         if (!this.route || !current || !sameRecoveryRoute(current, this.route)) throw new Error('The selected app changed. Find accounts again.');
     }
-    async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number, options: { waitForLocalApp?: boolean; useLookupRelay?: boolean } = {}): Promise<void> {
+    async connect(deadline = Date.now() + 35000, onAppVisit?: (budgetMs: number) => number, options: { waitForWebsite?: boolean; useLookupRelay?: boolean } = {}): Promise<void> {
         try { await this.connectAttempt(deadline, onAppVisit, options); }
         catch (error) {
             this.resetUnauthenticatedDirect('The connection attempt failed.');
             throw this.connectionError(error);
         }
     }
-    private async connectAttempt(deadline: number, onAppVisit: ((budgetMs: number) => number) | undefined, { waitForLocalApp, useLookupRelay }: { waitForLocalApp?: boolean; useLookupRelay?: boolean }): Promise<void> {
+    private async connectAttempt(deadline: number, onAppVisit: ((budgetMs: number) => number) | undefined, { waitForWebsite, useLookupRelay }: { waitForWebsite?: boolean; useLookupRelay?: boolean }): Promise<void> {
         if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new RequestDeadlineError('The connection attempt expired. Try again.');
         this.window = this.peer(); if (this.window?.closed) this.window = undefined; this.assertCurrent();
         this.progress('Checking saved authorization');
@@ -597,7 +597,7 @@ export class NativeRpc {
         if (!useLookupRelay && !this.direct && !useMailbox && this.route?.messagePort === 1) throw new Error('Connection settings are loading. Tap Find accounts or Test connection again to connect directly.');
         if (!this.route || !this.keys || this.route.publicKey !== toBase64(this.keys.publicKey)) throw new Error('Unlock KeeWebX and authorize Connect there once.');
         const route = this.route;
-        const waitOnPreferredMailbox = waitForLocalApp && isIOSUserscripts() && this.recoveryAttempt?.mailbox;
+        const waitOnPreferredMailbox = waitForWebsite && isIOSUserscripts() && this.recoveryAttempt?.mailbox;
         const allowAppVisit = onAppVisit && (!this.recoveryAttempt?.mailbox || waitOnPreferredMailbox) ? onAppVisit : undefined;
         const startMailbox = async () => {
             if (allowAppVisit) deadline = allowAppVisit(APP_VISIT_BUDGET_MS);
@@ -660,9 +660,11 @@ export class NativeRpc {
         }
         if (!object(result) || !isId(result.scope) || result.appBoot !== this.route.host || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now() || result.expiresAt > Date.now() + SESSION_TTL + 1000) throw new Error('Invalid app handshake.');
         this.scope = result.scope; this.expiresAt = result.expiresAt; this.direct?.confirm();
-        if (this.direct && isIOSUserscripts()) prepared.recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
         this.rememberRecovery();
-        if ((useMailbox && onAppVisit) || useLookupRelay) await this.waitForWebsiteReturn(deadline);
+        if (waitForWebsite || (useMailbox && onAppVisit) || useLookupRelay) {
+            if (document.hidden) this.progress('Return to this website to continue');
+            await this.waitForWebsiteReturn(deadline);
+        }
     }
     private rememberRecovery(): void {
         if (!this.live || this.direct || this.window || !this.scope || !this.route || !this.mailboxReplyAt) return;
@@ -673,7 +675,6 @@ export class NativeRpc {
         this.failRecovery();
         if (this.live && this.href === location.href && this.route && !this.direct && !this.window && this.recoveryAttempt?.mailbox && isIOSUserscripts() &&
             (error instanceof RequestDeadlineError || error instanceof MailboxDeliveryError)) {
-            directClient(this.endpoint).recovery.preferDirect(this.recoveryAttempt, this.route, this.href);
             return new Error('The local connection did not reply. Try again to connect directly, or visit your existing KeeWebX tab.');
         }
         return error;

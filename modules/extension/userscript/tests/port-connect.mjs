@@ -1420,14 +1420,14 @@ function assertMailboxExchange(stored, page, operations = ['hello', 'kwx-get-ent
 const mailboxAudit = () => nativeWorker.evaluate(() => globalThis.audit.filter(item =>
     item.key.includes('keewebx-connect-mailbox-v1:') && item.value?.packet).map(item => item.value));
 
-async function iosLocalAcceptance() {
+async function iosRoutingAcceptance() {
     const account = ACCOUNTS[0];
     first = await newWebsite(account);
     const discoveryCount = async () => (await snapshot(app)).attachments.filter(item => item.data.kind === 'find-app').length;
-    const sessions = new Set();
-    const localFill = async (page, account, { fromUnfocusedKey = false } = {}) => {
-        const helpersBefore = helpers.size, discoveries = await discoveryCount(), offset = (await mailboxAudit()).length;
-        const before = await fieldReads();
+    const directFill = async (page, account, { fromUnfocusedKey = false } = {}) => {
+        const count = helpers.size, before = await snapshot(page);
+        const reads = await fieldReads(), lists = await entryReads();
+        const offset = (await mailboxAudit()).length;
         if (fromUnfocusedKey) {
             expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
             await action(page, 'toggle');
@@ -1435,73 +1435,117 @@ async function iosLocalAcceptance() {
             await clearFields(page);
             await startLookup(page);
         }
-        await matchingList(page, account, before, () => 7000);
+        await expect.poll(() => helpers.size).toBe(count + 1);
+        await closedHelper(page, count);
+        await matchingList(page, account, reads, () => 7000);
+        await freshOperation(page, before, count);
+        expect(await entryReads()).toBe(lists + 1);
+        const port = await physicalPort(page);
+        const sent = (await snapshot(page)).packets.slice(before.packets.length)
+            .filter(item => item.direction === 'sent' && item.data.kind === 'request');
+        expect(new Set(sent.filter(item => item.data.value.packet.operation === 'hello')
+            .map(item => item.data.value.packet.id)).size).toBe(1);
+        expect(sent.some(item => item.data.value.packet.operation === 'probe')).toBe(false);
         await fill(page, account);
-        expect(helpers.size).toBe(helpersBefore);
-        expect(await discoveryCount()).toBe(discoveries);
+        await disposedPort(page, port);
         expect(await app.evaluate(() => document.hidden)).toBe(true);
-        const stored = (await mailboxAudit()).slice(offset).filter(value => value.packet.origin === new URL(page.url()).origin);
-        assertMailboxExchange(stored, page);
-        const hello = stored.find(value => value.packet.type === 'request' && value.packet.operation === 'hello');
-        const response = stored.find(value => value.packet.type === 'reply' && value.packet.id === hello.packet.id);
-        expect(sessions.has(response.packet.body.scope)).toBe(false);
-        sessions.add(response.packet.body.scope);
-        await noHelpers(); await sameApp();
+        expect((await mailboxAudit()).slice(offset)).toEqual([]);
+        await sameApp();
     };
-    await step('iPhone route fills repeatedly across fresh websites while worker discovery is unavailable', async () => {
-        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
-        await localFill(first, account, { fromUnfocusedKey: true });
-        second = await newWebsite(ACCOUNTS[1]);
-        await localFill(second, ACCOUNTS[1]);
-        await first.close(); first = await newWebsite(account);
-        await localFill(first, account);
-        return { freshSessions: sessions.size, helpers: helpers.size, appStayedHidden: true };
-    });
-    await step('an iPhone lookup waits for a delayed App and continues after one visit without a new hello', async () => {
-        const page = await newWebsite(account);
-        const before = await fieldReads(), lists = await entryReads(), count = helpers.size;
-        const offset = (await mailboxAudit()).length;
-        const exchange = async () => (await mailboxAudit()).slice(offset);
+    await step('iPhone key opens one temporary page, closes it on verified handoff and fills from the hidden original App', async () => {
+        const count = helpers.size;
         await adapter(app, '__kwxPortAdapter.holdMailboxScan = true');
         try {
+            await directFill(first, account, { fromUnfocusedKey: true });
+            second = await newWebsite(ACCOUNTS[1]);
+            await directFill(second, ACCOUNTS[1]);
+            await first.close();
+            first = await newWebsite(account);
+            await directFill(first, account, { fromUnfocusedKey: true });
+        } finally {
+            await adapter(app, '__kwxPortAdapter.releaseMailboxScans()');
+        }
+        return { fills: 3, closedHelpers: helpers.size - count, appStayedHidden: true, mailboxRequests: 0 };
+    });
+    await step('iPhone direct lookup waits for the website to be visible when its hello completes', async () => {
+        const page = await newWebsite(account);
+        const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+        let other;
+        await adapter(app, '__kwxPortAdapter.holdHello = true');
+        try {
             await action(page, 'toggle');
-            await untilStatus(page, /visit your existing KeeWebX tab once/, 7000);
-            // The old mailbox hello expired after eight seconds and required another tap.
-            await page.waitForTimeout(8500);
-            await untilStatus(page, /visit your existing KeeWebX tab once/, 1000);
+            await expect.poll(() => helpers.size).toBe(count + 1);
+            await closedHelper(page, count);
+            await expect.poll(async () => (await snapshot(app)).heldHello).toBeGreaterThan(0);
+            other = await context.newPage();
+            await other.bringToFront();
+            await expect.poll(() => page.evaluate(() => document.hidden)).toBe(true);
+            await adapter(app, '__kwxPortAdapter.releaseHello()');
+            await untilStatus(page, /Return to this website to continue/, 5000);
+            expect(await entryReads()).toBe(lists);
+            expect(await fieldReads()).toBe(reads);
+            await page.bringToFront();
+            await matchingList(page, account, reads, () => 7000);
+            await fill(page, account);
             expect(await app.evaluate(() => document.hidden)).toBe(true);
+            expect(helpers.size).toBe(count + 1);
+        } finally {
+            await adapter(app, '__kwxPortAdapter.releaseHello()');
+            await other?.close();
+            await page.close();
+        }
+        return { fillResumed: true, extraHelpers: 0, appVisits: 0 };
+    });
+    await step('a failed iPhone discovery can recover through the original local fallback', async () => {
+        const page = await newWebsite(account);
+        const reads = await fieldReads(), lists = await entryReads(), count = helpers.size;
+        const offset = (await mailboxAudit()).length;
+        const exchange = async () => (await mailboxAudit()).slice(offset);
+        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true; __kwxPortAdapter.holdMailboxScan = true');
+        try {
+            await action(page, 'toggle');
+            await expect.poll(async () => (await exchange()).some(value =>
+                value.packet.type === 'request' && value.packet.operation === 'hello'), { timeout: 26000 }).toBe(true);
+            await noHelpers();
+            expect(helpers.size).toBe(count + 1);
             expect(await entryReads()).toBe(lists);
             await emptyFields(page);
             await app.bringToFront();
-            expect(await page.evaluate(() => document.hidden)).toBe(true);
+            await expect.poll(() => page.evaluate(() => document.hidden)).toBe(true);
             await adapter(app, '__kwxPortAdapter.releaseMailboxScans()');
             await expect.poll(async () => (await exchange()).some(value =>
                 value.packet.type === 'reply' && value.packet.operation === 'hello')).toBe(true);
             expect(await entryReads()).toBe(lists);
             await page.bringToFront();
-            await matchingList(page, account, before, () => 7000);
+            await matchingList(page, account, reads, () => 7000);
             await fill(page, account);
-            expect(await app.evaluate(() => document.hidden)).toBe(true);
-            expect(helpers.size).toBe(count);
             assertMailboxExchange(await exchange(), page);
-            expect((await exchange()).some(value => value.packet.operation === 'probe')).toBe(false);
-            await noHelpers(); await sameApp();
+
+            // A verified mailbox recovery can avoid another popup on this page.
+            const nextOffset = (await mailboxAudit()).length;
+            await clearFields(page);
+            await startLookup(page);
+            await matchingList(page, account, reads + 1, () => 7000);
+            await fill(page, account);
+            expect(helpers.size).toBe(count + 1);
+            assertMailboxExchange((await mailboxAudit()).slice(nextOffset), page);
+            await sameApp();
         } finally {
-            await adapter(app, '__kwxPortAdapter.releaseMailboxScans()');
+            await adapter(app, '__kwxPortAdapter.dropAllDiscovery = false; __kwxPortAdapter.releaseMailboxScans()');
             await page.close();
         }
-        return { appVisits: 1, signedHandshakes: 1, helperPages: 0 };
+        return { appVisits: 1, recoveredFills: 2, discoveryHelpers: 1 };
     });
-    await step('the iPhone relay fills even when local polling and direct discovery cannot reach the App', async () => {
+    await step('iPhone same-origin broadcast remains an alternate lookup while direct handoff is pending', async () => {
         const page = await newWebsite(account);
         const reads = await fieldReads(), lists = await entryReads(), count = helpers.size;
-        const discoveries = await discoveryCount();
         const offset = (await mailboxAudit()).length;
-        await adapter(app, '__kwxPortAdapter.holdMailboxScan = true');
+        await adapter(app, '__kwxPortAdapter.holdAppReady = true; __kwxPortAdapter.holdMailboxScan = true');
         try {
             await action(page, 'toggle');
-            await expect.poll(async () => (await mailboxAudit()).slice(offset).some(value =>
-                value.packet.type === 'request' && value.packet.operation === 'hello')).toBe(true);
+            await expect.poll(async () => (await snapshot(app)).heldReady).toBe(1);
+            expect(helpers.size).toBe(count + 1);
+            const discoveries = await discoveryCount();
             await action(page, 'config-tab');
             const opened = context.waitForEvent('page');
             await action(page, 'relay-lookup');
@@ -1517,35 +1561,36 @@ async function iosLocalAcceptance() {
             expect(relay.isClosed()).toBe(false);
             await fill(page, account);
             await expect.poll(() => relay.isClosed()).toBe(true);
-            expect(await app.evaluate(() => document.hidden)).toBe(true);
-            expect(helpers.size).toBe(count);
+            expect(helpers.size).toBe(count + 1);
             expect(await discoveryCount()).toBe(discoveries);
-            const requests = (await mailboxAudit()).slice(offset).filter(value => value.packet.type === 'request');
-            expect(requests.map(value => value.packet.operation)).toEqual(['hello']);
+            expect((await mailboxAudit()).slice(offset)).toEqual([]);
+            await noHelpers();
             await sameApp();
         } finally {
-            await adapter(app, '__kwxPortAdapter.releaseMailboxScans()');
+            await adapter(app, '__kwxPortAdapter.releaseReady(); __kwxPortAdapter.releaseMailboxScans()');
             await page.close();
         }
-        return { sameOriginRelay: true, appStayedHidden: true, relayClosedAfterFill: true, localHandshakeBlocked: true };
+        return { sameOriginRelay: true, appStayedHidden: true, relayClosedAfterFill: true };
     });
-    await step('iPhone route fills from the restored App without another helper or consent', async () => {
+    await step('iPhone direct lookup fills from the restored App without another consent', async () => {
         const previousRoute = structuredClone(approvedRoute);
         await expect(app.locator('#sync-state')).toHaveText('Up to date');
         await app.close();
         app = await context.newPage(); await app.goto(APP); expectedAppNavigationRequests++;
         await restoreSavedApp(previousRoute);
-        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = true');
-        await localFill(first, account);
-        return { freshAppBoot: true, additionalConsent: 0, helpers: helpers.size };
+        await directFill(first, account);
+        return { freshAppBoot: true, additionalConsent: 0 };
     });
-    await step('a locked vault denies the local lookup until the original App is unlocked', async () => {
+    await step('both iPhone lookup routes deny access to a locked vault', async () => {
         const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
         await app.bringToFront(); await expect(app.locator('#sync-state')).toHaveText('Up to date');
         await app.getByRole('button', { name: 'Lock', exact: true }).click();
         await expect(app.locator('#password')).toBeVisible();
         await clearFields(first); await startLookup(first);
         await untilStatus(first, /locked.*unlock/i, 10000);
+        await noHelpers();
+        expect(helpers.size).toBe(count + 1);
+        await sameApp({ unlocked: false });
         await action(first, 'config-tab');
         const opened = context.waitForEvent('page');
         await action(first, 'relay-lookup');
@@ -1556,44 +1601,33 @@ async function iosLocalAcceptance() {
         await expect.poll(() => relay.isClosed()).toBe(true);
         await emptyFields(first);
         expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
-        expect(helpers.size).toBe(count);
         await app.bringToFront(); await app.locator('#password').fill(DB_PASSWORD); await app.locator('#unlock').click();
         await expect(app.locator('.entry-row').first()).toBeVisible(); await untilStatus(app, /Authorized/);
-        await localFill(first, account);
-        return { lockedVaultDenied: true, lockedVaultRelayDenied: true, unlockedVaultFilled: true, helpers: helpers.size };
+        await directFill(first, account);
+        return { lockedVaultDenied: true, lockedVaultRelayDenied: true, unlockedVaultFilled: true };
     });
-    await step('closing the panel cancels a delayed local lookup and the next lookup succeeds', async () => {
+    await step('opted-in iPhone single-match fill completes from one key tap and one helper', async () => {
         await clearFields(first);
-        const before = await entryReads(), offset = (await mailboxAudit()).length;
-        await adapter(app, '__kwxPortAdapter.holdMailboxScan = true');
-        try {
-            await startLookup(first);
-            await expect.poll(async () => (await mailboxAudit()).slice(offset).some(value => value.packet.operation === 'hello')).toBe(true);
-            await action(first, 'close');
-        } finally { await adapter(app, '__kwxPortAdapter.releaseMailboxScans()'); }
-        await emptyFields(first);
-        expect(await entryReads()).toBe(before);
-        await localFill(first, account);
-        return { canceledLookupStayedEmpty: true, nextLookupSucceeded: true, helpers: helpers.size };
+        await setAutoFillSingle(first, true);
+        const page = await newWebsite(account);
+        const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+        await action(page, 'toggle');
+        await expect.poll(() => helpers.size).toBe(count + 1);
+        await closedHelper(page, count);
+        await expect(page.locator('#username')).toHaveValue(account.user, { timeout: 7000 });
+        await expect(page.locator('#login-password')).toHaveValue(account.password);
+        expect(await entryReads()).toBe(lists + 1);
+        expect(await fieldReads()).toBe(reads + 1);
+        expect(await page.evaluate(() => window.formSubmits)).toBe(0);
+        expect((await snapshot(page)).actions.filter(item => item.action === 'entry-0')).toEqual([]);
+        expect(await app.evaluate(() => document.hidden)).toBe(true);
+        await disposedPort(page, await physicalPort(page));
+        await page.close();
+        await action(first, 'auto-fill-single');
+        await expect.poll(readPreferences).toEqual({ autoFillSingle: false });
+        return { keyTaps: 1, helpers: 1, separateSelection: false, appVisits: 0 };
     });
-    await step('a failed explicit local connection test switches the next lookup to a fresh direct connection', async () => {
-        await clearFields(first);
-        await config(first);
-        await adapter(app, '__kwxPortAdapter.dropAllDiscovery = false; __kwxPortAdapter.holdMailboxScan = true');
-        const count = helpers.size, before = await fieldReads();
-        try {
-            await action(first, 'probe');
-            await untilStatus(first, /The local connection did not reply/, 12000);
-            await emptyFields(first);
-            await startLookup(first);
-            await matchingList(first, account, before);
-            await fill(first, account);
-            await noHelpers(); await sameApp();
-            expect(helpers.size).toBe(count + 1);
-        } finally { await adapter(app, '__kwxPortAdapter.releaseMailboxScans()'); }
-        return { directRetryHelpers: 1, originalApp: true, fieldReads: (await fieldReads()) - before };
-    });
-    await step('revocation prevents local account reads from a fresh website document', async () => {
+    await step('revocation prevents account reads from a fresh iPhone website document', async () => {
         const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
         if (await shadowValue(app, 'section', 'hidden')) await action(app, 'toggle');
         await action(app, 'config-tab'); await action(app, 'revoke');
@@ -2717,7 +2751,7 @@ acceptance: try {
     });
     if (FOCUS_IOS_LOCAL) {
         report.focus = 'ios-local';
-        await iosLocalAcceptance();
+        await iosRoutingAcceptance();
         expect(report.errors).toEqual([]); report.passed = true;
         break acceptance;
     }

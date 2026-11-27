@@ -13,14 +13,12 @@ export interface RecoveryAttempt { readonly epoch: number; readonly mailbox: boo
 
 export class MailboxRecovery {
     private epoch = 0;
-    private preference?: { route: RecoveryRoute; href: string; observedAt: number; mailbox: boolean };
+    private preference?: { route: RecoveryRoute; href: string; observedAt: number };
     current(attempt: RecoveryAttempt | undefined): boolean { return attempt?.epoch === this.epoch; }
-    begin(route: RecoveryRoute, href: string, retryDirect = false, preferMailbox = false): RecoveryAttempt {
+    begin(route: RecoveryRoute, href: string, retryDirect = false): RecoveryAttempt {
         if (retryDirect) this.clear();
         this.refresh(route, href);
-        const mailbox = !retryDirect && (this.preference?.mailbox ?? (preferMailbox && route.mailbox === true));
-        if (this.preference?.mailbox === false) this.preference = undefined;
-        return { epoch: ++this.epoch, mailbox };
+        return { epoch: ++this.epoch, mailbox: this.preference !== undefined };
     }
     refresh(route: RecoveryRoute | undefined, href: string): void {
         const choice = this.preference;
@@ -30,14 +28,10 @@ export class MailboxRecovery {
     verified(attempt: RecoveryAttempt | undefined, route: RecoveryRoute, href: string, receivedAt: number): void {
         if (!attempt || attempt.epoch !== this.epoch || !route.mailbox || route.messagePort !== 1 ||
             !Number.isFinite(receivedAt) || receivedAt > Date.now() || Date.now() - receivedAt >= MAILBOX_RECOVERY_MS) return;
-        this.preference = { route: { ...route }, href, observedAt: receivedAt, mailbox: true };
-    }
-    preferDirect(attempt: RecoveryAttempt | undefined, route: RecoveryRoute, href: string): void {
-        if (!this.current(attempt) || !route.mailbox || route.messagePort !== 1) return;
-        this.preference = { route: { ...route }, href, observedAt: Date.now(), mailbox: false };
+        this.preference = { route: { ...route }, href, observedAt: receivedAt };
     }
     failed(attempt: RecoveryAttempt | undefined): void {
-        if (this.current(attempt) && this.preference?.mailbox) this.preference = undefined;
+        if (this.current(attempt)) this.preference = undefined;
     }
     clear(): void { this.preference = undefined; this.epoch++; }
 }

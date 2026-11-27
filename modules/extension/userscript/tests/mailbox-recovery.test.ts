@@ -79,31 +79,3 @@ test('a new valid reply can recover the same attempt after its earlier handshake
     const f = fixture(); f.recovery.failed(f.first); f.verify();
     expect(f.recovery.begin(f.route, href).mailbox).toBe(true);
 });
-
-test('a first mobile attempt with mailbox capability skips discovery and its next retry can use direct', () => {
-    const { recovery, route } = fixture();
-    const first = recovery.begin(route, href, false, true);
-    expect(first.mailbox).toBe(true);
-    recovery.preferDirect(first, route, href);
-    recovery.failed(first);
-    const retry = recovery.begin(route, href, false, true);
-    expect(retry.mailbox).toBe(false);
-    recovery.failed(retry);
-    expect(recovery.begin(route, href, false, true).mailbox).toBe(true);
-});
-
-test('a direct retry is bound to the last attempt, exact grant and website URL', () => {
-    const { recovery, route, first } = fixture();
-    const second = recovery.begin(route, href, false, true);
-    recovery.preferDirect(first, route, href);
-    expect(recovery.begin(route, href, false, true).mailbox).toBe(true);
-    recovery.preferDirect(second, route, href);
-    const latest = recovery.begin(route, href, false, true);
-    recovery.preferDirect(latest, route, href);
-    const newRoute = { ...route, host: crypto.randomUUID() };
-    const newAttempt = recovery.begin(newRoute, href, false, true);
-    expect(newAttempt.mailbox).toBe(true);
-    recovery.preferDirect(newAttempt, newRoute, href);
-    expect(recovery.begin(newRoute, href + '?new', false, true).mailbox).toBe(true);
-    expect(recovery.begin({ ...newRoute, mailbox: false }, href, false, true).mailbox).toBe(false);
-});

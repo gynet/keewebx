@@ -1,7 +1,7 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.30**. See the
-[release notes](release-0.6.30.md) for the iPhone and iPad relay option and
+Architecture of **Connect 0.6.31**. See the
+[release notes](release-0.6.31.md) for direct handoff on iPhone and iPad and its
 verification. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
@@ -74,15 +74,15 @@ The auto-test is a **trusted key action**, not periodic preconnect, page-load wo
 `prepareDirect()` reads route/identity ahead of time; UI connection actions are disabled while preparation
 is pending. `openDirect()` runs synchronously in the trusted action before any `await`, preserving the
 popup activation opportunity. The UI passes `force=true` for every new lookup or test:
-the old port is closed. On iPhone and iPad, Userscripts first uses the advertised
-local mailbox. A recent exact-route transport choice can override that default.
-Other platforms start with a new helper unless a recent mailbox recovery was
-verified. Explicit Reconnect opens a helper.
+the old port is closed. A fresh operation starts with a new helper on iPhone,
+iPad and desktop unless a recent mailbox recovery was verified. Explicit
+Reconnect starts a new handoff.
 Lookup, account selection and fill share their transport within one operation.
-If the initial local handshake is slow on iPhone or iPad, the lookup shows an
-App visit hint after two seconds. The signed hello can wait up to one minute.
-Once it is accepted and the website is visible, the lookup resumes with its
-normal operation budget. Browser scheduling can still delay App execution. The explicit broadcast relay
+A local fallback can wait for the App for up to one minute. After the signed
+hello is accepted and the website is visible, the lookup resumes with its
+normal operation budget. A direct iPhone or iPad lookup also waits for the
+website to become visible before querying the vault. Browser scheduling can
+still delay App execution. The explicit broadcast relay
 uses the same signed RPC and encrypted vault protocol. It stays open for that
 operation and is asked to close after filling, cancellation or an error.
 
@@ -194,20 +194,19 @@ preserve old ports/scopes. Missing manager tab APIs limit owner continuity outsi
 a fresh logical session for each UI operation. A document-local
 [MailboxRecovery](../src/mailbox-recovery.ts) binds transport preference to the
 exact grant and current page URL for 30 seconds. A verified mailbox reply makes
-that path available for the next operation on all platforms. On iPhone and iPad,
-failure to deliver a local request selects a direct handoff on the next trusted
-action. A working direct handshake can also retain the direct preference for
-the next action. Epoch checks keep old operations from replacing a newer choice.
+that path available for the next operation on all platforms. A delivery failure
+clears the local preference. Epoch checks keep old operations from replacing a
+newer choice.
 
 | Trigger | Implemented response |
 | --- | --- |
-| Userscripts on iPhone or iPad with mailbox capability | Send a fresh signed hello through local storage immediately. A delivery error or timeout offers a direct handoff on the next trusted action. |
+| Fresh lookup or test | Open the temporary handoff page on the trusted tap. |
 | Discovery delay | Worker retries public probes, with up to two discovery rounds within a 16-second discovery budget; website setup has its own 25-second limit. Transfer of the website endpoint happens once. |
 | Classified setup timeout or helper-unavailable failure, with mailbox capability | Try GM mailbox after verifying the saved host, public key and authorization revision. Structurally invalid requests and authorization denial remain fatal. |
 | First `hello` timeout on a newly signed-ready port | One fresh hello may use that same port while the attempt deadline allows. |
 | Low-level compatibility caller reuses a previously working port and `hello` times out | After a 3-second hello budget, discard the direct link, recheck the grant and try mailbox. The current UI starts fresh ports and does not take this reuse path. |
 | Initial mailbox fallback with UI callback | Allow the existing separate 60-second visit/return phase; wait for website visibility before continuing. Lookup then restores its 30-second operation budget. |
-| Recently verified mailbox route | Fresh signed hello with the ordinary 8-second budget; no renewed 60-second recovery wait. All grant fields and the operation generation must still match. |
+| Recently verified mailbox route | Fresh signed hello with the ordinary 8-second budget, or the visit/return budget for an iOS lookup. All grant fields and the operation generation must still match. |
 | Older route without direct capability | Existing connector window uses `postMessage` plus same-origin BroadcastChannel; absent/unusable window can use advertised mailbox. This legacy connector remains open while carrying traffic. |
 
 Direct hello and receipt-capable wire requests resend the **identical signed envelope** every 750 ms

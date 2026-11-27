@@ -302,7 +302,7 @@ async function start(): Promise<void> {
             await task.run('Connecting to KeeWebX', () => rpc!.connect(task.deadline, budgetMs => {
                 waitingForApp = true;
                 return task.resetBudget(budgetMs);
-            }, { waitForLocalApp: true, useLookupRelay: useRelay })); guard(epoch);
+            }, { waitForWebsite: isIOSUserscripts(), useLookupRelay: useRelay })); guard(epoch);
             if (waitingForApp) task.resetBudget(LOOKUP_BUDGET_MS);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request, wireTimeout()) }, runtime);
             await task.run('Connecting to KeeWebX', () => protocol.ping());

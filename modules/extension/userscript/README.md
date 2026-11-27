@@ -1,20 +1,20 @@
-# KeeWebX Connect 0.6.30 for iOS Safari
+# KeeWebX Connect 0.6.31 for iOS Safari
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
-login fields on other websites. On iPhone and iPad with Userscripts, each lookup
-or test starts a fresh signed connection through the script manager's local
-storage when the authorized App supports it. If local delivery fails, retry to
-use a temporary page that connects to the same App and closes after handoff.
+login fields on other websites. A fresh lookup opens a temporary page to
+connect to the authorized App. It closes after the App confirms the signed
+handoff. If discovery fails and the App supports the local mailbox, Connect
+can continue the lookup through the script manager's storage.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.30)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.30/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.31)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.31/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [Current connection flow and diagrams](docs/connection-architecture.md)
 · [Technical analysis and failure timelines](docs/technical-analysis-0.6.21.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.30 release notes](docs/release-0.6.30.md)
+· [0.6.31 release notes](docs/release-0.6.31.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -24,7 +24,7 @@ Forms are never submitted automatically.
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. If the unlocked App already runs **Connect 0.6.27 through 0.6.29**, update the installed
+2. If the unlocked App already runs **Connect 0.6.27 through 0.6.30**, update the installed
    script and reload the login website first. It can use the existing App
    receiver. To load the new script in the App as well, save pending edits before
    reloading that tab. For an older App receiver, update both tabs.
@@ -85,12 +85,11 @@ connection actions wait until that read completes. A failed settings refresh
 blocks new setup while an existing signed connection can finish its request.
 Remote diagnostics and support-command polling were removed in 0.6.11.
 
-Userscripts on iPhone and iPad can start through the encrypted local mailbox
-before opening a helper. After a local delivery failure, the next tap within 30
-seconds can try direct handoff. A verified reply can retain the working
-transport choice for that page and grant for up to 30 seconds. Navigation and
-grant changes clear that choice. On other platforms, a classified direct setup
-failure can still recover through the same local mailbox.
+A fresh lookup tries a direct handoff on iPhone, iPad and desktop. If Connect
+recovers through the local mailbox, a verified reply can retain that transport
+for the same page and grant for up to 30 seconds. Navigation, grant changes and
+a delivery failure clear that choice. In iOS Userscripts, the lookup waits for
+the website to be visible before requesting accounts after handoff.
 No port, account data or session is reused across operations. Every lookup
 creates new encryption keys and obtains a fresh account list. Expired
 responses are ignored; credential deadlines and permission checks are unchanged.
@@ -103,9 +102,9 @@ on iPhone and iPad. Its temporary KeeWebX page uses same-origin broadcast and
 closes after the operation when Safari allows it. Return to the login website
 if the temporary page comes to the front.
 
-If an iPhone or iPad lookup is still waiting for the initial App
-response after two seconds, the panel explains how to resume it. Visit the
-existing App tab once if needed, then return to the website within one minute.
+If direct setup falls back to the local mailbox, the panel explains how to
+resume a lookup that is still waiting. Visit the existing App tab once if
+needed, then return to the website within one minute.
 The original lookup continues after return. Closing the panel cancels the request.
 
 | Event | Result |
