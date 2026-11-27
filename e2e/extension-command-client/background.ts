@@ -84,11 +84,22 @@ async function backendCommand(message: any) {
         default: throw new Error('Unknown backend command');
     }
 }
+async function resetIdentityOnRestart() {
+    await chrome.storage.local.remove('kwxIdentity');
+    await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase('keewebx-connect-identity');
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => reject(new Error('The test identity database is still open'));
+    });
+    return { resetOnRestart: true };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('client.html')) || message.type !== 'command') return;
     const task = message.action.startsWith('backend-') ? backendCommand(message)
         : message.action === 'connect' ? connect(message.url)
-        : message.action === 'reset-identity' ? chrome.storage.local.remove('kwxIdentity').then(() => ({ resetOnRestart: true }))
+        : message.action === 'reset-identity' ? resetIdentityOnRestart()
         : message.action === 'replay-fields' ? chrome.storage.session.get('previousFieldsRequest').then(async stored => {
             if (!stored.previousFieldsRequest) throw new Error('No previous field request');
             return check(await request(stored.previousFieldsRequest));
