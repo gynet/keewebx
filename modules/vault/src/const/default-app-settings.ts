@@ -69,7 +69,6 @@ interface AppSettings {
     canOpenStorage: boolean;
     canOpenGenerator: boolean;
     webdav: boolean;
-    webdavSaveMethod: string;
     webdavStatReload: boolean;
     saveVerify: boolean;
     /** Pixel cap for auto-fetched site icons stored in the KDBX file.
@@ -154,7 +153,6 @@ const DefaultAppSettings: AppSettings = {
     canOpenStorage: true, // can open files from cloud storage providers
     canOpenGenerator: true, // can open password generator
     webdav: true, // enable WebDAV integration
-    webdavSaveMethod: 'move', // how to save files with WebDAV: "move" or "put"
     webdavStatReload: false, // WebDAV: reload the file instead of relying on Last-Modified
     saveVerify: true, // re-parse saved bytes through Kdbx.load before declaring save successful (guardrail #23)
     faviconSize: 32 // default cap kept at legacy size so existing users see no behaviour change

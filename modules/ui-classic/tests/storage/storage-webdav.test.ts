@@ -26,7 +26,6 @@ import {
 await installMockedModule('../../../vault/src/models/app-settings-model', () => ({
     AppSettingsModel: {
         webdav: true,
-        webdavSaveMethod: 'default',
         webdavStatReload: false
     }
 }));
@@ -109,15 +108,11 @@ describe('StorageWebDav', () => {
         expect(passField.type).toBe('password');
     });
 
-    test('getSettingsConfig returns save method and stat reload options', () => {
+    test('getSettingsConfig returns the stat reload option', () => {
         const config = storage.getSettingsConfig();
-        expect(config.fields).toHaveLength(2);
+        expect(config.fields).toHaveLength(1);
 
-        const saveMethod = config.fields[0];
-        expect(saveMethod.id).toBe('webdavSaveMethod');
-        expect(saveMethod.type).toBe('select');
-
-        const statReload = config.fields[1];
+        const statReload = config.fields[0];
         expect(statReload.id).toBe('webdavStatReload');
         expect(statReload.type).toBe('checkbox');
     });
@@ -283,8 +278,8 @@ describe('StorageWebDav', () => {
     });
 
     test('applySetting updates appSettings', () => {
-        storage.applySetting('webdavSaveMethod', 'put');
-        expect((storage.appSettings as unknown as Record<string, unknown>).webdavSaveMethod).toBe('put');
+        storage.applySetting('webdavStatReload', true);
+        expect((storage.appSettings as unknown as Record<string, unknown>).webdavStatReload).toBe(true);
     });
 
     describe('_isCrossOrigin', () => {
@@ -340,13 +335,18 @@ describe('WebDAV browser connectivity', () => {
     class Request extends EventTarget {
         static instances: Request[] = [];
         status = 200;
+        method = '';
+        headers: Record<string, string> = {};
+        etag: string | null = null;
         responseType = '';
         sends = 0;
         aborts = 0;
         constructor() { super(); Request.instances.push(this); }
-        open() {}
-        setRequestHeader() {}
-        getResponseHeader() { return 'Mon, 01 Jan 2024 00:00:00 GMT'; }
+        open(method: string) { this.method = method; }
+        setRequestHeader(name: string, value: string) { this.headers[name] = value; }
+        getResponseHeader(name: string) {
+            return name === 'ETag' ? this.etag : name === 'Last-Modified' ? 'Mon, 01 Jan 2024 00:00:00 GMT' : null;
+        }
         send() { this.sends++; }
         abort() {
             this.aborts++;
@@ -369,6 +369,7 @@ describe('WebDAV browser connectivity', () => {
         }
         Request.instances = [];
         storage = new StorageWebDav(); storage.init();
+        storage.applySetting('webdavStatReload', false);
     });
     afterEach(() => {
         for (const [key, descriptor] of globals) {
@@ -394,6 +395,48 @@ describe('WebDAV browser connectivity', () => {
         Request.instances[0].complete();
         expect(retry).toHaveBeenCalledTimes(1);
         expect(retry.mock.calls[0][0]).toBeNull();
+    });
+
+    test('an overwrite is bound to the checked ETag and a concurrent change reports a revision conflict', () => {
+        const callback = mock();
+        storage.save('https://dav.example/vault.kdbx', null, new ArrayBuffer(1), callback, '"current"');
+        const [head] = Request.instances;
+        head.etag = '"current"';
+        head.complete();
+        const put = Request.instances[1];
+        expect(put.method).toBe('PUT');
+        expect(put.headers['If-Match']).toBe('"current"');
+        put.status = 412;
+        put.complete();
+        expect(callback.mock.calls[0][0]).toMatchObject({ revConflict: true });
+        expect(Request.instances).toHaveLength(2);
+    });
+
+    test('creation is conditional on the destination staying absent', () => {
+        const callback = mock();
+        storage.save('https://dav.example/vault.kdbx', null, new ArrayBuffer(1), callback);
+        const [head] = Request.instances;
+        head.status = 404;
+        head.complete();
+        const put = Request.instances[1];
+        expect(put.headers['If-None-Match']).toBe('*');
+        put.status = 201;
+        put.etag = '"created"';
+        put.complete();
+        expect(callback).toHaveBeenCalledWith(null, { rev: '"created"' });
+    });
+
+    test('a weak ETag or a stale revision never results in a PUT', () => {
+        for (const etag of ['W/"previous"', '"newer"']) {
+            const callback = mock();
+            Request.instances = [];
+            storage.save('https://dav.example/vault.kdbx', null, new ArrayBuffer(1), callback, '"previous"');
+            const [head] = Request.instances;
+            head.etag = etag;
+            head.complete();
+            expect(callback.mock.calls[0][0]).toBeTruthy();
+            expect(Request.instances).toHaveLength(1);
+        }
     });
 
     for (const method of ['HEAD', 'GET', 'PUT', 'MOVE']) {

@@ -80,7 +80,7 @@ function ProviderField({ provider, field, disabled, apply }: {
 }) {
     const id = `provider-setting-${provider.name}-${field.id}`;
     const [draft, setDraft] = useState(String(field.value ?? ''));
-    const selected = field.id === 'webdavSaveMethod' && field.value === 'move' ? 'default' : String(field.value ?? '');
+    const selected = String(field.value ?? '');
     if (!provider.applySetting || !['checkbox', 'select', 'text', 'password', 'url'].includes(field.type)) return null;
     return <div>
         <label class="cardlist__row" for={id}><span>{label(field.title)}</span>

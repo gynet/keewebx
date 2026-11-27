@@ -50,6 +50,14 @@ interface FileOpts {
 
 type WebDavFile = { uuid: string; db?: { credentials?: { keyFileHash?: kdbxweb.ProtectedValue } } };
 
+function strongEtag(value: string | null | undefined): string | undefined {
+    return value && /^"[\x21\x23-\x7e\x80-\xff]*"$/.test(value) ? value : undefined;
+}
+
+function responseRevision(xhr: XMLHttpRequest | undefined): string | undefined {
+    return strongEtag(xhr?.getResponseHeader('ETag')) ?? xhr?.getResponseHeader('Last-Modified') ?? undefined;
+}
+
 class StorageWebDav extends StorageBase {
     name = 'webdav';
     icon = 'server';
@@ -63,8 +71,8 @@ class StorageWebDav extends StorageBase {
         }, (error, xhr) => {
             if (error && (error as WebDavError).notFound) { resolve(null); return; }
             if (error) { reject(error); return; }
-            const etag = xhr?.getResponseHeader('ETag');
-            if (!etag || !/^"[^\r\n]*"$/.test(etag)) {
+            const etag = strongEtag(xhr?.getResponseHeader('ETag'));
+            if (!etag) {
                 reject(new Error('This server does not expose a strong ETag. Choose a new filename to avoid an unsafe overwrite.'));
                 return;
             }
@@ -79,7 +87,7 @@ class StorageWebDav extends StorageBase {
             this._request({
                 op: 'SaveAs:put', method: 'PUT', path, ...opts, data, nostat: true, signal, timeout: 30_000,
                 headers: etag === null ? { 'If-None-Match': '*' } : { 'If-Match': etag }
-            }, (error, xhr) => callback(error, xhr?.getResponseHeader('Last-Modified') ?? undefined));
+            }, (error, xhr) => callback(error, strongEtag(xhr?.getResponseHeader('ETag'))));
         } catch (error) { callback(error); }
     }
 
@@ -120,15 +128,6 @@ class StorageWebDav extends StorageBase {
         return {
             fields: [
                 {
-                    id: 'webdavSaveMethod',
-                    title: 'webdavSaveMethod',
-                    type: 'select',
-                    value:
-                        (this.appSettings as unknown as Record<string, unknown>)
-                            .webdavSaveMethod || 'default',
-                    options: { default: 'webdavSaveMove', put: 'webdavSavePut' }
-                },
-                {
                     id: 'webdavStatReload',
                     title: 'webdavStatReload',
                     type: 'checkbox',
@@ -160,15 +159,16 @@ class StorageWebDav extends StorageBase {
             },
             callback
                 ? (err, xhr, stat) => {
+                      if (err || !xhr) { callback(err); return; }
                       if (
                           (this.appSettings as unknown as Record<string, boolean>)
                               .webdavStatReload
                       ) {
-                          this._calcStatByContent(xhr!).then((stat) =>
-                              callback(err, xhr!.response as ArrayBuffer, stat)
+                          this._calcStatByContent(xhr).then((stat) =>
+                              callback(null, xhr.response as ArrayBuffer, stat)
                           );
                       } else {
-                          callback(err, xhr!.response as ArrayBuffer, stat);
+                          callback(null, xhr.response as ArrayBuffer, stat);
                       }
                   }
                 : null
@@ -210,9 +210,8 @@ class StorageWebDav extends StorageBase {
                 },
                 callback
                     ? (err, xhr) => {
-                          this._calcStatByContent(xhr!).then((stat) =>
-                              callback(err, xhr, stat)
-                          );
+                          if (err || !xhr) { callback(err, xhr); return; }
+                          this._calcStatByContent(xhr).then((stat) => callback(null, xhr, stat));
                       }
                     : null
             );
@@ -241,165 +240,34 @@ class StorageWebDav extends StorageBase {
         callback: ((err: WebDavError | string | null, stat?: WebDavStat | null) => void) | null,
         rev?: string
     ): void {
-        let cb: ((err: WebDavError | string | null, xhr?: XMLHttpRequest, stat?: WebDavStat | null) => void) | null =
-            function (err, _xhr, stat) {
-                if (callback) {
-                    callback(err, stat);
-                    callback = null;
-                }
-            };
-        const tmpPath =
-            path.replace(/[^/]+$/, (m) => '.' + m) + '.' + Date.now();
-        const saveOpts: WebDavRequestConfig = {
-            op: '',
-            method: '',
-            path,
-            user: opts ? opts.user : null,
-            password: opts ? opts.password : null
-        };
-        this._statRequest(path, opts, 'Save:stat', (err, xhr, stat) => {
-            let useTmpPath =
-                (this.appSettings as unknown as Record<string, string>)
-                    .webdavSaveMethod !== 'put';
-            if (err) {
-                if (!(err as WebDavError).notFound) {
-                    return cb!(err, xhr);
-                } else {
-                    this.logger!.debug('Save: not found, creating');
-                    useTmpPath = false;
-                }
-            } else if (stat!.rev !== rev) {
-                this.logger!.debug(
-                    'Save error',
-                    path,
-                    'rev conflict',
-                    stat!.rev,
-                    rev
-                );
-                return cb!({ revConflict: true, toString: () => 'rev conflict' }, xhr, stat);
+        this._statRequest(path, opts, 'Save:stat', (error, xhr, stat) => {
+            const missing = !!error && (error as WebDavError).notFound;
+            if (error && !missing) {
+                callback?.(error);
+                return;
             }
-            if (useTmpPath) {
-                this._request(
-                    {
-                        ...saveOpts,
-                        op: 'Save:put',
-                        method: 'PUT',
-                        path: tmpPath,
-                        data,
-                        nostat: true
-                    },
-                    (err) => {
-                        if (err) {
-                            return cb!(err);
-                        }
-                        this._statRequest(
-                            path,
-                            opts,
-                            'Save:stat',
-                            (err, xhr, stat) => {
-                                if (err) {
-                                    this._request({
-                                        ...saveOpts,
-                                        op: 'Save:delete',
-                                        method: 'DELETE',
-                                        path: tmpPath
-                                    });
-                                    return cb!(err, xhr, stat);
-                                }
-                                if (stat!.rev !== rev) {
-                                    this.logger!.debug(
-                                        'Save error',
-                                        path,
-                                        'rev conflict',
-                                        stat!.rev,
-                                        rev
-                                    );
-                                    this._request({
-                                        ...saveOpts,
-                                        op: 'Save:delete',
-                                        method: 'DELETE',
-                                        path: tmpPath
-                                    });
-                                    return cb!(
-                                        { revConflict: true, toString: () => 'rev conflict' },
-                                        xhr,
-                                        stat
-                                    );
-                                }
-                                let movePath = path;
-                                if (movePath.indexOf('://') < 0) {
-                                    if (movePath.indexOf('/') === 0) {
-                                        movePath =
-                                            location.protocol +
-                                            '//' +
-                                            location.host +
-                                            movePath;
-                                    } else {
-                                        movePath = location.href
-                                            .replace(/\?(.*)/, '')
-                                            .replace(/[^/]*$/, movePath);
-                                    }
-                                }
-                                // prevent double encoding, see #1729
-                                const encodedMovePath = /%[A-Z0-9]{2}/.test(
-                                    movePath
-                                )
-                                    ? movePath
-                                    : encodeURI(movePath);
-                                this._request(
-                                    {
-                                        ...saveOpts,
-                                        op: 'Save:move',
-                                        method: 'MOVE',
-                                        path: tmpPath,
-                                        nostat: true,
-                                        headers: {
-                                            Destination: encodedMovePath,
-                                            Overwrite: 'T'
-                                        }
-                                    },
-                                    (err) => {
-                                        if (err) {
-                                            return cb!(err);
-                                        }
-                                        this._statRequest(
-                                            path,
-                                            opts,
-                                            'Save:stat',
-                                            (err, xhr, stat) => {
-                                                cb!(err, xhr, stat);
-                                            }
-                                        );
-                                    }
-                                );
-                            }
-                        );
-                    }
-                );
-            } else {
-                this._request(
-                    {
-                        ...saveOpts,
-                        op: 'Save:put',
-                        method: 'PUT',
-                        data,
-                        nostat: true
-                    },
-                    (err) => {
-                        if (err) {
-                            return cb!(err);
-                        }
-                        this._statRequest(
-                            path,
-                            opts,
-                            'Save:stat',
-                            (err, xhr, stat) => {
-                                cb!(err, xhr, stat);
-                            }
-                        );
-                    }
-                );
+            const etag = strongEtag(xhr?.getResponseHeader('ETag'));
+            if (!missing && !etag) {
+                callback?.('This WebDAV server does not expose a strong ETag. The remote vault was not overwritten.');
+                return;
             }
+            if (!missing && etag !== rev) {
+                callback?.({ revConflict: true, toString: () => 'Rev conflict' }, stat);
+                return;
+            }
+            this._request({
+                op: 'Save:put',
+                method: 'PUT',
+                path,
+                user: opts?.user,
+                password: opts?.password,
+                data,
+                nostat: true,
+                headers: missing ? { 'If-None-Match': '*' } : { 'If-Match': etag! }
+            }, (putError, response) => {
+                const newEtag = strongEtag(response?.getResponseHeader('ETag'));
+                callback?.(putError, !putError && newEtag ? { rev: newEtag } : null);
+            });
         });
     }
 
@@ -564,7 +432,7 @@ class StorageWebDav extends StorageBase {
                 }
                 return;
             }
-            const rev = xhr.getResponseHeader('Last-Modified');
+            const rev = responseRevision(xhr);
             if (!rev && !config.nostat) {
                 this.logger!.debug(
                     config.op + ' error',
@@ -675,6 +543,8 @@ class StorageWebDav extends StorageBase {
     _calcStatByContent(
         xhr: XMLHttpRequest
     ): Promise<WebDavStat | null> {
+        const etag = strongEtag(xhr.getResponseHeader('ETag'));
+        if (etag) return Promise.resolve({ rev: etag });
         if (
             xhr.status !== 200 ||
             xhr.responseType !== 'arraybuffer' ||

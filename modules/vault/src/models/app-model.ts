@@ -1576,6 +1576,7 @@ class AppModel {
                     );
                 });
             };
+            let revisionRetries = 0;
             const saveToStorage = (data: ArrayBuffer): void => {
                 if (!continueOrFail()) return;
                 logger.info('Save data to storage');
@@ -1591,7 +1592,7 @@ class AppModel {
                     (err, stat) => {
                         if (!continueOrFail()) return;
                         if (file.db !== dataDb) return complete('The database changed before saving completed.');
-                        if (err && (err as StorageError).revConflict) {
+                        if (err && (err as StorageError).revConflict && revisionRetries++ === 0) {
                             logger.info('Save rev conflict, reloading from storage');
                             loadFromStorageAndMerge();
                         } else if (err) {

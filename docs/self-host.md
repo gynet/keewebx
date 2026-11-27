@@ -29,3 +29,8 @@ Browser storage is not a backup. Keep an encrypted KDBX copy outside the browser
 Automated release smoke checks open the packaged demo in New and Classic over localhost HTTP, nested hosting paths, and `file://`. The combined bundle retains its 26 startup checks. Standalone checks also cover prior interface preferences, hidden unavailable switches, installed service workers, offline reloads, missing assets, script errors, and content security policy violations. Both ZIP and TAR are extracted and checked before release.
 
 Source: https://github.com/gynet/keewebx
+
+
+### WebDAV revisions
+
+WebDAV synchronization uses a conditional PUT. To update an existing vault, the server must return a strong `ETag` on HEAD (or GET with the reload option). On cross-origin deployments, expose `ETag` in `Access-Control-Expose-Headers` and allow `If-Match` and `If-None-Match` in `Access-Control-Allow-Headers`. KeeWebX keeps the remote copy intact when it cannot establish a strong revision.

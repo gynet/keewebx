@@ -71,7 +71,6 @@ class AppSettingsModel extends Model {
     declare canOpenStorage: AppSettings['canOpenStorage'];
     declare canOpenGenerator: AppSettings['canOpenGenerator'];
     declare webdav: AppSettings['webdav'];
-    declare webdavSaveMethod: AppSettings['webdavSaveMethod'];
     declare webdavStatReload: AppSettings['webdavStatReload'];
     declare saveVerify: AppSettings['saveVerify'];
     declare faviconSize: AppSettings['faviconSize'];
