@@ -60,7 +60,6 @@ class SettingsModel extends TypedEmitter<SettingsModelEvents> {
             }
             chrome.permissions.contains(
                 {
-                    permissions: ['tabs'],
                     origins
                 },
                 (canAccessKeeWebTab) => {
@@ -157,7 +156,6 @@ class SettingsModel extends TypedEmitter<SettingsModelEvents> {
             }
             chrome.permissions.request(
                 {
-                    permissions: ['tabs'],
                     origins
                 },
                 (granted) => {

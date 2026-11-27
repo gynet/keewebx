@@ -14,14 +14,13 @@
   },
   "permissions": [
     "activeTab",
-    "tabs",
     "contextMenus",
     "storage",
-    "webNavigation",
     "scripting"
   ],
-  "host_permissions": [
-    "<all_urls>",
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*",
     "file:///*"
   ],
   "content_security_policy": {

@@ -92,7 +92,6 @@ class TransportBrowserTab extends TransportBase {
             }
             chrome.permissions.contains(
                 {
-                    permissions: ['tabs'],
                     origins
                 },
                 resolve
