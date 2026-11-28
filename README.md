@@ -18,6 +18,8 @@ Download and extract a release, then open `index.html` to run KeeWebX offline. Y
 
 The current interface is the default for the app, demo, downloads and development server. [Classic is deprecated](https://keewebx.app/classic) and retained for compatibility. Both interfaces use the same vault, encryption and synchronization implementations. KeeWebX is a web-only fork of [KeeWeb](https://github.com/keeweb/keeweb), built with TypeScript, Preact and Bun.
 
+[Switching from KeeWeb?](https://keewebx.app/keeweb-alternative) Check which databases you can open directly and how to move a copy of your vault.
+
 ## Use it locally
 
 Download the recommended `keewebx-new-<version>.zip` or `.tar.gz` from [Releases](https://github.com/gynet/keewebx/releases/latest), verify its accompanying SHA-256 checksum, and extract the complete archive.
