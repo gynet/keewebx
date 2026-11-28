@@ -1467,7 +1467,34 @@ async function iosRoutingAcceptance() {
         }
         return { fills: 3, closedHelpers: helpers.size - count, appStayedHidden: true, mailboxRequests: 0 };
     });
-    await step('iPhone direct lookup waits for the website to be visible when its hello completes', async () => {
+    await step('the foreground helper verifies App readiness and closes before the website processes its port receipt', async () => {
+        const page = await newWebsite(account);
+        const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
+        await adapter(page, '__kwxPortAdapter.holdSiteReady = true; __kwxHelperClose.blocked = true');
+        try {
+            await action(page, 'toggle');
+            await expect.poll(async () => (await snapshot(page)).packets.some(item =>
+                item.direction === 'held' && item.data.kind === 'ready')).toBe(true);
+            await expect.poll(() => Boolean([...helpers.values()][count]?.closedAt), { timeout: 5000 }).toBe(true);
+            const before = await snapshot(page);
+            expect(before.packets.some(item => item.direction === 'sent' && item.data.kind === 'request')).toBe(false);
+            expect(before.helperClose.attempts).toEqual([]);
+            expect(await entryReads()).toBe(lists);
+            expect(await fieldReads()).toBe(reads);
+
+            await page.bringToFront();
+            expect(await adapter(page, '__kwxPortAdapter.releaseSiteReady()')).toBe(1);
+            await matchingList(page, account, reads, () => 7000);
+            await closedHelper(page, count);
+            await fill(page, account);
+            expect(await app.evaluate(() => document.hidden)).toBe(true);
+        } finally {
+            await adapter(page, '__kwxPortAdapter.releaseSiteReady()');
+            await page.close();
+        }
+        return { relaySelfClosedBeforeWebsiteReady: true, fillSucceeded: true, appVisits: 0 };
+    });
+    await step('iPhone direct lookup preserves the authenticated session past the old return deadline', async () => {
         const page = await newWebsite(account);
         const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
         let other;
@@ -1482,6 +1509,8 @@ async function iosRoutingAcceptance() {
             await expect.poll(() => page.evaluate(() => document.hidden)).toBe(true);
             await adapter(app, '__kwxPortAdapter.releaseHello()');
             await untilStatus(page, /Return to this website to continue/, 5000);
+            await page.waitForTimeout(30500);
+            await untilStatus(page, /Return to this website to continue/, 1000);
             expect(await entryReads()).toBe(lists);
             expect(await fieldReads()).toBe(reads);
             await page.bringToFront();
@@ -1536,42 +1565,6 @@ async function iosRoutingAcceptance() {
         }
         return { appVisits: 1, recoveredFills: 2, discoveryHelpers: 1 };
     });
-    await step('iPhone same-origin broadcast remains an alternate lookup while direct handoff is pending', async () => {
-        const page = await newWebsite(account);
-        const reads = await fieldReads(), lists = await entryReads(), count = helpers.size;
-        const offset = (await mailboxAudit()).length;
-        await adapter(app, '__kwxPortAdapter.holdAppReady = true; __kwxPortAdapter.holdMailboxScan = true');
-        try {
-            await action(page, 'toggle');
-            await expect.poll(async () => (await snapshot(app)).heldReady).toBe(1);
-            expect(helpers.size).toBe(count + 1);
-            const discoveries = await discoveryCount();
-            await action(page, 'config-tab');
-            const opened = context.waitForEvent('page');
-            await action(page, 'relay-lookup');
-            const relay = await opened;
-            await relay.waitForURL('**/connect.html?**');
-            await realVisibility(relay);
-            expect(new URL(relay.url()).origin).toBe(new URL(APP).origin);
-            expect(new URL(relay.url()).searchParams.get('kwx-lookup-site')).toBe(new URL(page.url()).origin);
-            await page.bringToFront();
-            await matchingList(page, account, reads, () => 9000);
-            expect(await app.evaluate(() => document.hidden)).toBe(true);
-            expect(await entryReads()).toBe(lists + 1);
-            expect(relay.isClosed()).toBe(false);
-            await fill(page, account);
-            await expect.poll(() => relay.isClosed()).toBe(true);
-            expect(helpers.size).toBe(count + 1);
-            expect(await discoveryCount()).toBe(discoveries);
-            expect((await mailboxAudit()).slice(offset)).toEqual([]);
-            await noHelpers();
-            await sameApp();
-        } finally {
-            await adapter(app, '__kwxPortAdapter.releaseReady(); __kwxPortAdapter.releaseMailboxScans()');
-            await page.close();
-        }
-        return { sameOriginRelay: true, appStayedHidden: true, relayClosedAfterFill: true };
-    });
     await step('iPhone direct lookup fills from the restored App without another consent', async () => {
         const previousRoute = structuredClone(approvedRoute);
         await expect(app.locator('#sync-state')).toHaveText('Up to date');
@@ -1581,7 +1574,7 @@ async function iosRoutingAcceptance() {
         await directFill(first, account);
         return { freshAppBoot: true, additionalConsent: 0 };
     });
-    await step('both iPhone lookup routes deny access to a locked vault', async () => {
+    await step('the iPhone lookup denies access to a locked vault', async () => {
         const count = helpers.size, reads = await fieldReads(), lists = await entryReads();
         await app.bringToFront(); await expect(app.locator('#sync-state')).toHaveText('Up to date');
         await app.getByRole('button', { name: 'Lock', exact: true }).click();
@@ -1591,20 +1584,12 @@ async function iosRoutingAcceptance() {
         await noHelpers();
         expect(helpers.size).toBe(count + 1);
         await sameApp({ unlocked: false });
-        await action(first, 'config-tab');
-        const opened = context.waitForEvent('page');
-        await action(first, 'relay-lookup');
-        const relay = await opened;
-        await relay.waitForURL('**/connect.html?**');
-        await first.bringToFront();
-        await untilStatus(first, /locked.*unlock/i, 10000);
-        await expect.poll(() => relay.isClosed()).toBe(true);
         await emptyFields(first);
         expect(await fieldReads()).toBe(reads); expect(await entryReads()).toBe(lists);
         await app.bringToFront(); await app.locator('#password').fill(DB_PASSWORD); await app.locator('#unlock').click();
         await expect(app.locator('.entry-row').first()).toBeVisible(); await untilStatus(app, /Authorized/);
         await directFill(first, account);
-        return { lockedVaultDenied: true, lockedVaultRelayDenied: true, unlockedVaultFilled: true };
+        return { lockedVaultDenied: true, unlockedVaultFilled: true };
     });
     await step('opted-in iPhone single-match fill completes from one key tap and one helper', async () => {
         await clearFields(first);
@@ -2208,6 +2193,15 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         return root;
     };
     const ports = new WeakMap();
+    const heldSiteReady = [], heldBroadcastReady = [];
+    const nativeBroadcast = BroadcastChannel.prototype.postMessage;
+    BroadcastChannel.prototype.postMessage = function (data) {
+        if (isApp && state.holdAppReady && data?.marker === portMarker && data.kind === 'ready'
+            && this.name.startsWith(portMarker + ':ready:')) {
+            heldBroadcastReady.push({ name: this.name, data }); return;
+        }
+        return nativeBroadcast.call(this, data);
+    };
     const nativePost = MessagePort.prototype.postMessage;
     const nativeClose = MessagePort.prototype.close;
     MessagePort.prototype.close = function () {
@@ -2224,6 +2218,12 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         ports.set(port, ++sequence);
         port.addEventListener('message', event => {
             const data = event.data;
+            if (!isApp && state.holdSiteReady && data?.marker === portMarker && data.kind === 'ready') {
+                event.stopImmediatePropagation();
+                heldSiteReady.push({ port, event, handler: port.onmessage });
+                record(port, 'held', data);
+                return;
+            }
             if (isApp && state.holdCleanup && data?.marker === portMarker
                 && (data.kind === 'close' || data.kind === 'request' && data.value?.packet?.operation === 'release')) {
                 // Delay delivery to the actual receiver, retaining the native event
@@ -2359,11 +2359,25 @@ function installAdapter({ appURL, prefix, portMarker, blockHelperClose, allowMai
         }
         return result;
     };
+    state.releaseSiteReady = () => {
+        state.holdSiteReady = false;
+        const pending = heldSiteReady.splice(0);
+        for (const { port, event, handler } of pending) {
+            record(port, 'received', event.data);
+            handler.call(port, event);
+        }
+        return pending.length;
+    };
     state.releaseReady = () => {
         state.holdAppReady = false;
         const pending = state.heldReady.splice(0);
         for (const { port, data, rest } of pending) {
             record(port, 'sent', data); nativePost.call(port, data, ...rest);
+        }
+        for (const { name, data } of heldBroadcastReady.splice(0)) {
+            const channel = new BroadcastChannel(name);
+            nativeBroadcast.call(channel, data);
+            channel.close();
         }
         return pending.length;
     };

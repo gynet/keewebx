@@ -34,7 +34,6 @@ export class ConnectUI {
     private appDrag?: ConnectLauncherDrag;
     private field?: HTMLInputElement;
     private connectionPending = false;
-    private relayLookup?: ActionHandler;
     private actions = new Map<ConnectAction, ActionHandler>();
     private selections = new Map<string, ActionHandler>();
     onClose = () => {};
@@ -71,11 +70,6 @@ export class ConnectUI {
             visualViewport?.addEventListener('resize', reposition); visualViewport?.addEventListener('scroll', reposition);
             if (this.panel) new ResizeObserver(reposition).observe(this.panel);
         }
-    }
-
-    enableRelayLookup(handler: ActionHandler): void {
-        this.relayLookup = handler;
-        this.paint();
     }
 
     get address(): string { return this.view.address; }
@@ -133,21 +127,9 @@ export class ConnectUI {
         } } : this.view;
         render(h(Fragment, null, h('style', null, connectStyles), h(ConnectPanel, {
             state, panelStyle: this.panelStyle, panelRef: this.panelRef, launcherRef: this.appDrag?.ref,
-            connectionExtra: this.mode === 'relay' ? undefined : h(Fragment, null,
-                this.relayLookup && h('button', {
-                    type: 'button',
-                    class: 'kwx-connect__button kwx-connect__button--secondary',
-                    'data-action': 'relay-lookup',
-                    disabled: this.connectionPending || this.view.preferencePending,
-                    onClick: (event: MouseEvent) => {
-                        if (event.isTrusted && !this.connectionPending && !this.view.preferencePending) {
-                            transportEvent({ action: 'lookup' });
-                            this.relayLookup?.(event);
-                        }
-                    }
-                }, 'Find accounts via relay'),
-                h(LocalConnectLog, { mode: this.mode, snapshot: this.readLogSnapshot })
-            ),
+            connectionExtra: this.mode === 'relay' ? undefined : h(LocalConnectLog, {
+                mode: this.mode, snapshot: this.readLogSnapshot
+            }),
             onAction: (action, event) => { if (event.isTrusted && !this.isDisabled(action)) {
                 // Relay-only actions have no local connection log.
                 if (action !== 'return' && action !== 'pair' && action !== 'decline') transportEvent({ action });

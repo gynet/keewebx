@@ -146,8 +146,11 @@ export class SitePortLink {
         if (event.data.kind !== 'relay-ready' || event.data.endpoint !== this.endpoint.href || this.sent || !this.transfer || !this.route) return;
         recordPortEvent('relay-ready', { connectionId: this.id });
         this.sent = true;
+        const receipt = event.data.appReceipt === 'broadcast-v1'
+            ? { publicKey: this.route.publicKey, deadline: String(this.setupDeadline) }
+            : {};
         try { this.helper.postMessage({ marker: PORT_MARK, kind: 'attach', nonce: this.nonce, appBoot: this.route.host,
-            connectionId: this.id, endpoint: this.endpoint.href, siteOrigin: location.origin }, this.endpoint.origin, [this.transfer]); this.transfer = undefined; }
+            connectionId: this.id, endpoint: this.endpoint.href, siteOrigin: location.origin, ...receipt }, this.endpoint.origin, [this.transfer]); this.transfer = undefined; }
         catch { this.failSetup(new AppSetupTimeoutError('The temporary connection page could not receive its port. Reconnect.')); }
     };
     async connect(): Promise<number> {
@@ -417,7 +420,18 @@ export class AppPortReceiver {
             transportEvent({ event: 'port-rejected', portId: id, detail: 'decode-error' });
             this.remove(id, 'decode-error');
         }; port.start();
-        port.postMessage({ ...ready, ...(proof ? { proof } : {}) });
+        const receipt = { ...ready, ...(proof ? { proof } : {}) };
+        port.postMessage(receipt);
+        if (proof && data.handoffDeadline !== undefined) {
+            // Only the signed readiness receipt takes this route. The website
+            // still authenticates its own endpoint before sending any vault RPC.
+            let channel: BroadcastChannel | undefined;
+            try {
+                channel = new BroadcastChannel(`${PORT_MARK}:ready:${id}`);
+                channel.postMessage(receipt);
+            } catch { /* The website can still confirm through its own port. */ }
+            finally { channel?.close(); }
+        }
         recordPortEvent('port-ready', data, proof ? 'matched' : 'legacy', this.runtimeCount);
         this.diagnostic(proof ? 'Authenticated port ready posted' : 'Legacy port ready posted');
     };

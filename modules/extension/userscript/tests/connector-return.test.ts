@@ -133,7 +133,7 @@ test('origin changes and pagehide cancel return checks and their timers', () => 
 });
 
 function site() {
-    const env = environment(), connector = peer(), binding = { origin: endpoint.origin, routingId, endpoint: endpoint.href };
+    const env = environment(), connector = peer(), binding = { origin: endpoint.origin, routingId };
     const document = { visibilityState: 'hidden', focused: false, hasFocus() { return this.focused; } };
     const location = { origin: websiteOrigin };
     const peers = new Map([[connector, binding]]);
@@ -184,7 +184,7 @@ test('visibility loss cancels the stable timer and an unfocused website times ou
 test('route replacement and pagehide cancel a pending stability proof', () => {
     const fixture = site(); fixture.document.visibilityState = 'visible'; fixture.document.focused = true;
     fixture.request(); expect(fixture.timers.size).toBe(2);
-    fixture.peers.set(fixture.connector, { origin: endpoint.origin, routingId: crypto.randomUUID(), endpoint: endpoint.href });
+    fixture.peers.set(fixture.connector, { origin: endpoint.origin, routingId: crypto.randomUUID() });
     fixture.advance(200); expect(fixture.connector.posts).toHaveLength(0); expect(fixture.timers.size).toBe(0);
     const hidden = site(); hidden.document.visibilityState = 'visible'; hidden.document.focused = true;
     hidden.request(); hidden.emit('pagehide');

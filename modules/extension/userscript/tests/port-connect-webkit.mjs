@@ -1127,6 +1127,15 @@ function adapter(marker, appOrigin, blockHelperClose, allowMailbox) {
     const state = { boot: crypto.randomUUID(), packets: [], attachments: [], closedPorts: [], holdAppReady: false, heldReady: [],
         holdOperation: null, held: [], dropNext: null, dropDiscoveryPorts: false, statuses: [], actions: [],
         holdDiscovery: false, heldDiscovery: [], discoveryDeliveries: [], mailboxWrites: [] };
+    const heldBroadcastReady = [];
+    const nativeBroadcast = BroadcastChannel.prototype.postMessage;
+    BroadcastChannel.prototype.postMessage = function (data) {
+        if (state.holdAppReady && data?.marker === marker && data.kind === 'ready'
+            && this.name.startsWith(marker + ':ready:')) {
+            heldBroadcastReady.push({ name: this.name, data }); return;
+        }
+        return nativeBroadcast.call(this, data);
+    };
     globalThis.__kwxWebKit = { roots, snapshot: () => ({ boot: state.boot, packets: state.packets, attachments: state.attachments, closedPorts: state.closedPorts,
         helperClose: __kwxHelperClose.snapshot(), heldReady: state.heldReady.length,
         held: state.held.length, dropNext: state.dropNext, statuses: state.statuses, actions: state.actions,
@@ -1143,6 +1152,11 @@ function adapter(marker, appOrigin, blockHelperClose, allowMailbox) {
             state.holdAppReady = false;
             const pending = state.heldReady.splice(0);
             for (const [port, data, rest] of pending) { record(port, 'sent', data); nativePost.call(port, data, ...rest); }
+            for (const { name, data } of heldBroadcastReady.splice(0)) {
+                const channel = new BroadcastChannel(name);
+                nativeBroadcast.call(channel, data);
+                channel.close();
+            }
             return pending.length;
         },
         dropWire: (kind, action) => {

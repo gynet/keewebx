@@ -7,6 +7,8 @@
     const READY_MS = 12000;
     const WORKER_MS = 8000;
     const ATTACH_KEYS = ['marker', 'kind', 'nonce', 'appBoot', 'connectionId', 'endpoint', 'siteOrigin'];
+    const ATTACH_RECEIPT_KEYS = [...ATTACH_KEYS, 'publicKey', 'deadline'];
+    const RECEIPT_KEYS = ['marker', 'kind', 'appBoot', 'connectionId', 'endpoint', 'siteOrigin', 'proof'];
     const ERROR_KEYS = ['marker', 'kind', 'code', 'message', 'nonce', 'connectionId'];
     const COMPLETE_KEYS = ['marker', 'kind', 'nonce', 'connectionId', 'endpoint'];
     const encoder = new TextEncoder();
@@ -17,7 +19,7 @@
     const site = params.get('site');
     const nonce = params.get('nonce');
     const endpoint = params.get('endpoint');
-    const announcement = { marker: MARK, kind: 'relay-ready', nonce, endpoint };
+    const announcement = { marker: MARK, kind: 'relay-ready', nonce, endpoint, appReceipt: 'broadcast-v1' };
     const workerURL = new URL('./worker.js', location.href).href;
     const workerScope = new URL('./', location.href).href;
     let accepted = false;
@@ -28,6 +30,7 @@
     let deadline;
     let completionTimer;
     let completed = false;
+    let receiptChannel;
 
     function smallString(value) {
         return typeof value === 'string' && encoder.encode(value).length <= MAX_BYTES;
@@ -67,7 +70,13 @@
         back.textContent = 'Close connection page'; back.disabled = false;
     }
 
+    function stopReceipt() {
+        receiptChannel?.close();
+        receiptChannel = undefined;
+    }
+
     function closeSelf() {
+        stopReceipt();
         // Cross-window close can silently fail in a script manager's world.
         // The helper closes itself in its own page world instead.
         try { window.close(); } catch {}
@@ -85,9 +94,40 @@
     function complete(data) {
         if (!accepted || completed || expired || !messageWithKeys(data, COMPLETE_KEYS) || data.marker !== MARK ||
             data.nonce !== nonce || data.connectionId !== connectionId || data.endpoint !== endpoint) return;
+        finishReady();
+    }
+
+    function finishReady() {
+        if (completed || expired) return;
         completed = true; stopAnnouncements();
         status.textContent = 'Returning to your website…';
         closeSelf();
+    }
+
+    function watchAppReceipt(data, expiresAt) {
+        try {
+            const channel = new BroadcastChannel(`${MARK}:ready:${data.connectionId}`);
+            receiptChannel = channel;
+            const bytes = encoder.encode(JSON.stringify([
+                'keewebx-connect-port-ready-v1', data.appBoot, data.connectionId, endpoint, site
+            ]));
+            const key = crypto.subtle.importKey('raw', Uint8Array.from(atob(data.publicKey), c => c.charCodeAt(0)),
+                'Ed25519', false, ['verify']).catch(() => undefined);
+            const current = () => receiptChannel === channel && !completed && !expired && Date.now() < expiresAt;
+            channel.onmessage = async (event) => {
+                const receipt = event.data;
+                if (!current() || !event.isTrusted || event.origin !== location.origin || event.ports.length ||
+                    !messageWithKeys(receipt, RECEIPT_KEYS) || receipt.marker !== MARK || receipt.kind !== 'ready' ||
+                    receipt.appBoot !== data.appBoot || receipt.connectionId !== data.connectionId ||
+                    receipt.endpoint !== endpoint || receipt.siteOrigin !== site || receipt.proof.length !== 88) return;
+                try {
+                    const publicKey = await key;
+                    if (!publicKey || !current()) return;
+                    const signature = Uint8Array.from(atob(receipt.proof), c => c.charCodeAt(0));
+                    if (await crypto.subtle.verify('Ed25519', publicKey, signature, bytes) && current()) finishReady();
+                } catch { /* An invalid receipt cannot close this page. */ }
+            };
+        } catch { stopReceipt(); }
     }
 
     function stopAnnouncements() {
@@ -174,7 +214,7 @@
 
     if (!['site', 'nonce', 'endpoint'].every((key) => params.getAll(key).length === 1) ||
         !validOrigin(site) || !smallString(nonce) || !UUID.test(nonce) || !validEndpoint(endpoint) ||
-        !messageWithKeys(announcement, ['marker', 'kind', 'nonce', 'endpoint']) ||
+        !messageWithKeys(announcement, ['marker', 'kind', 'nonce', 'endpoint', 'appReceipt']) ||
         window.top !== window) {
         showError('This connection link is invalid. Return to the website and start a new connection.');
         return;
@@ -206,7 +246,10 @@
             closePorts(event.ports);
             return;
         }
-        if (!messageWithKeys(data, ATTACH_KEYS) || !UUID.test(data.appBoot) || !UUID.test(data.connectionId) ||
+        const expiresAt = Number(data.deadline);
+        const withReceipt = messageWithKeys(data, ATTACH_RECEIPT_KEYS) && /^[A-Za-z0-9+/]{43}=$/.test(data.publicKey) &&
+            /^[0-9]{13}$/.test(data.deadline) && expiresAt > Date.now() && expiresAt <= Date.now() + 25000;
+        if ((!messageWithKeys(data, ATTACH_KEYS) && !withReceipt) || !UUID.test(data.appBoot) || !UUID.test(data.connectionId) ||
             data.endpoint !== endpoint || data.siteOrigin !== site || event.ports.length !== 1) {
             fail(event.ports, 'invalid', 'The connection request is invalid. Return to the website and retry.',
                 smallString(data.connectionId) && UUID.test(data.connectionId) ? data.connectionId : '');
@@ -216,10 +259,11 @@
         accepted = true;
         connectionId = data.connectionId;
         stopAnnouncements();
+        if (withReceipt) watchAppReceipt(data, expiresAt);
         completionTimer = setTimeout(() => {
             if (completed || expired) return;
             fail([], 'timeout', 'The connection did not complete. Retry from your website.');
-        }, 25000);
+        }, withReceipt ? Math.max(0, expiresAt - Date.now()) : 25000);
         const port = event.ports[0];
         const abandon = () => fail([port], 'relay-closed', 'The helper closed before handing off the connection. Return to the website and retry.');
         window.addEventListener('pagehide', abandon, { once: true });
@@ -298,6 +342,7 @@
         expired = true;
         clearTimeout(completionTimer);
         stopAnnouncements();
+        stopReceipt();
     }, { once: true });
     announce();
 })();

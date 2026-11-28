@@ -1,8 +1,7 @@
 # Connect connection architecture
 
-Architecture of **Connect 0.6.31**. See the
-[release notes](release-0.6.31.md) for direct handoff on iPhone and iPad and its
-verification. The
+Architecture of **Connect 0.6.32**. See the
+[release notes](release-0.6.32.md) for helper closure and verification. The
 [detailed technical analysis](technical-analysis-0.6.21.md) includes the paired
 native failure timeline and subsequent lifecycle and receipt-ordering fixes.
 
@@ -68,7 +67,6 @@ it does not initiate a connection or read field values. The panel's trusted key 
 | No qualifying field, or relevant action disabled | No automatic test/lookup from panel open. |
 | Explicit Find accounts | Snapshot targets; connect; perform full encrypted account protocol. |
 | Explicit Reconnect to existing tab | Force a new direct handoff, or use the legacy connector, then test. |
-| Find accounts via relay in iOS Userscripts | Open a temporary top-level relay for the lookup and fill. The relay broadcasts to the authorized App on the same origin. |
 
 The auto-test is a **trusted key action**, not periodic preconnect, page-load work or form-detection work.
 `prepareDirect()` reads route/identity ahead of time; UI connection actions are disabled while preparation
@@ -82,9 +80,8 @@ A local fallback can wait for the App for up to one minute. After the signed
 hello is accepted and the website is visible, the lookup resumes with its
 normal operation budget. A direct iPhone or iPad lookup also waits for the
 website to become visible before querying the vault. Browser scheduling can
-still delay App execution. The explicit broadcast relay
-uses the same signed RPC and encrypted vault protocol. It stays open for that
-operation and is asked to close after filling, cancellation or an error.
+still delay App execution. A direct iOS lookup gets a separate return budget
+after signed hello if the website is hidden. Vault requests start after return.
 
 ```mermaid
 sequenceDiagram
@@ -106,8 +103,12 @@ sequenceDiagram
         SW->>Host: Transfer website endpoint once
         Host-->>Site: Signed ready on direct port
         Site->>Site: Verify boot, endpoint, origin, connection ID and proof
-        Site->>Helper: relay-complete, also attempt close()
-        Helper->>Helper: Self-close, manual-close message if blocked
+        par Direct signed readiness
+            Site->>Helper: relay-complete, also attempt close()
+        and Independent readiness
+            Host-->>Helper: Same-origin broadcast of signed ready receipt
+        end
+        Helper->>Helper: Verify receipt and close, show manual action if blocked
     end
     Site->>Host: Signed hello
     Host->>Vault: Dispose previous non-busy session bridge
@@ -127,9 +128,13 @@ sequenceDiagram
     end
 ```
 
-The temporary helper closes after the website verifies the signed **port-ready** receipt, before
-completion of `hello` or credential negotiation. The close command is bound to opener/origin,
-nonce, connection ID and endpoint. Worker transfer alone does not authorize closing.
+The temporary helper can close after it independently verifies the signed
+**port-ready** receipt broadcast by the App. The website still verifies the
+same receipt on its MessagePort before using it, and can request closure for
+an older App or helper. The readiness signature binds the App boot, endpoint,
+website origin and connection ID. The helper receives the public key from
+its validated opener and ignores receipts after the attempt deadline. The
+broadcast carries readiness metadata only.
 [SitePortLink.confirm/reset](../src/direct-ports.ts#L157) retains a helper reference when closure fails;
 later cleanup uses a scoped command instead of blindly closing a potentially navigated window.
 

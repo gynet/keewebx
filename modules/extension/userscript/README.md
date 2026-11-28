@@ -1,4 +1,4 @@
-# KeeWebX Connect 0.6.31 for iOS Safari
+# KeeWebX Connect 0.6.32 for iOS Safari
 
 Authorize the unlocked KeeWebX App once, then choose matching accounts beside
 login fields on other websites. A fresh lookup opens a temporary page to
@@ -8,13 +8,13 @@ can continue the lookup through the script manager's storage.
 Choose an account to fill, or enable the optional single-match shortcut below.
 Forms are never submitted automatically.
 
-[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.31)
-· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.31/modules/extension/userscript/keewebx-connect.user.js)
+[Install in Safari](https://keewebx.app/connect-port/keewebx-connect.user.js?v=0.6.32)
+· [Immutable source](https://raw.githubusercontent.com/gynet/keewebx/userscript-v0.6.32/modules/extension/userscript/keewebx-connect.user.js)
 · [Architecture and lifecycle](docs/messageport-connect.md)
 · [Current connection flow and diagrams](docs/connection-architecture.md)
 · [Technical analysis and failure timelines](docs/technical-analysis-0.6.21.md)
 · [State and recovery audit](docs/state-and-recovery.md)
-· [0.6.31 release notes](docs/release-0.6.31.md)
+· [0.6.32 release notes](docs/release-0.6.32.md)
 · [0.6.11 transport acceptance](docs/release-0.6.11.md)
 
 ## Install or upgrade
@@ -24,10 +24,10 @@ Forms are never submitted automatically.
    Keep one enabled Connect script; disable MessagePort Lab and old probes.
    Allow Userscripts on KeeWebX and your login websites, and allow the temporary
    connection popup when Safari requests permission.
-2. If the unlocked App already runs **Connect 0.6.27 through 0.6.30**, update the installed
-   script and reload the login website first. It can use the existing App
-   receiver. To load the new script in the App as well, save pending edits before
-   reloading that tab. For an older App receiver, update both tabs.
+2. Save any pending vault edits, then reload the KeeWebX App and the login
+   website to load the updated script in both tabs. The App provides the signed
+   receipt that lets the temporary page close independently. Unlock the App
+   again if needed.
 3. Unlock the original App. An existing grant resumes in the sole main New App
    after a reload; its saved database permissions still apply. For first setup,
    open the Connect key panel and choose **Authorize Connect**, then approve
@@ -97,10 +97,10 @@ responses are ignored; credential deadlines and permission checks are unchanged.
 
 Keep the original App tab open. **Test connection** checks its signed response
 without reading credential fields. **Reconnect to existing tab** rebuilds a port
-to that App. **Find accounts via relay** in Connection is an alternate lookup
-on iPhone and iPad. Its temporary KeeWebX page uses same-origin broadcast and
-closes after the operation when Safari allows it. Return to the login website
-if the temporary page comes to the front.
+to that App. During a direct lookup, the temporary page can independently
+verify the App's signed receipt and close. If Safari keeps it open, close
+the temporary page and return to the login website. On iPhone and iPad an
+authenticated lookup waits up to a minute for that return.
 
 If direct setup falls back to the local mailbox, the panel explains how to
 resume a lookup that is still waiting. Visit the existing App tab once if

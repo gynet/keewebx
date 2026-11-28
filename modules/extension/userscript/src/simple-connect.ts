@@ -4,7 +4,7 @@ import { ProtocolImpl, type KeeWebXEntry } from '../../src/background/protocol/p
 import { BackendConnectionState as State } from '../../src/common/backend-connection-state';
 import { AppBridge, appReceiptsSupported, watchAppLockState } from './app-bridge';
 import { ConnectUI } from './connect-ui';
-import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials, watchApprovedRoute, isIOSUserscripts, openLookupRelay } from './native-connect';
+import { approvedRoute, NativeHost, NativeRpc, managerCall, openConnector, startConnector, connectorTabId, registerConnector, prepareDirect, openDirect, directCredentials, watchApprovedRoute, isIOSUserscripts } from './native-connect';
 import { identity } from './identity';
 import { DEFAULT_ENDPOINT, loadEndpoint, saveEndpoint } from './settings';
 import { targets, assertTargets, fill, type Targets } from './form-targets';
@@ -202,14 +202,11 @@ async function start(): Promise<void> {
     void connectorTabId().then(id => { clientId = id; register(); }).catch(error => ui.state(State.Error, message(error)));
     let generation = 0, selecting = false;
     let operation: Operation | undefined;
-    let lookupRelay: ReturnType<typeof openLookupRelay> | undefined;
     let pending: NativeRpc | undefined;
     let current: { rpc: NativeRpc; protocol: ProtocolImpl; target: Targets; origin: string } | undefined;
     const clean = () => {
         operation?.cancel(); operation = undefined;
         generation++; pending?.dispose(); pending = undefined; current?.rpc.dispose(); current = undefined;
-        lookupRelay?.close();
-        lookupRelay = undefined;
         selecting = false; ui.clear(); ui.busy(false);
         ui.state(State.ReadyToConnect, 'Connection test or lookup stopped. You can retry.');
     };
@@ -275,8 +272,8 @@ async function start(): Promise<void> {
         } catch (error) { if (epoch === generation) { clean(); ui.state(State.Error, `${task.stage}: ${message(error)}`); } }
         finally { task.cancel(); if (operation === task) operation = undefined; if (epoch === generation) { selecting = false; ui.busy(false); } }
     }
-    const lookup = async (event: MouseEvent, useRelay = false) => {
-        if (!event.isTrusted || (!useRelay && ui.isDisabled('lookup')) || selecting) return;
+    const lookup = async (event: MouseEvent) => {
+        if (!event.isTrusted || ui.isDisabled('lookup') || selecting) return;
         clean(); ui.busy(true); ui.state(State.Connecting, 'Finding accounts in your authorized KeeWebX tab...');
         const epoch = generation;
         const task = beginOperation('Connecting to KeeWebX', epoch);
@@ -285,24 +282,19 @@ async function start(): Promise<void> {
             const anchor = isLoginField(selected) ? selected : isLoginField(detected) ? detected : undefined;
             if (!anchor) throw new Error('This login form changed. Focus its username or password field and try again.');
             const target = targets(anchor), origin = location.origin;
-            // Open either helper in the trusted tap before awaiting any storage.
-            const keysForRelay = useRelay ? directCredentials(endpoint) : undefined;
-            if (useRelay) {
-                if (!keysForRelay) { setup(); return; }
-                lookupRelay = openLookupRelay(endpoint);
-            }
-            const relay = lookupRelay?.peer;
-            const direct = !useRelay && openDirect(endpoint, true);
-            rpc = new NativeRpc(endpoint, () => relay ?? connector, stage => {
+            // A previous successful probe does not prove its port is still live.
+            // Start each user operation with a new handoff in this trusted tap.
+            const direct = openDirect(endpoint, true);
+            rpc = new NativeRpc(endpoint, () => connector, stage => {
                 if (epoch === generation) ui.state(State.Connecting, stage + '…');
-            }, relay ? 8000 : 2000); pending = rpc;
-            if (!relay && !direct && !await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
-            const keys = keysForRelay || directCredentials(endpoint) || await managerCall(() => identity()); guard(epoch);
+            }); pending = rpc;
+            if (!direct && !await approvedRoute(endpoint)) { guard(epoch); setup(); return; }
+            const keys = directCredentials(endpoint) || await managerCall(() => identity()); guard(epoch);
             let waitingForApp = false;
             await task.run('Connecting to KeeWebX', () => rpc!.connect(task.deadline, budgetMs => {
                 waitingForApp = true;
                 return task.resetBudget(budgetMs);
-            }, { waitForWebsite: isIOSUserscripts(), useLookupRelay: useRelay })); guard(epoch);
+            }, { waitForWebsite: isIOSUserscripts() })); guard(epoch);
             if (waitingForApp) task.resetBudget(LOOKUP_BUDGET_MS);
             const protocol = new ProtocolImpl({ request: request => rpc!.call('wire', request, wireTimeout()) }, runtime);
             await task.run('Connecting to KeeWebX', () => protocol.ping());
@@ -322,10 +314,7 @@ async function start(): Promise<void> {
                 await choose(entries[0], task);
                 return;
             }
-            if (!entries.length) {
-                if (relay) clean();
-                ui.empty('No matching accounts for this website.');
-            }
+            if (!entries.length) ui.empty('No matching accounts for this website.');
             entries.forEach((entry, index) => ui.entry(index, entry.title, entry.user, () => { void choose(entry); }));
             ui.state(State.Connected, entries.length ? `Found ${entries.length} matching account(s). Select one to fill.` : 'Connected. No matching accounts found.');
             ui.show('accounts');
@@ -333,7 +322,6 @@ async function start(): Promise<void> {
         finally { task.cancel(); if (operation === task) operation = undefined; if (epoch === generation) ui.busy(false); }
     };
     ui.on('lookup', lookup);
-    if (isIOSUserscripts()) ui.enableRelayLookup(event => { void lookup(event, true); });
     ui.onOpen = event => {
         if (!event.isTrusted) return;
         if (isLoginField(selected) || (isIOSUserscripts() && isLoginField(detected))) {

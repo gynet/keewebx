@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { sign } from 'tweetnacl';
+import { signPortReady } from '../src/port-auth';
 
 const source = readFileSync(new URL('../../../ui/connect-port/relay.js', import.meta.url), 'utf8');
 const marker = 'keewebx-connect-port-v1';
@@ -8,6 +10,16 @@ const endpoint = 'https://keewebx.app/app', site = 'https://login.example.org';
 
 function fixture(closeAllowed = true, oldControllerInitially = false) {
     const nonce = crypto.randomUUID(), id = crypto.randomUUID(), boot = crypto.randomUUID();
+    const key = sign.keyPair();
+    let now = Date.now();
+    const deadline = now + 10000;
+    let receiptChannel: Channel | undefined;
+    class Channel {
+        onmessage?: (event: any) => Promise<void>;
+        closed = false;
+        constructor(readonly name: string) { receiptChannel = this; }
+        close() { this.closed = true; }
+    }
     const url = new URL('https://keewebx.app/connect-port/relay.html');
     url.searchParams.set('site', site); url.searchParams.set('nonce', nonce); url.searchParams.set('endpoint', endpoint);
     const windowListeners = new Map<string, ((event: any) => unknown)[]>(), workerListeners = new Map<string, ((event: any) => unknown)[]>();
@@ -41,17 +53,19 @@ function fixture(closeAllowed = true, oldControllerInitially = false) {
         removeEventListener(name: string, callback: (event: any) => unknown) { windowListeners.set(name, (windowListeners.get(name) ?? []).filter(fn => fn !== callback)); },
         addEventListener(name: string, callback: (event: any) => unknown) { windowListeners.set(name, [...windowListeners.get(name) ?? [], callback]); } };
     window.top = window;
-    runInNewContext(source, { window, navigator: { serviceWorker }, URL, TextEncoder,
+    runInNewContext(source, { window, navigator: { serviceWorker }, URL, TextEncoder, BroadcastChannel: Channel,
+        crypto, atob, Uint8Array, Date: { now: () => now },
         location: url, document: { getElementById: (id: string) => id === 'status' ? status : id === 'back' ? back : { textContent: '' } },
         setTimeout(callback: () => void, ms: number) { const id = ++sequence; timers.set(id, { callback, ms }); return id; },
         clearTimeout(id: number) { timers.delete(id); }, setInterval(callback: () => void) { heartbeat = callback; return 0; }, clearInterval() {} });
     const completion = { marker, kind: 'handoff-complete', nonce, connectionId: id, endpoint };
     return {
         opener, worker, oldWorker, window, status, back, timers, closes: () => closes,
-        async attach(expectTransfer = true) {
+        async attach(expectTransfer = true, withReceipt = false) {
             const port = { closed: false, postMessage() {}, close() { this.closed = true; } };
             const event = { isTrusted: true, source: opener, origin: site, ports: [port],
-                data: { marker, kind: 'attach', nonce, appBoot: boot, connectionId: id, endpoint, siteOrigin: site } };
+                data: { marker, kind: 'attach', nonce, appBoot: boot, connectionId: id, endpoint, siteOrigin: site,
+                    ...(withReceipt ? { publicKey: Buffer.from(key.publicKey).toString('base64'), deadline: String(deadline) } : {}) } };
             await Promise.all((windowListeners.get('message') ?? []).map(fn => fn(event)));
             expect(worker.posts.filter(post => post.data.kind === 'attach')).toHaveLength(expectTransfer ? 1 : 0);
         },
@@ -63,6 +77,14 @@ function fixture(closeAllowed = true, oldControllerInitially = false) {
             const message = { isTrusted: true, source: opener, origin: site, ports: [], data: { ...completion, kind: 'relay-complete', ...data }, ...event };
             await Promise.all((windowListeners.get('message') ?? []).map(fn => fn(message)));
         },
+        async receipt(patch: Record<string, unknown> = {}, event: Record<string, unknown> = {}) {
+            expect(receiptChannel?.name).toBe(marker + ':ready:' + id);
+            const data = { marker, kind: 'ready', appBoot: boot, connectionId: id, endpoint, siteOrigin: site };
+            await receiptChannel?.onmessage?.({ isTrusted: true, origin: url.origin, ports: [],
+                data: { ...data, proof: signPortReady(data, key.secretKey), ...patch }, ...event });
+        },
+        expireReceipt() { now = deadline; },
+        receiptClosed: () => receiptChannel?.closed,
         clickClose() { buttonListeners.get('click')!(); },
         heartbeat() { heartbeat(); },
         upgrade() {
@@ -181,5 +203,30 @@ test('untrusted, stale or port-bearing worker errors cannot close the helper', a
     for (const event of [{ isTrusted: false }, { source: {} }, { ports: [{ close() {} }] },
         { data: { ...data, nonce: crypto.randomUUID() } }, { data: { ...data, connectionId: crypto.randomUUID() } }])
         await f.complete({}, { data, ...event });
+    expect(f.closes()).toBe(0);
+});
+
+test('the helper verifies signed App readiness before the website confirms or processes the port', async () => {
+    const f = fixture();
+    await f.attach(true, true);
+    await f.receipt();
+    expect(f.window.closed).toBe(true);
+    expect(f.receiptClosed()).toBe(true);
+    expect(f.status.textContent).toContain('Returning');
+});
+
+test('forged, misbound and delayed readiness receipts cannot close the helper', async () => {
+    const f = fixture();
+    await f.attach(true, true);
+    await f.receipt({ proof: Buffer.alloc(64).toString('base64') });
+    await f.receipt({ appBoot: crypto.randomUUID() });
+    await f.receipt({ connectionId: crypto.randomUUID() });
+    await f.receipt({ endpoint: 'https://keewebx.app/other' });
+    await f.receipt({ siteOrigin: 'https://different.example' });
+    await f.receipt({}, { origin: 'https://different.example' });
+    await f.receipt({}, { isTrusted: false });
+    expect(f.closes()).toBe(0);
+    f.expireReceipt();
+    await f.receipt();
     expect(f.closes()).toBe(0);
 });
