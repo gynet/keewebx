@@ -1,12 +1,14 @@
 # <img src="modules/ui-classic/graphics/keewebx-logo.svg" width="36" height="36" alt="" align="top"> KeeWebX
 
-**Open and edit a KeePass vault in your browser.**
+KeeWebX is an open-source KeePass client for the browser. It opens, edits, and saves encrypted KDBX 4 databases locally. **No backend is required.**
 
 [![Try the demo](https://img.shields.io/badge/demo-keewebx.app%2Fdemo-f5b324?style=flat-square)](https://keewebx.app/demo)
 [![Latest release](https://img.shields.io/github/v/release/gynet/keewebx?style=flat-square)](https://github.com/gynet/keewebx/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/gynet/keewebx?style=flat-square)](LICENSE)
 
-[Open the app](https://keewebx.app/app) · [Try the demo](https://keewebx.app/demo) · [Download](https://github.com/gynet/keewebx/releases/latest)
+[Open your vault](https://keewebx.app/app) · [Download for offline use](https://github.com/gynet/keewebx/releases/latest) · [Try the demo](https://keewebx.app/demo)
+
+Download and extract a release, then open `index.html` to run KeeWebX offline. You can also serve the same files from any static host. Your vault is a standard `.kdbx` file you can back up, move between devices, and open in another compatible KeePass client. WebDAV sync is optional and uses a server you choose.
 
 <p align="center">
   <img src="screenshots/colorful-tags.png" alt="KeeWebX New interface with the demo vault open on desktop" width="72%">
